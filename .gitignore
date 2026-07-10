@@ -1,0 +1,36 @@
+# WHITELIST-Prinzip: standardmäßig ist ALLES ausgeschlossen, nur Code/Doku
+# wird einzeln freigegeben — JBs Daten (Downloads, Configs, Warteschlange,
+# Zugangscodes) können so NIE versehentlich committet werden.
+*
+!*/
+
+# --- freigegeben: Code + Doku ---
+!.gitignore
+!README.md
+!_ARCHITEKTUR.md
+!_LIESMICH.txt
+!youtube_app.py
+!oberflaeche.py
+!handy.py
+!geo.py
+!vpn.py
+!YouTube-Downloader.bat
+!YouTube-Downloader (ohne Fenster).vbs
+!tests/*.py
+!browser-addon/build.py
+!browser-addon/manifest.base.json
+!browser-addon/README.md
+!browser-addon/STORE.md
+!browser-addon/.gitignore
+!browser-addon/shared/*
+!browser-addon/shared/icons/*
+
+# --- hart gesperrt (auch falls oben je gelockert wird) ---
+Downloads/
+bin/
+browser-addon/dist/
+firefox-addon/
+__pycache__/
+*.json.defekt
+*.part
+*.vtt

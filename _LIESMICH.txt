@@ -1,0 +1,224 @@
+YouTube-Downloader — Kurzanleitung
+==================================
+
+Start:      YouTube-Downloader.bat doppelklicken. Das schwarze Fenster
+            schließt sich sofort wieder — die App läuft FENSTERLOS im Hintergrund
+            (pythonw) weiter, der Browser öffnet automatisch
+            http://127.0.0.1:8776 (nur lokal). Steuerung über das TRAY-SYMBOL
+            unten rechts (Terracotta-Kreis): „Öffnen", „Downloads-Ordner",
+            „Beenden". Ganz ohne kurzes Aufblitzen: stattdessen
+            „YouTube-Downloader (ohne Fenster).vbs" doppelklicken.
+            Fehlersuche mit sichtbarer Konsole: „…(Konsole, Debug).bat".
+
+Beenden:    Tray-Symbol unten rechts -> „Beenden". (Kein Fenster zum Schließen.)
+
+WICHTIG:    Nach Updates am Programm die App EINMAL neu starten (Tray ->
+            Beenden, dann .bat erneut). Seit 08.07. lädt die Oberfläche danach
+            bei jedem Browser-Refresh (F5) frisch — Änderungen an der Seite
+            erscheinen also ohne weiteren Neustart. Wenn du neue Funktionen
+            NICHT siehst: App einmal neu starten, dann F5.
+
+Bedienung:  Links oben einfügen (mehrere: einer pro Zeile), Qualität wählen,
+            „In die Warteschlange". Playlist-Links (…/playlist?list=…) werden
+            komplett übernommen; watch-Links mit &list= laden NUR das eine Video.
+
+Premium:    Die App liest die YouTube-Cookies aus Firefox (einstellbar).
+            Einfach in Firefox bei YouTube angemeldet sein — mehr ist nicht nötig.
+
+Abbrüche:   Bricht ein Download ab, versucht die App es automatisch neu
+            (10s/30s/60s/2min/5min-Abstände, bis 10x) und setzt dabei an der
+            Abbruchstelle fort (.part-Datei). Auch nach einem Neustart der App
+            wird Angefangenes fortgesetzt. Dauerhafte Fehler (Geo-Sperre,
+            gelöschtes/privates Video) gehen sofort auf „Fehler" — da hilft
+            kein Neuversuch.
+
+Dubletten:  Jeder fertige Download steht in geladen_log.json. Wird derselbe
+            Titel nochmal eingefügt und liegt die Datei schon auf der Platte,
+            wird er ÜBERSPRUNGEN statt neu geladen („Trotzdem laden" erzwingt es).
+            Erkannt wird an der eindeutigen Video-Kennung im Dateinamen ([xxxx]) —
+            NICHT allein an der Größe. Ändert sich die Größe (z. B. durch
+            nachträglich eingebettetes Cover/Metadaten), bleibt die Dublette
+            trotzdem erkannt und der DB-Eintrag heilt sich selbst. Gefunden wird
+            auch in den Unterordnern.
+
+Ordner:     Fertige Dateien werden einsortiert:  Downloads\MP3  (Audio),
+            Downloads\4K+  (2160p und höher),  Downloads\Video  (der Rest).
+            Im Zahnrad abschaltbar (dann alles in einen Ordner).
+
+Metadaten:  Titel, Uploader (als Künstler), Datum, Beschreibung und Kapitel
+            werden in die Datei geschrieben (im Zahnrad abschaltbar).
+
+Bibliothek: Fenster „📚 Bibliothek" zeigt alle je geladenen Titel mit
+            Thumbnail und Metadaten — umschaltbar zwischen Kacheln (⊞) und
+            Liste (☰). FARBIG = Datei liegt noch im Ordner; AUSGEGRAUT = mal
+            gehabt, aber verschoben/gelöscht (erkannt an der Video-ID, auch in
+            Unterordnern). Ausgegraute haben einen „⬇ Erneut laden"-Knopf.
+            Optionen: „Ausgegraute ausblenden", Suche, Sortierung, Filter,
+            und ein ARCHIV (🗄 pro Titel; der Archiv-Knopf oben schaltet in die
+            Archiv-Ansicht). „↻ Infos" lädt fehlende Metadaten (Kanal/Dauer/
+            Datum) für Alt-Downloads von YouTube nach. Thumbnails kommen direkt
+            von YouTube (Internet nötig). Angezeigt wird auch Codec/Audioqualität
+            (z. B. „AV1 · 1080p · OPUS" oder „MP3 · 256 kbps · 48 kHz"). In den
+            Kacheln stehen dieselben beschrifteten Felder wie die Listenspalten.
+
+Fenster:    Bewegliche Fenster. WICHTIG: Ein Fenster am NAMEN (dem Reiter,
+            z.B. „▶ Player") anfassen und ziehen = verschieben. Zieht man es über
+            ein anderes Fenster (wird grün) und lässt los = beide werden EIN
+            Fenster mit Tabs (andocken). Einen Tab herausziehen = wieder eigenes
+            Fenster. Ecke ziehen = Größe.
+            Das ⋯-Menü oben rechts an jedem Fenster kann dasselbe zuverlässig
+            per Klick: „Andocken an …", „Tab herauslösen", „Alle Fenster
+            aufräumen".
+            VORLAGEN (oben in der Leiste): „Standard" (Downloads · Bibliothek ·
+            Player), „YouTube-Stil" (Video groß, Bibliothek rechts, Downloads
+            unten), „Alles als Tabs" (ein Fenster). „▦ Aufräumen" ordnet alle
+            Fenster überlappungsfrei nebeneinander — praktisch, wenn es unordent-
+            lich wurde. Standard: Hinzufügen+Warteschlange+Fertig sind EIN Fenster
+            (Tabs). Anordnung wird im Browser gemerkt.
+            Der Player wächst beim Ziehen an der Ecke proportional; Video ohne
+            Maximalgröße; „⇆ Layout" schaltet Video oben/links (bei breitem
+            Fenster echt horizontal).
+
+Größe:      Die Fensterinhalte passen sich der Größe an — je schmaler ein
+            Fenster, desto dünner der Fortschrittsbalken und desto weniger
+            Zusatzinfos (bei sehr schmal nur noch Titel + Balken + Status).
+
+Spalten:    In der Listenansicht der Bibliothek: „⚙ Spalten" öffnet ein Menü —
+            Häkchen blenden Spalten ein/aus, die Pfeile ändern die Reihenfolge.
+            Zusätzlich wählbar: Bitrate, Samplerate, Auflösung, Video-ID,
+            Hinzugefügt, Endung. Klick auf eine Spaltenüberschrift sortiert
+            danach (nochmal klicken dreht die Richtung um); innerhalb einer
+            Sortierung wird immer zusätzlich nach Titel sortiert. Die Kacheln
+            zeigen dieselben aktiven Spalten als Felder.
+
+Player:     ▶ auf einem Titel (oder Klick aufs THUMBNAIL) öffnet das
+            Player-Fenster und spielt DIREKT IM BROWSER (HTML5). Klick auf das
+            laufende Video/Cover pausiert bzw. setzt fort. Vor/Zurück-Knöpfe,
+            Playlists laufen automatisch weiter. Das Player-Fenster ändert seine
+            Größe NICHT beim Titelwechsel; beim Ziehen an der Ecke wächst es
+            proportional, das Video hat keine Maximalgröße. Ein echtes
+            „VLC-Browser-Plugin" gibt es nicht mehr (alle Browser haben Plugins
+            entfernt) — „⧉ VLC / extern" öffnet die Datei in der VLC-Desktop-App
+            bzw. im Windows-Standardplayer. Der „⇆ Layout"-Knopf schaltet das
+            Player-Fenster zwischen VERTIKAL (Video oben, Playlist unten — gut
+            für schmale, hohe Fenster) und HORIZONTAL (Video links, Playlist
+            rechts — gut für breite Fenster) um; die Wahl wird gemerkt. Ist ein
+            horizontales Fenster zu schmal, ordnet es sich automatisch wieder
+            vertikal an.
+
+Auswählen:  In der Bibliothek mehrere Titel markieren wie in Windows:
+            Strg+Klick = einzeln an/aus, Shift+Klick = Bereich. Oder den Knopf
+            „☑ Auswählen" — dann markiert jeder Klick. Bei Auswahl erscheint
+            oben eine Leiste: Abspielen / zu Playlist / Archivieren / Aus Archiv
+            / 🗑 Löschen / Aufheben — alles für alle Markierten auf einmal.
+
+Löschen:    Der 🗑-Knopf (an jedem Titel und in der Auswahl-Leiste) verschiebt
+            die Datei in den WINDOWS-PAPIERKORB (wiederherstellbar!) und nimmt
+            den Titel aus Liste und Playlists. Gut fürs Aufräumen im Archiv.
+
+Build:      Unten in der Leiste steht der Baustand (z.B. „Build 2026-07-09 · 9").
+            Wenn eine neue Funktion fehlt: App einmal neu starten (Tray ->
+            Beenden, .bat neu), dann F5 — der Baustand sollte dann aktuell sein.
+
+Playlists:  In der Playlist-Leiste der Bibliothek: „＋ Neu" erstellt eine,
+            „＋ Playlist" an einem Titel fügt ihn zur gewählten Playlist hinzu,
+            „▶ Abspielen" spielt die gewählte Playlist im Player. Playlists
+            liegen in playlists.json (nur Verweise, keine Dateikopien).
+
+Sync:       Jede Playlist kann auf ein GERÄT/einen ORDNER synchronisiert werden
+            (USB-Stick, Handy-Ordner, Netzlaufwerk). „⇄ Sync…" richtet den
+            Zielordner ein und fragt den Modus:
+            - KOPIEREN: fügt die Playlist-Titel dort hinzu, löscht nie etwas.
+            - SPIEGELN: hält den Ordner exakt = Playlist. Aus der Playlist
+              ENTFERNTE Titel werden im Zielordner GELÖSCHT — aber NUR Dateien,
+              die diese App selbst dorthin kopiert hat; fremde Dateien im Ordner
+              bleiben immer unangetastet.
+            „⇄ Jetzt" synchronisiert erneut (z.B. nachdem du Titel geändert
+            hast). Zeigt danach: X kopiert, Y gelöscht, Z im Ordner.
+
+Optionen:   Das ⚙-Zahnrad oben rechts sammelt Einstellungen: Tag/Nacht,
+            FENSTER-ABSTAND (Slider — wie viel Luft zwischen geklebten Fenstern),
+            und „Fehler ausblenden nach" (Warteschlange räumt Fehler automatisch
+            nach 2/5/15 min oder nie).
+
+Kleben:     Fenster rasten mit den Kanten aneinander/an den Rand ein (Magnet,
+            ~9 px, nächstgelegene Kante gewinnt) — sauber zusammen, ohne
+            Überlappung, mit dem im Zahnrad eingestellten Abstand.
+
+Modus:      Der Abspielmodus-Knopf im Player wechselt bei jedem Klick (Icon +
+            Verhalten): ▶ Normal · 🔁 Alle wiederholen · 🔂 Titel wiederholen ·
+            🔀 Zufall. „🕘 Zuletzt" spielt zuletzt gespielte Titel. Playlists als
+            .m3u exportieren/importieren („⤓ .m3u" / „⤒ Import").
+
+Player:     Standard = horizontal (Video links, Playlist rechts). „🔀 Shuffle…"
+            mischt: Alles / nur Videos / nur MP3 / aktuelle Liste. „★ Meist-
+            gespielt" spielt die 100 meistgespielten (der Zähler steigt beim
+            Abspielen). Der 🚫-Knopf an einem Titel nimmt ihn aus Meistgespielt/
+            Shuffle (Blacklist), ✓ erlaubt ihn wieder. Tastatur: Leertaste =
+            Play/Pause, Strg+Pfeil rechts/links = nächster/voriger Titel.
+
+Kompakt:    In der Bibliothek schaltet „▪▪" den Kompakt-Modus: viel mehr, kleinere
+            Kacheln (nur Bild + Titel) bzw. dichtere Zeilen in der Listenansicht.
+
+Warteschl.: „🧹 Aufräumen" oben entfernt Fehler + Erledigte aus der Liste
+            (Laufendes/Wartendes bleibt). Jeder Download ist EINE kompakte Zeile (Terminal-Look mit
+            ASCII-Balken). Auf eine Zeile klicken klappt Details + Knöpfe aus,
+            nochmal klicken klappt sie wieder ein. Fehlermeldungen werden
+            schlank gekürzt (z.B. „geo-gesperrt" statt der langen Meldung).
+            Je schmaler das Fenster, desto knapper die Zeilen.
+
+API-Status: Oben links zeigt ein Punkt, ob die Seite mit der App (API) verbunden
+            ist — grün = verbunden, rot = App nicht erreichbar.
+
+Counter:    Oben rechts steht die Gesamtzahl aller je geladenen Dateien;
+            der Tooltip (drüberfahren) zeigt die Aufschlüsselung nach
+            Kategorie (MP3 / 4K+ / Video) und die aktuelle Aktivität.
+
+Tag/Nacht:  Der 🌙/☀-Knopf oben rechts schaltet zwischen dunkel und hell um
+            (die Wahl wird im Browser gemerkt).
+
+Firefox:    Im Ordner  firefox-addon\  liegt eine Erweiterung, die Videos per
+            Rechtsklick oder per unscheinbarem Hover-Knopf direkt an die
+            Warteschlange schickt. Installation: firefox-addon\INSTALLATION.txt.
+            Die App muss dafür laufen.
+
+Geo-Sperre: „Nicht in deinem Land verfügbar" umgeht die App automatisch — sie
+            probiert MEHRERE Wege der Reihe nach durch, bis einer Zugang gibt
+            (alles im Zahnrad einstellbar):
+              1. HEADER-TRICK (yt-dlp geo-bypass) — gratis, sofort; hilft bei
+                 YouTube selten, kostet aber nichts.
+              2. EIGENE PROXYS — Zeilen wie „GB=socks5://ip:port" (nur fürs
+                 Land) oder „socks5://ip:port" (für alle). Zuverlässig.
+              3. GRATIS-PROXYS — öffentlich, nach Land; kostenlos aber wackelig
+                 (abschaltbar).
+              4. VPN — NordVPN / Windscribe (CLI) / WireGuard-Ordner mit
+                 .conf-Dateien (z.B. ProtonVPN Free, benannt GB.conf …).
+            Ohne Einrichtung greifen die kostenlosen Stufen automatisch; mit
+            eigenen Proxys/VPN wird es zuverlässiger. Geo-Läufe gehen IMMER OHNE
+            deine Konto-Cookies (und über fremde Proxys werden nie Cookies
+            gesendet). Master-Schalter „Geo-Sperren umgehen".
+            ASSISTENT: Im Zahnrad „🌍 Assistent öffnen" — Vergleichstabelle aller
+            Wege (Kosten/Datenlimit/Länder/UK/Aufwand), erkennt automatisch was
+            installiert ist, Schritt-für-Schritt je VPN + Download-Links, ein
+            WireGuard-Import (Config einfügen + Land wählen → App legt die Datei
+            benannt ab) und ein „🌍 Test", der an einem gesperrten Video zeigt,
+            welcher Weg bei dir Zugang gibt (✓/✗).
+            SICHERHEIT: Die App meldet dich NIE bei YouTube an/ab — sie liest nur
+            die vorhandenen Firefox-Cookies. Normale Downloads mit Cookies
+            (Premium), Geo-Downloads OHNE Cookies (anonym) — so wird der „Konto
+            aus fremdem Land"-Verdacht vermieden.
+            Hinweis: verstößt gegen YouTube-Nutzungsbedingungen — eigenes Risiko.
+
+Cover:      Das YouTube-Thumbnail wird als Dateicover eingebettet. Bei
+            reinen Audio-Downloads (MP3) ist es das statische Album-Bild, das
+            der Windows-Explorer direkt als Vorschau anzeigt. Bei Videos steckt
+            das Cover ebenfalls in der Datei (Player zeigen es an; der Explorer
+            zeigt bei MP4s weiterhin ein Videobild als Kachel). Es bleiben keine
+            losen Bilddateien liegen.
+
+Dateien:    Landen in YouTube\Downloads (im Zahnrad änderbar).
+            „Entfernen" löscht nur den Listeneintrag, niemals Dateien.
+
+Technik:    yt-dlp (Core-venv) + ffmpeg (bin\) + stdlib-Server, Port 8776.
+            Warteschlange liegt in warteschlange.json, Status fürs Dashboard
+            in yt_status.json.

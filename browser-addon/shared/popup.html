@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: system-ui, "Segoe UI", sans-serif; width: 240px; margin: 0;
+    background: #1c1814; color: #eee; padding: 12px 14px; }
+  h1 { font-size: 13px; margin: 0 0 10px; color: #d67756; text-transform: uppercase; letter-spacing: .04em; }
+  label { font-size: 12px; color: #8a7d74; display: block; margin: 10px 0 4px; }
+  select, button { width: 100%; font: inherit; font-size: 13px; border-radius: 8px;
+    border: 1px solid #3a332e; background: #171310; color: #eee; padding: 7px 9px; }
+  button { margin-top: 12px; cursor: pointer; }
+  button:hover, select:hover { border-color: #c9952b; }
+  .status { font-size: 12px; margin-top: 12px; padding: 6px 8px; border-radius: 8px;
+    border: 1px solid #3a332e; }
+  .ok { color: #6fcf7f; } .bad { color: #e08a6a; }
+  .hint { font-size: 11px; color: #6a5c52; margin-top: 10px; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <h1>YouTube-Downloader</h1>
+  <label for="quali">Qualität für den Hover-Knopf</label>
+  <select id="quali">
+    <option value="default">Standard (App-Einstellung)</option>
+    <option value="beste">Beste verfügbare</option>
+    <option value="2160p">4K (2160p)</option>
+    <option value="1080p">1080p</option>
+    <option value="720p">720p</option>
+    <option value="audio">Nur Audio (MP3)</option>
+  </select>
+  <button id="oeffnen">Warteschlange öffnen</button>
+  <div class="status" id="status">prüfe Verbindung…</div>
+  <div class="hint">Rechtsklick auf ein Video wählt die Qualität einzeln.
+    Der kleine ⬇-Knopf erscheint beim Überfahren eines Videos.</div>
+  <script src="popup.js"></script>
+</body>
+</html>

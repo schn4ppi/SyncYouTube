@@ -1,0 +1,24 @@
+.ytdl-hoverbtn {
+  position: fixed;
+  z-index: 2147483000;
+  display: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  background: rgba(214, 119, 86, .85);   /* Suite-Terracotta */
+  color: #fff;
+  font-size: 15px;
+  line-height: 28px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+  opacity: 0;
+  transition: opacity .15s, transform .1s;
+}
+.ytdl-hoverbtn.an { display: block; opacity: .82; }
+.ytdl-hoverbtn.an:hover { opacity: 1; transform: scale(1.1); }
+.ytdl-hoverbtn.ok { background: rgba(63, 122, 72, .95); opacity: 1; }
+
+.ytdl-hoverbtn.fehl { background: rgba(192, 73, 42, .95); opacity: 1; }
