@@ -32,7 +32,7 @@ from urllib.parse import urlparse, parse_qs
 
 import geo
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 # Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
 # Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
@@ -46,6 +46,13 @@ GELADEN_PFAD = os.path.join(SCRIPT_DIR, "geladen_log.json")  # „Datenbank" fer
 PLAYLIST_PFAD = os.path.join(SCRIPT_DIR, "playlists.json")
 STATUS_PFAD = os.path.join(SCRIPT_DIR, "yt_status.json")   # fürs Dashboard (read-only Konsument)
 BIN_DIR = os.path.join(SCRIPT_DIR, "bin")
+# In der Release-exe sind ffmpeg/ffprobe/deno MIT eingepackt (PyInstaller-Bundle,
+# entpackt nach sys._MEIPASS/bin). Ein eigener bin\-Ordner NEBEN der exe hat
+# Vorrang (so kann man ffmpeg/deno selbst aktualisieren), sonst gilt das Bundle.
+if getattr(sys, "frozen", False) and not os.path.isdir(BIN_DIR):
+    _bundle_bin = os.path.join(getattr(sys, "_MEIPASS", SCRIPT_DIR), "bin")
+    if os.path.isdir(_bundle_bin):
+        BIN_DIR = _bundle_bin
 # bin\ (ffmpeg + deno) auf den PATH: yt-dlp braucht seit 2026 eine JS-Runtime
 # (Deno) für YouTubes n-Challenge — ohne sie fehlen Formate oder es kommt
 # "No video formats found" (mit Cookies).
@@ -1614,6 +1621,15 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
         "progress_hooks": [hook],
         "merge_output_format": "mp4",
     })
+    # OHNE ffmpeg kann yt-dlp Bild+Ton nicht zusammenfügen -> Videos schlugen fehl
+    # (z.B. nackte exe ohne bin\-Ordner). Fallback: fertige Kombi-Formate (progressive),
+    # begrenzt auf die gewünschte Höhe — läuft ohne Zusammenfügen, max. ~720p.
+    if not _ffmpeg_pfad() and item["qualitaet"] != "audio":
+        h = {"2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720}.get(item["qualitaet"])
+        grenze = f"[height<={h}]" if h else ""
+        opts["format"] = (f"best{grenze}[vcodec!=none][acodec!=none]"
+                          f"/best[vcodec!=none][acodec!=none]/best")
+        opts.pop("merge_output_format", None)
     if erzwingen:                                    # „Trotzdem laden": vorhandene Datei ersetzen
         opts["overwrites"] = True
 

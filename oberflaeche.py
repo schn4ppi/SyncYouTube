@@ -536,6 +536,8 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       </div>
       <div class="cmd-row2">
         <div class="cmd-now" id="cmd-now"><span class="cmd-nolabel">// nichts läuft</span></div>
+        <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
+              title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt — Videos nur Basis-Qualität</span>
         <span class="spacer"></span>
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span class="apidot bad" id="apidot" title="API-Status"></span>
@@ -560,7 +562,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-09 · 35</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-11 · 36</span>
 </div>
 
 <div id="canvas"></div>
@@ -1364,6 +1366,7 @@ function malen(){
   document.getElementById('fertigliste').innerHTML=
     fertig.length?fertig.slice().reverse().map(reihe).join(''):'<div class="leer">Noch nichts fertig.</div>';
   counterMalen(z);
+  const fw=document.getElementById('ffwarn'); if(fw)fw.style.display=daten.ffmpeg?'none':'';   // ffmpeg-Warnung sichtbar!
   cmdQueueRender(items); cmdNowRender();               // Command-Bar oben mitversorgen
   logDiff(items);                                      // Ereignisse in den Log schreiben
   autotagStatus();                                     // Auto-Tagging-Fortschritt anzeigen
