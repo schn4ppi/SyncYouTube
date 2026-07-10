@@ -6,6 +6,7 @@
 
 # --- freigegeben: Code + Doku ---
 !.gitignore
+!LICENSE
 !README.md
 !_ARCHITEKTUR.md
 !_LIESMICH.txt
