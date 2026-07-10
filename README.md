@@ -65,3 +65,17 @@ Tests: `python tests/test_youtube.py` (läuft ohne Zusatzpakete, kein Netz).
 Konfiguration und alle Nutzerdaten (`config.json`, `geladen_log.json`, `playlists.json`,
 `warteschlange.json`, `abos.json`, `Downloads/`) entstehen zur Laufzeit und bleiben lokal —
 sie gehören bewusst **nicht** ins Repo.
+
+## Download (Windows, ohne Python)
+
+Unter **Releases** liegt `SyncYouTube-…-windows-komplett.zip`: entpacken, `SyncYouTube.exe`
+starten, fertig (ffmpeg/ffprobe/deno liegen im `bin/`-Ordner bei). Die schlanke
+`SyncYouTube.exe` allein braucht einen eigenen `bin/`-Ordner daneben.
+
+## Lizenz
+
+**GPL-3.0-or-later** (siehe [LICENSE](LICENSE)). Enthaltene/beigelegte Komponenten:
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense),
+[pykakasi](https://codeberg.org/miurahr/pykakasi) (GPL-3.0),
+[FFmpeg](https://ffmpeg.org) (GPL-Build, Quellcode über ffmpeg.org),
+[Deno](https://deno.com) (MIT), pystray/Pillow (LGPL/MIT-HPND).

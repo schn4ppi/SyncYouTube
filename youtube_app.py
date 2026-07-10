@@ -32,7 +32,14 @@ from urllib.parse import urlparse, parse_qs
 
 import geo
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+__version__ = "1.0.0"
+
+# Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
+# Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
+if getattr(sys, "frozen", False):
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PFAD = os.path.join(SCRIPT_DIR, "config.json")
 QUEUE_PFAD = os.path.join(SCRIPT_DIR, "warteschlange.json")
 GELADEN_PFAD = os.path.join(SCRIPT_DIR, "geladen_log.json")  # „Datenbank" fertiger Downloads
