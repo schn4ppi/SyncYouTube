@@ -170,6 +170,19 @@ def test_zugriff_erlaubt():
     assert app.zugriff_erlaubt("192.168.0.5", True, "", "") is False
 
 
+def test_ist_untertitel_fehler():
+    # JB-Vorfall 11.07.: YouTube drosselte die Untertitel (429) und der ganze
+    # Download hing stundenlang bei 0% — solche Fehler müssen als "heilbar
+    # ohne Untertitel" erkannt werden.
+    ja = "Unable to download video subtitles for 'de': HTTP Error 429: Too Many Requests"
+    assert app._ist_untertitel_fehler(ja) is True
+    assert app._ist_untertitel_fehler("ERROR: Unable to download video subtitles") is True
+    # KEINE Untertitel-Heilung bei anderen Fehlern (Video-429, Geo, Formate):
+    assert app._ist_untertitel_fehler("HTTP Error 429: Too Many Requests") is False
+    assert app._ist_untertitel_fehler("Requested format is not available") is False
+    assert app._ist_untertitel_fehler("") is False
+
+
 # ---------------------------------------------------------------- Runner (ohne pytest)
 
 if __name__ == "__main__":

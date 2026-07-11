@@ -403,6 +403,16 @@ def _ist_cookie_fehler(exc):
     return "cookie" in t or "could not copy" in t or "decrypt" in t or "browser" in t
 
 
+def _ist_untertitel_fehler(exc):
+    """Nur der Untertitel-Abruf ist gescheitert (z.B. drosselt YouTube die
+    Untertitel-Endpoints gern mit HTTP 429) — das Video selbst wäre ladbar.
+    Dann: gleicher Lauf nochmal OHNE Untertitel statt stundenlanger Backoff-
+    Schleife bei 0% (JB-Vorfall 11.07.); die .vtt lädt der Player später nach."""
+    t = str(exc).lower()
+    return "subtitle" in t and ("429" in t or "too many requests" in t
+                                or "unable to download" in t)
+
+
 def aufloesen(url, qualitaet):
     """URL prüfen und in Queue-Einträge verwandeln (Playlist -> Einzelvideos).
     Läuft im Hintergrund-Thread, damit die Oberfläche nie blockiert."""
@@ -1683,10 +1693,15 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
             info = _lauf(opts)
         except AbbruchError:
             raise
-        except Exception as e:                       # noqa: BLE001 — Cookie-Probleme heilen
-            if not _ist_cookie_fehler(e):
+        except Exception as e:                       # noqa: BLE001 — heilbare Fehler heilen
+            if _ist_cookie_fehler(e):
+                opts.pop("cookiesfrombrowser", None)
+            elif _ist_untertitel_fehler(e):
+                for k in ("writesubtitles", "writeautomaticsub",
+                          "subtitleslangs", "subtitlesformat"):
+                    opts.pop(k, None)
+            else:
                 raise
-            opts.pop("cookiesfrombrowser", None)
             info = _lauf(opts)
         rd = (info or {}).get("requested_downloads") or []
         if rd:
