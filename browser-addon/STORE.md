@@ -36,13 +36,30 @@ Kein Tracking, keine Fremd-Server — das ist bei der Store-Prüfung ein klarer 
 3. Neues Zip im jeweiligen Store hochladen → **die Browser aktualisieren die Nutzer automatisch**
    (kein Zutun der Nutzer). Firefox-selbst-gehostet: neue `.xpi` + `updates.json` austauschen.
 
-**Automatisierung (später):** Der Upload lässt sich per Store-API skripten, dann kann Claude
+**Automatisierung:** Der Upload lässt sich per Store-API skripten, dann kann Claude
 Versionsbumps + Upload komplett übernehmen. Dafür braucht es **einmalig** Zugangsdaten:
-- Chrome: OAuth-Client + Refresh-Token (Chrome Web Store API).
-- Edge: Publisher-API-Key.
-- Firefox: AMO-API-Credentials (JWT).
+- Chrome: OAuth-Client + Refresh-Token (Chrome Web Store API) — noch offen.
+- Edge: Publisher-API-Key — noch offen.
+- **Firefox: FERTIG GEBAUT → `amo_sign.py`** (siehe unten).
 Diese kommen — wie GitHub/Web.de — **nur in den Windows-Anmeldeinformationsspeicher / keyring**,
-nie in eine Datei. Bis dahin macht Claude das Packen, den Upload klickt JB.
+nie in eine Datei.
+
+## Firefox-Automatik: `amo_sign.py`
+
+Einmalige Einrichtung (JB, ~2 Minuten):
+1. https://addons.mozilla.org/de/developers/addon/api/key/ → „Schlüssel erzeugen"
+2. `..\..\Core\venv\Scripts\python.exe amo_sign.py --schluessel` → Aussteller + Secret
+   eingeben (Eingabe unsichtbar, landet nur im Windows-Keyring).
+
+Danach je Release nur noch:
+```
+python build.py                                   # neue Zips bauen
+..\..\Core\venv\Scripts\python.exe amo_sign.py    # hochladen (Kanal: listed)
+```
+- `--kanal unlisted` = **selbst verteilt**: AMO signiert automatisch in Minuten,
+  das Skript lädt die fertige `.xpi` nach `dist/` — dauerhaft installierbar,
+  darf mit ins GitHub-Release. (Plan B, falls die öffentliche Listung abgelehnt wird.)
+- `--status` = Versionen + Prüf-Status abfragen.
 
 ## Store-Texte (Vorlage)
 **Kurzbeschreibung:** YouTube-Videos mit einem Klick an deinen lokalen YouTube-Downloader schicken.

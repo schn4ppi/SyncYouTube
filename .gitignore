@@ -19,6 +19,7 @@
 !YouTube-Downloader (ohne Fenster).vbs
 !tests/*.py
 !browser-addon/build.py
+!browser-addon/amo_sign.py
 !browser-addon/manifest.base.json
 !browser-addon/README.md
 !browser-addon/STORE.md
