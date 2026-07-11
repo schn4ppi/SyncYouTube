@@ -1,9 +1,33 @@
 # -*- coding: utf-8 -*-
-"""Oberfläche des YouTube-Downloaders — eine Seite, CSS+JS inline (Suite-Stil,
-gleiche Farbwelt wie das Dashboard). Bewegliche Fenster (Panels) mit Tab-Docking
-wie im Dashboard: ziehen zum Verschieben, Ecke zum Größe ändern, ein Fenster 3 s
-über ein anderes halten -> als Tab andocken; einen Tab herausziehen -> eigenes
-Fenster. Wird von youtube_app.py ausgeliefert."""
+"""Die komplette PC-Oberfläche von SyncYouTube — EINE Seite, CSS+JS inline.
+
+Wird von youtube_app.py unter "/" ausgeliefert und bei jedem Aufruf heiß
+nachgeladen (importlib.reload) — Änderungen hier erscheinen mit Browser-F5,
+ohne App-Neustart. Der sichtbare Baustand steht unten in der Layout-Leiste
+("Build …") und wird bei jeder Änderung hochgezählt.
+
+AUFBAU (Banner mit ==== markieren die Hauptbereiche, ---- die Unterbereiche):
+
+  <style>   Farbwelt als CSS-Variablen (--akz/--panel/…; ein „Skin" tönt alles um)
+            · Command-Bar · Panels/Fenster · Modals · Warteschlange · Bibliothek
+            · Spalten-Menü · Player · Tag-Modus · Container-Queries (schmale Panels)
+
+  <body>    Command-Bar (Link->Download, Live-Queue, Now-Playing) · Layout-Leiste
+            · #canvas (die beweglichen Fenster) · Modals (Hilfe/Einstellungen/Geo)
+            · #stash mit den Views: add/queue/done/log/lib/player
+
+  <script>  Helfer (esc/mb/zeit) · Looks/Skins · Optionen-Zahnrad
+            · Panels/Docking/Snapping + Ansicht-Verlauf (Mausrad) + Layouts + Mini
+            · Warteschlange/Status (laden/malen) · Fernsteuerung · Log
+            · Command-Bar-Logik + Drag&Drop-Link · Abos · Smart-Playlists · Dubletten
+            · Geo/VPN-Assistent · Bibliothek (Ansichten/Spalten/Auswahl/Alben)
+            · Abspielmodi/Radio/Sleep/Clip · Kontextmenüs (Explorer-Stil)
+            · Player (Speed/Untertitel+Karaoke/Kapitel/Visualizer/EQ/Übergänge/Canvas)
+            · Playlists (+Sync/.m3u) · Tastatur · Init (ganz unten)
+
+WICHTIGE FALLE: Dies ist ein Python-Triple-String — ein \\ in JS/HTML muss
+verdoppelt werden (\\n, \\d, \\s), sonst frisst Python das Escape und das
+JavaScript ist kaputt (node --check nach jeder Änderung laufen lassen!)."""
 
 HTML = """<!doctype html>
 <html lang="de">
@@ -562,7 +586,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-11 · 36</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-11 · 37</span>
 </div>
 
 <div id="canvas"></div>
@@ -818,7 +842,8 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 </div>
 
 <script>
-let daten = null;
+/* ================= Helfer & globaler Zustand ================= */
+let daten = null;                                    // letzter /api/status (Sekundentakt via laden())
 
 function esc(t){const d=document.createElement('div');d.textContent=t||'';return d.innerHTML;}
 function mb(b){if(!b)return'–';if(b>=1e9)return(b/1e9).toFixed(2)+' GB';return(b/1e6).toFixed(1)+' MB';}
@@ -3081,6 +3106,7 @@ document.addEventListener('keydown',e=>{
   else if(e.code==='MediaTrackNext'){e.preventDefault(); playerNext();}
   else if(e.code==='MediaTrackPrevious'){e.preventDefault(); playerPrev();}});
 
+/* ================= Init (läuft einmal beim Seiten-Start) ================= */
 themeIcon();
 renderPanels();
 L.panels.forEach(p=>merkeView(p.id,p.active));   // Start-Stationen in den Verlauf
