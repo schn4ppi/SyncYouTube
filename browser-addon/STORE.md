@@ -58,8 +58,10 @@ python build.py                                   # neue Zips bauen
 ```
 - `--kanal unlisted` = **selbst verteilt**: AMO signiert automatisch in Minuten,
   das Skript lädt die fertige `.xpi` nach `dist/` — dauerhaft installierbar,
-  darf mit ins GitHub-Release. (Plan B, falls die öffentliche Listung abgelehnt wird.)
+  darf mit ins GitHub-Release. (JBs Add-on läuft auf diesem Kanal.)
 - `--status` = Versionen + Prüf-Status abfragen.
+- `--holen` = neueste fertig signierte `.xpi` nach `dist/` laden
+  (dauerhaft installieren: Datei in Firefox auf `about:addons` ziehen).
 
 ## Store-Texte (Vorlage)
 **Kurzbeschreibung:** YouTube-Videos mit einem Klick an deinen lokalen YouTube-Downloader schicken.

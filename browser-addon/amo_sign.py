@@ -202,10 +202,27 @@ def status_zeigen():
               f"Datei-Status={datei.get('status', '?')}")
 
 
+def xpi_holen():
+    """Lädt die neueste fertig signierte .xpi nach dist/ (Status 'public' = signiert)."""
+    daten = _api(f"/addons/addon/{GUID}/versions/?filter=all_with_unlisted")
+    for v in daten.get("results", []):
+        datei = v.get("file") or {}
+        if datei.get("status") == "public" and datei.get("url"):
+            ziel = os.path.join(HERE, "dist", f"ytdl-firefox-v{v['version']}-signiert.xpi")
+            with open(ziel, "wb") as f:
+                f.write(_api("", roh_url=datei["url"]))
+            print(f"Signierte Datei -> dist/{os.path.basename(ziel)} "
+                  f"({os.path.getsize(ziel)} Bytes)\n"
+                  "Dauerhaft installieren: Datei in Firefox auf about:addons ziehen.")
+            return
+    sys.exit("Keine fertig signierte Version gefunden (Status mit --status prüfen).")
+
+
 def main():
     p = argparse.ArgumentParser(description="Firefox-Addon automatisch bei AMO einreichen")
     p.add_argument("--schluessel", action="store_true", help="API-Schlüssel im Keyring hinterlegen")
     p.add_argument("--status", action="store_true", help="Versionen + Status anzeigen")
+    p.add_argument("--holen", action="store_true", help="neueste signierte .xpi nach dist/ laden")
     p.add_argument("--kanal", choices=["listed", "unlisted"], default="listed",
                    help="listed = öffentliche AMO-Seite (Mozilla prüft), "
                         "unlisted = selbst verteilt (auto-signiert, .xpi-Download)")
@@ -214,6 +231,8 @@ def main():
         schluessel_speichern()
     elif args.status:
         status_zeigen()
+    elif args.holen:
+        xpi_holen()
     else:
         hochladen(args.kanal)
 
