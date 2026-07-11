@@ -28,7 +28,11 @@ VARIANTEN = {
     "edge":    {"background": {"service_worker": "background.js"}},
     "firefox": {"background": {"scripts": ["background.js"]},
                 "browser_specific_settings": {
-                    "gecko": {"id": "youtube-downloader@jbk.local", "strict_min_version": "115.0"}}},
+                    "gecko": {"id": "youtube-downloader@jbk.local", "strict_min_version": "115.0",
+                              # Firefox verlangt seit 2025 eine Datenschutz-Erklärung im Manifest.
+                              # Die Erweiterung sammelt NICHTS: sie redet nur mit 127.0.0.1:8776
+                              # (dem lokalen Downloader) -> "none". Ohne dieses Feld lehnt AMO ab.
+                              "data_collection_permissions": {"required": ["none"]}}}},
 }
 
 
