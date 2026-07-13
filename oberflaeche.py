@@ -87,12 +87,11 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .cmd-dl{background:var(--akzbg);border:1px solid var(--akz);border-radius:7px;color:var(--akz2);
   padding:5px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
 .cmd-dl:hover{filter:brightness(1.18)}
-/* Mini-Player (JB 13.07.): füllt den linken Block, 2 Zeilen — Steuerung+Titel
-   oben, Spulleiste mit Zeit darunter; rechts daneben Zähler + vertikale Knöpfe */
+/* Mini-Player (JB 13.07.): füllt den linken Block — große Spotify-artige
+   Knöpfe oben, Titel darunter, Spulleiste unten; rechts Zähler + vertikale Knöpfe */
 .cmd-row2{align-items:stretch;gap:10px}
-.cmd-now{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:7px;font-size:12px;color:#9a8d84}
-.cmd-nowline{display:flex;align-items:center;gap:6px;min-width:0}
-.cmd-nowtitel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-size:12.5px}
+.cmd-now{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:5px;font-size:12px;color:#9a8d84}
+.cmd-nowtitel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:12.5px;color:#d7c7bd}
 .cmd-nolabel{color:#6a5c52}
 .cmd-seekline{display:flex;align-items:center;gap:8px}
 .cmd-time{flex:none;font-size:11px;color:#8a7d74;min-width:36px;text-align:center;font-variant-numeric:tabular-nums}
@@ -100,8 +99,25 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 #cmd-seek:disabled{opacity:.35;cursor:default}
 .cmd-stat{display:flex;flex-direction:column;justify-content:center;align-items:flex-end;gap:5px;flex:none}
 .cmd-side{display:flex;flex-direction:column;justify-content:center;gap:3px;flex:none}
-.cmd-pp{background:none;border:1px solid var(--panelln);border-radius:6px;color:var(--akz2);cursor:pointer;width:27px;height:24px;font-size:12px;padding:0;flex:none}
-.cmd-pp:hover{border-color:var(--akz)}
+/* Transport-Knöpfe: selbst gezeichnete SVGs, Spotify-Größe; aktiver Toggle =
+   Akzentfarbe + Punkt darunter, inaktiv = neutral (JB 13.07.) */
+.mp-row{display:flex;align-items:center;gap:8px}
+.mp-btn{display:inline-flex;align-items:center;justify-content:center;background:none;border:0;
+  color:#d7c7bd;cursor:pointer;width:30px;height:30px;padding:0;border-radius:50%;flex:none;font-size:14px}
+.mp-btn svg{width:20px;height:20px;fill:currentColor;display:block}
+.mp-btn:hover{color:#fff;transform:scale(1.08)}
+.mp-play{width:37px;height:37px;background:#e7dccf;color:#171310}
+.mp-play:hover{background:#fff;color:#171310}
+.mp-play svg{width:21px;height:21px}
+.mp-tog{color:#8a7d74;position:relative}
+.mp-tog.an{color:var(--akz)}
+.mp-tog.an::after{content:'';position:absolute;left:50%;bottom:0;width:4px;height:4px;border-radius:50%;
+  background:var(--akz);transform:translateX(-50%)}
+.mp-radio{font-size:15px}
+html.light .mp-btn{color:#5a4f47} html.light .mp-btn:hover{color:#2a2016}
+html.light .mp-play{background:#2a2016;color:#fff} html.light .mp-play:hover{background:#000;color:#fff}
+html.light .mp-tog{color:#a89a8e}
+html.light .cmd-nowtitel{color:#4a3f37}
 .cmd-count{color:#d7c7bd;white-space:nowrap;position:relative;cursor:default;font-size:12px;flex:none}
 .cmd-count b{color:var(--akz2);font-weight:700}
 .iconbtn.sm{width:28px;height:28px;font-size:14px;flex:none}
@@ -359,11 +375,13 @@ html.light .sm-name,html.light .sm-sel,html.light .sm-num{background:#f7f3ee;bor
 .dub-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 0}
 .dub-q{font-size:11px;color:#9a8d84}
 /* Equalizer-Popover */
-.eq-row{display:flex;gap:8px;justify-content:center;padding:8px 4px}
-.eq-band{display:flex;flex-direction:column;align-items:center;gap:3px}
-.eq-sl{-webkit-appearance:slider-vertical;appearance:slider-vertical;writing-mode:vertical-lr;direction:rtl;width:22px;height:92px;accent-color:var(--akz)}
-.eq-val{font-size:10px;color:#9a8d84}
-.eq-lab{font-size:10px;color:#8a7d74}
+/* Jede EQ-Spalte: dB-Wert oben, Regler mittig, Frequenz DIREKT darunter —
+   feste Spaltenbreite, damit Beschriftung und Regler exakt fluchten (JB 13.07.) */
+.eq-row{display:flex;gap:6px;justify-content:center;padding:8px 4px}
+.eq-band{display:flex;flex-direction:column;align-items:center;gap:4px;width:42px;flex:none}
+.eq-sl{-webkit-appearance:slider-vertical;appearance:slider-vertical;writing-mode:vertical-lr;direction:rtl;width:22px;height:92px;accent-color:var(--akz);margin:0}
+.eq-val{font-size:10px;color:#9a8d84;min-height:12px}
+.eq-lab{font-size:10.5px;color:#c9bcae;white-space:nowrap}
 .eq-presets{display:flex;gap:4px;flex-wrap:wrap;padding:4px;justify-content:center}
 /* Log-Ansicht */
 .logliste{display:flex;flex-direction:column;gap:1px;font-family:Consolas,"Courier New",monospace;font-size:12px}
@@ -482,6 +500,34 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
 .pl-leer{color:#6a5c52;font-size:13px;text-align:center;padding:24px}
 .pl-titel{font-weight:600;font-size:14px;margin:10px 0 6px;flex:none}
 .pl-ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;flex:none}
+/* Steuerleiste AUF dem Video/Cover (YouTube-Stil, JB 13.07.): Spulleiste oben,
+   Transport links, Werkzeuge rechts; blendet bei Maus-Ruhe aus (.baridle). */
+.pl-bar{position:absolute;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;gap:1px;
+  padding:4px 10px 7px;background:linear-gradient(transparent,rgba(0,0,0,.82));transition:opacity .25s}
+.pl-media.baridle .pl-bar{opacity:0;pointer-events:none}
+.pl-media.baridle{cursor:none}
+.pl-barseek{display:flex;align-items:center;gap:8px}
+.pl-barseek input{flex:1;height:12px;accent-color:var(--akz);cursor:pointer;margin:0;min-width:40px}
+.pl-barrow{display:flex;align-items:center;gap:6px}
+.pl-barrow .mp-btn{color:#eee;width:27px;height:27px}
+.pl-barrow .mp-btn:hover{color:#fff}
+.pl-barrow .mp-btn svg{width:19px;height:19px}
+.pl-barrow .mp-tog{color:rgba(255,255,255,.55)}
+.pl-barrow .mp-tog.an{color:var(--akz2)}
+.pl-btime{color:#ddd;font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap;flex:none}
+.pl-bsp{color:#eee;background:none;border:1px solid rgba(255,255,255,.3);border-radius:6px;
+  font-size:11.5px;padding:2px 7px;cursor:pointer;flex:none}
+.pl-bsp:hover{border-color:#fff}
+.pl-bsp.an{border-color:var(--akz);color:var(--akz2)}
+.pl-bspacer{flex:1}
+.pl-bvolwrap{display:flex;align-items:center;gap:4px;color:#eee;font-size:12px;flex:none}
+.pl-bvol{width:64px;height:10px;accent-color:#fff;cursor:pointer;margin:0}
+/* Untermenüs im Rechtsklick-Menü: Liste mit Haken + optionales Suchfeld */
+.km-check{color:var(--akz2);margin-right:6px}
+.km-sub{max-height:240px;overflow-y:auto}
+.km-such{display:block;width:calc(100% - 12px);box-sizing:border-box;margin:4px 6px;background:#0e0c0a;
+  border:1px solid var(--panelln);border-radius:6px;color:#e7dccf;padding:4px 8px;font-size:12px}
+html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 .muted2{font-size:12px;color:#8a7d74}
 .pl-queue{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;flex:none}
 .pl-item{font-size:12px;color:#d7c7bd;padding:4px 7px;border-radius:6px;cursor:pointer;overflow:hidden;
@@ -594,7 +640,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
 </div>
 
 <div id="layoutbar">
-  <span>Fenster am Namen ziehen = verschieben · auf ein anderes ziehen = als Tab andocken · Link ins Fenster ziehen = Download</span>
+  <span><b>Tipp:</b> Rechtsklick öffnet überall Menüs — im Player, auf Kacheln und in Listen</span>
   <label style="font-size:12px;color:#8a7d74">Layout:</label>
   <select id="layoutsel" onchange="layoutWaehlen(this.value)" title="Vorlagen &amp; deine gespeicherten Layouts"></select>
   <button class="btn mini" onclick="layoutSpeichern()" title="Aktuelle Fenster-Anordnung unter einem Namen speichern">💾 Speichern</button>
@@ -602,7 +648,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 38</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 39</span>
 </div>
 
 <div id="canvas"></div>
@@ -618,16 +664,17 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legrow"><b>Mausrad kippen</b> (links/rechts) = zurück/vor zur vorherigen Ansicht — wie im Browser</div>
       <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster am Namen = verschieben, auf ein anderes = andocken</div>
       <div class="legrow"><b>Strg-/Shift-Klick</b> in der Bibliothek = mehrere markieren (Leiste mit Sammel-Aktionen erscheint)</div>
-      <div class="legsec">▶ Player-Knöpfe</div>
-      <div class="legrow"><b>▶/🔁/🔂/🔀</b> Abspielmodus (klicken wechselt) · <b>📊</b> Visualizer (8 Stile) · <b>🎚</b> Equalizer + Lautstärke-Angleich</div>
-      <div class="legrow"><b>1×</b> Geschwindigkeit · <b>💬</b> Untertitel → Karaoke → Transkript · <b>✂ Clip</b> Ausschnitt schneiden · <b>⇆</b> Anordnung · <b>⧉</b> VLC</div>
+      <div class="legsec">▶ Player</div>
+      <div class="legrow">Steuerung liegt <b>auf dem Video/Cover</b> (erscheint bei Mausbewegung): Zufall 🔀 und Wiederholen 🔁 sind <b>getrennte Schalter</b> — farbig mit Punkt = an, 🔁 nochmal klicken = nur diesen Titel (Zeichen zeigt eine kleine 1)</div>
+      <div class="legrow">Rechts auf der Leiste: <b>💬</b> Untertitel/Karaoke (werden bei Bedarf automatisch geladen) · <b>✂</b> Clip schneiden · <b>1×</b> Geschwindigkeit · 🔊 Lautstärke · <b>⛶</b> Vollbild</div>
+      <div class="legrow"><b>Rechtsklick in den Player</b> = alles Weitere: Visualizer-Liste, Geschwindigkeit, Untertitel-Sprachen, Equalizer, Playlist, VLC …</div>
       <div class="legsec">📚 Bibliothek</div>
       <div class="legrow"><b>▶</b> abspielen · <b>＋</b> zu Playlist (Liste wählen) · <b>📁</b> im Ordner zeigen · <b>⋯</b> mehr · <b>⊞/▤/☰</b> Kacheln/Alben/Liste · <b>⚙ Ansicht</b> Filter &amp; Werkzeuge</div>
       <div class="legrow"><b>📃 Öffnen</b> zeigt eine Playlist (Ziehen = Reihenfolge) · <b>📻</b> Endlos-Radio · <b>▶ Mixe</b> Meistgespielt/Zuletzt/Smart</div>
       <div class="legsec">⌨ Tasten</div>
       <div class="legrow"><b>Leertaste</b> Pause/Weiter · <b>Strg+←/→</b> vorheriger/nächster Titel · <b>Medientasten</b> (wenn das Fenster im Vordergrund ist)</div>
       <div class="legsec">⚡ Oben (Command-Bar)</div>
-      <div class="legrow">Links: Link einfügen + <b>⬇ Download</b> · Mini-Player (⏮ ⏯ ⏭ + Modus + 📻, <b>Spulleiste</b> mit Zeit — ziehen = im Lied spulen). Rechts: laufende Downloads (Klick = Pause, <b>✖</b> = abbrechen &amp; entfernen — Dateien bleiben). <b>🔗</b> Kopierte YouTube-Links werden automatisch erkannt.</div>
+      <div class="legrow">Links: Link einfügen + <b>⬇ Download</b> · Mini-Player (🔀 ⏮ ⏯ ⏭ 🔁 📻, Titel darunter, <b>Spulleiste</b> mit Zeit — ziehen = spulen). Rechts: laufende Downloads (Klick = Pause, <b>✖</b> = abbrechen &amp; entfernen — Dateien bleiben). <b>🔗</b> Kopierte YouTube-Links werden automatisch erkannt.</div>
     </div>
   </div>
 </div>
@@ -759,8 +806,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
   <div id="view-queue">
     <div class="card">
       <div class="kopfzeile"><h2>Warteschlange</h2>
-        <span><button class="btn mini" onclick="aktion('','queue_aufraeumen')" title="Fehler &amp; Erledigte entfernen">🧹 Aufräumen</button>
-        <button class="btn mini" onclick="aktion('','ordner_offen')" title="Downloads-Ordner im Explorer öffnen">📂 Zielordner</button></span></div>
+        <button class="btn mini" onclick="aktion('','ordner_offen')" title="Downloads-Ordner im Explorer öffnen">📂 Zielordner</button></div>
       <div class="chips" id="chips"></div>
       <div id="liste"></div>
     </div>
@@ -769,7 +815,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
   <div id="view-done">
     <div class="card">
       <div class="kopfzeile"><h2>Fertig</h2>
-        <button class="btn mini" onclick="fertigeRaus()" title="Erledigte aus dieser Liste entfernen (Dateien bleiben)">Liste leeren</button></div>
+        <button class="btn mini" onclick="aktion('','queue_aufraeumen')" title="Fertige, Übersprungene und Fehlgeschlagene aus der Liste nehmen — Dateien bleiben">🧹 Aufräumen</button></div>
       <div id="fertigliste"></div>
     </div>
   </div>
@@ -837,17 +883,11 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
       <div class="pl-side">
         <div class="pl-titel" id="pl-titel"></div>
         <div class="pl-ctrl">
-          <button class="btn mini" onclick="playerPrev()" title="Vorheriger Titel">⏮</button>
-          <button class="btn mini" onclick="playerNext()" title="Nächster Titel">⏭</button>
-          <button class="btn mini" id="pl-mode" onclick="playModeCycle()" title="Abspielmodus (klicken zum Wechseln)">▶</button>
-          <button class="btn mini" id="pl-viz-btn" onclick="vizCycle()" title="Visualizer (klicken zum Wechseln)">📊</button>
-          <button class="btn mini" id="pl-eq-btn" onclick="eqPopover(event)" title="Equalizer">🎚</button>
-          <button class="btn mini" id="pl-speed" onclick="speedCycle()" title="Abspielgeschwindigkeit">1×</button>
-          <button class="btn mini" id="pl-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>
-          <button class="btn mini" onclick="clipDialog(aktKey())" title="Ausschnitt aus dem laufenden Titel schneiden (vorne/hinten weg → ein Video)">✂ Clip</button>
+          <!-- Steuerung lebt AUF dem Video (Leiste unten, YouTube-Stil) + im
+               Rechtsklick-Menü — hier bleibt nur, was die Anordnung betrifft. -->
           <button class="btn mini" onclick="playerLayoutToggle()" title="Anordnung wechseln: Video oben ↔ Video links (Playlist rechts)">⇆ Layout</button>
-          <button class="btn mini" onclick="playerExtern()" title="In VLC bzw. dem Windows-Standardplayer öffnen">⧉ VLC</button>
           <span class="muted2" id="pl-pos"></span>
+          <span class="muted2" style="font-size:11px">· Rechtsklick = alle Optionen</span>
         </div>
         <div class="pl-kapitel" id="pl-kapitel" style="display:none"></div>
         <div class="pl-lyrics" id="pl-lyrics" style="display:none"></div>
@@ -1492,7 +1532,6 @@ async function aktion(id,art){
     body:JSON.stringify({id,art})});
   laden();
 }
-function fertigeRaus(){aktion('','fertige_raus');}
 
 /* ---- Log: Ereignisse (Start/Fertig/Fehler/Übersprungen) aus der Queue ableiten ---- */
 let logEintraege=[], _logStatus={}, _logInit=false;
@@ -1588,25 +1627,25 @@ let cmdNowSig='', cmdSeekAktiv=false;
 function cmdNowRender(){
   const el=document.getElementById('cmd-now'); if(!el)return;
   const k=playerState.queue[playerState.idx], x=k?libFind(k):null;
-  const pe=document.getElementById('pl-el'), ic=(pe&&!pe.paused)?'⏸':'▶';
-  const pm=PLAYMODES.find(m=>m[0]===playMode)||PLAYMODES[0];
-  const sig=[k||'',ic,pm[1],x?x.titel:''].join('|');
-  if(sig===cmdNowSig){cmdSeekTick();return;}
+  const sig=[k||'',x?x.titel:''].join('|');            // Play/Pause & Toggles zieht transportRender nach
+  if(sig===cmdNowSig){transportRender();cmdSeekTick();return;}
   cmdNowSig=sig;
-  const titel=x?`<span class="cmd-nowtitel" title="${esc(x.titel)}">♪ ${esc((x.titel||'').slice(0,70))}</span>`
-               :'<span class="cmd-nolabel">// nichts läuft — ▶ startet die Bibliothek</span>';
-  el.innerHTML=`<div class="cmd-nowline">`+
-    `<button class="cmd-pp" onclick="playerPrev()" title="Vorheriger">⏮</button>`+
-    `<button class="cmd-pp" onclick="cmdPlayPause()" title="Pause / Play — ohne laufenden Titel: Bibliothek abspielen">${ic}</button>`+
-    `<button class="cmd-pp" onclick="playerNext()" title="Nächster">⏭</button>`+
-    `<button class="cmd-pp" id="cmd-mode" onclick="playModeCycle()" title="Abspielmodus: ${pm[2]} (klicken zum Wechseln)">${pm[1]}</button>`+
-    `<button class="cmd-pp" onclick="radioStart()" title="📻 Radio">📻</button>`+titel+`</div>`+
+  const titel=x?`<div class="cmd-nowtitel" title="${esc(x.titel)}">♪ ${esc((x.titel||'').slice(0,90))}</div>`
+               :'<div class="cmd-nowtitel cmd-nolabel">// nichts läuft — ▶ startet die Bibliothek</div>';
+  el.innerHTML=`<div class="mp-row">`+
+    `<button class="mp-btn mp-tog" data-tr="shuffle" onclick="shuffleToggle()">${ico('shuffle')}</button>`+
+    `<button class="mp-btn" onclick="playerPrev()" title="Vorheriger">${ico('prev')}</button>`+
+    `<button class="mp-btn mp-play" data-tr="pp" onclick="cmdPlayPause()">${ico('play')}</button>`+
+    `<button class="mp-btn" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
+    `<button class="mp-btn mp-tog" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
+    `<button class="mp-btn mp-tog mp-radio" data-tr="radio" onclick="radioStart()" title="📻 Radio — endloser Mix aus deiner Bibliothek">📻</button>`+
+    `</div>`+titel+
     `<div class="cmd-seekline"><span class="cmd-time" id="cmd-t0">0:00</span>`+
     `<input type="range" id="cmd-seek" min="0" max="1000" value="0" disabled `+
     `title="Im Lied spulen" oninput="cmdSeekDrag(this.value)" onchange="cmdSeekEnd(this.value)" `+
     `onpointerdown="cmdSeekAktiv=true" onpointerup="cmdSeekAktiv=false">`+
     `<span class="cmd-time" id="cmd-t1">0:00</span></div>`;
-  cmdSeekTick();
+  transportRender(); cmdSeekTick();
 }
 function cmdSeekDrag(v){                               // beim Ziehen läuft nur die Zeitanzeige mit
   const pe=document.getElementById('pl-el');
@@ -1732,7 +1771,7 @@ function smartPlay(id){
   const s=smartListen.find(x=>x.id===id); if(!s)return;
   const ids=smartBerechnen(s.rules);
   if(!ids.length){alert('„'+s.name+'" ist gerade leer (keine passenden Titel).');return;}
-  if(playMode==='zufall')mische(ids); playerPlay(ids,0);
+  if(playShuffle)mische(ids); playerPlay(ids,0);
 }
 function smartLoeschen(id){smartListen=smartListen.filter(s=>s.id!==id); smartSpeichern(); smartPopover(null,true);}
 function smartNeu(){
@@ -2011,23 +2050,50 @@ async function bulkPlaylist(){
 /* ---- Abspielmodus (zyklisch), Shuffle, Meistgespielt, Zuletzt ---- */
 function mische(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 // max. 5 Modi; klicken wechselt Icon + Verhalten
-const PLAYMODES=[['normal','▶','Normal — der Reihe nach, Stopp am Ende'],
-  ['alle','🔁','Alle wiederholen — Liste in Schleife'],
-  ['eins','🔂','Titel wiederholen'],
-  ['zufall','🔀','Zufall — zufällige Reihenfolge']];
-let playMode='normal';
-try{const v=localStorage.getItem('ytdl_playmode'); if(v&&PLAYMODES.some(m=>m[0]===v))playMode=v;}catch(e){}
-function playModeRender(){
-  const m=PLAYMODES.find(x=>x[0]===playMode)||PLAYMODES[0], b=document.getElementById('pl-mode');
-  if(b){b.textContent=m[1]; b.title='Abspielmodus: '+m[2]+' (klicken zum Wechseln)'; b.classList.toggle('an',playMode!=='normal');}
-  const cb=document.getElementById('cmd-mode');        // Modus-Knopf oben in der Command-Bar mitziehen
-  if(cb){cb.textContent=m[1]; cb.title='Abspielmodus: '+m[2]+' (klicken zum Wechseln)';}
-}
-function playModeCycle(){
-  const i=PLAYMODES.findIndex(m=>m[0]===playMode);
-  playMode=PLAYMODES[(i+1)%PLAYMODES.length][0];
-  try{localStorage.setItem('ytdl_playmode',playMode);}catch(e){}
-  playModeRender();
+/* Abspielmodus wie bei Spotify: ZWEI getrennte Toggles statt eines 4-Stufen-
+   Zyklus (JB 13.07.: „▶ sah aus wie Play, 🔁/🔂 zu klein, Modus nicht erkennbar").
+   playShuffle = Zufall an/aus · playRepeat = aus/alle/eins. Die Knöpfe sind
+   selbst gezeichnete SVGs (currentColor), aktiv = Akzentfarbe + Punkt darunter. */
+const ICONS={
+  play:'M8 5v14l11-7z',
+  pause:'M6 5h4v14H6zm8 0h4v14h-4z',
+  prev:'M6 6h2v12H6zm12 0v12l-8.5-6z',
+  next:'M16 6h2v12h-2zM6 6l8.5 6L6 18z',
+  shuffle:'M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z',
+  repeat:'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z',
+  repeat1:'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z'};
+function ico(n){return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+ICONS[n]+'"/></svg>';}
+let playShuffle=false, playRepeat='aus';               // 'aus' | 'alle' | 'eins'
+try{
+  playShuffle=localStorage.getItem('ytdl_shuffle')==='1';
+  const r=localStorage.getItem('ytdl_repeat'); if(r==='alle'||r==='eins')playRepeat=r;
+  // Migration vom alten 4-Stufen-Modus (einmalig, solange die neuen Keys fehlen)
+  if(localStorage.getItem('ytdl_shuffle')===null&&localStorage.getItem('ytdl_repeat')===null){
+    const alt=localStorage.getItem('ytdl_playmode');
+    if(alt==='zufall')playShuffle=true;
+    if(alt==='alle'||alt==='eins')playRepeat=alt;
+  }
+}catch(e){}
+function shuffleToggle(){playShuffle=!playShuffle;
+  try{localStorage.setItem('ytdl_shuffle',playShuffle?'1':'0');}catch(e){}
+  transportRender();}
+function repeatCycle(){playRepeat=(playRepeat==='aus')?'alle':(playRepeat==='alle'?'eins':'aus');
+  try{localStorage.setItem('ytdl_repeat',playRepeat);}catch(e){}
+  transportRender();}
+/* Zieht NUR die Zustände der Transport-Knöpfe nach (classList/innerHTML des
+   einzelnen Knopfs) — kein Neuaufbau der Leiste, darum reagiert der Klick sofort. */
+function transportRender(){
+  const pe=document.getElementById('pl-el');
+  document.querySelectorAll('[data-tr="shuffle"]').forEach(b=>{
+    b.classList.toggle('an',playShuffle); b.title='Zufall: '+(playShuffle?'AN':'aus');});
+  document.querySelectorAll('[data-tr="repeat"]').forEach(b=>{
+    b.classList.toggle('an',playRepeat!=='aus');
+    b.innerHTML=ico(playRepeat==='eins'?'repeat1':'repeat');
+    b.title='Wiederholen: '+(playRepeat==='aus'?'aus':(playRepeat==='alle'?'alle Titel':'nur dieser Titel'))+' (klicken: aus → alle → einer)';});
+  document.querySelectorAll('[data-tr="pp"]').forEach(b=>{
+    b.innerHTML=ico(pe&&!pe.paused?'pause':'play');
+    b.title=(pe&&!pe.paused)?'Pause':'Abspielen';});
+  document.querySelectorAll('[data-tr="radio"]').forEach(b=>b.classList.toggle('an',radioAktiv));
 }
 function playerAdvance(){                             // automatisch nach Titel-Ende
   if(sleepTitelende){sleepAusloesen(); return;}      // Sleep-Timer „nach diesem Titel"
@@ -2036,20 +2102,20 @@ function playerAdvance(){                             // automatisch nach Titel-
     if(playerState.idx<playerState.queue.length-1)playerState.idx++;
     renderPlayerMedia(); return;
   }
-  if(playMode==='eins'){renderPlayerMedia(); return;} // gleichen Titel wiederholen
-  if(playMode==='zufall'){
-    if(playerState.queue.length>1){let n; do{n=Math.floor(Math.random()*playerState.queue.length);}while(n===playerState.idx); playerState.idx=n;}
-    renderPlayerMedia(); return;
+  if(playRepeat==='eins'){renderPlayerMedia(); return;}   // gleichen Titel wiederholen
+  if(playShuffle&&playerState.queue.length>1){            // Zufall: anderer Titel als der aktuelle
+    let n; do{n=Math.floor(Math.random()*playerState.queue.length);}while(n===playerState.idx);
+    playerState.idx=n; renderPlayerMedia(); return;
   }
   if(playerState.idx<playerState.queue.length-1){playerState.idx++; renderPlayerMedia();}
-  else if(playMode==='alle'){playerState.idx=0; renderPlayerMedia();}
-  // normal: Ende -> Stopp
+  else if(playRepeat==='alle'){playerState.idx=0; renderPlayerMedia();}
+  // sonst: Ende -> Stopp (auch bei Zufall mit nur 1 Titel — nichts wiederholt sich ungefragt)
 }
 function playMostPlayed(){
   let arr=libdaten.filter(x=>x.vorhanden&&!x.blacklist)
     .sort((a,b)=>(b.plays||0)-(a.plays||0)).slice(0,100).map(x=>x.id);
   if(!arr.length){alert('Noch nichts abgespielt.');return;}
-  if(playMode==='zufall')mische(arr); playerPlay(arr,0);
+  if(playShuffle)mische(arr); playerPlay(arr,0);
 }
 function playLetzte(){                                // „Zuletzt gespielt"
   const arr=libdaten.filter(x=>x.vorhanden&&(x.last_play||0)>0)
@@ -2390,9 +2456,14 @@ function mixeMenu(ev){
 
 /* „Zu Playlist" — Auswahl-Liste direkt am Titel (kein Dropdown-Vorwählen nötig) */
 function plAddListe(m,key){
-  m.innerHTML='<div class="sm-titel">＋ Zu Playlist hinzufügen</div>'+
+  // Ab 9 Playlists erscheint ein Suchfeld (tippen filtert die Liste live).
+  const suche=plState.length>8
+    ?'<input class="km-such" placeholder="Playlist suchen…" onclick="event.stopPropagation()" '+
+     'oninput="const q=this.value.toLowerCase();this.parentNode.querySelectorAll(\\'button[data-pl]\\').forEach(b=>{if(b.dataset.pl!==\\'__neu\\')b.style.display=b.textContent.toLowerCase().includes(q)?\\'\\':\\'none\\'})">'
+    :'';
+  m.innerHTML='<div class="sm-titel">＋ Zu Playlist hinzufügen</div>'+suche+'<div class="km-sub">'+
     plState.map(p=>`<button data-pl="${p.id}">${esc(p.name)} <span style="color:#8a7d74">(${p.items.length})</span></button>`).join('')+
-    '<button data-pl="__neu">＋ Neue Playlist…</button>';
+    '<button data-pl="__neu">＋ Neue Playlist…</button></div>';
   m.querySelectorAll('button').forEach(b=>b.onclick=async(e2)=>{
     e2.stopPropagation();
     let id=b.dataset.pl;
@@ -2482,23 +2553,41 @@ function kontextMenuBauen(pos, eintraege){
   return m;
 }
 
+/* Untermenü in Listenform (JB 13.07.): dasselbe Menü-Element wird mit einer
+   Auswahl-Liste neu gefüllt — Haken zeigt den aktiven Eintrag. */
+function kmListe(m,titel,optionen){                    // optionen: [Label, aktiv?, fn]
+  m.innerHTML='<div class="sm-titel">'+titel+'</div><div class="km-sub">'+
+    optionen.map((o,i)=>`<button data-i="${i}"><span class="km-check"${o[1]?'':' style="visibility:hidden"'}>✓</span>${esc(o[0])}</button>`).join('')+'</div>';
+  m.querySelectorAll('button').forEach(b=>b.onclick=(e2)=>{
+    e2.stopPropagation(); optionen[+b.dataset.i][2](); m.remove();});
+}
+
 /* Rechtsklick im PLAYER: Menü für den laufenden Titel (pausiert nichts, startet nichts neu) */
 function playerKontext(ev){
   ev.preventDefault(); ev.stopPropagation();
   const k=aktKey(); if(!k)return false;
   const x=libFind(k)||{};
   const el=document.getElementById('pl-el');
+  const pos={clientX:ev.clientX, clientY:ev.clientY};   // fürs EQ-Popover an der Mausposition
   const eintraege=[];
   eintraege.push([(el&&!el.paused)?'⏸ Pause':'▶ Weiter', ()=>{if(el){if(el.paused)el.play(); else el.pause();}}]);
   eintraege.push(['⏮ Vorheriger Titel', playerPrev]);
   eintraege.push(['⏭ Nächster Titel', playerNext]);
-  eintraege.push(['＋ Zu Playlist…', (m)=>plAddListe(m,k), 'bleib']);
+  eintraege.push(['＋ Zu Playlist ▸', (m)=>plAddListe(m,k), 'bleib']);
+  // Unterordner in Listenform (JB 13.07.): erst klicken, dann die Auswahl sehen
+  eintraege.push(['📊 Visualizer ▸', (m)=>kmListe(m,'📊 Visualizer',
+    VIZMODES.map(v=>[v[2], v[0]===vizMode, ()=>{vizMode=v[0];
+      try{localStorage.setItem('ytdl_viz',vizMode);}catch(e){} vizModeRender();}])), 'bleib']);
+  eintraege.push(['⚡ Geschwindigkeit ('+playSpeed+'×) ▸', (m)=>kmListe(m,'⚡ Geschwindigkeit',
+    [0.5,0.75,1,1.25,1.5,2].map(s=>[s+'×', s===playSpeed, ()=>{playSpeed=s; speedAnwenden();}])), 'bleib']);
+  eintraege.push(['💬 Untertitel ▸', (m)=>{
+    const opt=SUBMODES.map(sm=>[sm[2], sm[0]===subMode, ()=>subModusSetzen(sm[0])]);
+    if(subSprachen.length>1)opt.push(['🌐 Sprache: '+(subLang||'?')+' → nächste', false, subSpracheWechsel]);
+    if(subCues)opt.push(['あ→a Romaji: '+(subRomaji?'AN':'aus'), subRomaji, subRomajiToggle]);
+    kmListe(m,'💬 Untertitel',opt);}, 'bleib']);
+  eintraege.push(['🎚 Equalizer…', ()=>eqPopover({currentTarget:{getBoundingClientRect:
+    ()=>({left:pos.clientX,right:pos.clientX,top:pos.clientY,bottom:pos.clientY})}})]);
   if(x.vorhanden)eintraege.push(['✂ Ausschnitt schneiden…', ()=>clipDialog(k)]);
-  eintraege.push(['💬 Untertitel / Karaoke wechseln', subCycle]);
-  if(subSprachen.length>1)eintraege.push(['🌐 Untertitel-Sprache: '+(subLang||'?')+' → wechseln', subSpracheWechsel]);
-  if(subCues)eintraege.push(['あ→a Romaji: '+(subRomaji?'AN':'aus'), subRomajiToggle]);
-  eintraege.push(['📊 Visualizer wechseln', vizCycle]);
-  eintraege.push(['⚡ Geschwindigkeit ('+playSpeed+'×) wechseln', speedCycle]);
   if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(k,'ordner')]);
   if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
   eintraege.push(['⧉ In VLC / extern öffnen', playerExtern]);
@@ -2589,7 +2678,7 @@ function playerPlay(keys,start){
 }
 function playGefilterte(){
   let ids=libGefiltert().filter(x=>x.vorhanden).map(x=>x.id);
-  if(playMode==='zufall')mische(ids);
+  if(playShuffle)mische(ids);
   playerPlay(ids,0);
 }
 function aktKey(){return playerState.queue[playerState.idx];}
@@ -2599,11 +2688,9 @@ function playerExtern(){const k=aktKey(); if(k)biblio(k,'extern');}
 
 /* ---- Abspielgeschwindigkeit ---- */
 let playSpeed=1; try{const v=parseFloat(localStorage.getItem('ytdl_speed')); if(v>=0.25&&v<=3)playSpeed=v;}catch(e){}
-const SPEEDS=[1,1.25,1.5,2,0.5,0.75];
-function speedCycle(){const i=SPEEDS.indexOf(playSpeed); playSpeed=SPEEDS[(i+1)%SPEEDS.length]; speedAnwenden();}
 function speedAnwenden(){const el=document.getElementById('pl-el'); if(el)el.playbackRate=playSpeed;
   try{localStorage.setItem('ytdl_speed',playSpeed);}catch(e){}
-  const b=document.getElementById('pl-speed'); if(b)b.textContent=playSpeed+'×';}
+  const b=document.getElementById('plb-speed'); if(b)b.textContent=playSpeed+'×';}
 
 /* ---- Untertitel / Karaoke / Transkript (aus .vtt neben der Datei) ---- */
 const SUBMODES=[['aus','💬','aus'],['zeilen','💬','Untertitel (eine Zeile)'],
@@ -2660,9 +2747,9 @@ function subRomajiToggle(){
 }
 function subAnzeigen(){
   const m=SUBMODES.find(x=>x[0]===subMode)||SUBMODES[0];
-  const b=document.getElementById('pl-sub');
+  const b=document.getElementById('plb-sub');           // Knopf in der Leiste auf dem Video
   if(b){b.textContent=m[1];
-    b.title='Untertitel: '+m[2]+(subCues?(' · '+(subLang||'?')):' — keine auf der Platte (Klick bietet Nachladen an)')+' (klicken zum Wechseln)';
+    b.title='Untertitel: '+m[2]+(subCues?(' · '+(subLang||'?')):' — werden bei Bedarf automatisch geladen')+' (klicken zum Wechseln)';
     b.classList.toggle('an',subMode!=='aus'&&!!subCues);}
   const ov=document.getElementById('pl-sub-anzeige');
   if(ov){ov.className='pl-subzeile'+(subMode==='karaoke'?' karaoke':'');
@@ -2677,19 +2764,27 @@ function subAnzeigen(){
   }
   subIdx=-1;
 }
-async function subCycle(){
-  const i=SUBMODES.findIndex(x=>x[0]===subMode);
-  subMode=SUBMODES[(i+1)%SUBMODES.length][0];
+function subModusSetzen(mode){
+  subMode=mode;
   try{localStorage.setItem('ytdl_submode',subMode);}catch(e){}
-  if(subMode!=='aus'&&!subCues){                       // nichts da -> von YouTube nachladen anbieten
-    const k=aktKey();
-    if(k&&confirm('Für diesen Titel liegen keine Untertitel auf der Platte.\\n\\nJetzt von YouTube nachladen (auch automatisch erzeugte)?')){
-      try{await fetch('/api/untertitel_laden',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});}catch(e){}
-      const info=document.getElementById('plinfo'); if(info)info.textContent='💬 Untertitel werden geladen …';
-      setTimeout(()=>subLaden(k),6000); setTimeout(()=>subLaden(k),15000);
-    }
-  }
+  if(subMode!=='aus'&&!subCues)subNachladen();         // fehlen welche -> still holen, KEIN Popup
   subAnzeigen();
+}
+function subCycle(){
+  const i=SUBMODES.findIndex(x=>x[0]===subMode);
+  subModusSetzen(SUBMODES[(i+1)%SUBMODES.length][0]);
+}
+/* Untertitel fehlen auf der Platte -> automatisch im Hintergrund von YouTube
+   nachladen (JB 13.07.: „Ich will keine Fenster aufploppen sehen"). Je Titel
+   nur einmal pro Sitzung versucht; das Ergebnis holt subLaden zeitversetzt ab. */
+let subAutoVersucht=new Set();
+function subNachladen(){
+  const k=aktKey(); if(!k||subAutoVersucht.has(k))return;
+  subAutoVersucht.add(k);
+  try{fetch('/api/untertitel_laden',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});}catch(e){}
+  const info=document.getElementById('plinfo');
+  if(info)info.textContent='💬 Untertitel werden im Hintergrund von YouTube geladen …';
+  [6000,15000,30000].forEach(t=>setTimeout(()=>{if(aktKey()===k)subLaden(k);},t));
 }
 function subTick(el){
   if(!subCues||subMode==='aus')return;
@@ -2756,8 +2851,9 @@ function eqPopover(ev){
   const alt=document.getElementById('eqpop'); if(alt){alt.remove(); return;}
   const m=document.createElement('div'); m.className='panelmenu'; m.id='eqpop'; m.style.minWidth='240px';
   m.innerHTML='<div class="sm-titel">🎚 Equalizer</div><div class="eq-row">'+
-    EQ_BANDS.map((f,i)=>`<div class="eq-band"><input id="eqsl${i}" class="eq-sl" type="range" min="-12" max="12" step="1" value="${eqWerte[i]||0}" oninput="eqSetzen(${i},this.value)">`+
-      `<span class="eq-val" id="eqval${i}">${(eqWerte[i]>0?'+':'')+(eqWerte[i]||0)}</span><span class="eq-lab">${EQ_LABELS[i]}</span></div>`).join('')+
+    EQ_BANDS.map((f,i)=>`<div class="eq-band"><span class="eq-val" id="eqval${i}">${(eqWerte[i]>0?'+':'')+(eqWerte[i]||0)}</span>`+
+      `<input id="eqsl${i}" class="eq-sl" type="range" min="-12" max="12" step="1" value="${eqWerte[i]||0}" oninput="eqSetzen(${i},this.value)">`+
+      `<span class="eq-lab">${EQ_LABELS[i]} Hz</span></div>`).join('')+
     '</div><div class="eq-presets">'+Object.keys(EQ_PRESETS).map(n=>`<button class="btn mini" onclick="eqPreset('${n}')">${n}</button>`).join('')+'</div>'+
     '<label class="eq-norm"><input type="checkbox" '+(normAn?'checked':'')+' onchange="normSetzen(this.checked)"> 🔊 Lautstärke angleichen (Titel gleich laut)</label>';
   document.body.appendChild(m);
@@ -2801,12 +2897,6 @@ function vizModeRender(){
   const m=VIZMODES.find(x=>x[0]===vizMode)||VIZMODES[0], b=document.getElementById('pl-viz-btn');
   if(b){b.textContent=m[1]; b.title='Visualizer: '+m[2]+' (klicken zum Wechseln)'; b.classList.toggle('an',vizMode!=='aus');}
   const media=document.getElementById('pl-media'); if(media)media.classList.toggle('viz-an',vizMode!=='aus');
-}
-function vizCycle(){
-  const i=VIZMODES.findIndex(m=>m[0]===vizMode);
-  vizMode=VIZMODES[(i+1)%VIZMODES.length][0];
-  try{localStorage.setItem('ytdl_viz',vizMode);}catch(e){}
-  vizModeRender();
 }
 function vizStart(){ if(!vizRAF)vizLoop(); }
 let vizMatrixDrops=null;
@@ -2915,7 +3005,7 @@ function xfNaechsterIndex(){
   let ni=playerState.idx+1;
   if(radioAktiv){ radioNachfuellen(); return ni<playerState.queue.length?ni:-1; }
   if(ni<playerState.queue.length)return ni;
-  return playMode==='alle'?0:-1;                       // „Alle wiederholen" blendet in den Anfang
+  return playRepeat==='alle'?0:-1;                     // „Alle wiederholen" blendet in den Anfang
 }
 function xfIstAudio(key){const x=libFind(key); return !!(x&&x.vorhanden&&((x.kategorie==='MP3')||(!x.vcodec&&x.acodec)));}
 function starteCrossfade(cur, restSek){
@@ -2961,6 +3051,68 @@ function uebergangTick(el){                            // ein Ticker für alle �
     if(rms<0.06||rest<=Math.max(4,crossfadeSek||6)){el._xf=true; starteCrossfade(el,Math.min(rest,crossfadeSek||6));}
   }
 }
+/* ---- Steuerleiste AUF dem Video/Cover (JB 13.07.: „wie bei YouTube, Clip wie
+   bei Twitch") — ersetzt die native Browser-Leiste bei Video UND Audio.
+   Blendet bei Maus-Ruhe aus (nur solange abgespielt wird). ---- */
+let plVol=100; try{const v=parseInt(localStorage.getItem('ytdl_vol'),10); if(v>=0&&v<=100)plVol=v;}catch(e){}
+let plbSeekAktiv=false, plbIdleTimer=null;
+function plBarHTML(istVideo){
+  return `<div class="pl-bar" id="pl-bar">`+
+   `<div class="pl-barseek"><span class="pl-btime" id="plb-t0">0:00</span>`+
+    `<input type="range" id="plb-seek" min="0" max="1000" value="0" title="Spulen" `+
+      `oninput="plbSeekDrag(this.value)" onchange="plbSeekEnd(this.value)" `+
+      `onpointerdown="plbSeekAktiv=true" onpointerup="plbSeekAktiv=false">`+
+    `<span class="pl-btime" id="plb-t1">0:00</span></div>`+
+   `<div class="pl-barrow">`+
+    `<button class="mp-btn mp-tog" data-tr="shuffle" onclick="shuffleToggle()">${ico('shuffle')}</button>`+
+    `<button class="mp-btn" onclick="playerPrev()" title="Vorheriger">${ico('prev')}</button>`+
+    `<button class="mp-btn" data-tr="pp" onclick="plTogglePlay()">${ico('play')}</button>`+
+    `<button class="mp-btn" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
+    `<button class="mp-btn mp-tog" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
+    `<span class="pl-bspacer"></span>`+
+    `<button class="pl-bsp" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
+    `<button class="pl-bsp" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
+    `<button class="pl-bsp" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
+    `<span class="pl-bvolwrap">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
+    (istVideo?`<button class="pl-bsp" onclick="plbFullscreen()" title="Vollbild">⛶</button>`:'')+
+   `</div></div>`;
+}
+function plTogglePlay(){const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}}
+function plbSeekDrag(v){const el=document.getElementById('pl-el'), t=document.getElementById('plb-t0');
+  if(el&&el.duration&&t)t.textContent=zeit(v/1000*el.duration);}
+function plbSeekEnd(v){const el=document.getElementById('pl-el');
+  if(el&&el.duration)el.currentTime=v/1000*el.duration; plbSeekAktiv=false;}
+function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
+  try{localStorage.setItem('ytdl_vol',plVol);}catch(e){}
+  const el=document.getElementById('pl-el'); if(el)el.volume=plVol/100;}
+function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)return;
+  if(document.fullscreenElement)document.exitFullscreen();
+  else if(m.requestFullscreen)m.requestFullscreen();}
+function plbTick(){                                    // Position/Zeit der Leiste nachführen
+  const el=document.getElementById('pl-el'), s=document.getElementById('plb-seek'),
+        t0=document.getElementById('plb-t0'), t1=document.getElementById('plb-t1');
+  if(!s||!t0||!t1)return;
+  if(!el||!el.duration){s.value=0;t0.textContent='0:00';t1.textContent='0:00';return;}
+  if(!plbSeekAktiv){s.value=Math.round(el.currentTime/el.duration*1000);t0.textContent=zeit(el.currentTime);}
+  t1.textContent=zeit(el.duration);
+}
+setInterval(plbTick,500);
+function speedMenu(ev){                                // Geschwindigkeit als Liste (Haken = aktiv)
+  ev.stopPropagation();
+  kmListe(kontextMenuBauen(ev,[]),'⚡ Geschwindigkeit',
+    [0.5,0.75,1,1.25,1.5,2].map(s=>[s+'×', s===playSpeed, ()=>{playSpeed=s; speedAnwenden();}]));
+}
+function plBarIdleInit(media,el){                      // Leiste ruht die Maus -> ausblenden (nur beim Abspielen)
+  clearTimeout(plbIdleTimer);
+  media.classList.remove('baridle');
+  const wecken=()=>{media.classList.remove('baridle'); clearTimeout(plbIdleTimer);
+    plbIdleTimer=setTimeout(()=>{if(!el.paused)media.classList.add('baridle');},2600);};
+  media.onpointermove=wecken;
+  media.onpointerleave=()=>{if(!el.paused)media.classList.add('baridle');};
+  el.addEventListener('pause',()=>media.classList.remove('baridle'));
+  wecken();
+}
+
 function renderPlayerMedia(){
   const media=document.getElementById('pl-media'); if(!media)return;
   const k=aktKey(), x=libFind(k);
@@ -2973,13 +3125,13 @@ function renderPlayerMedia(){
   if(istAudio){
     const t=x.thumb?`<img class="pl-cover" src="${esc(x.thumb)}" style="cursor:pointer" onerror="this.style.display='none'">`:'';
     media.innerHTML=`<canvas id="pl-viz" class="pl-viz"></canvas><div class="pl-vizwrap">${t}</div>`+
-      `<div class="pl-subzeile" id="pl-sub-anzeige" style="display:none"></div>`+
-      (uebernahme?'':`<audio id="pl-el" controls autoplay src="${src}"></audio>`);
-    if(uebernahme){uebernahme.id='pl-el'; uebernahme.controls=true; uebernahme.className=''; media.appendChild(uebernahme);}
+      `<div class="pl-subzeile" id="pl-sub-anzeige" style="display:none"></div>`+plBarHTML(false)+
+      (uebernahme?'':`<audio id="pl-el" autoplay src="${src}"></audio>`);
+    if(uebernahme){uebernahme.id='pl-el'; uebernahme.controls=false; uebernahme.className=''; media.appendChild(uebernahme);}
   }else{
     xfAbbrechen();                                     // Video: kein Crossfade
-    media.innerHTML=`<video id="pl-el" controls autoplay src="${src}"></video>`+
-      `<div class="pl-subzeile" id="pl-sub-anzeige" style="display:none"></div>`;
+    media.innerHTML=`<video id="pl-el" autoplay src="${src}"></video>`+
+      `<div class="pl-subzeile" id="pl-sub-anzeige" style="display:none"></div>`+plBarHTML(true);
   }
   const el=document.getElementById('pl-el');
   if(el){
@@ -2988,12 +3140,13 @@ function renderPlayerMedia(){
     el.addEventListener('play',cmdNowRender); el.addEventListener('pause',cmdNowRender);
     el.addEventListener('timeupdate',()=>subTick(el));   // Untertitel/Karaoke mitlaufen lassen
     if(istAudio)el.addEventListener('timeupdate',()=>uebergangTick(el));   // Gapless/Crossfade/Automix
-    // Klick IRGENDWO in die Player-Fläche = Pause/Play (native Steuerleisten ausgenommen)
+    try{el.volume=plVol/100;}catch(e){}                   // gemerkte Lautstärke anwenden
+    // Klick IRGENDWO in die Player-Fläche = Pause/Play (unsere Leiste ausgenommen)
     media.onclick=ev=>{
-      if(ev.target.tagName==='AUDIO')return;           // Audio-Steuerleiste nicht kapern
-      if(el.tagName==='VIDEO'){const r=el.getBoundingClientRect(); if(ev.clientY>=r.bottom-42)return;}  // Video-Steuerleiste
+      if(ev.target.closest&&ev.target.closest('.pl-bar'))return;
       if(el.paused)el.play(); else el.pause();
     };
+    plBarIdleInit(media,el);                              // Leiste blendet bei Maus-Ruhe aus (YouTube-Stil)
   }
   if(el && istAudio){ vizVerbinde(el); vizFarbeAktualisieren(); vizModeRender(); vizStart(); }
   else{ media.classList.remove('viz-an'); }             // Video: kein Visualizer-Overlay
@@ -3088,7 +3241,7 @@ async function plAdd(key){
 }
 function plPlaySel(){const id=document.getElementById('plsel').value; const p=plState.find(x=>x.id===id);
   if(!p||!p.items.length){alert('Playlist ist leer oder nicht gewählt.');return;}
-  let ids=p.items.slice(); if(playMode==='zufall')mische(ids); playerPlay(ids,0);}
+  let ids=p.items.slice(); if(playShuffle)mische(ids); playerPlay(ids,0);}
 function plExport(){
   const id=document.getElementById('plsel').value;
   if(!id){alert('Bitte oben eine Playlist wählen.');return;}
@@ -3166,7 +3319,7 @@ L.panels.forEach(p=>merkeView(p.id,p.active));   // Start-Stationen in den Verla
 layoutSelectFuellen();
 einstellungenModalInit();                        // Einstellungs-Karte ins Modal umziehen
 playerLayoutSet();
-playModeRender();
+transportRender();
 vizFarbeAktualisieren(); vizModeRender();
 cmdNowRender();
 laden();
