@@ -17,7 +17,8 @@ AUFBAU (Banner mit ==== markieren die Hauptbereiche, ---- die Unterbereiche):
             · #stash mit den Views: add/queue/done/log/lib/player
 
   <script>  Helfer (esc/mb/zeit) · Looks/Skins · Optionen-Zahnrad
-            · Panels/Docking/Snapping + Ansicht-Verlauf (Mausrad) + Layouts + Mini
+            · Panels/Docking/Snapping + Ansicht-Verlauf (Mausrad) + Layouts
+              (Vorlagen/Meine/↩ Vorheriges = Verlust-Schutz wie im Dashboard) + Mini
             · Warteschlange/Status (laden/malen) · Fernsteuerung · Log
             · Command-Bar-Logik + Drag&Drop-Link · Abos · Smart-Playlists · Dubletten
             · Geo/VPN-Assistent · Bibliothek (Ansichten/Spalten/Auswahl/Alben)
@@ -524,10 +525,22 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
 .pl-bvol{width:64px;height:10px;accent-color:#fff;cursor:pointer;margin:0}
 /* Untermenüs im Rechtsklick-Menü: Liste mit Haken + optionales Suchfeld */
 .km-check{color:var(--akz2);margin-right:6px}
-.km-sub{max-height:240px;overflow-y:auto}
+/* WICHTIG: flex-column, sonst fließen die <button> als inline-Blöcke NEBENEINANDER */
+.km-sub{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
+.km-sub button{text-align:left}
 .km-such{display:block;width:calc(100% - 12px);box-sizing:border-box;margin:4px 6px;background:#0e0c0a;
   border:1px solid var(--panelln);border-radius:6px;color:#e7dccf;padding:4px 8px;font-size:12px}
 html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
+/* Windows-artiges Ausklappen: Eintrag mit ▸ rechts, Flyout erscheint daneben */
+.km-hatsub{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.km-pfeil{color:#8a7d74;font-size:10px;flex:none}
+.km-flyout{min-width:180px}
+/* YouTube-Knöpfe + Lautstärke im Mini-Player */
+.mp-vol{margin-left:auto;color:#8a7d74}
+.mp-vol .pl-bvol{accent-color:var(--akz)}
+.mp-yt svg{width:20px;height:20px}
+.pl-byt{display:inline-flex;align-items:center;gap:5px}
+.pl-byt svg{width:15px;height:15px;fill:currentColor;display:block}
 .muted2{font-size:12px;color:#8a7d74}
 .pl-queue{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;flex:none}
 .pl-item{font-size:12px;color:#d7c7bd;padding:4px 7px;border-radius:6px;cursor:pointer;overflow:hidden;
@@ -645,10 +658,11 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <select id="layoutsel" onchange="layoutWaehlen(this.value)" title="Vorlagen &amp; deine gespeicherten Layouts"></select>
   <button class="btn mini" onclick="layoutSpeichern()" title="Aktuelle Fenster-Anordnung unter einem Namen speichern">💾 Speichern</button>
   <button class="btn mini" onclick="layoutLoeschen()" title="Das gewählte gespeicherte Layout löschen">🗑</button>
+  <button class="btn mini" onclick="layoutVorheriges()" title="Vorherige Fenster-Anordnung zurückholen — nochmal klicken wechselt wieder vor">↩ Vorheriges</button>
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 39</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 40</span>
 </div>
 
 <div id="canvas"></div>
@@ -666,7 +680,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legrow"><b>Strg-/Shift-Klick</b> in der Bibliothek = mehrere markieren (Leiste mit Sammel-Aktionen erscheint)</div>
       <div class="legsec">▶ Player</div>
       <div class="legrow">Steuerung liegt <b>auf dem Video/Cover</b> (erscheint bei Mausbewegung): Zufall 🔀 und Wiederholen 🔁 sind <b>getrennte Schalter</b> — farbig mit Punkt = an, 🔁 nochmal klicken = nur diesen Titel (Zeichen zeigt eine kleine 1)</div>
-      <div class="legrow">Rechts auf der Leiste: <b>💬</b> Untertitel/Karaoke (werden bei Bedarf automatisch geladen) · <b>✂</b> Clip schneiden · <b>1×</b> Geschwindigkeit · 🔊 Lautstärke · <b>⛶</b> Vollbild</div>
+      <div class="legrow">Rechts auf der Leiste: <b>💬</b> Untertitel/Karaoke (werden bei Bedarf automatisch geladen) · <b>✂</b> Clip schneiden · <b>1×</b> Geschwindigkeit · 🔊 Lautstärke · <b>YouTube</b> öffnet das Video im Browser · <b>⛶</b> Vollbild</div>
       <div class="legrow"><b>Rechtsklick in den Player</b> = alles Weitere: Visualizer-Liste, Geschwindigkeit, Untertitel-Sprachen, Equalizer, Playlist, VLC …</div>
       <div class="legsec">📚 Bibliothek</div>
       <div class="legrow"><b>▶</b> abspielen · <b>＋</b> zu Playlist (Liste wählen) · <b>📁</b> im Ordner zeigen · <b>⋯</b> mehr · <b>⊞/▤/☰</b> Kacheln/Alben/Liste · <b>⚙ Ansicht</b> Filter &amp; Werkzeuge</div>
@@ -800,6 +814,13 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
           Gratis-Proxys → VPN (NordVPN/Windscribe/WireGuard, falls vorhanden). Ohne Einrichtung greifen die
           kostenlosen Stufen; mit eigenen Proxys/VPN wird es zuverlässiger. Über fremde Proxys werden NIE
           deine Konto-Cookies gesendet. „Entfernen“ löscht nur den Listeneintrag, nie Dateien.</div>
+        <div class="zeile" style="margin-top:10px"><b>🧩 Browser-Erweiterung</b></div>
+        <div class="hinweis">Schickt YouTube-Videos per Rechtsklick oder Hover-Knopf direkt hierher
+          (auch über das Tray-Menü erreichbar).
+          <a id="addon_lokal" href="/addon.xpi" style="display:none;color:var(--akz2)">🦊 Firefox: jetzt installieren</a>
+          <a href="https://github.com/schn4ppi/SyncYouTube/releases/latest" target="_blank" rel="noreferrer"
+             style="color:var(--akz2)">Alle Browser: neueste Version auf GitHub</a>.
+          Falls Firefox die Datei nur herunterlädt: einfach auf about:addons ziehen.</div>
     </div>
   </div>
 
@@ -1039,7 +1060,7 @@ function ensurePlayer(){
   p.active='player'; bringFront(p); merkeView(p.id,'player'); renderPanels(); return p;
 }
 function saveLayout(){try{localStorage.setItem(LKEY,JSON.stringify(L));}catch(e){}}
-function layoutReset(){L=defaultLayout();renderPanels();}
+function layoutReset(){layoutMerken();L=defaultLayout();renderPanels();}
 function panelEl(id){return document.querySelector('.panel[data-id="'+id+'"]');}
 function bringFront(p){p.zi=++L.z;const el=panelEl(p.id);if(el)el.style.zIndex=p.zi;}
 
@@ -1139,8 +1160,23 @@ function panelMenu(id,btn){
     if(!m.contains(ev.target)){m.remove(); document.removeEventListener('pointerdown',zu);}},true),0);
 }
 
+/* ---- Verlust-Schutz (JB 13.07.2026, wie im Dashboard — ein System): vor jedem Layout-
+   Wechsel (Vorlage, eigenes Layout, Aufräumen, Reset) wird die aktuelle Anordnung gemerkt.
+   ↩ Vorheriges TAUSCHT mit der gemerkten -> nochmal ↩ wechselt wieder vor.
+   Nichts geht mit EINEM Klick verloren. ---- */
+const LPREV='ytdl_layout_prev_v1';
+function layoutMerken(){try{localStorage.setItem(LPREV,JSON.stringify(L));}catch(e){}}
+function layoutVorheriges(){
+  let prev=null; try{prev=JSON.parse(localStorage.getItem(LPREV)||'null');}catch(e){}
+  if(!prev||!prev.panels||!prev.panels.length){alert('Noch kein vorheriges Layout gemerkt — es wird bei jedem Layout-Wechsel automatisch gesichert.');return;}
+  const cur=JSON.stringify(L);
+  L=prev; renderPanels(); saveLayout();
+  try{localStorage.setItem(LPREV,cur);}catch(e){}
+}
+
 /* ---- Layout-Vorlagen ---- */
 function layoutAufraeumen(){
+  layoutMerken();
   const bw=Math.max(320,window.innerWidth-20), n=L.panels.length||1;
   const cols=Math.min(n, bw>1180?3:(bw>760?2:1)), rows=Math.ceil(n/cols), gap=Math.max(10,fensterAbstand());
   const cw=Math.floor((bw-(cols-1)*gap)/cols);
@@ -1150,6 +1186,7 @@ function layoutAufraeumen(){
   renderPanels();
 }
 function layoutVorlage(name){
+  layoutMerken();
   const bw=Math.max(320,window.innerWidth-20);
   if(name==='youtube'){
     const vidW=Math.round(bw*0.60), sideW=bw-vidW-24, H=Math.max(560,window.innerHeight-110);
@@ -1181,7 +1218,7 @@ function layoutWaehlen(v){
   if(!v)return;
   if(v.startsWith('v:'))layoutVorlage(v.slice(2));
   else if(v.startsWith('m:')){const l=meineLayouts()[v.slice(2)];
-    if(l){L=JSON.parse(JSON.stringify(l)); renderPanels(); saveLayout();}}
+    if(l){layoutMerken(); L=JSON.parse(JSON.stringify(l)); renderPanels(); saveLayout();}}
 }
 function layoutSpeichern(){
   const n=prompt('Name für diese Fenster-Anordnung:'); if(!n||!n.trim())return;
@@ -1448,6 +1485,7 @@ function malen(){
     fertig.length?fertig.slice().reverse().map(reihe).join(''):'<div class="leer">Noch nichts fertig.</div>';
   counterMalen(z);
   const fw=document.getElementById('ffwarn'); if(fw)fw.style.display=daten.ffmpeg?'none':'';   // ffmpeg-Warnung sichtbar!
+  const al=document.getElementById('addon_lokal'); if(al)al.style.display=daten.addon_xpi?'':'none';
   cmdQueueRender(items); cmdNowRender();               // Command-Bar oben mitversorgen
   logDiff(items);                                      // Ereignisse in den Log schreiben
   autotagStatus();                                     // Auto-Tagging-Fortschritt anzeigen
@@ -1639,6 +1677,8 @@ function cmdNowRender(){
     `<button class="mp-btn" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
     `<button class="mp-btn mp-tog" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
     `<button class="mp-btn mp-tog mp-radio" data-tr="radio" onclick="radioStart()" title="📻 Radio — endloser Mix aus deiner Bibliothek">📻</button>`+
+    `<span class="pl-bvolwrap mp-vol">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
+    `<button class="mp-btn mp-yt" onclick="playerYoutube()" title="Diesen Titel auf YouTube öffnen">${ico('yt')}</button>`+
     `</div>`+titel+
     `<div class="cmd-seekline"><span class="cmd-time" id="cmd-t0">0:00</span>`+
     `<input type="range" id="cmd-seek" min="0" max="1000" value="0" disabled `+
@@ -1673,14 +1713,27 @@ function cmdPlayPause(){
   if(pe.paused)pe.play(); else pe.pause();
   cmdNowRender();
 }
-/* Zwischenablage-Wächter (JDownloader-Stil): YouTube-Link erkannt -> anbieten */
+/* Zwischenablage-Wächter (JDownloader-Stil): YouTube-Link erkannt -> anbieten.
+   WICHTIG: nur lesen, wenn der Browser das OHNE Rückfrage erlaubt — sonst zeigt
+   z.B. Firefox bei jedem Fenster-Fokus ein „Einfügen"-Popup an der Maus, das
+   den ersten Klick/Rechtsklick schluckt (JB 13.07.). Wo die Erlaubnis fehlt,
+   greift stattdessen die Einfügen-Erkennung: Strg+V irgendwo in der App. */
 let cmdClipLast='';
 async function cmdClipCheck(){
   try{
+    if(!navigator.permissions)return;
+    const p=await navigator.permissions.query({name:'clipboard-read'});
+    if(p.state!=='granted')return;                     // würde nachfragen -> lieber gar nicht
     const t=((await navigator.clipboard.readText())||'').trim();
     if(t&&t!==cmdClipLast&&/(?:youtube\\.com|youtu\\.be)\\//i.test(t)){cmdClipLast=t; cmdClipZeigen(t);}
-  }catch(e){}                                          // keine Berechtigung/kein Fokus -> still ignorieren
+  }catch(e){}                                          // Browser kennt die Abfrage nicht (Firefox) -> still lassen
 }
+document.addEventListener('paste',(e)=>{               // Strg+V in der App = Link anbieten
+  try{
+    const t=((e.clipboardData||{}).getData('text')||'').trim();
+    if(t&&/(?:youtube\\.com|youtu\\.be)\\//i.test(t)&&(e.target||{}).id!=='cmd-url'){cmdClipLast=t; cmdClipZeigen(t);}
+  }catch(e2){}
+});
 function cmdClipZeigen(url){
   const b=document.getElementById('cmd-clip'); if(!b)return;
   b.style.display='flex';
@@ -2061,7 +2114,8 @@ const ICONS={
   next:'M16 6h2v12h-2zM6 6l8.5 6L6 18z',
   shuffle:'M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z',
   repeat:'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z',
-  repeat1:'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z'};
+  repeat1:'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z',
+  yt:'M21.6 7.2c-.2-.9-.9-1.6-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4c-.9.2-1.6.9-1.8 1.8C2 8.8 2 12 2 12s0 3.2.4 4.8c.2.9.9 1.6 1.8 1.8 1.6.4 7.8.4 7.8.4s6.2 0 7.8-.4c.9-.2 1.6-.9 1.8-1.8.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8zM10 15V9l5.2 3z'};
 function ico(n){return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+ICONS[n]+'"/></svg>';}
 let playShuffle=false, playRepeat='aus';               // 'aus' | 'alle' | 'eins'
 try{
@@ -2416,8 +2470,11 @@ function aktBtnsKachel(x){
   return b;
 }
 /* ---- Menü-Werkzeuge (Explorer-Stil) ---- */
-function menuSchliesser(m){                            // Außenklick schließt das Menü
-  setTimeout(()=>{const zu=(e2)=>{if(!m.contains(e2.target)){m.remove(); document.removeEventListener('pointerdown',zu,true);}};
+function menuSchliesser(m){                            // Außenklick schließt Menü + offene Flyouts
+  setTimeout(()=>{const zu=(e2)=>{
+    if(!(e2.target.closest&&e2.target.closest('.itemmenu'))){
+      document.querySelectorAll('.itemmenu').forEach(x=>x.remove());
+      document.removeEventListener('pointerdown',zu,true);}};
     document.addEventListener('pointerdown',zu,true);},0);
 }
 function aktionsMenu(ev,eintraege){                    // generisches Klick-Menü an einem Knopf
@@ -2535,32 +2592,68 @@ function dragAttrs(id){                                // nur in der Playlist-An
 
 /* Generischer Menü-Bauer: an Mausposition (clientX) oder an einem Knopf (currentTarget).
    Einträge mit drittem Element 'bleib' tauschen nur den Inhalt (Untermenü). */
+/* Kontextmenü mit Windows-Ausklapp-Untermenüs (JB 13.07.): Einträge der Form
+   [Label, fn] klicken normal; [Label, optionenOderFunktion, 'sub'] zeigen ▸
+   und klappen bei Hover/Klick RECHTS DANEBEN ein Flyout aus (Haken = aktiv). */
 function kontextMenuBauen(pos, eintraege){
   document.querySelectorAll('.itemmenu').forEach(m=>m.remove());
   const m=document.createElement('div'); m.className='itemmenu';
-  m.innerHTML=eintraege.map((e,i)=>`<button data-i="${i}">${e[0]}</button>`).join('');
+  m.innerHTML=eintraege.map((e,i)=>e[2]==='sub'
+    ?`<button data-i="${i}" class="km-hatsub">${e[0]}<span class="km-pfeil">▸</span></button>`
+    :`<button data-i="${i}">${e[0]}</button>`).join('');
   document.body.appendChild(m);
   const r=(pos.clientX!==undefined)
     ?{left:pos.clientX,right:pos.clientX,top:pos.clientY,bottom:pos.clientY}
     :pos.currentTarget.getBoundingClientRect();
   popoverBei(m,r);
-  m.querySelectorAll('button').forEach(b=>b.onclick=(e2)=>{
-    e2.stopPropagation(); const ent=eintraege[+b.dataset.i];
-    if(ent[2]==='bleib'){ent[1](m); return;}
-    ent[1](); m.remove();
+  let flyTimer=null;
+  const flyZu=()=>document.querySelectorAll('.km-flyout').forEach(f=>f.remove());
+  const flyAuf=(b,ent)=>{
+    flyZu();
+    const f=document.createElement('div'); f.className='itemmenu km-flyout';
+    const opt=(typeof ent[1]==='function')?ent[1]():ent[1];   // Optionen erst beim Öffnen holen (frischer Zustand)
+    kmFuellen(f, ent[0].replace(' ▸',''), opt, ()=>{flyZu(); m.remove();});
+    document.body.appendChild(f);
+    const br=b.getBoundingClientRect(), mr=m.getBoundingClientRect();
+    let left=mr.right+2;                                      // rechts daneben; kein Platz -> links
+    if(left+f.offsetWidth>window.innerWidth-8)left=Math.max(8, mr.left-f.offsetWidth-2);
+    const top=Math.max(8, Math.min(br.top-4, window.innerHeight-f.offsetHeight-8));
+    f.style.left=left+'px'; f.style.top=top+'px';
+  };
+  m.querySelectorAll('button').forEach(b=>{
+    const ent=eintraege[+b.dataset.i];
+    if(ent[2]==='sub'){
+      b.onmouseenter=()=>{clearTimeout(flyTimer); flyTimer=setTimeout(()=>flyAuf(b,ent),150);};
+      b.onmouseleave=()=>clearTimeout(flyTimer);
+      b.onclick=(e2)=>{e2.stopPropagation(); flyAuf(b,ent);};
+    }else{
+      b.onmouseenter=()=>{clearTimeout(flyTimer); flyTimer=setTimeout(flyZu,300);};
+      b.onmouseleave=()=>clearTimeout(flyTimer);
+      b.onclick=(e2)=>{
+        e2.stopPropagation();
+        if(ent[2]==='bleib'){ent[1](m); return;}
+        ent[1](); flyZu(); m.remove();
+      };
+    }
   });
   menuSchliesser(m);
   return m;
 }
 
-/* Untermenü in Listenform (JB 13.07.): dasselbe Menü-Element wird mit einer
-   Auswahl-Liste neu gefüllt — Haken zeigt den aktiven Eintrag. */
-function kmListe(m,titel,optionen){                    // optionen: [Label, aktiv?, fn]
-  m.innerHTML='<div class="sm-titel">'+titel+'</div><div class="km-sub">'+
+/* Füllt ein Menü-Element mit einer Auswahl-Liste: Haken = aktiv, ab 9 Einträgen
+   erscheint ein Suchfeld (JB-Frage Playlists: kostet nichts, kommt nur bei Bedarf). */
+function kmFuellen(f,titel,optionen,fertig){           // optionen: [Label, aktiv?, fn]
+  const suche=optionen.length>8?'<input class="km-such" placeholder="Suchen…">':'';
+  f.innerHTML='<div class="sm-titel">'+titel+'</div>'+suche+'<div class="km-sub">'+
     optionen.map((o,i)=>`<button data-i="${i}"><span class="km-check"${o[1]?'':' style="visibility:hidden"'}>✓</span>${esc(o[0])}</button>`).join('')+'</div>';
-  m.querySelectorAll('button').forEach(b=>b.onclick=(e2)=>{
-    e2.stopPropagation(); optionen[+b.dataset.i][2](); m.remove();});
+  const inp=f.querySelector('.km-such');
+  if(inp){inp.onclick=(e)=>e.stopPropagation();
+    inp.oninput=()=>{const q=inp.value.toLowerCase();
+      f.querySelectorAll('.km-sub button').forEach(b=>{b.style.display=b.textContent.toLowerCase().includes(q)?'':'none';});};}
+  f.querySelectorAll('.km-sub button').forEach(b=>b.onclick=(e2)=>{
+    e2.stopPropagation(); optionen[+b.dataset.i][2](); fertig();});
 }
+function kmListe(m,titel,optionen){kmFuellen(m,titel,optionen,()=>m.remove());}
 
 /* Rechtsklick im PLAYER: Menü für den laufenden Titel (pausiert nichts, startet nichts neu) */
 function playerKontext(ev){
@@ -2573,18 +2666,17 @@ function playerKontext(ev){
   eintraege.push([(el&&!el.paused)?'⏸ Pause':'▶ Weiter', ()=>{if(el){if(el.paused)el.play(); else el.pause();}}]);
   eintraege.push(['⏮ Vorheriger Titel', playerPrev]);
   eintraege.push(['⏭ Nächster Titel', playerNext]);
-  eintraege.push(['＋ Zu Playlist ▸', (m)=>plAddListe(m,k), 'bleib']);
-  // Unterordner in Listenform (JB 13.07.): erst klicken, dann die Auswahl sehen
-  eintraege.push(['📊 Visualizer ▸', (m)=>kmListe(m,'📊 Visualizer',
-    VIZMODES.map(v=>[v[2], v[0]===vizMode, ()=>{vizMode=v[0];
-      try{localStorage.setItem('ytdl_viz',vizMode);}catch(e){} vizModeRender();}])), 'bleib']);
-  eintraege.push(['⚡ Geschwindigkeit ('+playSpeed+'×) ▸', (m)=>kmListe(m,'⚡ Geschwindigkeit',
-    [0.5,0.75,1,1.25,1.5,2].map(s=>[s+'×', s===playSpeed, ()=>{playSpeed=s; speedAnwenden();}])), 'bleib']);
-  eintraege.push(['💬 Untertitel ▸', (m)=>{
+  // Untermenüs klappen wie in Windows RECHTS aus (Hover oder Klick), Haken = aktiv
+  eintraege.push(['＋ Zu Playlist', ()=>plOptionen(k), 'sub']);
+  eintraege.push(['📊 Visualizer', ()=>VIZMODES.map(v=>[v[2], v[0]===vizMode, ()=>{vizMode=v[0];
+      try{localStorage.setItem('ytdl_viz',vizMode);}catch(e){} vizModeRender();}]), 'sub']);
+  eintraege.push(['⚡ Geschwindigkeit ('+playSpeed+'×)', ()=>
+    [0.5,0.75,1,1.25,1.5,2].map(s=>[s+'×', s===playSpeed, ()=>{playSpeed=s; speedAnwenden();}]), 'sub']);
+  eintraege.push(['💬 Untertitel', ()=>{
     const opt=SUBMODES.map(sm=>[sm[2], sm[0]===subMode, ()=>subModusSetzen(sm[0])]);
     if(subSprachen.length>1)opt.push(['🌐 Sprache: '+(subLang||'?')+' → nächste', false, subSpracheWechsel]);
     if(subCues)opt.push(['あ→a Romaji: '+(subRomaji?'AN':'aus'), subRomaji, subRomajiToggle]);
-    kmListe(m,'💬 Untertitel',opt);}, 'bleib']);
+    return opt;}, 'sub']);
   eintraege.push(['🎚 Equalizer…', ()=>eqPopover({currentTarget:{getBoundingClientRect:
     ()=>({left:pos.clientX,right:pos.clientX,top:pos.clientY,bottom:pos.clientY})}})]);
   if(x.vorhanden)eintraege.push(['✂ Ausschnitt schneiden…', ()=>clipDialog(k)]);
@@ -2685,6 +2777,7 @@ function aktKey(){return playerState.queue[playerState.idx];}
 function playerNext(){if(playerState.idx<playerState.queue.length-1){playerState.idx++;renderPlayerMedia();}}
 function playerPrev(){if(playerState.idx>0){playerState.idx--;renderPlayerMedia();}}
 function playerExtern(){const k=aktKey(); if(k)biblio(k,'extern');}
+function playerYoutube(){const x=libFind(aktKey()); if(x&&x.url)window.open(x.url,'_blank','noreferrer');}
 
 /* ---- Abspielgeschwindigkeit ---- */
 let playSpeed=1; try{const v=parseFloat(localStorage.getItem('ytdl_speed')); if(v>=0.25&&v<=3)playSpeed=v;}catch(e){}
@@ -3074,6 +3167,7 @@ function plBarHTML(istVideo){
     `<button class="pl-bsp" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
     `<button class="pl-bsp" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
     `<span class="pl-bvolwrap">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
+    `<button class="pl-bsp pl-byt" onclick="playerYoutube()" title="Dieses Video auf YouTube öffnen">${ico('yt')} YouTube</button>`+
     (istVideo?`<button class="pl-bsp" onclick="plbFullscreen()" title="Vollbild">⛶</button>`:'')+
    `</div></div>`;
 }
@@ -3084,7 +3178,9 @@ function plbSeekEnd(v){const el=document.getElementById('pl-el');
   if(el&&el.duration)el.currentTime=v/1000*el.duration; plbSeekAktiv=false;}
 function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
   try{localStorage.setItem('ytdl_vol',plVol);}catch(e){}
-  const el=document.getElementById('pl-el'); if(el)el.volume=plVol/100;}
+  const el=document.getElementById('pl-el'); if(el)el.volume=plVol/100;
+  // Mini-Player- und Video-Leisten-Regler zeigen immer denselben Stand
+  document.querySelectorAll('.pl-bvol').forEach(s=>{if(+s.value!==plVol)s.value=plVol;});}
 function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)return;
   if(document.fullscreenElement)document.exitFullscreen();
   else if(m.requestFullscreen)m.requestFullscreen();}
@@ -3221,6 +3317,18 @@ async function plRemove(key){
   libMalen();
 }
 async function plApi(body){await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); await plLaden();}
+/* Playlist-Optionen fürs Ausklapp-Untermenü (kmFuellen zeigt ab 9 automatisch die Suche) */
+function plOptionen(key){
+  const rein=async(id)=>{await plApi({art:'add',id,key});
+    const p=plState.find(x=>x.id===id), t=libFind(key), info=document.getElementById('plinfo');
+    if(p&&info)info.textContent='„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓';};
+  const opt=plState.map(p=>[p.name+' ('+p.items.length+')', false, ()=>rein(p.id)]);
+  opt.push(['＋ Neue Playlist…', false, async()=>{
+    const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim())return;
+    await plApi({art:'create',name:n.trim()});
+    const id=(plState[plState.length-1]||{}).id; if(id)rein(id);}]);
+  return opt;
+}
 async function plCreate(){const n=prompt('Name der neuen Playlist:'); if(n&&n.trim()){await plApi({art:'create',name:n.trim()});
   const neu=plState[plState.length-1]; if(neu){document.getElementById('plsel').value=neu.id; plMalen();}}}
 async function plDelete(){const id=document.getElementById('plsel').value; if(!id)return;

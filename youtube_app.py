@@ -1455,6 +1455,13 @@ def db_statistik():
     return {"gesamt": len(_geladen), "kategorien": kat}
 
 
+def _addon_xpi_pfad():
+    """Neueste signierte Browser-Erweiterung neben dem Code (browser-addon/dist),
+    falls vorhanden — die App bietet sie dann unter /addon.xpi zur Installation an."""
+    treffer = sorted(glob.glob(os.path.join(SCRIPT_DIR, "browser-addon", "dist", "*.xpi")))
+    return treffer[-1] if treffer else ""
+
+
 def _als_uebersprungen(item, fundpfad):
     item["status"] = "uebersprungen"
     item["datei"] = fundpfad
@@ -1897,7 +1904,23 @@ class Handler(BaseHTTPRequestHandler):
                                      "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_pfad()),
                                      "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
                                      "remote": _remote, "fernsteuerung": fernsteuerung_info(),
-                                     "autotag": _autotag, "jetzt": time.time()})
+                                     "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
+                                     "jetzt": time.time()})
+        elif self.path == "/addon.xpi":
+            # Signierte Firefox-Erweiterung direkt aus der App installieren —
+            # richtiger MIME-Typ, damit Firefox den Installations-Dialog zeigt.
+            p = _addon_xpi_pfad()
+            if not p:
+                return _antwort(self, 404, {"fehler": "Keine signierte Erweiterung da "
+                                            "(browser-addon/dist/*.xpi fehlt)."})
+            with open(p, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-xpinstall")
+            self.send_header("Content-Length", str(len(body)))
+            _cors(self)
+            self.end_headers()
+            self.wfile.write(body)
         elif self.path == "/api/bibliothek":
             with _io_lock:
                 _antwort(self, 200, {"items": bibliothek_liste()})
@@ -2278,9 +2301,16 @@ def _tray_icon(url):
     def beenden(icon=None, item=None):
         icon.stop()
 
+    def erweiterung(icon=None, item=None):
+        # Dezenter Weg zur Browser-Erweiterung (JB 13.07.: nicht übergriffig):
+        # lokal vorhandene signierte .xpi direkt anbieten, sonst die Release-Seite.
+        webbrowser.open(url + "/addon.xpi" if _addon_xpi_pfad()
+                        else "https://github.com/schn4ppi/SyncYouTube/releases/latest")
+
     menu = pystray.Menu(
         pystray.MenuItem("Öffnen", oeffnen, default=True),
         pystray.MenuItem("Downloads-Ordner", ordner),
+        pystray.MenuItem("Browser-Erweiterung installieren…", erweiterung),
         pystray.MenuItem("Beenden", beenden),
     )
     return pystray.Icon("ytdl", img, "YouTube-Downloader", menu)
