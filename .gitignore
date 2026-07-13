@@ -1,6 +1,8 @@
 # WHITELIST-Prinzip: standardmäßig ist ALLES ausgeschlossen, nur Code/Doku
 # wird einzeln freigegeben — JBs Daten (Downloads, Configs, Warteschlange,
 # Zugangscodes) können so NIE versehentlich committet werden.
+# Struktur seit 14.07.2026 (JB-Ordnerstandard): Startdateien + Downloads oben,
+# alles Technische in System\.
 *
 !*/
 
@@ -8,30 +10,31 @@
 !.gitignore
 !LICENSE
 !README.md
-!_ARCHITEKTUR.md
 !_LIESMICH.txt
-!youtube_app.py
-!oberflaeche.py
-!handy.py
-!geo.py
-!vpn.py
-!YouTube-Downloader.bat
-!YouTube-Downloader (ohne Fenster).vbs
-!tests/*.py
-!browser-addon/build.py
-!browser-addon/amo_sign.py
-!browser-addon/manifest.base.json
-!browser-addon/README.md
-!browser-addon/STORE.md
-!browser-addon/.gitignore
-!browser-addon/shared/*
-!browser-addon/shared/icons/*
+!SyncYouTube.bat
+!SyncYouTube (ohne Fenster).vbs
+!System/_ARCHITEKTUR.md
+!System/youtube_app.py
+!System/oberflaeche.py
+!System/handy.py
+!System/geo.py
+!System/vpn.py
+!System/tests/*.py
+!System/browser-addon/build.py
+!System/browser-addon/amo_sign.py
+!System/browser-addon/manifest.base.json
+!System/browser-addon/README.md
+!System/browser-addon/STORE.md
+!System/browser-addon/.gitignore
+!System/browser-addon/shared/*
+!System/browser-addon/shared/icons/*
 
 # --- hart gesperrt (auch falls oben je gelockert wird) ---
 Downloads/
-bin/
-browser-addon/dist/
-firefox-addon/
+System/bin/
+System/browser-addon/dist/
+System/firefox-addon/
+System/dist_exe/
 __pycache__/
 *.json.defekt
 *.part

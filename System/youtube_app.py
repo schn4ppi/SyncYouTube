@@ -36,10 +36,15 @@ __version__ = "1.0.1"
 
 # Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
 # Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
+# JB-Ordnerstandard: Quellcode + Technik liegen in System\, der Downloads-Ordner
+# (extern) eine Ebene darüber im Programmordner. Bei der exe ist beides die
+# exe-Ebene (exe liegt oben im Programmordner).
 if getattr(sys, "frozen", False):
     SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.executable))
+    PROGRAMM_DIR = SCRIPT_DIR
 else:
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))        # System\
+    PROGRAMM_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, ".."))
 CONFIG_PFAD = os.path.join(SCRIPT_DIR, "config.json")
 QUEUE_PFAD = os.path.join(SCRIPT_DIR, "warteschlange.json")
 GELADEN_PFAD = os.path.join(SCRIPT_DIR, "geladen_log.json")  # „Datenbank" fertiger Downloads
@@ -248,11 +253,11 @@ CFG = config_laden()
 
 
 def ziel_ordner():
-    pfad = CFG.get("ziel_ordner") or os.path.join(SCRIPT_DIR, "Downloads")
+    pfad = CFG.get("ziel_ordner") or os.path.join(PROGRAMM_DIR, "Downloads")
     try:
         os.makedirs(pfad, exist_ok=True)
     except OSError:
-        pfad = os.path.join(SCRIPT_DIR, "Downloads")
+        pfad = os.path.join(PROGRAMM_DIR, "Downloads")
         os.makedirs(pfad, exist_ok=True)
     return pfad
 
