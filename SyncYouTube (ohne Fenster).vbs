@@ -5,4 +5,4 @@ Dim sh, fso, base
 Set sh = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 base = fso.GetParentFolderName(WScript.ScriptFullName)
-sh.Run """" & base & "\..\SyncDashboard\System\venv\Scripts\pythonw.exe"" """ & base & "\System\youtube_app.py""", 0, False
+sh.Run """" & base & "\..\SyncDashTray\System\venv\Scripts\pythonw.exe"" """ & base & "\System\youtube_app.py""", 0, False
