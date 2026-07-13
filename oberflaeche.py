@@ -200,9 +200,29 @@ html.light .panelmenu button{color:#4a3f38}html.light .panelmenu button:hover{ba
 .panel-body{flex:1;overflow:auto;padding:14px 16px;container-type:inline-size}
 .panel-body .card{background:transparent;border:0;padding:0;margin:0 0 16px}
 .panel-body .card:last-child{margin-bottom:0}
-.panel-rsz{position:absolute;right:3px;bottom:3px;width:16px;height:16px;cursor:nwse-resize;
-  border-right:2px solid #6a5c52;border-bottom:2px solid #6a5c52;border-radius:0 0 6px 0;opacity:.6;touch-action:none}
-.panel-rsz:hover{opacity:1;border-color:var(--akz)}
+/* ✏-Layout-Modus (wie im Dashboard, JB 13.07.): Größen-Griffe an allen 8 Seiten/
+   Ecken, aber NUR im Bearbeiten-Modus sichtbar — sonst verstellt man nichts aus
+   Versehen. Im Modus bekommen die Fenster eine gestrichelte Kontur. */
+.rgriff{position:absolute;z-index:12;display:none;touch-action:none}
+body.layoutedit .rgriff{display:block}
+.r-n{top:-3px;left:10px;right:10px;height:8px;cursor:n-resize}
+.r-s{bottom:-3px;left:10px;right:10px;height:8px;cursor:s-resize}
+.r-e{right:-3px;top:10px;bottom:10px;width:8px;cursor:e-resize}
+.r-w{left:-3px;top:10px;bottom:10px;width:8px;cursor:w-resize}
+.r-ne{top:-4px;right:-4px;width:14px;height:14px;cursor:ne-resize}
+.r-nw{top:-4px;left:-4px;width:14px;height:14px;cursor:nw-resize}
+.r-sw{bottom:-4px;left:-4px;width:14px;height:14px;cursor:sw-resize}
+.r-se{bottom:-4px;right:-4px;width:16px;height:16px;cursor:se-resize}
+.r-se::after{content:'';position:absolute;right:4px;bottom:4px;width:9px;height:9px;
+  border-right:2px solid var(--akz);border-bottom:2px solid var(--akz);border-radius:0 0 4px 0}
+body.layoutedit .panel{outline:1px dashed var(--akz);outline-offset:2px}
+#layoutedit-btn.an{border-color:var(--akz);color:var(--akz2);background:var(--akzbg)}
+/* Transluzente Tab-Vorschau beim Herausziehen (wie Browser-Tab-Drag) */
+.tabghost{position:fixed;z-index:9999;width:230px;height:150px;pointer-events:none;opacity:.6;
+  background:var(--panel);border:1px solid var(--akz);border-radius:12px;overflow:hidden;
+  box-shadow:0 14px 40px rgba(0,0,0,.5)}
+.tabghost-kopf{padding:6px 10px;font-size:12px;color:var(--akz2);border-bottom:1px solid var(--panelln);background:#171310}
+.tabghost-body{padding:10px;font-size:11px;color:#8a7d74}
 .dockpending{outline:2px dashed rgba(201,149,43,.55);outline-offset:-5px}
 .dockhint{position:absolute;inset:0;background:rgba(201,149,43,.18);border:2px dashed var(--akz);border-radius:12px;
   display:flex;align-items:center;justify-content:center;color:var(--akz2);font-size:14px;font-weight:600;
@@ -557,7 +577,7 @@ html.light .card,html.light .panel{background:#fff;border-color:#e6ddd3}
 html.light .panel-head{background:#f3ede7;border-color:#e6ddd3}
 html.light .ptab{color:#8a7d74}
 html.light .ptab.an{background:#f3e7d6;border-color:#d8b98a;color:#8a5a1e}
-html.light .panel-grip,html.light .panel-rsz{border-color:#b8ab9f;color:#b8ab9f}
+html.light .panel-grip{border-color:#b8ab9f;color:#b8ab9f}
 html.light .panel-body .card{background:transparent}
 html.light textarea,html.light select,html.light input[type=text],
 html.light .btn,html.light .iconbtn,html.light .counter,html.light .chip,
@@ -653,16 +673,18 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
 </div>
 
 <div id="layoutbar">
-  <span><b>Tipp:</b> Rechtsklick öffnet überall Menüs — im Player, auf Kacheln und in Listen</span>
+  <span><b>Tipp:</b> Rechtsklick öffnet überall Menüs · Fenster umbauen nur mit <b>✏ Layout</b> — sonst dockt Ziehen nur als Tab an</span>
   <label style="font-size:12px;color:#8a7d74">Layout:</label>
   <select id="layoutsel" onchange="layoutWaehlen(this.value)" title="Vorlagen &amp; deine gespeicherten Layouts"></select>
+  <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
+          title="Layout bearbeiten: Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an, nichts verstellt sich aus Versehen">✏ Layout</button>
   <button class="btn mini" onclick="layoutSpeichern()" title="Aktuelle Fenster-Anordnung unter einem Namen speichern">💾 Speichern</button>
   <button class="btn mini" onclick="layoutLoeschen()" title="Das gewählte gespeicherte Layout löschen">🗑</button>
   <button class="btn mini" onclick="layoutVorheriges()" title="Vorherige Fenster-Anordnung zurückholen — nochmal klicken wechselt wieder vor">↩ Vorheriges</button>
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 40</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 41</span>
 </div>
 
 <div id="canvas"></div>
@@ -676,7 +698,8 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legrow"><b>Klick</b> auf Video/Cover im Player = Pause/Weiter · auf einen Download oben rechts = Pause/Fortsetzen</div>
       <div class="legrow"><b>Rechtsklick</b> auf Titel in der Bibliothek ODER in den Player = Menü mit allen Aktionen</div>
       <div class="legrow"><b>Mausrad kippen</b> (links/rechts) = zurück/vor zur vorherigen Ansicht — wie im Browser</div>
-      <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster am Namen = verschieben, auf ein anderes = andocken</div>
+      <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster auf ein anderes ziehen = als Tab andocken (schnappt sonst zurück) · Tab herausziehen = eigenes Fenster (mit Vorschau)</div>
+      <div class="legrow"><b>✏ Layout</b> (unten): Fenster frei verschieben + an 8 Griffen die Größe ziehen — Fenster überlappen sich dabei nie; nochmal klicken beendet den Modus</div>
       <div class="legrow"><b>Strg-/Shift-Klick</b> in der Bibliothek = mehrere markieren (Leiste mit Sammel-Aktionen erscheint)</div>
       <div class="legsec">▶ Player</div>
       <div class="legrow">Steuerung liegt <b>auf dem Video/Cover</b> (erscheint bei Mausbewegung): Zufall 🔀 und Wiederholen 🔁 sind <b>getrennte Schalter</b> — farbig mit Punkt = an, 🔁 nochmal klicken = nur diesen Titel (Zeichen zeigt eine kleine 1)</div>
@@ -1076,7 +1099,8 @@ function renderPanels(){
       el=document.createElement('div'); el.className='panel'; el.dataset.id=p.id;
       el.innerHTML='<div class="panel-head"><div class="panel-tabs"></div>'+
                    '<button class="panel-menu" title="Fenster-Menü: andocken, herauslösen, aufräumen">⋯</button></div>'+
-                   '<div class="panel-body"></div><div class="panel-rsz"></div>';
+                   '<div class="panel-body"></div>'+
+                   ['n','s','e','w','ne','nw','se','sw'].map(r=>`<div class="rgriff r-${r}" data-r="${r}"></div>`).join('');
       canvas.appendChild(el);
       bindPanel(el,p.id);
     }
@@ -1135,9 +1159,9 @@ function bindPanel(el,id){
     const p=L.panels.find(x=>x.id===id); if(p)startMove(el,p,e);
   });
   el.querySelector('.panel-menu').addEventListener('click',e=>{e.stopPropagation(); panelMenu(id,e.currentTarget);});
-  el.querySelector('.panel-rsz').addEventListener('pointerdown',e=>{
-    e.stopPropagation(); const p=L.panels.find(x=>x.id===id); if(p)startResize(el,p,e);
-  });
+  el.querySelectorAll('.rgriff').forEach(g=>g.addEventListener('pointerdown',e=>{
+    e.stopPropagation(); const p=L.panels.find(x=>x.id===id); if(p)startResize(el,p,e,g.dataset.r);
+  }));
 }
 
 function panelMenu(id,btn){
@@ -1298,46 +1322,89 @@ function snapKanten(p){
   p.x=naechsteKante(p.x,xk,T); p.y=naechsteKante(p.y,yk,T);
 }
 
+/* ---- ✏-Layout-Modus (JB 13.07., Muster wie im Dashboard): AUS = Ziehen ist
+   NUR die Tab-Geste (über ein Fenster halten -> andocken; sonst schnappt es an
+   seinen Platz zurück, das Layout bleibt unangetastet). AN = Ziehen verschiebt,
+   8 Griffe ändern die Größe — und Fenster können sich dabei NIE überlappen. */
+let layoutEdit=false;
+function layoutEditToggle(){
+  layoutEdit=!layoutEdit;
+  document.body.classList.toggle('layoutedit',layoutEdit);
+  const b=document.getElementById('layoutedit-btn'); if(b)b.classList.toggle('an',layoutEdit);
+  clearDock();
+}
+function kollidiert(p,x,y,w,h){                       // überlappt der Kasten ein anderes Fenster?
+  return L.panels.some(o=>o.id!==p.id && x<o.x+o.w && x+w>o.x && y<o.y+o.h && y+h>o.y);
+}
+
 function startMove(el,p,e){
   e.preventDefault(); bringFront(p); el.classList.add('dragging');
   try{el.setPointerCapture(e.pointerId);}catch(_){}
   const sx=e.clientX,sy=e.clientY,ox=p.x,oy=p.y;
-  let ziel=null;
+  let ziel=null, gx=ox, gy=oy;                        // gx/gy = letzte gültige (kollisionsfreie) Position
   function mv(ev){
     const c=document.getElementById('canvas');
     p.x=ox+ev.clientX-sx; p.y=oy+ev.clientY-sy;
-    snapKanten(p);                                   // an Nachbarn/Rand einrasten = kleben
+    if(layoutEdit)snapKanten(p);                      // Einrasten nur beim echten Umräumen
     p.x=Math.max(0, Math.min(p.x, Math.max(0, c.clientWidth-p.w)));   // nie aus dem Bild
     p.y=Math.max(0, p.y);
+    if(layoutEdit&&kollidiert(p,p.x,p.y,p.w,p.h)){    // nie überlappen: je Achse zurückfallen
+      if(!kollidiert(p,p.x,gy,p.w,p.h))p.y=gy;
+      else if(!kollidiert(p,gx,p.y,p.w,p.h))p.x=gx;
+      else {p.x=gx; p.y=gy;}
+    }
+    if(layoutEdit){gx=p.x; gy=p.y;}
     el.style.left=p.x+'px'; el.style.top=p.y+'px';
-    const t=dockZiel(p.id);                          // stark überlappt = als Tab andocken
-    if(t!==ziel){ ziel=t; clearDock(); if(t)dockOverlay(t,'Loslassen: als Tab andocken',true); }
+    if(!layoutEdit){                                  // Tab-Geste: stark überlappt = andocken
+      const t=dockZiel(p.id);
+      if(t!==ziel){ ziel=t; clearDock(); if(t)dockOverlay(t,'Loslassen: als Tab andocken',true); }
+    }
   }
   function up(){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
     el.classList.remove('dragging'); clearDock();
     try{el.releasePointerCapture(e.pointerId);}catch(_){}
-    if(ziel)dockPanel(p.id,ziel); else saveLayout();
+    if(layoutEdit){ saveLayout(); return; }
+    if(ziel){ dockPanel(p.id,ziel); return; }
+    p.x=ox; p.y=oy;                                   // nichts angedockt -> sanft zurückschnappen
+    el.style.transition='left .18s ease-out, top .18s ease-out';
+    el.style.left=ox+'px'; el.style.top=oy+'px';
+    setTimeout(()=>{el.style.transition='';},200);
   }
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
 }
 
-function startResize(el,p,e){
+function startResize(el,p,e,richtung){
   e.preventDefault(); try{el.setPointerCapture(e.pointerId);}catch(_){}
-  const sx=e.clientX,sy=e.clientY,ow=p.w,oh=p.h;
-  const prop=(p.active==='player'), aspect=ow/Math.max(1,oh);   // Player: proportional (Diagonale)
+  const sx=e.clientX,sy=e.clientY,ox=p.x,oy=p.y,ow=p.w,oh=p.h;
+  const r=richtung||'se';
+  const dxs=r.includes('e')?1:(r.includes('w')?-1:0); // welche Kanten bewegen sich mit?
+  const dys=r.includes('s')?1:(r.includes('n')?-1:0);
+  const prop=(p.active==='player'&&r==='se'), aspect=ow/Math.max(1,oh);   // Player-Ecke: proportional
   function mv(ev){
-    const cw=document.getElementById('canvas').clientWidth;
-    let nw=Math.max(190,ow+ev.clientX-sx), nh=Math.max(130,oh+ev.clientY-sy);
-    nw=Math.min(nw, Math.max(190, cw-p.x));           // Breite nie über den Bildrand
-    if(prop)nh=Math.max(130,Math.round(nw/aspect));
-    p.w=nw; p.h=nh;
-    if(!prop){                                       // rechte/untere Kante an Nachbarn kleben
-      const c=document.getElementById('canvas'), xs=[c.clientWidth], ys=[c.clientHeight], T=9;
-      L.panels.forEach(o=>{if(o.id!==p.id){xs.push(o.x,o.x+o.w); ys.push(o.y,o.y+o.h);}});
-      for(const l of xs){if(Math.abs(p.x+p.w-l)<=T){p.w=l-p.x;break;}}
-      for(const l of ys){if(Math.abs(p.y+p.h-l)<=T){p.h=l-p.y;break;}}
-    }
+    const c=document.getElementById('canvas'), T=9;
+    const dx=ev.clientX-sx, dy=ev.clientY-sy;
+    let nx=ox, ny=oy, nw=ow, nh=oh;
+    if(dxs===1)nw=ow+dx; else if(dxs===-1){nw=ow-dx; nx=ox+dx;}
+    if(dys===1)nh=oh+dy; else if(dys===-1){nh=oh-dy; ny=oy+dy;}
+    if(prop)nh=Math.round(nw/aspect);
+    // Mindestgrößen — bei links/oben wandert die Position entsprechend zurück
+    if(nw<190){ if(dxs===-1)nx-=190-nw; nw=190; }
+    if(nh<130){ if(dys===-1)ny-=130-nh; nh=130; }
+    if(nx<0){nw+=nx; nx=0;}                           // nie aus dem Bild
+    if(ny<0){nh+=ny; ny=0;}
+    nw=Math.min(nw, c.clientWidth-nx);
+    // die BEWEGTE Kante an Nachbar-Kanten/Rand kleben
+    const xs=[0,c.clientWidth], ys=[0,c.clientHeight];
+    L.panels.forEach(o=>{if(o.id!==p.id){xs.push(o.x,o.x+o.w); ys.push(o.y,o.y+o.h);}});
+    if(dxs===1){for(const l of xs){if(Math.abs(nx+nw-l)<=T){nw=l-nx;break;}}}
+    if(dxs===-1){for(const l of xs){if(Math.abs(nx-l)<=T){nw+=nx-l; nx=l;break;}}}
+    if(dys===1){for(const l of ys){if(Math.abs(ny+nh-l)<=T){nh=l-ny;break;}}}
+    if(dys===-1){for(const l of ys){if(Math.abs(ny-l)<=T){nh+=ny-l; ny=l;break;}}}
+    nw=Math.max(190,nw); nh=Math.max(130,nh);
+    // NIE überlappen (JB): kollidiert der neue Kasten, bleibt die letzte gültige Größe
+    if(!kollidiert(p,nx,ny,nw,nh)){p.x=nx; p.y=ny; p.w=nw; p.h=nh;}
+    el.style.left=p.x+'px'; el.style.top=p.y+'px';
     el.style.width=p.w+'px'; el.style.height=p.h+'px';
   }
   function up(){document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
@@ -1354,10 +1421,20 @@ function bindTab(t,panelId){
       return;
     }
     e.stopPropagation();
-    const sx=e.clientX, sy=e.clientY; let moved=false;
-    function mv(ev){ if(!moved&&Math.hypot(ev.clientX-sx,ev.clientY-sy)>18)moved=true; }
+    const sx=e.clientX, sy=e.clientY; let moved=false, ghost=null;
+    function mv(ev){
+      if(!moved&&Math.hypot(ev.clientX-sx,ev.clientY-sy)>18){
+        moved=true;                                   // transluzente Vorschau wie beim Browser-Tab-Drag
+        ghost=document.createElement('div'); ghost.className='tabghost';
+        ghost.innerHTML='<div class="tabghost-kopf">'+esc(VIEWS[view]||view)+'</div>'+
+                        '<div class="tabghost-body">Loslassen = eigenes Fenster hier</div>';
+        document.body.appendChild(ghost);
+      }
+      if(ghost){ghost.style.left=(ev.clientX-115)+'px'; ghost.style.top=(ev.clientY-14)+'px';}
+    }
     function up(ev){
       document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
+      if(ghost)ghost.remove();
       if(!moved){ p.active=view; bringFront(p); merkeView(panelId,view); renderPanels(); }   // Klick = Tab wechseln
       else { tearOut(panelId,view,ev.clientX,ev.clientY); }         // Ziehen = herauslösen
     }
@@ -3150,7 +3227,11 @@ function uebergangTick(el){                            // ein Ticker für alle �
 let plVol=100; try{const v=parseInt(localStorage.getItem('ytdl_vol'),10); if(v>=0&&v<=100)plVol=v;}catch(e){}
 let plbSeekAktiv=false, plbIdleTimer=null;
 function plBarHTML(istVideo){
-  return `<div class="pl-bar" id="pl-bar">`+
+  // onclick=stopPropagation: transportRender ersetzt beim Klick das Icon im
+  // Knopf — das geklickte SVG ist dann schon aus dem DOM und der closest()-
+  // Check in media.onclick griffe ins Leere -> Video pausierte (JB 13.07.).
+  // Die Leiste schluckt ihre Klicks deshalb selbst, bevor sie die Fläche erreichen.
+  return `<div class="pl-bar" id="pl-bar" onclick="event.stopPropagation()">`+
    `<div class="pl-barseek"><span class="pl-btime" id="plb-t0">0:00</span>`+
     `<input type="range" id="plb-seek" min="0" max="1000" value="0" title="Spulen" `+
       `oninput="plbSeekDrag(this.value)" onchange="plbSeekEnd(this.value)" `+
