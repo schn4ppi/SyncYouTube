@@ -1380,6 +1380,102 @@ def technik_backfill():
         _technik_laeuft = False
 
 
+# ---- Downloads-Ordner selbstheilend einsortieren (JB 14.07.): von Hand
+# verschobene Dateien wandern anhand ihrer Metadaten zurück in den richtigen
+# Kategorie-Ordner (MP3 / 4K+ / Video); was unklar bleibt, kommt nach
+# "Sonstiges" statt falsch einsortiert zu werden.
+
+SONSTIGES = "Sonstiges"
+AUDIO_EXT = (".mp3", ".m4a", ".opus", ".ogg", ".flac", ".wav", ".aac")
+VIDEO_EXT = (".mp4", ".mkv", ".webm", ".mov", ".avi")
+_einsortier_laeuft = False
+
+
+def _soll_kategorie(pfad):
+    """Kategorie einer Datei im Downloads-Ordner: Audio-Endung -> MP3;
+    Video -> Höhe aus der geladen-DB (Video-ID im Namen) oder per ffprobe;
+    '' = keine Mediendatei (nicht anfassen), None = Mediendatei, aber unklar."""
+    ext = os.path.splitext(pfad)[1].lower()
+    if ext in AUDIO_EXT:
+        return "MP3"
+    if ext not in VIDEO_EXT:
+        return ""
+    m = re.search(r"\[([\w-]{6,})\]", os.path.basename(pfad))
+    if m:
+        vid = m.group(1)
+        for k, e in _geladen.items():
+            if k.split("|")[0] == vid and e.get("hoehe"):
+                return _kategorie("", e.get("hoehe"))
+    h = _hoehe_ffprobe(pfad)
+    return _kategorie("", h) if h else None
+
+
+def downloads_einsortieren():
+    """Bewegt Mediendateien INNERHALB des Downloads-Ordners an ihren Platz.
+    Nicht-destruktiv: nie überschreiben (nummerierter Name), .part/.vtt/Bilder
+    und frisch geänderte Dateien (<60 s, evtl. noch in Arbeit) bleiben liegen,
+    Playlist-Sync-Ziele im Downloads-Ordner sind tabu (Spiegel-Kopien)."""
+    global _einsortier_laeuft
+    if _einsortier_laeuft or not CFG.get("unterordner", True):
+        return 0
+    _einsortier_laeuft = True
+    bewegt = 0
+    try:
+        basis = os.path.abspath(ziel_ordner())
+        tabu = [os.path.abspath(p["sync_ordner"]) for p in _playlists if p.get("sync_ordner")]
+        for wurzel, dirs, dateien in os.walk(basis):
+            w = os.path.abspath(wurzel)
+            if any(w == t or w.startswith(t + os.sep) for t in tabu):
+                dirs[:] = []
+                continue
+            for fn in dateien:
+                pfad = os.path.join(wurzel, fn)
+                kat = _soll_kategorie(pfad)
+                if kat == "":
+                    continue                          # keine Mediendatei -> in Ruhe lassen
+                ziel_dir = _ordner_fuer(kat) if kat else os.path.join(basis, SONSTIGES)
+                if w == os.path.abspath(ziel_dir):
+                    continue                          # liegt schon richtig
+                try:
+                    if time.time() - os.path.getmtime(pfad) < 60:
+                        continue                      # evtl. gerade in Arbeit
+                    os.makedirs(ziel_dir, exist_ok=True)
+                    stem, ext = os.path.splitext(fn)
+                    neu, n = os.path.join(ziel_dir, fn), 2
+                    while os.path.exists(neu):        # nie überschreiben
+                        neu = os.path.join(ziel_dir, f"{stem} ({n}){ext}")
+                        n += 1
+                    os.replace(pfad, neu)
+                    _sidecars_mit(pfad, neu)
+                    bewegt += 1
+                    for e in _geladen.values():       # Bibliothek kennt sofort den neuen Ort
+                        if e.get("pfad") == pfad:
+                            e["pfad"] = neu
+                            e["name"] = os.path.basename(neu)
+                            if kat:
+                                e["kategorie"] = kat
+                except OSError:
+                    continue
+        if bewegt:
+            with _io_lock:
+                _json_speichern(GELADEN_PFAD, _geladen)
+            _sag(f"Downloads einsortiert: {bewegt} Datei(en) an den richtigen Platz bewegt")
+    finally:
+        _einsortier_laeuft = False
+    return bewegt
+
+
+def _einsortieren_hintergrund():
+    """Kurz nach dem Start + alle 6 h aufräumen (Daemon-Thread)."""
+    time.sleep(20)
+    while True:
+        try:
+            downloads_einsortieren()
+        except Exception:                             # noqa: BLE001
+            pass
+        time.sleep(6 * 3600)
+
+
 _enrich_laeuft = False
 
 
@@ -2341,6 +2437,7 @@ def main():
     threading.Thread(target=ticker_schleife, daemon=True).start()
     threading.Thread(target=technik_backfill, daemon=True).start()   # Codecs für Alt-Dateien
     threading.Thread(target=_abos_hintergrund, daemon=True).start()  # Abos auf neue Videos prüfen
+    threading.Thread(target=_einsortieren_hintergrund, daemon=True).start()  # verschobene Dateien zurücksortieren
     _sag(f"YouTube-Downloader läuft: {url}")
     if "--no-browser" not in sys.argv:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()

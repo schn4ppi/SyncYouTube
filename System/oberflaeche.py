@@ -215,9 +215,14 @@ body.layoutedit .rgriff{display:block}
 .r-se{bottom:-4px;right:-4px;width:16px;height:16px;cursor:se-resize}
 .r-se::after{content:'';position:absolute;right:4px;bottom:4px;width:9px;height:9px;
   border-right:2px solid var(--akz);border-bottom:2px solid var(--akz);border-radius:0 0 4px 0}
-body.layoutedit .panel{outline:1px dashed var(--akz);outline-offset:2px;
+/* Kontur INNEN (offset negativ): außenliegend sah sie bei exakt anliegenden
+   Fenstern wie eine Mini-Überlappung aus (JB 14.07.) */
+body.layoutedit .panel{outline:1px dashed var(--akz);outline-offset:-3px;
   transition:left .12s ease-out, top .12s ease-out}    /* Ausweichen wirkt weich */
 body.layoutedit .panel.dragging{transition:none}       /* das gezogene folgt der Maus direkt */
+/* Platzhalter beim Ziehen im ✏-Modus: zeigt fest die eingerastete Zielposition */
+.platzhalter-fenster{position:absolute;z-index:9500;pointer-events:none;border-radius:12px;
+  border:2px dashed var(--akz);background:rgba(201,149,43,.07)}
 /* Playlist als eigenes Fenster: große Liste, Seitenliste im Player verschwindet */
 .plq-gross{flex:1;max-height:none;min-height:0}
 body.plq-extern #view-player .pl-side .pl-queue{display:none}
@@ -692,7 +697,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 42</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 43</span>
 </div>
 
 <div id="canvas"></div>
@@ -706,7 +711,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legrow"><b>Klick</b> auf Video/Cover im Player = Pause/Weiter · auf einen Download oben rechts = Pause/Fortsetzen</div>
       <div class="legrow"><b>Rechtsklick</b> auf Titel in der Bibliothek ODER in den Player = Menü mit allen Aktionen</div>
       <div class="legrow"><b>Mausrad kippen</b> (links/rechts) = zurück/vor zur vorherigen Ansicht — wie im Browser</div>
-      <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster auf ein anderes ziehen = als Tab andocken (schnappt sonst zurück) · Tab herausziehen = eigenes Fenster (mit Vorschau)</div>
+      <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster auf ein anderes ziehen = als Tab andocken (schnappt sonst zurück) · Tab auf ein anderes Fenster ziehen = dort als Tab andocken · Tab auf Freifläche = eigenes Fenster (mit Vorschau)</div>
       <div class="legrow"><b>✏ Layout</b> (unten): Fenster frei verschieben + an 8 Griffen die Größe ziehen — das bewegte Fenster hat Vorfahrt, die anderen weichen aus, nichts überlappt; nochmal klicken beendet den Modus</div>
       <div class="legrow"><b>🎶 Playlist</b> (im Player): Player-Playlist als eigenes Fenster herauslösen — andockbar wie jeder Tab. Titel aus der Bibliothek <b>hineinziehen</b> = einreihen (auf einen Eintrag = an der Stelle, auf die Fläche = ans Ende)</div>
       <div class="legrow"><b>Strg-/Shift-Klick</b> in der Bibliothek = mehrere markieren (Leiste mit Sammel-Aktionen erscheint)</div>
@@ -1351,15 +1356,16 @@ function snapKanten(p){
    seinen Platz zurück, das Layout bleibt unangetastet). AN = Ziehen verschiebt,
    8 Griffe ändern die Größe — und Fenster können sich dabei NIE überlappen. */
 let layoutEdit=false;
+function layoutEntwirren(){                           // Überlappungen auflösen (vorderstes gewinnt)
+  [...L.panels].sort((a,b)=>(b.zi||0)-(a.zi||0)).forEach(p=>verdraenge(p));
+  panelsPos(); saveLayout();
+}
 function layoutEditToggle(){
   layoutEdit=!layoutEdit;
   document.body.classList.toggle('layoutedit',layoutEdit);
   const b=document.getElementById('layoutedit-btn'); if(b)b.classList.toggle('an',layoutEdit);
   clearDock();
-  if(layoutEdit){                                     // beim Einschalten: Altlasten entwirren
-    [...L.panels].sort((a,b)=>(b.zi||0)-(a.zi||0)).forEach(p=>verdraenge(p));
-    panelsPos(); saveLayout();
-  }
+  if(layoutEdit)layoutEntwirren();                    // beim Einschalten: Altlasten entwirren
 }
 function kollidiert(p,x,y,w,h){                       // überlappt der Kasten ein anderes Fenster?
   return L.panels.some(o=>o.id!==p.id && x<o.x+o.w && x+w>o.x && y<o.y+o.h && y+h>o.y);
@@ -1397,22 +1403,23 @@ function startMove(el,p,e){
   e.preventDefault(); bringFront(p); el.classList.add('dragging');
   try{el.setPointerCapture(e.pointerId);}catch(_){}
   const sx=e.clientX,sy=e.clientY,ox=p.x,oy=p.y;
-  let ziel=null;
-  // Ausgangspositionen der ANDEREN merken: solange man zieht, springen sie
-  // zurück und weichen neu aus — wie Browser-Tabs, die Platz machen.
-  const andere=L.panels.filter(o=>o.id!==p.id).map(o=>({o,x:o.x,y:o.y}));
+  let ziel=null, ph=null, zx=ox, zy=oy;
   function mv(ev){
     const c=document.getElementById('canvas');
     p.x=ox+ev.clientX-sx; p.y=oy+ev.clientY-sy;
-    if(layoutEdit)snapKanten(p);                      // Einrasten nur beim echten Umräumen
     p.x=Math.max(0, Math.min(p.x, Math.max(0, c.clientWidth-p.w)));   // nie aus dem Bild
     p.y=Math.max(0, p.y);
-    if(layoutEdit){                                   // Priorität: die anderen weichen aus
-      andere.forEach(r=>{r.o.x=r.x; r.o.y=r.y;});
-      verdraenge(p);
-      panelsPos();
+    el.style.left=p.x+'px'; el.style.top=p.y+'px';    // Fenster folgt der Maus ROH = fühlt sich fest an
+    if(layoutEdit){
+      // Dashboard-Muster (JB: „im Dashboard viel besser"): nichts wackelt live —
+      // ein PLATZHALTER zeigt die eingerastete Zielposition, gelandet wird beim
+      // Loslassen; erst dann weichen die anderen aus.
+      const t={id:p.id, x:p.x, y:p.y, w:p.w, h:p.h};
+      snapKanten(t);
+      zx=Math.max(0, Math.min(t.x, Math.max(0, c.clientWidth-p.w))); zy=Math.max(0, t.y);
+      if(!ph){ph=document.createElement('div'); ph.className='platzhalter-fenster'; c.appendChild(ph);}
+      ph.style.left=zx+'px'; ph.style.top=zy+'px'; ph.style.width=p.w+'px'; ph.style.height=p.h+'px';
     }else{
-      el.style.left=p.x+'px'; el.style.top=p.y+'px';
       const t=dockZiel(p.id);                         // Tab-Geste: stark überlappt = andocken
       if(t!==ziel){ ziel=t; clearDock(); if(t)dockOverlay(t,'Loslassen: als Tab andocken',true); }
     }
@@ -1421,7 +1428,12 @@ function startMove(el,p,e){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
     el.classList.remove('dragging'); clearDock();
     try{el.releasePointerCapture(e.pointerId);}catch(_){}
-    if(layoutEdit){ saveLayout(); return; }
+    if(ph)ph.remove();
+    if(layoutEdit){                                   // auf dem Platzhalter landen, Rest weicht aus
+      p.x=zx; p.y=zy;
+      verdraenge(p); panelsPos(); saveLayout();
+      return;
+    }
     if(ziel){ dockPanel(p.id,ziel); return; }
     p.x=ox; p.y=oy;                                   // nichts angedockt -> sanft zurückschnappen
     el.style.transition='left .18s ease-out, top .18s ease-out';
@@ -1478,25 +1490,51 @@ function bindTab(t,panelId){
       return;
     }
     e.stopPropagation();
-    const sx=e.clientX, sy=e.clientY; let moved=false, ghost=null;
+    const sx=e.clientX, sy=e.clientY; let moved=false, ghost=null, ueberPanel=null;
     function mv(ev){
       if(!moved&&Math.hypot(ev.clientX-sx,ev.clientY-sy)>18){
         moved=true;                                   // transluzente Vorschau wie beim Browser-Tab-Drag
         ghost=document.createElement('div'); ghost.className='tabghost';
         ghost.innerHTML='<div class="tabghost-kopf">'+esc(VIEWS[view]||view)+'</div>'+
-                        '<div class="tabghost-body">Loslassen = eigenes Fenster hier</div>';
+                        '<div class="tabghost-body" id="tabghost-txt">Loslassen = eigenes Fenster hier</div>';
         document.body.appendChild(ghost);
       }
-      if(ghost){ghost.style.left=(ev.clientX-115)+'px'; ghost.style.top=(ev.clientY-14)+'px';}
+      if(!ghost)return;
+      ghost.style.left=(ev.clientX-115)+'px'; ghost.style.top=(ev.clientY-14)+'px';
+      // Über einem anderen Fenster? Dann wird der Tab DORT angedockt (JB 14.07.)
+      const z=panelUnter(ev.clientX,ev.clientY,panelId);
+      if((z&&z.id)!==(ueberPanel&&ueberPanel.id)){
+        ueberPanel=z; clearDock();
+        if(z)dockOverlay(z.id,'Loslassen: Tab hier andocken',true);
+        const tx=document.getElementById('tabghost-txt');
+        if(tx)tx.textContent=z?('→ als Tab in „'+(z.views.map(v=>VIEWS[v]).join(' / '))+'"'):'Loslassen = eigenes Fenster hier';
+      }
     }
     function up(ev){
       document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
-      if(ghost)ghost.remove();
-      if(!moved){ p.active=view; bringFront(p); merkeView(panelId,view); renderPanels(); }   // Klick = Tab wechseln
-      else { tearOut(panelId,view,ev.clientX,ev.clientY); }         // Ziehen = herauslösen
+      if(ghost)ghost.remove(); clearDock();
+      if(!moved){ p.active=view; bringFront(p); merkeView(panelId,view); renderPanels(); return; }   // Klick = Tab wechseln
+      if(ueberPanel){                                 // Tab wandert in das andere Fenster
+        p.views=p.views.filter(v=>v!==view); if(p.active===view)p.active=p.views[0];
+        if(!ueberPanel.views.includes(view))ueberPanel.views.push(view);
+        ueberPanel.active=view; ueberPanel.zi=++L.z;
+        renderPanels(); return;
+      }
+      tearOut(panelId,view,ev.clientX,ev.clientY);    // auf Freifläche = eigenes Fenster
     }
     document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
   });
+}
+
+function panelUnter(x,y,ausser){                      // oberstes Fenster unter dem Cursor
+  let best=null;
+  for(const p of L.panels){
+    if(p.id===ausser)continue;
+    const el=panelEl(p.id); if(!el)continue;
+    const r=el.getBoundingClientRect();
+    if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom&&(!best||(p.zi||0)>(best.zi||0)))best=p;
+  }
+  return best;
 }
 
 function tearOut(panelId,view,cx,cy){
@@ -3615,6 +3653,7 @@ document.addEventListener('keydown',e=>{
 /* ================= Init (läuft einmal beim Seiten-Start) ================= */
 themeIcon();
 renderPanels();
+layoutEntwirren();                               // alte Layouts mit Überlappungen einmalig bereinigen
 L.panels.forEach(p=>merkeView(p.id,p.active));   // Start-Stationen in den Verlauf
 layoutSelectFuellen();
 einstellungenModalInit();                        // Einstellungs-Karte ins Modal umziehen

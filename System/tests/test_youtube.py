@@ -170,6 +170,25 @@ def test_zugriff_erlaubt():
     assert app.zugriff_erlaubt("192.168.0.5", True, "", "") is False
 
 
+def test_soll_kategorie():
+    # Einsortier-Selbstheilung (JB 14.07.): Audio-Endung reicht für MP3;
+    # Nicht-Medien werden NIE angefasst ('' = tabu); unbekanntes Video ohne
+    # DB-Treffer/ffprobe-Datei bleibt unklar (None -> Ordner "Sonstiges").
+    assert app._soll_kategorie(r"C:\x\Song [abc123def45].mp3") == "MP3"
+    assert app._soll_kategorie("egal.opus") == "MP3"
+    assert app._soll_kategorie("notizen.txt") == ""
+    assert app._soll_kategorie("_worklist.md") == ""
+    assert app._soll_kategorie("unbekanntes-video-ohne-id.mp4") is None
+    # Höhe aus der geladen-DB: 2160p -> 4K+, darunter -> Video
+    app._geladen["testvid9999|beste"] = {"name": "T [testvid9999].mp4", "hoehe": 2160}
+    try:
+        assert app._soll_kategorie("T [testvid9999].mp4") == "4K+"
+        app._geladen["testvid9999|beste"]["hoehe"] = 1080
+        assert app._soll_kategorie("T [testvid9999].mp4") == "Video"
+    finally:
+        del app._geladen["testvid9999|beste"]      # JBs echte DB nicht anfassen
+
+
 def test_ist_untertitel_fehler():
     # JB-Vorfall 11.07.: YouTube drosselte die Untertitel (429) und der ganze
     # Download hing stundenlang bei 0% — solche Fehler müssen als "heilbar
