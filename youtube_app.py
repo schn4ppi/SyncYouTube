@@ -388,6 +388,11 @@ def _ydl_basis_opts(mit_cookies=True):
         "retries": 5,
         "fragment_retries": 10,
         "concurrent_fragment_downloads": 4,
+        # Ohne Timeout blockiert eine eingeschlafene Verbindung den Worker EWIG
+        # (JB-Vorfall 13.07.: ein Download hing 68h bei 0%, dahinter stand die
+        # ganze Warteschlange). Mit Timeout wird daraus ein normaler Fehler,
+        # der in den Backoff geht — und der Worker nimmt den nächsten Eintrag.
+        "socket_timeout": 30,
     }
     ff = _ffmpeg_pfad()
     if ff:
@@ -1734,11 +1739,15 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
         item["status"] = "pausiert"
         item["phase"] = ""
         item["geschw"] = 0
+        if item not in Q.items:                      # via „Entfernen" abgebrochen -> id aufräumen
+            Q.abbrueche.discard(item["id"])
     except Exception as e:                           # noqa: BLE001 — Auto-Neuversuch
         if item["id"] in Q.abbrueche:                # yt-dlp verpackt Hook-Fehler teils neu
             item["status"] = "pausiert"
             item["phase"] = ""
             item["geschw"] = 0
+            if item not in Q.items:
+                Q.abbrueche.discard(item["id"])
             Q.speichern()
             return
         item["versuche"] += 1
@@ -2049,7 +2058,9 @@ class Handler(BaseHTTPRequestHandler):
             elif art == "sofort" and it["status"] == "wartend":
                 it["naechster_versuch"] = 0
                 it["fehler"] = ""
-            elif art == "entfernen" and it["status"] != "laeuft":
+            elif art == "entfernen":                 # geht jetzt auch bei Laufenden (JB 13.07.)
+                if it["status"] == "laeuft":
+                    Q.abbrueche.add(it["id"])        # laufenden Abruf stoppen, .part bleibt
                 Q.items.remove(it)                   # nur Listeneintrag — Dateien bleiben!
             elif art == "hoch" and it["status"] == "wartend":
                 i = Q.items.index(it)

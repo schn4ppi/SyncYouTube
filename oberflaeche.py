@@ -87,10 +87,20 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .cmd-dl{background:var(--akzbg);border:1px solid var(--akz);border-radius:7px;color:var(--akz2);
   padding:5px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
 .cmd-dl:hover{filter:brightness(1.18)}
-.cmd-now{display:flex;align-items:center;gap:5px;min-width:0;font-size:11.5px;color:#9a8d84}
-.cmd-nowtitel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+/* Mini-Player (JB 13.07.): füllt den linken Block, 2 Zeilen — Steuerung+Titel
+   oben, Spulleiste mit Zeit darunter; rechts daneben Zähler + vertikale Knöpfe */
+.cmd-row2{align-items:stretch;gap:10px}
+.cmd-now{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:7px;font-size:12px;color:#9a8d84}
+.cmd-nowline{display:flex;align-items:center;gap:6px;min-width:0}
+.cmd-nowtitel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-size:12.5px}
 .cmd-nolabel{color:#6a5c52}
-.cmd-pp{background:none;border:1px solid var(--panelln);border-radius:6px;color:var(--akz2);cursor:pointer;width:24px;height:22px;font-size:11px;padding:0;flex:none}
+.cmd-seekline{display:flex;align-items:center;gap:8px}
+.cmd-time{flex:none;font-size:11px;color:#8a7d74;min-width:36px;text-align:center;font-variant-numeric:tabular-nums}
+#cmd-seek{flex:1;min-width:60px;height:14px;accent-color:var(--akz);cursor:pointer;margin:0}
+#cmd-seek:disabled{opacity:.35;cursor:default}
+.cmd-stat{display:flex;flex-direction:column;justify-content:center;align-items:flex-end;gap:5px;flex:none}
+.cmd-side{display:flex;flex-direction:column;justify-content:center;gap:3px;flex:none}
+.cmd-pp{background:none;border:1px solid var(--panelln);border-radius:6px;color:var(--akz2);cursor:pointer;width:27px;height:24px;font-size:12px;padding:0;flex:none}
 .cmd-pp:hover{border-color:var(--akz)}
 .cmd-count{color:#d7c7bd;white-space:nowrap;position:relative;cursor:default;font-size:12px;flex:none}
 .cmd-count b{color:var(--akz2);font-weight:700}
@@ -107,11 +117,14 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .dlbar i{display:block;height:100%;background:var(--akz);border-radius:99px;transition:width .5s}
 .dlrow.fehler .dlbar i{background:#e08a6a}.dlrow.pausiert .dlbar i{background:#8a7d74}
 .dlpct{flex:none;color:#8a7d74;font-size:10.5px;min-width:44px;text-align:right}
+.dlx{flex:none;background:none;border:0;color:#6a5c52;cursor:pointer;font-size:11px;padding:0 3px;border-radius:4px}
+.dlx:hover{color:#e08a6a;background:#0e0c0a}
 .cmd-clip{margin-top:6px;align-items:center;gap:8px;font-size:11.5px;color:var(--akz2);
   background:var(--akzbg);border:1px solid var(--akz);border-radius:7px;padding:4px 9px;display:flex}
 .clipurl{color:#d7c7bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 @media(max-width:660px){.cmd-main{flex-direction:column}
-  .cmd-right{border-left:0;border-top:1px solid var(--panelln);padding-left:0;padding-top:6px;max-height:96px}}
+  .cmd-right{border-left:0;border-top:1px solid var(--panelln);padding-left:0;padding-top:6px;max-height:96px}
+  .cmd-side,.cmd-stat{flex-direction:row;align-items:center}}
 html.light #cmdbar{background:#fff;border-color:#e6ddd3}
 html.light .cmd-url,html.light .cmd-qual{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 html.light .dlrow:hover{background:#f3ede7}
@@ -560,14 +573,17 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       </div>
       <div class="cmd-row2">
         <div class="cmd-now" id="cmd-now"><span class="cmd-nolabel">// nichts läuft</span></div>
-        <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
-              title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt — Videos nur Basis-Qualität</span>
-        <span class="spacer"></span>
-        <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
-        <span class="apidot bad" id="apidot" title="API-Status"></span>
-        <button class="iconbtn sm" id="theme" onclick="themeToggle()" title="Tag-/Nacht-Modus schnell umschalten">🌙</button>
-        <button class="iconbtn sm" onclick="hilfeModal(true)" title="Legende: alle Knöpfe, Gesten &amp; Tasten erklärt">?</button>
-        <button class="iconbtn sm" id="optbtn" onclick="optionenToggle(event)" title="Optionen (Look, Crossfade, Sleep-Timer, Fenster-Abstand …)">⚙</button>
+        <div class="cmd-stat">
+          <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
+                title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
+          <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
+          <span class="apidot bad" id="apidot" title="API-Status"></span>
+        </div>
+        <div class="cmd-side">
+          <button class="iconbtn sm" id="theme" onclick="themeToggle()" title="Tag-/Nacht-Modus schnell umschalten">🌙</button>
+          <button class="iconbtn sm" onclick="hilfeModal(true)" title="Legende: alle Knöpfe, Gesten &amp; Tasten erklärt">?</button>
+          <button class="iconbtn sm" id="optbtn" onclick="optionenToggle(event)" title="Optionen (Look, Crossfade, Sleep-Timer, Fenster-Abstand …)">⚙</button>
+        </div>
       </div>
     </div>
     <div class="cmd-right">
@@ -586,7 +602,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-11 · 37</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 38</span>
 </div>
 
 <div id="canvas"></div>
@@ -611,7 +627,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legsec">⌨ Tasten</div>
       <div class="legrow"><b>Leertaste</b> Pause/Weiter · <b>Strg+←/→</b> vorheriger/nächster Titel · <b>Medientasten</b> (wenn das Fenster im Vordergrund ist)</div>
       <div class="legsec">⚡ Oben (Command-Bar)</div>
-      <div class="legrow">Links: Link einfügen + <b>⬇ Download</b> · Mini-Player (⏮ ⏯ ⏭ + Modus + 📻). Rechts: laufende Downloads (Klick = Pause). <b>🔗</b> Kopierte YouTube-Links werden automatisch erkannt.</div>
+      <div class="legrow">Links: Link einfügen + <b>⬇ Download</b> · Mini-Player (⏮ ⏯ ⏭ + Modus + 📻, <b>Spulleiste</b> mit Zeit — ziehen = im Lied spulen). Rechts: laufende Downloads (Klick = Pause, <b>✖</b> = abbrechen &amp; entfernen — Dateien bleiben). <b>🔗</b> Kopierte YouTube-Links werden automatisch erkannt.</div>
     </div>
   </div>
 </div>
@@ -1340,7 +1356,7 @@ function reihe(it){
   if(it.status==='pausiert'||it.status==='fehler')k.push(['weiter','▶ Weiter']);
   if(it.status==='uebersprungen')k.push(['weiter','▶ Trotzdem']);
   if(fertigartig)k.push(['ordner','📂 Ordner']);
-  if(it.status!=='laeuft')k.push(['entfernen','✖ Entfernen']);
+  k.push(['entfernen','✖ Entfernen']);               // geht auch bei Laufenden: bricht ab + nimmt raus
   const knoepfe=k.map(([a,t])=>`<button class="btn mini" onclick="event.stopPropagation();aktion('${it.id}','${a}')">${t}</button>`).join('');
   let det='';
   if(it.status==='laeuft')det=`${mb(it.geladen)} / ${mb(it.gesamt)}`+(it.phase?' · '+esc(it.phase):'');
@@ -1551,7 +1567,8 @@ function cmdDlRow(i){                                  // eine Download-Zeile (D
     `<span class="dlic">${ic}</span>`+
     `<span class="dltitel">${esc((i.titel||'…').slice(0,70))}</span>`+
     `<span class="dlbar"><i style="width:${p}%"></i></span>`+
-    `<span class="dlpct">${esc(rechts)}</span></div>`;
+    `<span class="dlpct">${esc(rechts)}</span>`+
+    `<button class="dlx" onclick="event.stopPropagation();aktion('${i.id}','entfernen')" title="Abbrechen &amp; aus der Warteschlange entfernen (Dateien bleiben)">✖</button></div>`;
 }
 function cmdQueueRender(items){                        // rechte Spalte: alle aktiven Downloads untereinander
   const el=document.getElementById('cmd-queue'); if(!el)return;
@@ -1562,19 +1579,55 @@ function dlKlick(id,status){                           // Download anhalten / fo
   if(status==='laeuft')aktion(id,'pause');
   else if(status==='pausiert'||status==='fehler')aktion(id,'weiter');
 }
-function cmdNowRender(){                               // „Now Playing"-Mini in der Command-Bar (Player-Steuerung)
+/* „Now Playing"-Mini in der Command-Bar: Steuerung + Titel, darunter Spulleiste
+   mit Zeitanzeige (JB 13.07.). malen() ruft das jede Sekunde — damit die
+   Spulleiste beim Ziehen nicht unter der Maus weggerendert wird, baut die
+   Funktion das HTML nur bei ECHTER Änderung neu (Signatur-Vergleich); die
+   laufende Zeit frischt cmdSeekTick() gezielt per textContent auf. */
+let cmdNowSig='', cmdSeekAktiv=false;
+function cmdNowRender(){
   const el=document.getElementById('cmd-now'); if(!el)return;
   const k=playerState.queue[playerState.idx], x=k?libFind(k):null;
   const pe=document.getElementById('pl-el'), ic=(pe&&!pe.paused)?'⏸':'▶';
   const pm=PLAYMODES.find(m=>m[0]===playMode)||PLAYMODES[0];
-  const titel=x?`<span class="cmd-nowtitel" title="${esc(x.titel)}">♪ ${esc((x.titel||'').slice(0,40))}</span>`
+  const sig=[k||'',ic,pm[1],x?x.titel:''].join('|');
+  if(sig===cmdNowSig){cmdSeekTick();return;}
+  cmdNowSig=sig;
+  const titel=x?`<span class="cmd-nowtitel" title="${esc(x.titel)}">♪ ${esc((x.titel||'').slice(0,70))}</span>`
                :'<span class="cmd-nolabel">// nichts läuft — ▶ startet die Bibliothek</span>';
-  el.innerHTML=`<button class="cmd-pp" onclick="playerPrev()" title="Vorheriger">⏮</button>`+
+  el.innerHTML=`<div class="cmd-nowline">`+
+    `<button class="cmd-pp" onclick="playerPrev()" title="Vorheriger">⏮</button>`+
     `<button class="cmd-pp" onclick="cmdPlayPause()" title="Pause / Play — ohne laufenden Titel: Bibliothek abspielen">${ic}</button>`+
     `<button class="cmd-pp" onclick="playerNext()" title="Nächster">⏭</button>`+
     `<button class="cmd-pp" id="cmd-mode" onclick="playModeCycle()" title="Abspielmodus: ${pm[2]} (klicken zum Wechseln)">${pm[1]}</button>`+
-    `<button class="cmd-pp" onclick="radioStart()" title="📻 Radio">📻</button>`+titel;
+    `<button class="cmd-pp" onclick="radioStart()" title="📻 Radio">📻</button>`+titel+`</div>`+
+    `<div class="cmd-seekline"><span class="cmd-time" id="cmd-t0">0:00</span>`+
+    `<input type="range" id="cmd-seek" min="0" max="1000" value="0" disabled `+
+    `title="Im Lied spulen" oninput="cmdSeekDrag(this.value)" onchange="cmdSeekEnd(this.value)" `+
+    `onpointerdown="cmdSeekAktiv=true" onpointerup="cmdSeekAktiv=false">`+
+    `<span class="cmd-time" id="cmd-t1">0:00</span></div>`;
+  cmdSeekTick();
 }
+function cmdSeekDrag(v){                               // beim Ziehen läuft nur die Zeitanzeige mit
+  const pe=document.getElementById('pl-el');
+  const t0=document.getElementById('cmd-t0');
+  if(pe&&pe.duration&&t0)t0.textContent=zeit(v/1000*pe.duration);
+}
+function cmdSeekEnd(v){                                // losgelassen -> wirklich spulen
+  const pe=document.getElementById('pl-el');
+  if(pe&&pe.duration)pe.currentTime=v/1000*pe.duration;
+  cmdSeekAktiv=false;
+}
+function cmdSeekTick(){                                // Position/Zeiten nachführen (auch via setInterval)
+  const s=document.getElementById('cmd-seek'), t0=document.getElementById('cmd-t0'),
+        t1=document.getElementById('cmd-t1'), pe=document.getElementById('pl-el');
+  if(!s||!t0||!t1)return;
+  if(!pe||!pe.duration){s.value=0;s.disabled=true;t0.textContent='0:00';t1.textContent='0:00';return;}
+  s.disabled=false;
+  if(!cmdSeekAktiv){s.value=Math.round(pe.currentTime/pe.duration*1000);t0.textContent=zeit(pe.currentTime);}
+  t1.textContent=zeit(pe.duration);
+}
+setInterval(cmdSeekTick,500);
 function cmdPlayPause(){
   const pe=document.getElementById('pl-el');
   if(!pe){ if(libdaten.length)playGefilterte(); return; }   // nichts läuft -> Bibliothek starten (bei 🔀 gemischt)
