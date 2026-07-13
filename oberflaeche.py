@@ -215,7 +215,13 @@ body.layoutedit .rgriff{display:block}
 .r-se{bottom:-4px;right:-4px;width:16px;height:16px;cursor:se-resize}
 .r-se::after{content:'';position:absolute;right:4px;bottom:4px;width:9px;height:9px;
   border-right:2px solid var(--akz);border-bottom:2px solid var(--akz);border-radius:0 0 4px 0}
-body.layoutedit .panel{outline:1px dashed var(--akz);outline-offset:2px}
+body.layoutedit .panel{outline:1px dashed var(--akz);outline-offset:2px;
+  transition:left .12s ease-out, top .12s ease-out}    /* Ausweichen wirkt weich */
+body.layoutedit .panel.dragging{transition:none}       /* das gezogene folgt der Maus direkt */
+/* Playlist als eigenes Fenster: große Liste, Seitenliste im Player verschwindet */
+.plq-gross{flex:1;max-height:none;min-height:0}
+body.plq-extern #view-player .pl-side .pl-queue{display:none}
+#plq-btn.an{border-color:var(--akz);color:var(--akz2)}
 #layoutedit-btn.an{border-color:var(--akz);color:var(--akz2);background:var(--akzbg)}
 /* Transluzente Tab-Vorschau beim Herausziehen (wie Browser-Tab-Drag) */
 .tabghost{position:fixed;z-index:9999;width:230px;height:150px;pointer-events:none;opacity:.6;
@@ -563,8 +569,10 @@ html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 .pl-byt svg{width:15px;height:15px;fill:currentColor;display:block}
 .muted2{font-size:12px;color:#8a7d74}
 .pl-queue{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;flex:none}
+/* flex:none ist PFLICHT: sonst schrumpfen viele Einträge (z.B. 40 vom Radio)
+   unter ihre Texthöhe und die Liste sieht „zerhackt" aus (JB-Fund 13.07.) */
 .pl-item{font-size:12px;color:#d7c7bd;padding:4px 7px;border-radius:6px;cursor:pointer;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
+  text-overflow:ellipsis;white-space:nowrap;flex:none}
 .pl-item:hover{background:#241f1b}
 .pl-item.akt{background:var(--akzbg);color:var(--akz2)}
 
@@ -684,7 +692,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 41</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-13 · 42</span>
 </div>
 
 <div id="canvas"></div>
@@ -699,7 +707,8 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legrow"><b>Rechtsklick</b> auf Titel in der Bibliothek ODER in den Player = Menü mit allen Aktionen</div>
       <div class="legrow"><b>Mausrad kippen</b> (links/rechts) = zurück/vor zur vorherigen Ansicht — wie im Browser</div>
       <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster auf ein anderes ziehen = als Tab andocken (schnappt sonst zurück) · Tab herausziehen = eigenes Fenster (mit Vorschau)</div>
-      <div class="legrow"><b>✏ Layout</b> (unten): Fenster frei verschieben + an 8 Griffen die Größe ziehen — Fenster überlappen sich dabei nie; nochmal klicken beendet den Modus</div>
+      <div class="legrow"><b>✏ Layout</b> (unten): Fenster frei verschieben + an 8 Griffen die Größe ziehen — das bewegte Fenster hat Vorfahrt, die anderen weichen aus, nichts überlappt; nochmal klicken beendet den Modus</div>
+      <div class="legrow"><b>🎶 Playlist</b> (im Player): Player-Playlist als eigenes Fenster herauslösen — andockbar wie jeder Tab. Titel aus der Bibliothek <b>hineinziehen</b> = einreihen (auf einen Eintrag = an der Stelle, auf die Fläche = ans Ende)</div>
       <div class="legrow"><b>Strg-/Shift-Klick</b> in der Bibliothek = mehrere markieren (Leiste mit Sammel-Aktionen erscheint)</div>
       <div class="legsec">▶ Player</div>
       <div class="legrow">Steuerung liegt <b>auf dem Video/Cover</b> (erscheint bei Mausbewegung): Zufall 🔀 und Wiederholen 🔁 sind <b>getrennte Schalter</b> — farbig mit Punkt = an, 🔁 nochmal klicken = nur diesen Titel (Zeichen zeigt eine kleine 1)</div>
@@ -930,13 +939,23 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
           <!-- Steuerung lebt AUF dem Video (Leiste unten, YouTube-Stil) + im
                Rechtsklick-Menü — hier bleibt nur, was die Anordnung betrifft. -->
           <button class="btn mini" onclick="playerLayoutToggle()" title="Anordnung wechseln: Video oben ↔ Video links (Playlist rechts)">⇆ Layout</button>
+          <button class="btn mini" id="plq-btn" onclick="plqFenster()" title="Player-Playlist als eigenes Fenster herauslösen / wieder eingliedern — als Fenster ist sie andockbar wie jeder Tab">🎶 Playlist</button>
           <span class="muted2" id="pl-pos"></span>
           <span class="muted2" style="font-size:11px">· Rechtsklick = alle Optionen</span>
         </div>
         <div class="pl-kapitel" id="pl-kapitel" style="display:none"></div>
         <div class="pl-lyrics" id="pl-lyrics" style="display:none"></div>
-        <div class="pl-queue" id="pl-queue"></div>
+        <div class="pl-queue" id="pl-queue" ondragover="plqZielOver(event)" ondrop="plqZielDrop(event)"
+             title="Titel aus der Bibliothek hierher ziehen = einreihen"></div>
       </div>
+    </div>
+  </div>
+
+  <div id="view-plq">
+    <div class="card" style="height:100%;display:flex;flex-direction:column">
+      <div class="kopfzeile"><h2>Player-Playlist</h2><span class="muted2" id="plq-anzahl"></span></div>
+      <div class="pl-queue plq-gross" id="pl-queue-win" ondragover="plqZielOver(event)" ondrop="plqZielDrop(event)"
+           title="Titel aus der Bibliothek hierher ziehen = einreihen"></div>
     </div>
   </div>
 </div>
@@ -1037,7 +1056,7 @@ async function setFehlerMin(v){
 }
 
 /* ================= Panels / Docking ================= */
-const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Warteschlange', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player'};
+const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Warteschlange', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player', plq:'🎶 Playlist'};
 const LKEY='ytdl_layout_v5';
 let L=ladeLayout(), libTimer=null;
 
@@ -1114,6 +1133,11 @@ function renderPanels(){
   const libSichtbar=L.panels.some(p=>p.active==='lib');
   if(libSichtbar){if(!libTimer){libLaden();libTimer=setInterval(libLaden,5000);}}
   else{clearInterval(libTimer);libTimer=null;}
+  // Playlist als eigenes Fenster? Dann blendet der Player seine Seitenliste aus.
+  const plqExtern=L.panels.some(p=>p.views.includes('plq'));
+  document.body.classList.toggle('plq-extern',plqExtern);
+  const pb=document.getElementById('plq-btn'); if(pb)pb.classList.toggle('an',plqExtern);
+  renderPlayerQueue();
   saveLayout();
 }
 
@@ -1332,31 +1356,64 @@ function layoutEditToggle(){
   document.body.classList.toggle('layoutedit',layoutEdit);
   const b=document.getElementById('layoutedit-btn'); if(b)b.classList.toggle('an',layoutEdit);
   clearDock();
+  if(layoutEdit){                                     // beim Einschalten: Altlasten entwirren
+    [...L.panels].sort((a,b)=>(b.zi||0)-(a.zi||0)).forEach(p=>verdraenge(p));
+    panelsPos(); saveLayout();
+  }
 }
 function kollidiert(p,x,y,w,h){                       // überlappt der Kasten ein anderes Fenster?
   return L.panels.some(o=>o.id!==p.id && x<o.x+o.w && x+w>o.x && y<o.y+o.h && y+h>o.y);
 }
+function ueberlappt(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+/* Verdrängen (JB 13.07.: „das bewegte Fenster muss Priorität haben"): alle
+   Fenster, die dem priorisierten im Weg stehen, weichen mit der KLEINSTEN
+   möglichen Verschiebung aus (rechts/links/unter/über, notfalls nach unten —
+   da ist immer Platz, die Seite scrollt). Kettenreaktionen sind begrenzt,
+   und niemand schiebt das priorisierte Fenster zurück. */
+function verdraenge(p,fest,tiefe){
+  fest=fest||new Set([p.id]); tiefe=tiefe||0;
+  if(tiefe>6)return;
+  const c=document.getElementById('canvas'), cw=c?c.clientWidth:window.innerWidth;
+  const gap=Math.max(0,fensterAbstand());
+  L.panels.forEach(o=>{
+    if(fest.has(o.id)||!ueberlappt(p,o))return;
+    const rechts=p.x+p.w+gap, links=p.x-o.w-gap, unten=p.y+p.h+gap, oben=p.y-o.h-gap;
+    const kand=[
+      {x:rechts,y:o.y,d:rechts-o.x,        ok:rechts+o.w<=cw},
+      {x:links, y:o.y,d:o.x-links,         ok:links>=0},
+      {x:o.x,   y:unten,d:unten-o.y,       ok:true},
+      {x:o.x,   y:oben, d:o.y-oben,        ok:oben>=0},
+    ].filter(k=>k.ok).sort((a,b)=>Math.abs(a.d)-Math.abs(b.d));
+    const z=kand[0]||{x:o.x,y:unten};
+    o.x=Math.max(0,z.x); o.y=Math.max(0,z.y);
+    fest.add(o.id);
+    verdraenge(o,fest,tiefe+1);                       // wer ausweicht, schiebt ggf. weiter
+  });
+}
+function panelsPos(){L.panels.forEach(o=>{const e2=panelEl(o.id);
+  if(e2){e2.style.left=o.x+'px'; e2.style.top=o.y+'px';}});}
 
 function startMove(el,p,e){
   e.preventDefault(); bringFront(p); el.classList.add('dragging');
   try{el.setPointerCapture(e.pointerId);}catch(_){}
   const sx=e.clientX,sy=e.clientY,ox=p.x,oy=p.y;
-  let ziel=null, gx=ox, gy=oy;                        // gx/gy = letzte gültige (kollisionsfreie) Position
+  let ziel=null;
+  // Ausgangspositionen der ANDEREN merken: solange man zieht, springen sie
+  // zurück und weichen neu aus — wie Browser-Tabs, die Platz machen.
+  const andere=L.panels.filter(o=>o.id!==p.id).map(o=>({o,x:o.x,y:o.y}));
   function mv(ev){
     const c=document.getElementById('canvas');
     p.x=ox+ev.clientX-sx; p.y=oy+ev.clientY-sy;
     if(layoutEdit)snapKanten(p);                      // Einrasten nur beim echten Umräumen
     p.x=Math.max(0, Math.min(p.x, Math.max(0, c.clientWidth-p.w)));   // nie aus dem Bild
     p.y=Math.max(0, p.y);
-    if(layoutEdit&&kollidiert(p,p.x,p.y,p.w,p.h)){    // nie überlappen: je Achse zurückfallen
-      if(!kollidiert(p,p.x,gy,p.w,p.h))p.y=gy;
-      else if(!kollidiert(p,gx,p.y,p.w,p.h))p.x=gx;
-      else {p.x=gx; p.y=gy;}
-    }
-    if(layoutEdit){gx=p.x; gy=p.y;}
-    el.style.left=p.x+'px'; el.style.top=p.y+'px';
-    if(!layoutEdit){                                  // Tab-Geste: stark überlappt = andocken
-      const t=dockZiel(p.id);
+    if(layoutEdit){                                   // Priorität: die anderen weichen aus
+      andere.forEach(r=>{r.o.x=r.x; r.o.y=r.y;});
+      verdraenge(p);
+      panelsPos();
+    }else{
+      el.style.left=p.x+'px'; el.style.top=p.y+'px';
+      const t=dockZiel(p.id);                         // Tab-Geste: stark überlappt = andocken
       if(t!==ziel){ ziel=t; clearDock(); if(t)dockOverlay(t,'Loslassen: als Tab andocken',true); }
     }
   }
@@ -1447,7 +1504,28 @@ function tearOut(panelId,view,cx,cy){
   p.views=p.views.filter(v=>v!==view); if(p.active===view)p.active=p.views[0];
   const r=document.getElementById('canvas').getBoundingClientRect();
   const id='p'+(++L.z);
-  L.panels.push({id,x:Math.max(0,cx-r.left-70),y:Math.max(0,cy-r.top-14),w:640,h:600,views:[view],active:view,zi:++L.z});
+  const neu={id,x:Math.max(0,cx-r.left-70),y:Math.max(0,cy-r.top-14),w:640,h:600,views:[view],active:view,zi:++L.z};
+  L.panels.push(neu);
+  verdraenge(neu);                                    // neues Fenster überlappt nie (JB 13.07.)
+  renderPanels();
+}
+
+/* Player-Playlist als eigenes Fenster herauslösen / wieder in den Player holen.
+   Als Fenster ist sie normal andockbar (Tab-System) — so lassen sich Player
+   und Playlist frei kombinieren oder getrennt anordnen (JB 13.07.). */
+function plqFenster(){
+  const drin=L.panels.find(p=>p.views.includes('plq'));
+  if(drin){
+    drin.views=drin.views.filter(v=>v!=='plq');
+    if(!drin.views.length)L.panels=L.panels.filter(p=>p.id!==drin.id);
+    else if(drin.active==='plq')drin.active=drin.views[0];
+    renderPanels(); return;
+  }
+  const pl=L.panels.find(p=>p.views.includes('player'));
+  const neu={id:'p'+(++L.z), x:pl?pl.x+pl.w+10:40, y:pl?pl.y:20,
+             w:260, h:Math.max(320, pl?pl.h:420), views:['plq'], active:'plq', zi:++L.z};
+  L.panels.push(neu);
+  verdraenge(neu);
   renderPanels();
 }
 
@@ -2662,9 +2740,16 @@ async function plvDrop(e,key){
   await plApi({art:'reorder',id:libPlaylistView,items});   // Backend speichert die Reihenfolge
   libMalen();
 }
-function dragAttrs(id){                                // nur in der Playlist-Ansicht ziehbar
-  return libPlaylistView?` draggable="true" ondragstart="plvDragStart(event,'${id}')"`+
-    ` ondragover="plvDragOver(event)" ondrop="plvDrop(event,'${id}')"`:'';
+function dragAttrs(id){
+  // Titel sind IMMER ziehbar (in die Player-Playlist, JB 13.07.); in der
+  // Playlist-Ansicht zusätzlich als Umsortier-Ziel.
+  const basis=` draggable="true" ondragstart="libDragStart(event,'${id}')"`;
+  return basis+(libPlaylistView?` ondragover="plvDragOver(event)" ondrop="plvDrop(event,'${id}')"`:'');
+}
+function libDragStart(ev,id){
+  try{ev.dataTransfer.setData('ytdl/key',id);}catch(e){}   // fürs Fallenlassen in der Player-Playlist
+  ev.dataTransfer.effectAllowed='copyMove';
+  if(libPlaylistView)plvDragStart(ev,id);                  // Reihenfolge ziehen wie bisher
 }
 
 /* Generischer Menü-Bauer: an Mausposition (clientX) oder an einem Knopf (currentTarget).
@@ -3344,12 +3429,23 @@ function plQueueKlick(i){
   }
   playerState.idx=i; renderPlayerMedia();
 }
-/* Player-Warteschlange: Einträge mit der Maus umsortieren (HTML5-Drag) */
+/* Player-Warteschlange: Einträge umsortieren (HTML5-Drag) + Titel aus der
+   Bibliothek hineinziehen (JB 13.07.: „aus der Bibliothek in die Playlist schieben") */
 let plqVon=null;
 function plqDragStart(e,i){plqVon=i; e.dataTransfer.effectAllowed='move';}
 function plqDragOver(e){e.preventDefault(); e.dataTransfer.dropEffect='move';}
+function plqEinfuegen(key,i){                          // Bibliotheks-Titel an Position i einreihen
+  const x=libFind(key); if(!x||!x.vorhanden)return;
+  const curKey=aktKey();
+  playerState.queue.splice(i,0,key);
+  if(playerState.idx<0){playerState.idx=0; ensurePlayer(); renderPlayerMedia(); return;}
+  playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));
+  renderPlayerQueue(); cmdNowRender();
+}
 function plqDrop(e,i){
   e.preventDefault();
+  const neu=e.dataTransfer.getData('ytdl/key');
+  if(plqVon===null&&neu){plqEinfuegen(neu,i); return;} // von außen (Bibliothek) hereingezogen
   if(plqVon===null||plqVon===i){plqVon=null;return;}
   const curKey=aktKey();                               // laufenden Titel über den Umbau retten
   const [t]=playerState.queue.splice(plqVon,1);
@@ -3357,12 +3453,27 @@ function plqDrop(e,i){
   playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));
   plqVon=null; renderPlayerQueue();
 }
+function plqZielOver(e){                               // Freifläche der Liste als Drop-Ziel
+  const typen=e.dataTransfer?[...e.dataTransfer.types]:[];
+  if(typen.includes('ytdl/key')||plqVon!==null)e.preventDefault();
+}
+function plqZielDrop(e){
+  e.preventDefault();
+  const key=e.dataTransfer.getData('ytdl/key');
+  if(key&&plqVon===null)plqEinfuegen(key, playerState.queue.length);
+  plqVon=null;
+}
 function renderPlayerQueue(){
-  const q=document.getElementById('pl-queue'); if(!q)return;
-  q.innerHTML=playerState.queue.map((k,i)=>{const x=libFind(k)||{titel:k};
+  // rendert in BEIDE Ziele: seitliche Liste im Player + eigenes Playlist-Fenster
+  const html=playerState.queue.map((k,i)=>{const x=libFind(k)||{titel:k};
     return `<div class="pl-item ${i===playerState.idx?'akt':''}" draggable="true" `+
       `ondragstart="plqDragStart(event,${i})" ondragover="plqDragOver(event)" ondrop="plqDrop(event,${i})" `+
-      `onclick="plQueueKlick(${i})" title="Klick = abspielen/pausieren · Ziehen = umsortieren">${i+1}. ${esc(x.titel||k)}</div>`;}).join('');
+      `onclick="plQueueKlick(${i})" title="Klick = abspielen/pausieren · Ziehen = umsortieren">${i+1}. ${esc(x.titel||k)}</div>`;}).join('')
+    ||'<div class="pl-leer">Leer — Titel aus der Bibliothek hierher ziehen.</div>';
+  const q=document.getElementById('pl-queue'); if(q)q.innerHTML=html;
+  const qw=document.getElementById('pl-queue-win'); if(qw)qw.innerHTML=html;
+  const za=document.getElementById('plq-anzahl');
+  if(za)za.textContent=playerState.queue.length?(playerState.queue.length+' Titel'):'';
 }
 
 /* ================= Playlists ================= */
