@@ -700,7 +700,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 45</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 46</span>
 </div>
 
 <div id="canvas"></div>
@@ -714,7 +714,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legrow"><b>Klick</b> auf Video/Cover im Player = Pause/Weiter · auf einen Download oben rechts = Pause/Fortsetzen</div>
       <div class="legrow"><b>Rechtsklick</b> auf Titel in der Bibliothek ODER in den Player = Menü mit allen Aktionen</div>
       <div class="legrow"><b>Mausrad kippen</b> (links/rechts) = zurück/vor zur vorherigen Ansicht — wie im Browser</div>
-      <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster auf ein anderes ziehen = als Tab andocken (schnappt sonst zurück) · Tab auf ein anderes Fenster ziehen = dort als Tab andocken · Tab auf Freifläche = eigenes Fenster (mit Vorschau)</div>
+      <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster auf ein anderes ziehen = als Tab andocken (schnappt sonst zurück) · Tab auf ein anderes Fenster ziehen = dort als Tab andocken · Tab auf Freifläche = eigenes Fenster, das die Lücke dort ausfüllt (andere Fenster bleiben stehen)</div>
       <div class="legrow"><b>✏ Layout</b> (unten): Fenster frei verschieben + an 8 Griffen die Größe ziehen — das bewegte Fenster hat Vorfahrt, die anderen weichen aus, nichts überlappt; nochmal klicken beendet den Modus</div>
       <div class="legrow"><b>🎶 Playlist</b> (im Player): Player-Playlist als eigenes Fenster herauslösen — andockbar wie jeder Tab. Titel aus der Bibliothek <b>hineinziehen</b> = einreihen (auf einen Eintrag = an der Stelle, auf die Fläche = ans Ende)</div>
       <div class="legrow"><b>Strg-/Shift-Klick</b> in der Bibliothek = mehrere markieren (Leiste mit Sammel-Aktionen erscheint)</div>
@@ -1071,26 +1071,29 @@ const LKEY='ytdl_layout_v5';
 let L=ladeLayout(), libTimer=null;
 
 function defaultLayout(){
-  const W=window.innerWidth, bw=Math.max(320, W-20);
+  // Füllt den Bildschirm: Höhe aus dem Fenster statt fixer 660px (JB 14.07.:
+  // „Vorlagen schlagen alte Größen vor"), Abstände = eingestellter Gap (Standard 0).
+  const W=window.innerWidth, g=Math.max(0,fensterAbstand());
+  const bw=Math.max(320, W-16), H=Math.max(420, window.innerHeight-130);
   if(W>1180){
-    // Bibliothek groß + Player, plus ein schmales Fenster mit Tabs Fertig/Log/Hinzufügen.
-    // (Warteschlange steckt jetzt oben in der Command-Bar; Hinzufügen = Abos + Zugang zu den Einstellungen.)
-    const lw=Math.round(Math.min(400, bw*0.28)), rx=lw+24;
-    const restW=bw-rx, libW=Math.max(360, restW-320);
+    // Tabs Fertig/Log/Hinzufügen schmal + Bibliothek groß + Player.
+    const lw=Math.round(Math.min(400, bw*0.26));
+    const plW=Math.max(320, Math.round(bw*0.30));
+    const libW=bw-lw-plW-2*g;
     return {z:30,panels:[
-      {id:'p1',x:10,          y:8, w:lw,    h:660, views:['done','log','add'], active:'done', zi:12},
-      {id:'p4',x:rx,          y:8, w:libW,  h:660, views:['lib'],   active:'lib',   zi:14},
-      {id:'p5',x:rx+libW+14,  y:8, w:Math.max(300,bw-(rx+libW+14)), h:660, views:['player'], active:'player', zi:15},
+      {id:'p1',x:8,           y:8, w:lw,   h:H, views:['done','log','add'], active:'done', zi:12},
+      {id:'p4',x:8+lw+g,      y:8, w:libW, h:H, views:['lib'],    active:'lib',    zi:14},
+      {id:'p5',x:8+lw+g+libW+g, y:8, w:plW, h:H, views:['player'], active:'player', zi:15},
     ]};
   }
   if(W>760){
     return {z:20,panels:[
-      {id:'p1',x:10, y:8, w:320, h:660, views:['done','log','add'], active:'done', zi:12},
-      {id:'p4',x:334,y:8, w:bw-334, h:660, views:['lib','player'], active:'lib', zi:14},
+      {id:'p1',x:8,       y:8, w:320,      h:H, views:['done','log','add'], active:'done', zi:12},
+      {id:'p4',x:8+320+g, y:8, w:bw-320-g, h:H, views:['lib','player'], active:'lib', zi:14},
     ]};
   }
   return {z:12,panels:[
-    {id:'p1',x:6,y:8,w:bw-2,h:680,views:['lib','player','done','log','add','queue'],active:'lib',zi:11},
+    {id:'p1',x:8,y:8,w:bw,h:H,views:['lib','player','done','log','add','queue'],active:'lib',zi:11},
   ]};
 }
 function ladeLayout(){
@@ -1245,16 +1248,19 @@ function layoutAufraeumen(){
 }
 function layoutVorlage(name){
   layoutMerken();
-  const bw=Math.max(320,window.innerWidth-20);
+  const bw=Math.max(320,window.innerWidth-16);
   if(name==='youtube'){
-    const vidW=Math.round(bw*0.60), sideW=bw-vidW-24, H=Math.max(560,window.innerHeight-110);
+    // Bildschirm füllend, Abstände = Gap (Standard 0) — keine alten Festmaße mehr
+    const g=Math.max(0,fensterAbstand());
+    const vidW=Math.round(bw*0.60), sideW=bw-vidW-g, H=Math.max(560,window.innerHeight-130);
+    const oben=Math.round(H*0.62);
     L={z:40,panels:[
-      {id:'p1',x:10,y:8,w:vidW,h:Math.round(H*0.60),views:['player'],active:'player',zi:14},
-      {id:'p2',x:10,y:14+Math.round(H*0.60),w:vidW,h:Math.round(H*0.40)-6,views:['add','queue','done'],active:'queue',zi:13},
-      {id:'p3',x:vidW+24,y:8,w:sideW,h:H,views:['lib'],active:'lib',zi:15},
+      {id:'p1',x:8,y:8,w:vidW,h:oben,views:['player'],active:'player',zi:14},
+      {id:'p2',x:8,y:8+oben+g,w:vidW,h:H-oben-g,views:['add','queue','done'],active:'queue',zi:13},
+      {id:'p3',x:8+vidW+g,y:8,w:sideW-8,h:H,views:['lib'],active:'lib',zi:15},
     ]};
   }else if(name==='tabs'){
-    L={z:20,panels:[{id:'p1',x:10,y:8,w:bw,h:Math.max(560,window.innerHeight-110),
+    L={z:20,panels:[{id:'p1',x:8,y:8,w:bw,h:Math.max(560,window.innerHeight-130),
       views:['add','queue','done','lib','player'],active:'lib',zi:11}]};
   }else{ L=defaultLayout(); }
   renderPanels();
@@ -1301,7 +1307,10 @@ function miniToggle(){
     miniAltLayout=JSON.parse(JSON.stringify(L));       // aktuelles Layout merken
     ensurePlayer();
     document.body.classList.add('mini');
-    L={z:5,panels:[{id:'pmini',x:10,y:8,w:Math.min(360,window.innerWidth-24),h:150,views:['player'],active:'player',zi:5}]};
+    // rechts oben, neben der Download-Liste der Command-Bar (JB 14.07.)
+    const cw=(document.getElementById('canvas')||{clientWidth:window.innerWidth}).clientWidth||window.innerWidth;
+    const mw=Math.min(380,cw-16);
+    L={z:5,panels:[{id:'pmini',x:Math.max(0,cw-mw-8),y:8,w:mw,h:150,views:['player'],active:'player',zi:5}]};
     renderPanels(); miniAn=true; if(b){b.classList.add('an'); b.textContent='🔳 Voll';}
   }else{
     document.body.classList.remove('mini');
@@ -1434,6 +1443,35 @@ function freiePosition(w,h,zx,zy){
   if(best)return best;
   const tiefstes=Math.max(0,...L.panels.map(o=>o.y+o.h));
   return {x:Math.max(0,Math.min(zx,cw-w)), y:tiefstes+gap};
+}
+
+/* Größtes freies Rechteck um einen Punkt (JB 14.07.: der herausgezogene Tab
+   hat VORRANG am Ablagepunkt und FÜLLT dort die Lücke — bündig an allen
+   Nachbarn, keine großen Abstände, keine Fantasie-Festgröße):
+   erst die x-Grenzen aus Fenstern, die den Punkt vertikal enthalten,
+   dann die y-Grenzen aus allem, was in diesen x-Bereich ragt. */
+function freiesRechteck(px,py){
+  const c=document.getElementById('canvas'), cw=c?c.clientWidth:window.innerWidth;
+  const gap=Math.max(0,fensterAbstand());
+  let l=0, r=cw;
+  L.panels.forEach(o=>{
+    if(py>=o.y&&py<o.y+o.h){
+      if(o.x+o.w<=px)l=Math.max(l,o.x+o.w+gap);
+      else if(o.x>=px)r=Math.min(r,o.x-gap);
+    }
+  });
+  let t=0, b=Infinity;
+  L.panels.forEach(o=>{
+    if(o.x<r&&o.x+o.w>l){
+      if(o.y+o.h<=py)t=Math.max(t,o.y+o.h+gap);
+      else if(o.y>=py)b=Math.min(b,o.y-gap);
+    }
+  });
+  if(b===Infinity){
+    const tiefstes=Math.max(window.innerHeight-140,...L.panels.map(o=>o.y+o.h));
+    b=Math.max(t+130,tiefstes);
+  }
+  return {x:l, y:t, w:r-l, h:b-t};
 }
 
 function startMove(el,p,e){
@@ -1588,11 +1626,19 @@ function tearOut(panelId,view,cx,cy){
   const p=L.panels.find(x=>x.id===panelId); if(!p||p.views.length<2)return;
   p.views=p.views.filter(v=>v!==view); if(p.active===view)p.active=p.views[0];
   const r=document.getElementById('canvas').getBoundingClientRect();
-  // Neues Fenster: GRÖSSE wie das Quellfenster, Position = nächste freie
-  // Stelle am Ablagepunkt — kein anderes Fenster bewegt sich, nichts
-  // überlappt, angelegt wird bündig (JB 14.07.).
-  const pos=freiePosition(p.w, p.h, Math.max(0,cx-r.left-70), Math.max(0,cy-r.top-14));
-  L.panels.push({id:'p'+(++L.z), x:pos.x, y:pos.y, w:p.w, h:p.h,
+  const px=Math.max(0,cx-r.left), py=Math.max(0,cy-r.top);
+  // Der Tab hat VORRANG am Ablagepunkt: er FÜLLT dort die freie Lücke
+  // (bündig an allen Nachbarn) — kein anderes Fenster bewegt sich, das
+  // restliche Layout bleibt identisch (JB 14.07.).
+  // Liegt der Punkt AUF einem Fenster (z.B. überm eigenen Quellfenster
+  // losgelassen), gibt es dort keine Lücke -> nächste freie Stelle in Quellgröße.
+  const belegt=L.panels.some(o=>px>=o.x&&px<o.x+o.w&&py>=o.y&&py<o.y+o.h);
+  let rect=belegt?null:freiesRechteck(px,py);
+  if(!rect||rect.w<190||rect.h<130){                  // keine/zu kleine Lücke
+    const pos=freiePosition(p.w,p.h,px-70,py-14);
+    rect={x:pos.x, y:pos.y, w:p.w, h:p.h};
+  }
+  L.panels.push({id:'p'+(++L.z), x:rect.x, y:rect.y, w:rect.w, h:rect.h,
                  views:[view], active:view, zi:++L.z});
   renderPanels();
 }
