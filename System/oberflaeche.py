@@ -223,9 +223,12 @@ body.layoutedit .panel.dragging{transition:none}       /* das gezogene folgt der
 /* Platzhalter beim Ziehen im ✏-Modus: zeigt fest die eingerastete Zielposition */
 .platzhalter-fenster{position:absolute;z-index:9500;pointer-events:none;border-radius:12px;
   border:2px dashed var(--akz);background:rgba(201,149,43,.07)}
+body.nosel, body.nosel *{user-select:none!important}  /* beim Ziehen keinen Text markieren */
 /* Playlist als eigenes Fenster: große Liste, Seitenliste im Player verschwindet */
 .plq-gross{flex:1;max-height:none;min-height:0}
-body.plq-extern #view-player .pl-side .pl-queue{display:none}
+/* Playlist abgespalten: der Player ist NUR noch Video — die komplette
+   Seitenfläche verschwindet (JB 14.07.), Steuerung liegt auf dem Video. */
+body.plq-extern #view-player .pl-side{display:none}
 #plq-btn.an{border-color:var(--akz);color:var(--akz2)}
 #layoutedit-btn.an{border-color:var(--akz);color:var(--akz2);background:var(--akzbg)}
 /* Transluzente Tab-Vorschau beim Herausziehen (wie Browser-Tab-Drag) */
@@ -697,7 +700,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 43</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 44</span>
 </div>
 
 <div id="canvas"></div>
@@ -958,7 +961,9 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-plq">
     <div class="card" style="height:100%;display:flex;flex-direction:column">
-      <div class="kopfzeile"><h2>Player-Playlist</h2><span class="muted2" id="plq-anzahl"></span></div>
+      <div class="kopfzeile"><h2>Player-Playlist</h2><span class="muted2" id="plq-anzahl"></span>
+        <span class="spacer"></span>
+        <button class="btn mini" onclick="plqFenster()" title="Playlist wieder in den Player eingliedern — der Player bekommt seine Breite zurück">⧉ In den Player</button></div>
       <div class="pl-queue plq-gross" id="pl-queue-win" ondragover="plqZielOver(event)" ondrop="plqZielDrop(event)"
            title="Titel aus der Bibliothek hierher ziehen = einreihen"></div>
     </div>
@@ -1342,7 +1347,7 @@ function naechsteKante(pos, kandidaten, T){          // die NÄCHSTE Kante im Fa
   return best;
 }
 function snapKanten(p){
-  const T=9, gap=fensterAbstand(), c=document.getElementById('canvas');
+  const T=16, gap=fensterAbstand(), c=document.getElementById('canvas');   // kräftiger Magnet (JB: „haften!")
   const xk=[0, c.clientWidth-p.w], yk=[0, c.clientHeight-p.h];
   L.panels.forEach(o=>{ if(o.id===p.id)return;
     xk.push(o.x, o.x+o.w-p.w, o.x-gap-p.w, o.x+o.w+gap);   // ausrichten & anlegen mit Gap
@@ -1401,6 +1406,7 @@ function panelsPos(){L.panels.forEach(o=>{const e2=panelEl(o.id);
 
 function startMove(el,p,e){
   e.preventDefault(); bringFront(p); el.classList.add('dragging');
+  document.body.classList.add('nosel');               // beim Ziehen keinen Text markieren
   try{el.setPointerCapture(e.pointerId);}catch(_){}
   const sx=e.clientX,sy=e.clientY,ox=p.x,oy=p.y;
   let ziel=null, ph=null, zx=ox, zy=oy;
@@ -1427,6 +1433,7 @@ function startMove(el,p,e){
   function up(){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
     el.classList.remove('dragging'); clearDock();
+    document.body.classList.remove('nosel');
     try{el.releasePointerCapture(e.pointerId);}catch(_){}
     if(ph)ph.remove();
     if(layoutEdit){                                   // auf dem Platzhalter landen, Rest weicht aus
@@ -1445,13 +1452,14 @@ function startMove(el,p,e){
 
 function startResize(el,p,e,richtung){
   e.preventDefault(); try{el.setPointerCapture(e.pointerId);}catch(_){}
+  document.body.classList.add('nosel');
   const sx=e.clientX,sy=e.clientY,ox=p.x,oy=p.y,ow=p.w,oh=p.h;
   const r=richtung||'se';
   const dxs=r.includes('e')?1:(r.includes('w')?-1:0); // welche Kanten bewegen sich mit?
   const dys=r.includes('s')?1:(r.includes('n')?-1:0);
   const prop=(p.active==='player'&&r==='se'), aspect=ow/Math.max(1,oh);   // Player-Ecke: proportional
   function mv(ev){
-    const c=document.getElementById('canvas'), T=9;
+    const c=document.getElementById('canvas'), T=12;
     const dx=ev.clientX-sx, dy=ev.clientY-sy;
     let nx=ox, ny=oy, nw=ow, nh=oh;
     if(dxs===1)nw=ow+dx; else if(dxs===-1){nw=ow-dx; nx=ox+dx;}
@@ -1477,6 +1485,7 @@ function startResize(el,p,e,richtung){
     el.style.width=p.w+'px'; el.style.height=p.h+'px';
   }
   function up(){document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
+    document.body.classList.remove('nosel');
     try{el.releasePointerCapture(e.pointerId);}catch(_){} saveLayout();}
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
 }
@@ -1494,6 +1503,7 @@ function bindTab(t,panelId){
     function mv(ev){
       if(!moved&&Math.hypot(ev.clientX-sx,ev.clientY-sy)>18){
         moved=true;                                   // transluzente Vorschau wie beim Browser-Tab-Drag
+        document.body.classList.add('nosel');
         ghost=document.createElement('div'); ghost.className='tabghost';
         ghost.innerHTML='<div class="tabghost-kopf">'+esc(VIEWS[view]||view)+'</div>'+
                         '<div class="tabghost-body" id="tabghost-txt">Loslassen = eigenes Fenster hier</div>';
@@ -1513,6 +1523,7 @@ function bindTab(t,panelId){
     function up(ev){
       document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
       if(ghost)ghost.remove(); clearDock();
+      document.body.classList.remove('nosel');
       if(!moved){ p.active=view; bringFront(p); merkeView(panelId,view); renderPanels(); return; }   // Klick = Tab wechseln
       if(ueberPanel){                                 // Tab wandert in das andere Fenster
         p.views=p.views.filter(v=>v!==view); if(p.active===view)p.active=p.views[0];
@@ -1552,18 +1563,34 @@ function tearOut(panelId,view,cx,cy){
    Als Fenster ist sie normal andockbar (Tab-System) — so lassen sich Player
    und Playlist frei kombinieren oder getrennt anordnen (JB 13.07.). */
 function plqFenster(){
+  // Abspalten OHNE dass sich irgendetwas bewegt (JB 14.07.): die Playlist
+  // bekommt den RECHTEN STREIFEN des Player-Fensters, der Player wird nur
+  // schmaler — alle anderen Fenster bleiben exakt stehen. Eingliedern gibt
+  // dem Player die Breite zurück, wenn die Playlist noch daneben klebt.
+  const gap=Math.max(0,fensterAbstand());
+  const pl=L.panels.find(p=>p.views.includes('player'));
   const drin=L.panels.find(p=>p.views.includes('plq'));
   if(drin){
+    if(drin.views.length===1&&pl
+       &&Math.abs(drin.x-(pl.x+pl.w+gap))<=14&&Math.abs(drin.y-pl.y)<=14)
+      pl.w=pl.w+gap+drin.w;                           // Streifen zurück an den Player
     drin.views=drin.views.filter(v=>v!=='plq');
     if(!drin.views.length)L.panels=L.panels.filter(p=>p.id!==drin.id);
     else if(drin.active==='plq')drin.active=drin.views[0];
     renderPanels(); return;
   }
-  const pl=L.panels.find(p=>p.views.includes('player'));
-  const neu={id:'p'+(++L.z), x:pl?pl.x+pl.w+10:40, y:pl?pl.y:20,
-             w:260, h:Math.max(320, pl?pl.h:420), views:['plq'], active:'plq', zi:++L.z};
-  L.panels.push(neu);
-  verdraenge(neu);
+  const W=260;
+  let neu;
+  if(pl && pl.w>=190+W+gap){
+    pl.w=pl.w-W-gap;
+    neu={id:'p'+(++L.z), x:pl.x+pl.w+gap, y:pl.y, w:W, h:pl.h, views:['plq'], active:'plq', zi:++L.z};
+    L.panels.push(neu);
+  }else{                                              // Player zu schmal -> daneben, Rest weicht aus
+    neu={id:'p'+(++L.z), x:pl?pl.x+pl.w+gap:40, y:pl?pl.y:20,
+         w:W, h:Math.max(320, pl?pl.h:420), views:['plq'], active:'plq', zi:++L.z};
+    L.panels.push(neu);
+    verdraenge(neu);
+  }
   renderPanels();
 }
 
