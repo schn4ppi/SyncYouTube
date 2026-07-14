@@ -703,7 +703,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 50</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 51</span>
 </div>
 
 <div id="canvas"></div>
@@ -933,7 +933,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
       <div id="libbulk" class="libbulk" style="display:none"></div>
       <div class="libbar plbar">
         <span style="font-size:12px;color:#8a7d74">Playlist:</span>
-        <select id="plsel" onchange="plMalen()" title="Playlist wählen"></select>
+        <select id="plsel" onchange="plWahl()" title="Playlist wählen — Auswahl zeigt sie sofort in der Bibliothek"></select>
         <button class="btn mini" onclick="plCreate()" title="Neue Playlist anlegen">＋ Neu</button>
         <button class="btn mini" id="plviewbtn" onclick="plView()" title="Titel dieser Playlist unten in der Bibliothek anzeigen">📃 Öffnen</button>
         <button class="btn mini" onclick="plPlaySel()" title="Gewählte Playlist im Player abspielen">▶ Abspielen</button>
@@ -1430,6 +1430,36 @@ function verdraenge(p,fest,tiefe){
 function panelsPos(){L.panels.forEach(o=>{const e2=panelEl(o.id);
   if(e2){e2.style.left=o.x+'px'; e2.style.top=o.y+'px';}});}
 
+/* MAGNET (JB 14.07.: „Andocken heißt magnetische Fenster — nichts bleibt in
+   der Luft"): die nächstgelegene BÜNDIGE Anlege-Position an einem Nachbarn
+   oder Rand, egal wie weit weg — die Gleit-Koordinate folgt der Maus, sodass
+   man die Höhe/Seite selbst wählt. Nur kollisionsfreie Plätze zählen. */
+function magnetPos(p,x,y){
+  const c=document.getElementById('canvas'), cw=c?c.clientWidth:window.innerWidth;
+  const gap=Math.max(0,fensterAbstand());
+  const kand=[];
+  L.panels.forEach(o=>{
+    if(o.id===p.id)return;
+    const yk=Math.max(Math.max(0,o.y-p.h+24), Math.min(y, o.y+o.h-24));   // mind. 24px Kontakt
+    kand.push({x:o.x+o.w+gap, y:yk});                 // rechts an o
+    kand.push({x:o.x-p.w-gap, y:yk});                 // links an o
+    const xk=Math.max(Math.max(0,o.x-p.w+24), Math.min(x, o.x+o.w-24));
+    kand.push({x:xk, y:o.y+o.h+gap});                 // unter o
+    kand.push({x:xk, y:o.y-p.h-gap});                 // über o
+  });
+  kand.push({x:0, y:Math.max(0,y)});                  // Ränder
+  kand.push({x:Math.max(0,cw-p.w), y:Math.max(0,y)});
+  kand.push({x:Math.max(0,Math.min(x,cw-p.w)), y:0});
+  let best=null, bd=Infinity;
+  for(const k of kand){
+    if(k.x<0||k.y<0||k.x+p.w>cw)continue;
+    if(kollidiert(p,k.x,k.y,p.w,p.h))continue;
+    const d=(k.x-x)*(k.x-x)+(k.y-y)*(k.y-y);
+    if(d<bd){bd=d; best=k;}
+  }
+  return best;
+}
+
 /* Nächste FREIE Position für ein neues Fenster (w×h) nahe dem Wunschpunkt —
    bewegt NICHTS anderes (JB 14.07.: „die Ordnung darf sich nicht ändern").
    Kandidaten sind bündige Anlege-Positionen an Nachbarn/Rand (Abstand = gap,
@@ -1500,8 +1530,12 @@ function startMove(el,p,e){
       // Dashboard-Muster (JB: „im Dashboard viel besser"): nichts wackelt live —
       // ein PLATZHALTER zeigt die eingerastete Zielposition, gelandet wird beim
       // Loslassen; erst dann weichen die anderen aus.
-      const t={id:p.id, x:p.x, y:p.y, w:p.w, h:p.h};
-      snapKanten(t);
+      // MAGNET: Ziel = nächste bündige Anlege-Position (nie „in der Luft"),
+      // Feinausrichtung über snapKanten (bündige Kanten mit Nachbarn)
+      let t=magnetPos(p,p.x,p.y)||{x:p.x,y:p.y};
+      const fein={id:p.id, x:t.x, y:t.y, w:p.w, h:p.h};
+      snapKanten(fein);
+      if(!kollidiert(p,fein.x,fein.y,p.w,p.h))t=fein;
       zx=Math.max(0, Math.min(t.x, Math.max(0, c.clientWidth-p.w))); zy=Math.max(0, t.y);
       if(!ph){ph=document.createElement('div'); ph.className='platzhalter-fenster'; c.appendChild(ph);}
       ph.style.left=zx+'px'; ph.style.top=zy+'px'; ph.style.width=p.w+'px'; ph.style.height=p.h+'px';
@@ -3105,6 +3139,10 @@ function playerLayoutToggle(){
 }
 function libFind(k){return libdaten.find(x=>x.id===k);}
 function playerPlay(keys,start){
+  if(!(libdaten||[]).length){                          // Bibliothek noch nicht geladen -> erst holen,
+    libLaden().then(()=>playerPlay(keys,start));       // sonst filtert der Check ALLES raus und der
+    return;                                            // Player bleibt schwarz (JB-Fund 14.07.)
+  }
   keys=(keys||[]).filter(k=>{const x=libFind(k); return x&&x.vorhanden;});
   if(!keys.length){alert('Nichts Abspielbares — die Datei fehlt (verschoben/gelöscht).');return;}
   // Genau den LAUFENDEN Titel nochmal angeklickt -> nicht neu starten, sondern Pause/Play
@@ -3134,7 +3172,7 @@ function speedAnwenden(){const el=document.getElementById('pl-el'); if(el)el.pla
 /* ---- Untertitel / Karaoke / Transkript (aus .vtt neben der Datei) ---- */
 const SUBMODES=[['aus','💬','aus'],['zeilen','💬','Untertitel (eine Zeile)'],
   ['karaoke','🎤','Karaoke — Zeilen laufen zeitsynchron mit'],['transkript','📜','Transkript (Text, Klick springt)']];
-let subMode='aus', subCues=null, subLang='', subIdx=-1;
+let subMode='karaoke', subCues=null, subLang='', subIdx=-1;   // Standard KARAOKE (JB: „direkt singen")
 let subSprachen=[], subLangWahl='', subRomaji=true;   // Romaji standardmäßig AN (Karaoke authentisch lesbar)
 try{const v=localStorage.getItem('ytdl_submode'); if(SUBMODES.some(m=>m[0]===v))subMode=v;}catch(e){}
 try{const v=localStorage.getItem('ytdl_subromaji'); if(v!==null)subRomaji=v==='1';}catch(e){}
@@ -3171,6 +3209,10 @@ async function subLaden(key){
       subSprachen=d.sprachen||[];
     }else subSprachen=[];
   }catch(e){}
+  // Standardmäßig da sein (JB 14.07.: „direkt Karaoke go"): fehlen Untertitel
+  // beim Abspielen, IMMER still von YouTube vorladen (1× je Titel und Sitzung) —
+  // der erste Karaoke-Klick trifft dann schon auf fertige Zeilen.
+  if(!subCues)subNachladen();
   subAnzeigen();
 }
 function subSpracheWechsel(){                          // zyklisch durch alle .vtt-Sprachen des Titels
@@ -3672,17 +3714,24 @@ function plMalen(){
   plViewRender();
 }
 // Playlist „öffnen": Bibliothek zeigt nur diese Playlist. Nochmal klicken schließt sie wieder.
-function plView(){
+function plWahl(){                                    // Playlist WÄHLEN = sofort öffnen (JB 14.07.)
   const id=document.getElementById('plsel').value;
-  if(!id){alert('Bitte oben zuerst eine Playlist wählen.');return;}
-  libPlaylistView=(libPlaylistView===id)?'':id;
+  libPlaylistView=id||'';                              // „— keine —" = schließen, ohne Meckern
+  plViewRender(); libMalen();
+}
+function plView(){                                     // Knopf: offene Ansicht schließen / wieder öffnen
+  const id=document.getElementById('plsel').value;
+  libPlaylistView=libPlaylistView?'':(id||'');
   plViewRender(); libMalen();
 }
 function plViewSchliessen(){libPlaylistView=''; plViewRender(); libMalen();}
 function plViewRender(){
   const btn=document.getElementById('plviewbtn');
   const p=plState.find(x=>x.id===libPlaylistView);
-  if(btn){btn.classList.toggle('an',!!libPlaylistView); btn.textContent=libPlaylistView?'📃 Schließen':'📃 Öffnen';}
+  if(btn){btn.classList.toggle('an',!!libPlaylistView); btn.textContent=libPlaylistView?'📃 Schließen':'📃 Öffnen';
+    const sel=document.getElementById('plsel');
+    btn.disabled=!libPlaylistView&&!(sel&&sel.value);   // nichts gewählt -> Knopf aus statt Alert
+  }
   const info=document.getElementById('plinfo');
   if(info&&libPlaylistView&&p)info.innerHTML=`📃 <b>${esc(p.name)}</b> — ${p.items.length} Titel · Ziehen = Reihenfolge ändern · <a href="#" onclick="plViewSchliessen();return false" style="color:var(--akz2)">Zurück zur Bibliothek</a>`;
   else if(info&&!libPlaylistView&&/^📃/.test(info.textContent||''))info.textContent='';
@@ -3808,6 +3857,7 @@ transportRender();
 vizFarbeAktualisieren(); vizModeRender();
 cmdNowRender();
 laden();
+libLaden();                                       // Bibliothek sofort laden (Player braucht sie)
 plLaden();
 aboLaden();
 setInterval(laden,1000);
