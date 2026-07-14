@@ -587,6 +587,7 @@ html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
   text-overflow:ellipsis;white-space:nowrap;flex:none}
 .pl-item:hover{background:#241f1b}
 .pl-item.akt{background:var(--akzbg);color:var(--akz2)}
+.pl-item.artaus{opacity:.35}                          /* per 🎶/🎬 weggefiltert */
 
 /* ---- Tag-Modus (hell) ---- */
 html.light body{background:#f4efe9;color:#2a2320}
@@ -704,7 +705,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 54</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 55</span>
 </div>
 
 <div id="canvas"></div>
@@ -2489,6 +2490,7 @@ function playArtCycle(){
   playArt=playArt==='alle'?'mp3':(playArt==='mp3'?'video':'alle');
   try{localStorage.setItem('ytdl_playart',playArt);}catch(e){}
   transportRender();
+  libMalen(); renderPlayerQueue();                     // Ansicht + Queue folgen sofort
 }
 function artPasst(x){
   if(playArt==='alle')return true;
@@ -2519,8 +2521,16 @@ function transportRender(){
     b.classList.toggle('an',playArt!=='alle');
     b.textContent=playArt==='mp3'?'🎶':(playArt==='video'?'🎬':'🎶🎬');
     b.title='Was spielt: '+(playArt==='alle'?'Musik + Videos':(playArt==='mp3'?'nur Musik':'nur Videos'))+
-      ' — klicken zum Wechseln. Wirkt auf Radio, Autoplay und „Gefilterte abspielen"; Playlists spielen immer alles.';
+      ' — klicken zum Wechseln. Gilt überall: Bibliothek-Anzeige, Playlists (übersprungene Titel bleiben gedimmt drin), Radio und Autoplay.';
   });
+}
+function queueIdxPassend(start,dir){
+  const q=playerState.queue;
+  for(let i=start;i>=0&&i<q.length;i+=dir){
+    const x=libFind(q[i]);
+    if(x&&x.vorhanden&&artPasst(x))return i;
+  }
+  return -1;
 }
 function playerAdvance(){                             // automatisch nach Titel-Ende
   if(sleepTitelende){sleepAusloesen(); return;}      // Sleep-Timer „nach diesem Titel"
@@ -2530,14 +2540,17 @@ function playerAdvance(){                             // automatisch nach Titel-
     renderPlayerMedia(); return;
   }
   if(playRepeat==='eins'){renderPlayerMedia(); return;}   // gleichen Titel wiederholen
-  if(playShuffle&&playerState.queue.length>1){            // Zufall: anderer Titel als der aktuelle
-    let n; do{n=Math.floor(Math.random()*playerState.queue.length);}while(n===playerState.idx);
-    playerState.idx=n; renderPlayerMedia(); return;
+  if(playShuffle&&playerState.queue.length>1){            // Zufall: anderer PASSENDER Titel
+    const kand=playerState.queue.map((k,i)=>i)
+      .filter(i=>i!==playerState.idx&&(x=>x&&x.vorhanden&&artPasst(x))(libFind(playerState.queue[i])));
+    if(kand.length){playerState.idx=kand[Math.floor(Math.random()*kand.length)]; renderPlayerMedia();}
+    return;
   }
-  if(playerState.idx<playerState.queue.length-1){playerState.idx++; renderPlayerMedia();}
-  else if(playRepeat==='alle'){playerState.idx=0; renderPlayerMedia();}
+  let n=queueIdxPassend(playerState.idx+1,1);             // nächster passender in der Reihe
+  if(n<0&&playRepeat==='alle')n=queueIdxPassend(0,1);
+  if(n>=0){playerState.idx=n; renderPlayerMedia();}
   else if(playerState.queue.length<=1)naechstesAusBibliothek();
-  // sonst: Playlist zu Ende -> Stopp
+  // sonst: Playlist (nach Abspielart) zu Ende -> Stopp
 }
 
 /* Einzeltitel ohne Playlist zu Ende (JB 14.07.): weiterspielen wie YouTube-
@@ -2729,13 +2742,13 @@ function libGefiltert(){
   // Playlist-Ansicht: nur die Titel dieser Playlist, in Playlist-Reihenfolge (keine Sortierung).
   if(libPlaylistView){
     const p=plState.find(x=>x.id===libPlaylistView);
-    let arr=(p?p.items:[]).map(k=>libFind(k)).filter(Boolean);
+    let arr=(p?p.items:[]).map(k=>libFind(k)).filter(Boolean).filter(artPasst);
     if(q)arr=arr.filter(x=>(x.titel+' '+(x.uploader||'')).toLowerCase().includes(q));
     return arr;
   }
   const f=document.getElementById('libfilter').value;
   const hide=document.getElementById('libhidegray').checked;
-  let arr=libdaten.filter(x=>!!x.archiviert===libArchiv);
+  let arr=libdaten.filter(x=>!!x.archiviert===libArchiv).filter(artPasst);   // 🎶/🎬-Schalter
   if(f==='vorhanden')arr=arr.filter(x=>x.vorhanden);
   else if(f==='verschoben')arr=arr.filter(x=>!x.vorhanden);
   if(hide&&!libArchiv)arr=arr.filter(x=>x.vorhanden);
@@ -3185,12 +3198,16 @@ function playGefilterte(){
 }
 function aktKey(){return playerState.queue[playerState.idx];}
 function playerNext(){
-  if(playerState.idx<playerState.queue.length-1){playerState.idx++;renderPlayerMedia();}
-  // Nur EIN Titel in der Playlist? ⏭ geht weiter durch die Bibliothek —
-  // wie das automatische Titelende (JB 14.07.); Zufall-Modus zählt mit.
+  const n=queueIdxPassend(playerState.idx+1,1);        // Abspielart 🎶/🎬 zählt mit
+  if(n>=0){playerState.idx=n; renderPlayerMedia();}
+  // Nur EIN Titel in der Playlist (bzw. nichts Passendes mehr dahinter)?
+  // ⏭ geht weiter durch die Bibliothek — wie das automatische Titelende.
   else if(playerState.queue.length<=1)naechstesAusBibliothek();
 }
-function playerPrev(){if(playerState.idx>0){playerState.idx--;renderPlayerMedia();}}
+function playerPrev(){
+  const n=queueIdxPassend(playerState.idx-1,-1);
+  if(n>=0){playerState.idx=n; renderPlayerMedia();}
+}
 function playerExtern(){const k=aktKey(); if(k)biblio(k,'extern');}
 function playerYoutube(){const x=libFind(aktKey()); if(x&&x.url)window.open(x.url,'_blank','noreferrer');}
 
@@ -3744,7 +3761,8 @@ function plqZielDrop(e){
 function renderPlayerQueue(){
   // rendert in BEIDE Ziele: seitliche Liste im Player + eigenes Playlist-Fenster
   const html=playerState.queue.map((k,i)=>{const x=libFind(k)||{titel:k};
-    return `<div class="pl-item ${i===playerState.idx?'akt':''}" draggable="true" `+
+    const aus=!artPasst(x||{});
+    return `<div class="pl-item ${i===playerState.idx?'akt':''}${aus?' artaus':''}" draggable="true" `+
       `ondragstart="plqDragStart(event,${i})" ondragover="plqDragOver(event)" ondrop="plqDrop(event,${i})" `+
       `onclick="plQueueKlick(${i})" title="Klick = abspielen/pausieren · Ziehen = umsortieren">${i+1}. ${esc(x.titel||k)}</div>`;}).join('')
     ||'<div class="pl-leer">Leer — Titel aus der Bibliothek hierher ziehen.</div>';
@@ -3826,7 +3844,10 @@ async function plAdd(key){
 }
 function plPlaySel(){const id=document.getElementById('plsel').value; const p=plState.find(x=>x.id===id);
   if(!p||!p.items.length){alert('Playlist ist leer oder nicht gewählt.');return;}
-  let ids=p.items.slice(); if(playShuffle)mische(ids); playerPlay(ids,0);}
+  let ids=p.items.slice(); if(playShuffle)mische(ids);
+  const start=ids.findIndex(k=>{const x=libFind(k); return x&&x.vorhanden&&artPasst(x);});
+  if(start<0){alert('Nach dem 🎶/🎬-Filter bleibt in dieser Playlist nichts übrig.');return;}
+  playerPlay(ids,start);}
 function plExport(){
   const id=document.getElementById('plsel').value;
   if(!id){alert('Bitte oben eine Playlist wählen.');return;}
