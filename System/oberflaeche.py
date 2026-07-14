@@ -700,7 +700,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 47</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 48</span>
 </div>
 
 <div id="canvas"></div>
@@ -721,6 +721,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legsec">▶ Player</div>
       <div class="legrow">Steuerung liegt <b>auf dem Video/Cover</b> (erscheint bei Mausbewegung): Zufall 🔀 und Wiederholen 🔁 sind <b>getrennte Schalter</b> — farbig mit Punkt = an, 🔁 nochmal klicken = nur diesen Titel (Zeichen zeigt eine kleine 1)</div>
       <div class="legrow">Rechts auf der Leiste: <b>💬</b> Untertitel/Karaoke (werden bei Bedarf automatisch geladen) · <b>✂</b> Clip schneiden · <b>1×</b> Geschwindigkeit · 🔊 Lautstärke · <b>YouTube</b> öffnet das Video im Browser · <b>⛶</b> Vollbild</div>
+      <div class="legrow">Einzeltitel zu Ende = automatisch der <b>nächste Titel der Bibliothek</b> (bei 🔀 ein zufälliger; Playlists stoppen wie gehabt am Ende)</div>
       <div class="legrow"><b>Rechtsklick in den Player</b> = alles Weitere: Visualizer-Liste, Geschwindigkeit, Untertitel-Sprachen, Equalizer, Playlist, VLC …</div>
       <div class="legsec">📚 Bibliothek</div>
       <div class="legrow"><b>▶</b> abspielen · <b>＋</b> zu Playlist (Liste wählen) · <b>📁</b> im Ordner zeigen · <b>⋯</b> mehr · <b>⊞/▤/☰</b> Kacheln/Alben/Liste · <b>⚙ Ansicht</b> Filter &amp; Werkzeuge</div>
@@ -2467,7 +2468,30 @@ function playerAdvance(){                             // automatisch nach Titel-
   }
   if(playerState.idx<playerState.queue.length-1){playerState.idx++; renderPlayerMedia();}
   else if(playRepeat==='alle'){playerState.idx=0; renderPlayerMedia();}
-  // sonst: Ende -> Stopp (auch bei Zufall mit nur 1 Titel — nichts wiederholt sich ungefragt)
+  else if(playerState.queue.length<=1)naechstesAusBibliothek();
+  // sonst: Playlist zu Ende -> Stopp
+}
+
+/* Einzeltitel ohne Playlist zu Ende (JB 14.07.): weiterspielen wie YouTube-
+   Autoplay — der NÄCHSTE Titel der aktuellen Bibliotheks-Ansicht (Suche/
+   Filter/Sortierung zählen), bei Zufall ein zufälliger; Blacklist bleibt
+   außen vor. Am Ende der Bibliothek stoppt es ehrlich. */
+function naechstesAusBibliothek(){
+  const k=aktKey();
+  const pool=libGefiltert().filter(x=>x.vorhanden&&!x.blacklist);
+  if(!pool.length)return;
+  let nk=null;
+  if(playShuffle){
+    const kand=pool.filter(x=>x.id!==k);
+    if(kand.length)nk=kand[Math.floor(Math.random()*kand.length)].id;
+  }else{
+    const i=pool.findIndex(x=>x.id===k);
+    if(i>=0&&i<pool.length-1)nk=pool[i+1].id;      // der Nächste in der Ansicht
+    else if(i<0)nk=pool[0].id;                     // aktueller nicht in der Ansicht -> von vorn
+  }
+  if(!nk)return;
+  playerState.queue=[nk]; playerState.idx=0;       // bleibt Einzeltitel -> spielt immer weiter
+  renderPlayerMedia();
 }
 function playMostPlayed(){
   let arr=libdaten.filter(x=>x.vorhanden&&!x.blacklist)
