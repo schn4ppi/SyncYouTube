@@ -59,11 +59,11 @@ async function senden(url, qualitaet) {
     // (MV3 = opt-in!) nicht erteilt hat. Der Server parst den Body ohnehin als JSON.
     const r = await fetch(APP, { method: "POST", body: JSON.stringify(body) });
     if (!r.ok) throw new Error("HTTP " + r.status);
-    melden("In die Warteschlange ✓", kurz(url));
+    melden("In die Warteschlange ✓", kurz(url), false);   // Erfolg: nur wenn eingeschaltet
     return { ok: true };
   } catch (e) {
     const grund = String((e && e.message) || e);
-    melden("Fehlgeschlagen: " + grund, "Läuft die App? (YouTube-Downloader.bat)");
+    melden("Fehlgeschlagen: " + grund, "Läuft die App? (YouTube-Downloader.bat)", true);
     return { ok: false, fehler: grund };
   }
 }
@@ -73,7 +73,16 @@ function kurz(u) {
   return m ? "Video " + m[1] : u;
 }
 
-function melden(titel, text) {
+async function melden(titel, text, istFehler) {
+  // Erfolgs-Benachrichtigungen sind standardmaessig AUS (der Hover-Knopf zeigt
+  // schon ✓/✗) — sonst kaeme bei jedem Download ein Ton (Kumpel-Feedback).
+  // Fehler werden immer gemeldet. Umschaltbar im Popup (ytdl_notify).
+  if (!istFehler) {
+    try {
+      const o = await api.storage.local.get("ytdl_notify");
+      if (!(o && o.ytdl_notify)) return;
+    } catch (e) { return; }
+  }
   try {
     // icon128.png — das alte icon.svg existiert im Build nicht mehr; ein kaputtes
     // Icon ließ die Meldung in Firefox STILL scheitern (Fehler blieben unsichtbar).

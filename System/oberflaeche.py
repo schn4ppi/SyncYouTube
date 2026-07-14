@@ -664,7 +664,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-logo" title="YouTube-Downloader">▶ YTDL</span>
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link einfügen — Enter lädt…"
                onkeydown="if(event.key==='Enter')cmdDownload()">
-        <select id="cmd-qual" class="cmd-qual" title="Qualität">
+<select id="cmd-qual" class="cmd-qual" title="Qualität (Auswahl wird gemerkt)" onchange="qualMerken(this.value)">
           <option value="beste">Beste</option><option value="2160p">2160p</option>
           <option value="1440p">1440p</option><option value="1080p">1080p</option>
           <option value="720p">720p</option><option value="audio">MP3</option>
@@ -683,6 +683,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
           <button class="iconbtn sm" id="theme" onclick="themeToggle()" title="Tag-/Nacht-Modus schnell umschalten">🌙</button>
           <button class="iconbtn sm" onclick="hilfeModal(true)" title="Legende: alle Knöpfe, Gesten &amp; Tasten erklärt">?</button>
           <button class="iconbtn sm" id="optbtn" onclick="optionenToggle(event)" title="Optionen (Look, Crossfade, Sleep-Timer, Fenster-Abstand …)">⚙</button>
+          <button class="iconbtn sm" onclick="appBeenden()" title="App komplett beenden (schließt auch den Hintergrund-Dienst)">⏻</button>
         </div>
       </div>
     </div>
@@ -705,7 +706,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 55</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 56</span>
 </div>
 
 <div id="canvas"></div>
@@ -923,6 +924,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
             <button class="mbtn" id="libselbtn" onclick="libSelectToggle()">☑ Mehrfach-Auswahl</button>
             <button class="mbtn" onclick="dublettenPopover(event);ansichtZu()">⧉ Dubletten finden…</button>
             <button class="mbtn" onclick="autotagAlle();ansichtZu()">🏷 Auto-Tagging (MusicBrainz)…</button>
+            <button class="mbtn" onclick="ordnerImportieren();ansichtZu()" title="Fremde Musik-/Videodateien im Downloads-Ordner in die Bibliothek aufnehmen">📥 Dateien aus dem Ordner aufnehmen</button>
           </div>
           <div class="colmenu" id="libcolmenu" style="display:none"></div>
         </div>
@@ -1981,11 +1983,29 @@ function settingsZu(){const m=document.getElementById('settingsmodal'); if(m)m.s
 function hilfeModal(an){const m=document.getElementById('hilfemodal'); if(m)m.style.display=an?'flex':'none';}
 
 /* ---- Command-Bar oben: Download, Live-Queue, Now-Playing, Zwischenablage ---- */
+function qualMerken(v){                               // Qualitätswahl fuer naechsten Start sichern
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({standard_qualitaet:v})});
+  const a=document.getElementById('cmd-qual'), b=document.getElementById('qual');
+  if(a)a.value=v; if(b)b.value=v;
+}
 async function cmdDownload(){
   const inp=document.getElementById('cmd-url'); const urls=(inp.value||'').trim(); if(!urls)return;
+  // Mix/Playlist-Link erkannt? Fragen, ob die ganze Liste geladen werden soll.
+  let ganze=false;
+  const l=urls.toLowerCase();
+  if(l.includes('list=') && (l.includes('watch?v=')||l.includes('youtu.be/')))
+    ganze=confirm('Dieser Link gehört zu einer Playlist bzw. einem Mix.\\n\\nOK = die ganze Liste / den Mix laden (Mixe bis 50 Titel)\\nAbbrechen = nur dieses eine Video');
+  else if(l.includes('/playlist?list='))
+    ganze=true;                                        // reiner Playlist-Link = immer ganze Liste
   await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls,qualitaet:document.getElementById('cmd-qual').value})});
+    body:JSON.stringify({urls,qualitaet:document.getElementById('cmd-qual').value,ganze_liste:ganze})});
   inp.value=''; cmdClipVerstecken(); laden();
+}
+async function appBeenden(){
+  if(!confirm('SyncYouTube komplett beenden?\\n\\nLaufende Downloads werden pausiert (setzen beim naechsten Start fort). Auch der Hintergrund-Dienst wird geschlossen.'))return;
+  try{await fetch('/api/beenden',{method:'POST'});}catch(e){}
+  document.body.innerHTML='<div style="padding:40px;font:16px system-ui;color:#c9bcae">SyncYouTube wurde beendet. Dieses Fenster kann geschlossen werden.</div>';
 }
 function cmdDlRow(i){                                  // eine Download-Zeile (Dateiname + Balken), Klick = Pause
   const p=Math.round(i.prozent||0);
@@ -2241,6 +2261,14 @@ function dubBody(){
     `<div class="dub-grp"><div class="dub-kopf">${esc(g.titel.slice(0,46))} <span class="dub-typ">· ${g.typ}</span></div>`+
     g.items.map(x=>`<div class="dub-item"><span class="dub-q">${esc(x.qualitaet)} · ${mb(x.groesse)}${x.vorhanden?'':' · verschoben'}</span>`+
       `<button class="ib" title="In den Papierkorb" onclick="dubDelete('${x.id}')">🗑</button></div>`).join('')+`</div>`).join('');
+}
+async function ordnerImportieren(){
+  const info=document.getElementById('plinfo'); if(info)info.textContent='📥 Ordner wird durchsucht …';
+  try{
+    const r=await fetch('/api/importieren',{method:'POST'}); const d=await r.json();
+    if(info)info.textContent=d.neu?('📥 '+d.neu+' neue Datei(en) aufgenommen ✓'):'📥 Nichts Neues im Ordner gefunden';
+    libLaden();
+  }catch(e){ if(info)info.textContent='📥 Import fehlgeschlagen'; }
 }
 function dublettenPopover(ev){
   const alt=document.getElementById('dubpop'); if(alt){alt.remove(); return;}     // zweiter Klick = zu
@@ -3220,7 +3248,7 @@ function speedAnwenden(){const el=document.getElementById('pl-el'); if(el)el.pla
 /* ---- Untertitel / Karaoke / Transkript (aus .vtt neben der Datei) ---- */
 const SUBMODES=[['aus','💬','aus'],['zeilen','💬','Untertitel (eine Zeile)'],
   ['karaoke','🎤','Karaoke — Zeilen laufen zeitsynchron mit'],['transkript','📜','Transkript (Text, Klick springt)']];
-let subMode='karaoke', subCues=null, subLang='', subIdx=-1;   // Standard KARAOKE (JB: „direkt singen")
+let subMode='aus', subCues=null, subLang='', subIdx=-1;   // Standard AUS (keine .vtt-Flut; Karaoke-Knopf holt sie bei Bedarf)
 let subSprachen=[], subLangWahl='', subRomaji=true;   // Romaji standardmäßig AN (Karaoke authentisch lesbar)
 try{const v=localStorage.getItem('ytdl_submode'); if(SUBMODES.some(m=>m[0]===v))subMode=v;}catch(e){}
 try{const v=localStorage.getItem('ytdl_subromaji'); if(v!==null)subRomaji=v==='1';}catch(e){}
@@ -3260,7 +3288,7 @@ async function subLaden(key){
   // Standardmäßig da sein (JB 14.07.: „direkt Karaoke go"): fehlen Untertitel
   // beim Abspielen, IMMER still von YouTube vorladen (1× je Titel und Sitzung) —
   // der erste Karaoke-Klick trifft dann schon auf fertige Zeilen.
-  if(!subCues)subNachladen();
+  if(!subCues&&subMode!=='aus')subNachladen();       // nur laden, wenn Untertitel/Karaoke wirklich an ist
   subAnzeigen();
 }
 function subSpracheWechsel(){                          // zyklisch durch alle .vtt-Sprachen des Titels

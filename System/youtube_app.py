@@ -16,6 +16,7 @@ Destruktives (Entfernen aus der Liste löscht NIE Dateien), atomare JSON-Writes,
 alles UTF-8. Einzige Fremdbibliothek: yt-dlp (Core-venv). ffmpeg liegt in bin/.
 """
 import glob
+import hashlib
 import json
 import mimetypes
 import os
@@ -82,7 +83,7 @@ STANDARD_CONFIG = {
     "sponsorblock": "",             # "" = aus | "sponsor" = nur Werbung | "alle" = Werbung+Intro/Outro/… rausschneiden
     "fernsteuerung": False,         # Handy-Fernsteuerung im Heim-WLAN erlauben (Standard AUS = nur 127.0.0.1)
     "fernsteuerung_code": "",       # Zugangscode fürs Handy (wird beim ersten Aktivieren erzeugt)
-    "untertitel": True,             # Untertitel (de/en, auch automatische) als .vtt neben die Datei laden
+    "untertitel": False,            # Untertitel beim Download mitziehen (Standard aus; der Player holt sie fuers Karaoke bei Bedarf)
     "auto_update": False,           # Selbst-Update der exe (Opt-in; prüft täglich das GitHub-Release)
 }
 
@@ -426,16 +427,23 @@ def _ist_untertitel_fehler(exc):
                                 or "unable to download" in t)
 
 
-def aufloesen(url, qualitaet):
-    """URL prüfen und in Queue-Einträge verwandeln (Playlist -> Einzelvideos).
+def aufloesen(url, qualitaet, ganze_liste=False):
+    """URL prüfen und in Queue-Einträge verwandeln (Playlist/Mix -> Einzelvideos).
+    ganze_liste=True erzwingt die komplette Liste/den Mix auch bei einem
+    watch?v=…&list=…-Link (JB-/Kumpel-Wunsch: „YouTube-Mixe runterladen").
     Läuft im Hintergrund-Thread, damit die Oberfläche nie blockiert."""
     import yt_dlp
     platzhalter = Q.neu(url, None, qualitaet)
     platzhalter["status"] = "prueft"
     Q.speichern()
     opts = _ydl_basis_opts()
+    # Mixe (list=RD…/RDMM…) sind endlos — auf 50 Titel deckeln, damit nicht
+    # tausende Einträge entstehen; echte Playlists laufen unbegrenzt.
+    mix = bool(re.search(r"[?&]list=(RD|UL|RDMM|RDCLAK)", url))
+    if ganze_liste and mix:
+        opts["playlistend"] = 50
     opts.update({"extract_flat": "in_playlist", "skip_download": True,
-                 "noplaylist": ist_einzelvideo(url)})
+                 "noplaylist": (not ganze_liste) and ist_einzelvideo(url)})
     try:
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -1493,6 +1501,50 @@ def downloads_einsortieren():
     return bewegt
 
 
+def ordner_importieren():
+    """Mediendateien im Downloads-Ordner, die NICHT in der Bibliothek stehen,
+    additiv aufnehmen (JB-/Kumpel-Wunsch: „andere Elemente im Ordner erkennen").
+    Video-ID aus dem Namen ([id]) wird als Schlüssel genutzt, sonst ein
+    stabiler Pfad-Hash; Titel = Dateiname ohne [id]. Löscht/ändert nie etwas."""
+    bekannt = set()
+    for k, e in _geladen.items():
+        p = e.get("pfad")
+        if p:
+            bekannt.add(os.path.normcase(os.path.abspath(p)))
+    neu = 0
+    for wurzel, _, dateien in os.walk(ziel_ordner()):
+        for fn in dateien:
+            if not fn.lower().endswith(AUDIO_EXT + VIDEO_EXT):
+                continue
+            pfad = os.path.join(wurzel, fn)
+            if os.path.normcase(os.path.abspath(pfad)) in bekannt:
+                continue
+            m = re.search(r"\[([\w-]{6,})\]", fn)
+            vid = m.group(1) if m else ("lokal-" + hashlib.md5(
+                os.path.abspath(pfad).encode("utf-8")).hexdigest()[:11])
+            audio = fn.lower().endswith(AUDIO_EXT)
+            key = f"{vid}|{'audio' if audio else 'lokal'}"
+            if key in _geladen:
+                continue
+            try:
+                groesse = os.path.getsize(pfad)
+            except OSError:
+                continue
+            _geladen[key] = {
+                "name": fn, "groesse": groesse, "pfad": pfad,
+                "kategorie": "MP3" if audio else _kat_aus_name(fn),
+                "titel": _titel_aus_name(fn),
+                "url": (f"https://www.youtube.com/watch?v={vid}" if _plausible_id(vid) else ""),
+                "qualitaet": "audio" if audio else "lokal",
+                "importiert": True, "ts": time.time()}
+            neu += 1
+    if neu:
+        with _io_lock:
+            _json_speichern(GELADEN_PFAD, _geladen)
+        _sag(f"Ordner-Import: {neu} neue Datei(en) in die Bibliothek aufgenommen")
+    return neu
+
+
 def pfade_heilen():
     """Tote 'pfad'-Einträge der geladen-DB reparieren (z.B. nach einem Ordner-
     Umzug wie Stage 3): existiert der gespeicherte Pfad nicht mehr, aber die
@@ -1518,13 +1570,15 @@ def pfade_heilen():
 def _einsortieren_hintergrund():
     """Kurz nach dem Start + alle 6 h aufräumen (Daemon-Thread)."""
     time.sleep(20)
-    try:
-        pfade_heilen()
-    except Exception:                                 # noqa: BLE001
-        pass
+    for fn in (pfade_heilen, ordner_importieren):     # Pfade heilen + fremde Dateien aufnehmen
+        try:
+            fn()
+        except Exception:                             # noqa: BLE001
+            pass
     while True:
         try:
             downloads_einsortieren()
+            ordner_importieren()
         except Exception:                             # noqa: BLE001
             pass
         time.sleep(6 * 3600)
@@ -2173,6 +2227,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._biblio(daten)
             elif self.path == "/api/biblio_enrich":
                 threading.Thread(target=biblio_enrich_alle, daemon=True).start()
+            elif self.path == "/api/importieren":     # fremde Dateien im Ordner aufnehmen
+                n = ordner_importieren()
+                return _antwort(self, 200, {"neu": n})
             elif self.path == "/api/playlist":
                 if daten.get("art") == "sync":
                     pl = next((p for p in _playlists if p.get("id") == daten.get("id")), None)
@@ -2200,11 +2257,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _add(self, daten):
         qualitaet = daten.get("qualitaet") or CFG["standard_qualitaet"]
+        ganze_liste = bool(daten.get("ganze_liste"))
         urls = [u.strip() for u in (daten.get("urls") or "").splitlines() if u.strip()]
         for url in urls:
             if not url.lower().startswith(("http://", "https://")):
                 continue
-            threading.Thread(target=aufloesen, args=(url, qualitaet), daemon=True).start()
+            threading.Thread(target=aufloesen, args=(url, qualitaet, ganze_liste), daemon=True).start()
 
     def _action(self, daten):
         art = daten.get("art")

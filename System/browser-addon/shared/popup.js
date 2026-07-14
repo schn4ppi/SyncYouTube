@@ -12,6 +12,13 @@ sel.addEventListener("change", () => {
   api.storage.local.set({ ytdl_quali: sel.value });
 });
 
+// Erfolgs-Benachrichtigung (Standard aus)
+const notify = document.getElementById("notify");
+api.storage.local.get("ytdl_notify").then((o) => { notify.checked = !!(o && o.ytdl_notify); });
+notify.addEventListener("change", () => {
+  api.storage.local.set({ ytdl_notify: notify.checked });
+});
+
 document.getElementById("oeffnen").addEventListener("click", () => {
   api.tabs.create({ url: APP });
 });
