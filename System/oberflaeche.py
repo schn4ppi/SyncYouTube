@@ -150,6 +150,8 @@ html.light .dltitel,html.light .cmd-count{color:#5a4f47}
 html.light .dlbar{background:#e6ddd3}
 #layoutbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:0 18px 8px;font-size:12px;color:#8a7d74}
 #layoutbar select{max-width:230px}
+#layouttools{display:none}                             /* Werkzeuge nur im ✏-Modus (mehr Platz) */
+body.layoutedit #layouttools{display:contents}
 /* Mini-Player-Modus: nur die kleine Player-Karte, alles andere ausgeblendet, oben angeheftet */
 body.mini #canvas{min-height:170px}
 body.mini .panel-tabs{display:none}
@@ -695,18 +697,21 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
 </div>
 
 <div id="layoutbar">
-  <span><b>Tipp:</b> Rechtsklick öffnet überall Menüs · Fenster umbauen nur mit <b>✏ Layout</b> — sonst dockt Ziehen nur als Tab an</span>
-  <label style="font-size:12px;color:#8a7d74">Layout:</label>
-  <select id="layoutsel" onchange="layoutWaehlen(this.value)" title="Vorlagen &amp; deine gespeicherten Layouts"></select>
   <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
-          title="Layout bearbeiten: Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an, nichts verstellt sich aus Versehen">✏ Layout</button>
-  <button class="btn mini" onclick="layoutSpeichern()" title="Aktuelle Fenster-Anordnung unter einem Namen speichern">💾 Speichern</button>
-  <button class="btn mini" onclick="layoutLoeschen()" title="Das gewählte gespeicherte Layout löschen">🗑</button>
-  <button class="btn mini" onclick="layoutVorheriges()" title="Vorherige Fenster-Anordnung zurückholen — nochmal klicken wechselt wieder vor">↩ Vorheriges</button>
-  <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
+          title="Layout bearbeiten: klappt die Layout-Werkzeuge aus, Fenster lassen sich verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: schlanke Leiste, Ziehen dockt nur als Tab an">✏ Layout</button>
+  <!-- Layout-Werkzeuge: nur im ✏-Modus sichtbar (Dashboard-Muster, JB 14.07. — mehr Platz) -->
+  <span id="layouttools">
+    <label style="font-size:12px;color:#8a7d74">Layout:</label>
+    <select id="layoutsel" onchange="layoutWaehlen(this.value)" title="Vorlagen &amp; deine gespeicherten Layouts"></select>
+    <button class="btn mini" onclick="layoutSpeichern()" title="Aktuelle Fenster-Anordnung unter einem Namen speichern">💾 Speichern</button>
+    <button class="btn mini" onclick="layoutLoeschen()" title="Das gewählte gespeicherte Layout löschen">🗑</button>
+    <button class="btn mini" onclick="layoutVorheriges()" title="Vorherige Fenster-Anordnung zurückholen — nochmal klicken wechselt wieder vor">↩ Vorheriges</button>
+    <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
+    <span><b>Tipp:</b> Rechtsklick öffnet überall Menüs · Ziehen ohne ✏ dockt nur als Tab an</span>
+  </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 57</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 58</span>
 </div>
 
 <div id="canvas"></div>
