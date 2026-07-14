@@ -20,6 +20,7 @@ if MODUL_DIR not in sys.path:
 import geo          # noqa: E402
 import vpn          # noqa: E402
 import youtube_app as app   # noqa: E402  (Import liest nur JBs JSONs, startet keinen Server)
+import update       # noqa: E402  (Auto-Updater: reine Funktionen, kein Netz)
 
 
 # ---------------------------------------------------------------- geo.py
@@ -168,6 +169,53 @@ def test_zugriff_erlaubt():
     assert app.zugriff_erlaubt("192.168.0.5", True, "ABC123", "ABC123") is True
     # an, aber gar kein Code gesetzt -> nein (kein Blank-Zugriff)
     assert app.zugriff_erlaubt("192.168.0.5", True, "", "") is False
+
+
+def test_update_versionen():
+    # JBs Tag-Stil v.x.y.z MIT Punkt muss immer richtig gelesen werden
+    assert update.parse_version("v.1.0.1") == (1, 0, 1)
+    assert update.parse_version("v1.2.3") == (1, 2, 3)
+    assert update.parse_version("1.2") == (1, 2)
+    assert update.is_newer("v.1.1.0", "1.0.1") is True
+    assert update.is_newer("v.1.0.1", "1.0.1") is False
+    assert update.is_newer("1.0.0", "1.0.1") is False
+
+
+def test_update_assets_repo_pin():
+    # Nur Assets aus dem EIGENEN Repo zaehlen — fremde URLs werden ignoriert
+    gut = {"name": "SyncYouTube.exe",
+           "browser_download_url": "https://github.com/schn4ppi/SyncYouTube/releases/download/v.1.1.0/SyncYouTube.exe"}
+    sha = {"name": "SyncYouTube.exe.sha256",
+           "browser_download_url": "https://github.com/schn4ppi/SyncYouTube/releases/download/v.1.1.0/SyncYouTube.exe.sha256"}
+    boese = {"name": "SyncYouTube.exe", "browser_download_url": "https://evil.example/SyncYouTube.exe"}
+    exe, sh = update.pick_assets([boese, gut, sha])
+    assert exe is gut and sh is sha
+    exe2, _ = update.pick_assets([boese])
+    assert exe2 is None
+
+
+def test_update_verify():
+    import hashlib
+    daten = b"x" * update.MIN_EXE_SIZE
+    assert update.verify_exe(b"kurz")[0] is False                      # zu klein
+    assert update.verify_exe(daten, expected_size=1)[0] is False       # Groesse falsch
+    assert update.verify_exe(daten, expected_sha="0" * 64)[0] is False # SHA falsch
+    ok, _ = update.verify_exe(daten, len(daten), hashlib.sha256(daten).hexdigest())
+    assert ok is True
+    assert update.parse_sha256("abc " + "f" * 64 + "  SyncYouTube.exe") == "f" * 64
+
+
+def test_update_check_release():
+    rel = {"tag_name": "v.9.9.9", "assets": [
+        {"name": "SyncYouTube.exe",
+         "browser_download_url": "https://github.com/schn4ppi/SyncYouTube/releases/download/v.9.9.9/SyncYouTube.exe",
+         "size": 123}]}
+    info = update.check_release("1.1.0", fetch_json=lambda: rel)
+    assert info["available"] is True and info["version"] == "9.9.9" and info["size"] == 123
+    info2 = update.check_release("9.9.9", fetch_json=lambda: rel)
+    assert info2["available"] is False
+    info3 = update.check_release("1.0.0", fetch_json=lambda: (_ for _ in ()).throw(OSError("offline")))
+    assert info3["available"] is False                                 # offline = kein Fehler
 
 
 def test_soll_kategorie():

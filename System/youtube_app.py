@@ -32,8 +32,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import geo
+import update
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 # Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
 # Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
@@ -82,6 +83,7 @@ STANDARD_CONFIG = {
     "fernsteuerung": False,         # Handy-Fernsteuerung im Heim-WLAN erlauben (Standard AUS = nur 127.0.0.1)
     "fernsteuerung_code": "",       # Zugangscode fürs Handy (wird beim ersten Aktivieren erzeugt)
     "untertitel": True,             # Untertitel (de/en, auch automatische) als .vtt neben die Datei laden
+    "auto_update": False,           # Selbst-Update der exe (Opt-in; prüft täglich das GitHub-Release)
 }
 
 
@@ -2267,6 +2269,8 @@ class Handler(BaseHTTPRequestHandler):
                 CFG["sponsorblock"] = daten["sponsorblock"]
             if isinstance(daten.get("untertitel"), bool):
                 CFG["untertitel"] = daten["untertitel"]
+            if isinstance(daten.get("auto_update"), bool):
+                CFG["auto_update"] = daten["auto_update"]
             if isinstance(daten.get("fernsteuerung"), bool):
                 CFG["fernsteuerung"] = daten["fernsteuerung"]
                 if daten["fernsteuerung"] and not CFG.get("fernsteuerung_code"):
@@ -2378,6 +2382,49 @@ def _sag(text):
         pass
 
 
+def update_lauf(icon=None):
+    """Update suchen, verifiziert laden, tauschen, neu starten (JB-Release-Standard).
+    Meldet den Ausgang best-effort als Tray-Notiz + Log. Im Quellcode-Modus
+    (nicht gefroren) bewusst deaktiviert — dort aktualisiert git."""
+    def melde(text):
+        _sag("Update: " + text)
+        try:
+            if icon:
+                icon.notify(text, "SyncYouTube")
+        except Exception:                            # noqa: BLE001 — Notiz ist nur Komfort
+            pass
+    exe = update.frozen_exe()
+    if not exe:
+        melde("Quellcode-Modus — Selbst-Update ist aus, bitte per git aktualisieren.")
+        return
+    try:
+        info = update.check_release(__version__)
+        if not info.get("available"):
+            melde(f"Schon aktuell (v{__version__}).")
+            return
+        melde(f"Neue Version v{info['version']} — lade herunter …")
+        neu = update.download_exe(info, os.path.dirname(exe))
+        melde(f"v{info['version']} verifiziert — Neustart …")
+        update.apply_exe_update(neu, exe)            # startet neu, kehrt nicht zurück
+    except Exception as e:                           # noqa: BLE001 — alte Version läuft weiter
+        melde("fehlgeschlagen, alte Version läuft weiter: " + _fehltext(e))
+
+
+_tray_ref = []                                       # [icon] sobald der Tray läuft (für Notizen)
+
+
+def _update_hintergrund():
+    """Opt-in-Auto-Update (Standard AUS): kurz nach Start, danach täglich."""
+    time.sleep(90)
+    while True:
+        if CFG.get("auto_update") and update.frozen_exe():
+            try:
+                update_lauf(_tray_ref[0] if _tray_ref else None)
+            except Exception:                        # noqa: BLE001
+                pass
+        time.sleep(24 * 3600)
+
+
 def _tray_icon(url):
     """Tray-Symbol mit Menü (Öffnen / Downloads-Ordner / Beenden). Gibt None
     zurück, falls pystray/Pillow fehlen — dann läuft die App ohne Tray weiter."""
@@ -2409,13 +2456,21 @@ def _tray_icon(url):
         webbrowser.open(url + "/addon.xpi" if _addon_xpi_pfad()
                         else "https://github.com/schn4ppi/SyncYouTube/releases/latest")
 
-    menu = pystray.Menu(
+    def updaten(icon=None, item=None):
+        threading.Thread(target=update_lauf, args=(icon,), daemon=True).start()
+
+    eintraege = [
         pystray.MenuItem("Öffnen", oeffnen, default=True),
         pystray.MenuItem("Downloads-Ordner", ordner),
         pystray.MenuItem("Browser-Erweiterung installieren…", erweiterung),
-        pystray.MenuItem("Beenden", beenden),
-    )
-    return pystray.Icon("ytdl", img, "YouTube-Downloader", menu)
+    ]
+    if update.frozen_exe():                          # Quellcode-Modus: kein Selbst-Update
+        eintraege.append(pystray.MenuItem("Nach Updates suchen…", updaten))
+    eintraege.append(pystray.MenuItem("Beenden", beenden))
+    menu = pystray.Menu(*eintraege)
+    icon = pystray.Icon("ytdl", img, "YouTube-Downloader", menu)
+    _tray_ref[:] = [icon]
+    return icon
 
 
 def main():
@@ -2453,6 +2508,8 @@ def main():
     threading.Thread(target=technik_backfill, daemon=True).start()   # Codecs für Alt-Dateien
     threading.Thread(target=_abos_hintergrund, daemon=True).start()  # Abos auf neue Videos prüfen
     threading.Thread(target=_einsortieren_hintergrund, daemon=True).start()  # verschobene Dateien zurücksortieren
+    update.cleanup_old_exe()                                          # Reste früherer Selbst-Updates
+    threading.Thread(target=_update_hintergrund, daemon=True).start()  # Opt-in-Auto-Update (Standard aus)
     _sag(f"YouTube-Downloader läuft: {url}")
     if "--no-browser" not in sys.argv:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()

@@ -703,7 +703,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 49</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 50</span>
 </div>
 
 <div id="canvas"></div>
@@ -846,6 +846,12 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
             <option value="">aus</option>
             <option value="sponsor">nur Werbung entfernen</option>
             <option value="alle">Werbung + Intro/Outro/… entfernen</option>
+          </select>
+        </div>
+        <div class="zeile"><label for="cfg_autoupdate">Selbst-Update der exe</label>
+          <select id="cfg_autoupdate" title="Opt-in: die gepackte exe prüft täglich das GitHub-Release, lädt verifiziert (SHA256) und tauscht sich selbst. Im Quellcode-Modus ohne Wirkung — dort aktualisiert git.">
+            <option value="0">aus (Standard)</option>
+            <option value="1">automatisch aktualisieren</option>
           </select>
         </div>
         <div class="zeile"><button class="btn" onclick="configSpeichern()">Speichern</button>
@@ -1822,6 +1828,7 @@ function configFuellen(){
   document.getElementById('cfg_qual').value=daten.config.standard_qualitaet;
   document.getElementById('cfg_sponsor').value=daten.config.sponsorblock||'';
   document.getElementById('cfg_subs').value=daten.config.untertitel?'1':'0';
+  document.getElementById('cfg_autoupdate').value=daten.config.auto_update?'1':'0';
   document.getElementById('qual').value=daten.config.standard_qualitaet;
   const cq=document.getElementById('cmd-qual'); if(cq)cq.value=daten.config.standard_qualitaet;
 }
@@ -2229,7 +2236,8 @@ async function configSpeichern(){
       geo_wireguard_ordner:document.getElementById('cfg_geowg').value,
       standard_qualitaet:document.getElementById('cfg_qual').value,
       sponsorblock:document.getElementById('cfg_sponsor').value,
-      untertitel:document.getElementById('cfg_subs').value==='1'})});
+      untertitel:document.getElementById('cfg_subs').value==='1',
+      auto_update:document.getElementById('cfg_autoupdate').value==='1'})});
   document.getElementById('cfg_meldung').textContent='Gespeichert ✓';
   setTimeout(()=>document.getElementById('cfg_meldung').textContent='',2500);
   laden();
