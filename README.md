@@ -5,6 +5,8 @@ eine einzige Web-Oberfläche auf `http://127.0.0.1:8776`, komplett offline auf d
 (einzige Außenverbindungen: YouTube selbst, MusicBrainz fürs Tagging, die SponsorBlock-Datenbank
 und — nur auf Wunsch — der Update-Check gegen dieses GitHub-Repo).
 
+![SyncYouTube — Bibliothek, Player und Download-Leiste in einer Oberfläche](screenshot.png)
+
 ## Features
 
 **Downloads**
