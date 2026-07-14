@@ -152,16 +152,16 @@ html.light .dlbar{background:#e6ddd3}
 #layoutbar select{max-width:230px}
 #layouttools{display:none}                             /* Werkzeuge nur im ✏-Modus (mehr Platz) */
 body.layoutedit #layouttools{display:contents}
-/* Mini-Player-Modus: nur die kleine Player-Karte, alles andere ausgeblendet, oben angeheftet */
-body.mini #canvas{min-height:170px}
-body.mini .panel-tabs{display:none}
+/* Mini-Player-Modus: kleine Player-Karte oben rechts angeheftet — alle anderen
+   Fenster (Bibliothek!) bleiben sichtbar und bedienbar (JB 14.07.). */
 body.mini #view-player .pl-side{display:none}
 body.mini #view-player .card{flex-direction:row}
 body.mini .pl-media{min-height:0}
-/* Mini-Modus: der kleine Player klebt FIX oben rechts über dem Ende der
-   Command-Bar (JB-Skizze 14.07.) — nicht unten im Fenster-Bereich. */
-body.mini .panel{box-shadow:0 8px 30px rgba(0,0,0,.6);
+/* Nur das Mini-Panel klebt FIX oben rechts über dem Ende der Command-Bar
+   (JB-Skizze 14.07.) — der Rest des Layouts bleibt unangetastet. */
+body.mini .panel[data-id="pmini"]{box-shadow:0 8px 30px rgba(0,0,0,.6);
   position:fixed;top:6px!important;right:6px;left:auto!important;bottom:auto;z-index:500!important}
+body.mini .panel[data-id="pmini"] .panel-tabs{display:none}
 /* Drag&Drop-Ziel (Link ins Fenster ziehen) */
 body.dragziel::after{content:"⬇ Link hier loslassen = Download";position:fixed;inset:8px;z-index:9000;
   border:3px dashed var(--akz);border-radius:16px;background:rgba(0,0,0,.35);color:var(--akz2);
@@ -711,7 +711,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 58</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 59</span>
 </div>
 
 <div id="canvas"></div>
@@ -1117,6 +1117,7 @@ function defaultLayout(){
 }
 function ladeLayout(){
   try{const s=JSON.parse(localStorage.getItem(LKEY)||'null');
+    if(s&&s.panels)s.panels=s.panels.filter(p=>p.id!=='pmini');   // Mini-Karte nie mitladen
     if(s&&s.panels&&s.panels.length&&alleViews(s))return s;}catch(e){}
   return defaultLayout();
 }
@@ -1248,7 +1249,9 @@ const LPREV='ytdl_layout_prev_v1';
 function layoutMerken(){try{localStorage.setItem(LPREV,JSON.stringify(L));}catch(e){}}
 function layoutVorheriges(){
   let prev=null; try{prev=JSON.parse(localStorage.getItem(LPREV)||'null');}catch(e){}
+  if(prev&&prev.panels)prev.panels=prev.panels.filter(p=>p.id!=='pmini');
   if(!prev||!prev.panels||!prev.panels.length){alert('Noch kein vorheriges Layout gemerkt — es wird bei jedem Layout-Wechsel automatisch gesichert.');return;}
+  miniVerlassen();
   const cur=JSON.stringify(L);
   L=prev; renderPanels(); saveLayout();
   try{localStorage.setItem(LPREV,cur);}catch(e){}
@@ -1266,7 +1269,7 @@ function layoutAufraeumen(){
   renderPanels();
 }
 function layoutVorlage(name){
-  layoutMerken();
+  layoutMerken(); miniVerlassen();
   const bw=Math.max(320,window.innerWidth-16);
   if(name==='youtube'){
     // Bildschirm füllend, Abstände = Gap (Standard 0) — keine alten Festmaße mehr
@@ -1301,7 +1304,8 @@ function layoutWaehlen(v){
   if(!v)return;
   if(v.startsWith('v:'))layoutVorlage(v.slice(2));
   else if(v.startsWith('m:')){const l=meineLayouts()[v.slice(2)];
-    if(l){layoutMerken(); L=JSON.parse(JSON.stringify(l)); renderPanels(); saveLayout();}}
+    if(l){layoutMerken(); miniVerlassen(); L=JSON.parse(JSON.stringify(l));
+      L.panels=L.panels.filter(p=>p.id!=='pmini'); renderPanels(); saveLayout();}}
 }
 function layoutSpeichern(){
   const n=prompt('Name für diese Fenster-Anordnung:'); if(!n||!n.trim())return;
@@ -1318,24 +1322,46 @@ function layoutLoeschen(){
   layoutSelectFuellen();
 }
 
-/* ---- Mini-Player-Modus: alle Fenster weg, nur Player-Karte kompakt oben ---- */
-let miniAn=false, miniAltLayout=null;
+/* ---- Mini-Player-Modus: Player-Karte kompakt oben rechts angeheftet —
+   alle anderen Fenster (Bibliothek!) bleiben stehen (JB 14.07.). ---- */
+let miniAn=false, miniQuelle=null;
 function miniToggle(){
   const b=document.getElementById('mini-btn');
   if(!miniAn){
-    miniAltLayout=JSON.parse(JSON.stringify(L));       // aktuelles Layout merken
-    ensurePlayer();
-    document.body.classList.add('mini');
-    // rechts oben, neben der Download-Liste der Command-Bar (JB 14.07.)
+    // Player-View aus seinem Fenster herauslösen (tearOut-Muster): das übrige
+    // Layout bleibt unverändert, nur die kleine Karte kommt dazu.
+    const src=L.panels.find(p=>p.views.includes('player'));
+    miniQuelle=src?{id:src.id,nurPlayer:src.views.length===1,x:src.x,y:src.y,w:src.w,h:src.h}:null;
+    if(src){
+      if(src.views.length===1)L.panels=L.panels.filter(p=>p.id!==src.id);
+      else{src.views=src.views.filter(v=>v!=='player'); if(src.active==='player')src.active=src.views[0];}
+    }
     const cw=(document.getElementById('canvas')||{clientWidth:window.innerWidth}).clientWidth||window.innerWidth;
     const mw=Math.min(380,cw-16);
-    L={z:5,panels:[{id:'pmini',x:Math.max(0,cw-mw-8),y:8,w:mw,h:150,views:['player'],active:'player',zi:5}]};
-    renderPanels(); miniAn=true; if(b){b.classList.add('an'); b.textContent='🔳 Voll';}
+    L.panels.push({id:'pmini',x:Math.max(0,cw-mw-8),y:8,w:mw,h:150,views:['player'],active:'player',zi:++L.z});
+    document.body.classList.add('mini');
+    miniAn=true; renderPanels(); if(b){b.classList.add('an'); b.textContent='🔳 Voll';}
   }else{
     document.body.classList.remove('mini');
-    if(miniAltLayout){L=miniAltLayout; miniAltLayout=null;}
-    renderPanels(); saveLayout(); miniAn=false; if(b){b.classList.remove('an'); b.textContent='🔳 Mini';}
+    L.panels=L.panels.filter(p=>p.id!=='pmini');
+    if(miniQuelle){                                    // Player dahin zurück, wo er herkam
+      const src=L.panels.find(p=>p.id===miniQuelle.id);
+      if(src){ if(!src.views.includes('player'))src.views.push('player'); src.active='player'; bringFront(src); }
+      else if(miniQuelle.nurPlayer){
+        const frei=kollidiert({id:'pmini'},miniQuelle.x,miniQuelle.y,miniQuelle.w,miniQuelle.h)
+          ?freiePosition(miniQuelle.w,miniQuelle.h,miniQuelle.x,miniQuelle.y):{x:miniQuelle.x,y:miniQuelle.y};
+        L.panels.push({id:miniQuelle.id,x:frei.x,y:frei.y,w:miniQuelle.w,h:miniQuelle.h,views:['player'],active:'player',zi:++L.z});
+      }
+      miniQuelle=null;
+    }
+    miniAn=false; renderPanels(); if(b){b.classList.remove('an'); b.textContent='🔳 Mini';}
   }
+}
+function miniVerlassen(){                              // Layout-Wechsel beendet den Mini-Modus sauber
+  if(!miniAn)return;
+  miniAn=false; miniQuelle=null; document.body.classList.remove('mini');
+  L.panels=L.panels.filter(p=>p.id!=='pmini');
+  const b=document.getElementById('mini-btn'); if(b){b.classList.remove('an'); b.textContent='🔳 Mini';}
 }
 
 function dockZiel(draggedId){
