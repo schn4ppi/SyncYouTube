@@ -514,13 +514,14 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
 
 /* ---- Player ---- */
 #view-player{height:100%}
-#view-player .card{display:flex;flex-direction:column;height:100%;gap:8px}
-.pl-media{flex:1;background:#0e0c0a;border-radius:10px;min-height:120px;display:flex;flex-direction:column;
+#view-player .card{display:flex;flex-direction:column;height:100%;gap:8px;
+  container-type:size;container-name:plcard}
+.pl-media{flex:1;background:#0e0c0a;border-radius:10px;min-height:72px;display:flex;flex-direction:column;
   align-items:center;justify-content:center;overflow:hidden;gap:8px;padding:8px}
 .pl-media video{width:100%;height:100%;max-height:none;border-radius:8px;background:#000;object-fit:contain}
 .pl-media audio{width:100%;flex:none;position:relative;z-index:2}
 /* Visualizer: Canvas als animierter Hintergrund hinter dem Cover, Audio-Leiste oben drüber */
-.pl-media{position:relative}
+.pl-media{position:relative;container-type:inline-size;container-name:plmedia}
 .pl-viz{position:absolute;inset:0;width:100%;height:100%;z-index:0;display:none}
 .pl-media.viz-an .pl-viz{display:block}
 .pl-vizwrap{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden}
@@ -538,6 +539,25 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
   .card.pl-horizontal .pl-side{width:auto;height:auto}
   .card.pl-horizontal .pl-side .pl-queue{flex:none;max-height:150px}
 }
+/* Zu-klein-Verhalten (JB 14.07., Muster Video.js/Media Chrome/VLC): Knöpfe haben
+   Vorrang — die Videofläche gibt zuerst nach, dann fallen Playlist/Titel weg,
+   und in der Video-Leiste verschwinden Sekundär-Knöpfe GESTUFT (bo3→bo2→bo1);
+   alles Ausgeblendete bleibt übers Rechtsklick-Menü erreichbar. */
+@container plcard (max-height:330px){
+  /* #view-player erhöht die Spezifität — die Basisregel .pl-queue{display:flex}
+     steht später im Stylesheet und würde sonst gewinnen. */
+  #view-player .pl-queue,#view-player .pl-kapitel,#view-player .pl-lyrics{display:none}
+}
+@container plcard (max-height:200px){
+  .pl-titel{display:none}
+  .pl-media{min-height:0}
+}
+@container plcard (max-width:380px){
+  .pl-hint{display:none}
+}
+@container plmedia (max-width:580px){ .pl-bar .bo3{display:none} }
+@container plmedia (max-width:400px){ .pl-bar .bo2{display:none} }
+@container plmedia (max-width:230px){ .pl-bar .bo1,.pl-bar .pl-btime{display:none} }
 .pl-leer{color:#6a5c52;font-size:13px;text-align:center;padding:24px}
 .pl-titel{font-weight:600;font-size:14px;margin:10px 0 6px;flex:none}
 .pl-ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;flex:none}
@@ -582,7 +602,7 @@ html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 .pl-byt{display:inline-flex;align-items:center;gap:5px}
 .pl-byt svg{width:15px;height:15px;fill:currentColor;display:block}
 .muted2{font-size:12px;color:#8a7d74}
-.pl-queue{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;flex:none}
+.pl-queue{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;flex:0 1 auto;min-height:0}
 /* flex:none ist PFLICHT: sonst schrumpfen viele Einträge (z.B. 40 vom Radio)
    unter ihre Texthöhe und die Liste sieht „zerhackt" aus (JB-Fund 13.07.) */
 .pl-item{font-size:12px;color:#d7c7bd;padding:4px 7px;border-radius:6px;cursor:pointer;overflow:hidden;
@@ -711,7 +731,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 59</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 60</span>
 </div>
 
 <div id="canvas"></div>
@@ -968,7 +988,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
           <button class="btn mini" onclick="playerLayoutToggle()" title="Anordnung wechseln: Video oben ↔ Video links (Playlist rechts)">⇆ Layout</button>
           <button class="btn mini" id="plq-btn" onclick="plqFenster()" title="Player-Playlist als eigenes Fenster herauslösen / wieder eingliedern — als Fenster ist sie andockbar wie jeder Tab">🎶 Playlist</button>
           <span class="muted2" id="pl-pos"></span>
-          <span class="muted2" style="font-size:11px">· Rechtsklick = alle Optionen</span>
+          <span class="muted2 pl-hint" style="font-size:11px">· Rechtsklick = alle Optionen</span>
         </div>
         <div class="pl-kapitel" id="pl-kapitel" style="display:none"></div>
         <div class="pl-lyrics" id="pl-lyrics" style="display:none"></div>
@@ -3656,18 +3676,18 @@ function plBarHTML(istVideo){
       `onpointerdown="plbSeekAktiv=true" onpointerup="plbSeekAktiv=false">`+
     `<span class="pl-btime" id="plb-t1">0:00</span></div>`+
    `<div class="pl-barrow">`+
-    `<button class="mp-btn mp-tog" data-tr="shuffle" onclick="shuffleToggle()">${ico('shuffle')}</button>`+
-    `<button class="mp-btn" onclick="playerPrev()" title="Vorheriger">${ico('prev')}</button>`+
+    `<button class="mp-btn mp-tog bo2" data-tr="shuffle" onclick="shuffleToggle()">${ico('shuffle')}</button>`+
+    `<button class="mp-btn bo1" onclick="playerPrev()" title="Vorheriger">${ico('prev')}</button>`+
     `<button class="mp-btn" data-tr="pp" onclick="plTogglePlay()">${ico('play')}</button>`+
-    `<button class="mp-btn" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
-    `<button class="mp-btn mp-tog" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
-    `<button class="mp-btn mp-tog mp-art" data-tr="art" onclick="playArtCycle()"></button>`+
+    `<button class="mp-btn bo1" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
+    `<button class="mp-btn mp-tog bo2" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
+    `<button class="mp-btn mp-tog mp-art bo2" data-tr="art" onclick="playArtCycle()"></button>`+
     `<span class="pl-bspacer"></span>`+
-    `<button class="pl-bsp" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
-    `<button class="pl-bsp" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
-    `<button class="pl-bsp" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
-    `<span class="pl-bvolwrap">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
-    `<button class="pl-bsp pl-byt" onclick="playerYoutube()" title="Dieses Video auf YouTube öffnen">${ico('yt')} YouTube</button>`+
+    `<button class="pl-bsp bo3" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
+    `<button class="pl-bsp bo3" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
+    `<button class="pl-bsp bo3" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
+    `<span class="pl-bvolwrap bo2">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
+    `<button class="pl-bsp pl-byt bo3" onclick="playerYoutube()" title="Dieses Video auf YouTube öffnen">${ico('yt')} YouTube</button>`+
     (istVideo?`<button class="pl-bsp" onclick="plbFullscreen()" title="Vollbild">⛶</button>`:'')+
    `</div></div>`;
 }
