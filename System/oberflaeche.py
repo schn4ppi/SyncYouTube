@@ -115,6 +115,7 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .mp-tog.an::after{content:'';position:absolute;left:50%;bottom:0;width:4px;height:4px;border-radius:50%;
   background:var(--akz);transform:translateX(-50%)}
 .mp-radio{font-size:15px}
+.mp-art{width:auto;min-width:30px;padding:0 5px;font-size:13px;border-radius:15px}
 html.light .mp-btn{color:#5a4f47} html.light .mp-btn:hover{color:#2a2016}
 html.light .mp-play{background:#2a2016;color:#fff} html.light .mp-play:hover{background:#000;color:#fff}
 html.light .mp-tog{color:#a89a8e}
@@ -703,7 +704,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 53</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 54</span>
 </div>
 
 <div id="canvas"></div>
@@ -732,7 +733,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legsec">⌨ Tasten</div>
       <div class="legrow"><b>Leertaste</b> Pause/Weiter · <b>Strg+←/→</b> vorheriger/nächster Titel · <b>Medientasten</b> (wenn das Fenster im Vordergrund ist)</div>
       <div class="legsec">⚡ Oben (Command-Bar)</div>
-      <div class="legrow">Links: Link einfügen + <b>⬇ Download</b> · Mini-Player (🔀 ⏮ ⏯ ⏭ 🔁 📻, Titel darunter, <b>Spulleiste</b> mit Zeit — ziehen = spulen). Rechts: laufende Downloads (Klick = Pause, <b>✖</b> = abbrechen &amp; entfernen — Dateien bleiben). <b>🔗</b> Kopierte YouTube-Links werden automatisch erkannt.</div>
+      <div class="legrow">Links: Link einfügen + <b>⬇ Download</b> · Mini-Player (🔀 ⏮ ⏯ ⏭ 🔁 📻, Titel darunter, <b>Spulleiste</b> mit Zeit — ziehen = spulen · <b>🎶/🎬</b> was spielt: nur Musik / nur Videos / beides). Rechts: laufende Downloads (Klick = Pause, <b>✖</b> = abbrechen &amp; entfernen — Dateien bleiben). <b>🔗</b> Kopierte YouTube-Links werden automatisch erkannt.</div>
     </div>
   </div>
 </div>
@@ -2026,6 +2027,7 @@ function cmdNowRender(){
     `<button class="mp-btn" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
     `<button class="mp-btn mp-tog" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
     `<button class="mp-btn mp-tog mp-radio" data-tr="radio" onclick="radioStart()" title="📻 Radio — endloser Mix aus deiner Bibliothek">📻</button>`+
+    `<button class="mp-btn mp-tog mp-art" data-tr="art" onclick="playArtCycle()"></button>`+
     `<button class="mp-btn mp-yt" onclick="playerYoutube()" title="Diesen Titel auf YouTube öffnen">${ico('yt')}</button>`+
     `<span class="pl-bvolwrap mp-vol">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
     `</div>`+titel+
@@ -2478,6 +2480,21 @@ try{
     if(alt==='alle'||alt==='eins')playRepeat=alt;
   }
 }catch(e){}
+/* Abspielart (JB 14.07.): 🎶 nur Musik / 🎬 nur Videos / 🎶🎬 beides —
+   Symbolwechsel wie beim Wiederholen. Wirkt auf Radio, Autoplay/⏭ und
+   „Gefilterte abspielen"; ausgewählte Playlists spielen immer wörtlich. */
+let playArt='alle';
+try{const v=localStorage.getItem('ytdl_playart'); if(['alle','mp3','video'].includes(v))playArt=v;}catch(e){}
+function playArtCycle(){
+  playArt=playArt==='alle'?'mp3':(playArt==='mp3'?'video':'alle');
+  try{localStorage.setItem('ytdl_playart',playArt);}catch(e){}
+  transportRender();
+}
+function artPasst(x){
+  if(playArt==='alle')return true;
+  const audio=x.dateiart?x.dateiart==='audio':(x.kategorie==='MP3');
+  return playArt==='mp3'?audio:!audio;
+}
 function shuffleToggle(){playShuffle=!playShuffle;
   try{localStorage.setItem('ytdl_shuffle',playShuffle?'1':'0');}catch(e){}
   transportRender();}
@@ -2498,6 +2515,12 @@ function transportRender(){
     b.innerHTML=ico(pe&&!pe.paused?'pause':'play');
     b.title=(pe&&!pe.paused)?'Pause':'Abspielen';});
   document.querySelectorAll('[data-tr="radio"]').forEach(b=>b.classList.toggle('an',radioAktiv));
+  document.querySelectorAll('[data-tr="art"]').forEach(b=>{
+    b.classList.toggle('an',playArt!=='alle');
+    b.textContent=playArt==='mp3'?'🎶':(playArt==='video'?'🎬':'🎶🎬');
+    b.title='Was spielt: '+(playArt==='alle'?'Musik + Videos':(playArt==='mp3'?'nur Musik':'nur Videos'))+
+      ' — klicken zum Wechseln. Wirkt auf Radio, Autoplay und „Gefilterte abspielen"; Playlists spielen immer alles.';
+  });
 }
 function playerAdvance(){                             // automatisch nach Titel-Ende
   if(sleepTitelende){sleepAusloesen(); return;}      // Sleep-Timer „nach diesem Titel"
@@ -2523,7 +2546,7 @@ function playerAdvance(){                             // automatisch nach Titel-
    außen vor. Am Ende der Bibliothek stoppt es ehrlich. */
 function naechstesAusBibliothek(){
   const k=aktKey();
-  const pool=libGefiltert().filter(x=>x.vorhanden&&!x.blacklist);
+  const pool=libGefiltert().filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x));
   if(!pool.length)return;
   let nk=null;
   if(playShuffle){
@@ -2539,13 +2562,13 @@ function naechstesAusBibliothek(){
   renderPlayerMedia();
 }
 function playMostPlayed(){
-  let arr=libdaten.filter(x=>x.vorhanden&&!x.blacklist)
+  let arr=libdaten.filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x))
     .sort((a,b)=>(b.plays||0)-(a.plays||0)).slice(0,100).map(x=>x.id);
   if(!arr.length){alert('Noch nichts abgespielt.');return;}
   if(playShuffle)mische(arr); playerPlay(arr,0);
 }
 function playLetzte(){                                // „Zuletzt gespielt"
-  const arr=libdaten.filter(x=>x.vorhanden&&(x.last_play||0)>0)
+  const arr=libdaten.filter(x=>x.vorhanden&&(x.last_play||0)>0&&artPasst(x))
     .sort((a,b)=>(b.last_play||0)-(a.last_play||0)).slice(0,100).map(x=>x.id);
   if(!arr.length){alert('Noch nichts abgespielt.');return;}
   playerPlay(arr,0);
@@ -2553,7 +2576,7 @@ function playLetzte(){                                // „Zuletzt gespielt"
 
 /* ---- 📻 Radio: endloser, personalisierter Zufalls-Stream ---- */
 let radioAktiv=false;
-function radioKandidaten(){return libdaten.filter(x=>x.vorhanden&&!x.blacklist);}
+function radioKandidaten(){return libdaten.filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x));}
 function radioPick(anzahl,vermeiden){
   const pool=radioKandidaten(); if(!pool.length)return [];
   // Vermeidungs-Fenster nie größer als der Pool minus 1 — sonst blockiert es bei
@@ -3156,7 +3179,7 @@ function playerPlay(keys,start){
   ensurePlayer(); renderPlayerMedia();
 }
 function playGefilterte(){
-  let ids=libGefiltert().filter(x=>x.vorhanden).map(x=>x.id);
+  let ids=libGefiltert().filter(x=>x.vorhanden&&artPasst(x)).map(x=>x.id);
   if(playShuffle)mische(ids);
   playerPlay(ids,0);
 }
@@ -3562,6 +3585,7 @@ function plBarHTML(istVideo){
     `<button class="mp-btn" data-tr="pp" onclick="plTogglePlay()">${ico('play')}</button>`+
     `<button class="mp-btn" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
     `<button class="mp-btn mp-tog" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
+    `<button class="mp-btn mp-tog mp-art" data-tr="art" onclick="playArtCycle()"></button>`+
     `<span class="pl-bspacer"></span>`+
     `<button class="pl-bsp" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
     `<button class="pl-bsp" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
