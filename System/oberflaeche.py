@@ -155,7 +155,10 @@ body.mini .panel-tabs{display:none}
 body.mini #view-player .pl-side{display:none}
 body.mini #view-player .card{flex-direction:row}
 body.mini .pl-media{min-height:0}
-body.mini .panel{box-shadow:0 8px 30px rgba(0,0,0,.6)}
+/* Mini-Modus: der kleine Player klebt FIX oben rechts über dem Ende der
+   Command-Bar (JB-Skizze 14.07.) — nicht unten im Fenster-Bereich. */
+body.mini .panel{box-shadow:0 8px 30px rgba(0,0,0,.6);
+  position:fixed;top:6px!important;right:6px;left:auto!important;bottom:auto;z-index:500!important}
 /* Drag&Drop-Ziel (Link ins Fenster ziehen) */
 body.dragziel::after{content:"⬇ Link hier loslassen = Download";position:fixed;inset:8px;z-index:9000;
   border:3px dashed var(--akz);border-radius:16px;background:rgba(0,0,0,.35);color:var(--akz2);
@@ -700,7 +703,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 48</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 49</span>
 </div>
 
 <div id="canvas"></div>
