@@ -739,7 +739,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 61</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 62</span>
 </div>
 
 <div id="canvas"></div>
@@ -974,7 +974,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
         <select id="plsel" onchange="plWahl()" title="Playlist wählen — Auswahl zeigt sie sofort in der Bibliothek"></select>
         <button class="btn mini" onclick="plCreate()" title="Neue Playlist anlegen">＋ Neu</button>
         <button class="btn mini" id="plviewbtn" onclick="plView()" title="Titel dieser Playlist unten in der Bibliothek anzeigen">📃 Öffnen</button>
-        <button class="btn mini" onclick="plPlaySel()" title="Gewählte Playlist im Player abspielen">▶ Abspielen</button>
+        <button class="btn mini" onclick="plPlaySel()" title="Gewählte Playlist abspielen — ohne gewählte Playlist wandert die ganze angezeigte Bibliothek in den Player">▶ Abspielen</button>
         <button class="btn mini" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
         <input type="file" id="m3ufile" accept=".m3u,.m3u8" style="display:none" onchange="plImport(this)">
         <span class="spacer"></span>
@@ -3969,7 +3969,15 @@ async function plAdd(key){
   if(p&&info)info.textContent='„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓';
 }
 function plPlaySel(){const id=document.getElementById('plsel').value; const p=plState.find(x=>x.id===id);
-  if(!p||!p.items.length){alert('Playlist ist leer oder nicht gewählt.');return;}
+  if(!id||!p){
+    // KEINE Playlist gewählt (JB 14.07.): dann die aktuell ANGEZEIGTE Bibliothek
+    // (Suche/Filter/Sortierung/🎶🎬 zählen) komplett als Ad-hoc-Playlist abspielen.
+    let alle=libGefiltert().filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x)).map(x=>x.id);
+    if(!alle.length){alert('Nichts Abspielbares in der aktuellen Ansicht (Suche/Filter prüfen).');return;}
+    if(playShuffle)mische(alle);
+    playerPlay(alle,0); return;
+  }
+  if(!p.items.length){alert('Diese Playlist ist leer.');return;}
   let ids=p.items.slice(); if(playShuffle)mische(ids);
   const start=ids.findIndex(k=>{const x=libFind(k); return x&&x.vorhanden&&artPasst(x);});
   if(start<0){alert('Nach dem 🎶/🎬-Filter bleibt in dieser Playlist nichts übrig.');return;}

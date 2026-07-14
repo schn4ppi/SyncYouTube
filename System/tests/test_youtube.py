@@ -247,6 +247,18 @@ def test_soll_kategorie():
         del app._geladen["testvid9999|beste"]      # JBs echte DB nicht anfassen
 
 
+def test_dubletten_score():
+    # Dubletten-Heilung (JB 14.07.): bei mehreren Einträgen auf dieselbe Datei
+    # gewinnt der echte Download vor dem Ordner-Import, benannte Qualität vor
+    # 'lokal', Kanal-Info gibt den Ausschlag.
+    echt = {"qualitaet": "audio", "uploader": "Kanal"}
+    import_lokal = {"qualitaet": "lokal", "importiert": True}
+    import_audio = {"qualitaet": "audio", "importiert": True}
+    assert app._dubletten_score(echt) > app._dubletten_score(import_audio)
+    assert app._dubletten_score(import_audio) > app._dubletten_score(import_lokal)
+    assert app._dubletten_score({"qualitaet": "beste"}) > app._dubletten_score({"qualitaet": "lokal"})
+
+
 def test_vtt_verwaist():
     # Selbstheilung 14.07.: verwaiste .vtt erkennen — gehörige Untertitel
     # (<stamm>.<sprache>.vtt neben existierendem Medium) bleiben, Doppelungen

@@ -35,7 +35,7 @@ from urllib.parse import urlparse, parse_qs
 import geo
 import update
 
-__version__ = "1.1.2"
+__version__ = "1.1.3"
 
 # Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
 # Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
@@ -1603,6 +1603,11 @@ def ordner_importieren():
             key = f"{vid}|{'audio' if audio else 'lokal'}"
             if key in _geladen:
                 continue
+            # Dubletten-Wurzel (JB 14.07.): gibt es die Video-ID schon unter einem
+            # ANDEREN Qualitäts-Schlüssel (z.B. mit totem Pfad), gehört die Datei
+            # dem Heiler (pfade_heilen) — sonst entstehen zwei Zeilen je Datei.
+            if _plausible_id(vid) and any(k.split("|")[0] == vid for k in _geladen):
+                continue
             try:
                 groesse = os.path.getsize(pfad)
             except OSError:
@@ -1644,6 +1649,49 @@ def pfade_heilen():
     return geheilt
 
 
+def _dubletten_score(e):
+    """Welcher von mehreren Einträgen auf DIESELBE Datei bleibt: echte Downloads
+    vor Ordner-Importen, benannte Qualität vor 'lokal', Kanal-Info als Bonus."""
+    return ((0 if e.get("importiert") else 4)
+            + (0 if e.get("qualitaet") in ("lokal", "") else 2)
+            + (1 if e.get("uploader") else 0))
+
+
+def dubletten_heilen():
+    """Selbstheilung (JB 14.07.: „Duplikate in der Bibliothek"): zeigen mehrere
+    Bibliotheks-Einträge auf DIESELBE Datei (Alt-Eintrag geheilt + Ordner-Import
+    hatte sie schon aufgenommen), bleibt der beste Eintrag; die überzähligen
+    Zeilen werden vergessen (Play-Zähler wandert mit, Dateien bleiben unberührt)."""
+    gruppen = {}
+    for k, e in _geladen.items():
+        p = e.get("pfad")
+        if p and os.path.isfile(p):
+            gruppen.setdefault(os.path.normcase(os.path.abspath(p)), []).append(k)
+    raus = 0
+    with _io_lock:
+        for keys in gruppen.values():
+            if len(keys) < 2:
+                continue
+            keys.sort(key=lambda k: (_dubletten_score(_geladen[k]),
+                                     _geladen[k].get("plays") or 0,
+                                     -(_geladen[k].get("ts") or 0)), reverse=True)
+            halter = _geladen[keys[0]]
+            for k in keys[1:]:
+                e = _geladen.pop(k)
+                halter["plays"] = (halter.get("plays") or 0) + (e.get("plays") or 0)
+                if e.get("archiviert"):
+                    halter["archiviert"] = True
+                for pl in _playlists:                 # Playlists auf den Halter umbiegen
+                    pl["items"] = [keys[0] if x == k else x for x in pl.get("items", [])]
+                raus += 1
+        if raus:
+            _json_speichern(GELADEN_PFAD, _geladen)
+    if raus:
+        _playlists_speichern()
+        _sag(f"Dubletten geheilt: {raus} doppelte Bibliothekszeilen zusammengelegt")
+    return raus
+
+
 def _vtt_verwaist(pfad, stems):
     """True, wenn ein .vtt zu KEINER Mediendatei gehört. Namensmuster gehörig:
     <medien-stamm>.<sprache>.vtt (Sprache z.B. de, en, ja-orig) oder nackt
@@ -1680,8 +1728,8 @@ def untertitel_aufraeumen():
 def _einsortieren_hintergrund():
     """Kurz nach dem Start + alle 6 h aufräumen (Daemon-Thread)."""
     time.sleep(20)
-    for fn in (pfade_heilen, ordner_importieren, metadaten_backfill,
-               untertitel_aufraeumen):
+    for fn in (pfade_heilen, dubletten_heilen, ordner_importieren,
+               metadaten_backfill, untertitel_aufraeumen):
         try:
             fn()                                      # Pfade heilen, fremde Dateien aufnehmen, Metadaten nachtragen
         except Exception:                             # noqa: BLE001
