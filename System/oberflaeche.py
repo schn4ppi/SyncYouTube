@@ -703,7 +703,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 52</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 53</span>
 </div>
 
 <div id="canvas"></div>
@@ -3161,7 +3161,12 @@ function playGefilterte(){
   playerPlay(ids,0);
 }
 function aktKey(){return playerState.queue[playerState.idx];}
-function playerNext(){if(playerState.idx<playerState.queue.length-1){playerState.idx++;renderPlayerMedia();}}
+function playerNext(){
+  if(playerState.idx<playerState.queue.length-1){playerState.idx++;renderPlayerMedia();}
+  // Nur EIN Titel in der Playlist? ⏭ geht weiter durch die Bibliothek —
+  // wie das automatische Titelende (JB 14.07.); Zufall-Modus zählt mit.
+  else if(playerState.queue.length<=1)naechstesAusBibliothek();
+}
 function playerPrev(){if(playerState.idx>0){playerState.idx--;renderPlayerMedia();}}
 function playerExtern(){const k=aktKey(); if(k)biblio(k,'extern');}
 function playerYoutube(){const x=libFind(aktKey()); if(x&&x.url)window.open(x.url,'_blank','noreferrer');}
