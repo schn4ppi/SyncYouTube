@@ -700,7 +700,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 46</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 47</span>
 </div>
 
 <div id="canvas"></div>
@@ -1981,8 +1981,8 @@ function cmdNowRender(){
     `<button class="mp-btn" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
     `<button class="mp-btn mp-tog" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
     `<button class="mp-btn mp-tog mp-radio" data-tr="radio" onclick="radioStart()" title="📻 Radio — endloser Mix aus deiner Bibliothek">📻</button>`+
-    `<span class="pl-bvolwrap mp-vol">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
     `<button class="mp-btn mp-yt" onclick="playerYoutube()" title="Diesen Titel auf YouTube öffnen">${ico('yt')}</button>`+
+    `<span class="pl-bvolwrap mp-vol">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
     `</div>`+titel+
     `<div class="cmd-seekline"><span class="cmd-time" id="cmd-t0">0:00</span>`+
     `<input type="range" id="cmd-seek" min="0" max="1000" value="0" disabled `+
