@@ -2147,6 +2147,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/remote":            # Befehl vom Handy an den PC-Player
                 return _antwort(self, 200, remote_befehl(daten))
+            if self.path == "/api/beenden":
+                # Sauberes Beenden aus der Suite (JB 14.07.2026: im Suite-Betrieb gibt es
+                # kein eigenes Tray mehr — Steuerung über SyncDashTray/Dashboard). Nur vom
+                # eigenen PC (bei aktiver Handy-Fernsteuerung lauscht der Server im WLAN).
+                if self.client_address[0] != "127.0.0.1":
+                    return _antwort(self, 403, {"fehler": "nur lokal"})
+                Q.speichern()
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                return _antwort(self, 200, {"ok": True})
             if self.path == "/api/add":
                 self._add(daten)
             elif self.path == "/api/action":
@@ -2566,10 +2575,12 @@ def main():
     if "--no-browser" not in sys.argv:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
 
-    # Fensterlos gestartet (pythonw): Tray-Symbol steuert die App, statt eines
-    # schwarzen Konsolenfensters. Der HTTP-Server läuft im Hintergrund-Thread;
-    # „Beenden" im Tray hält alles an.
-    tray = None if "--no-tray" in sys.argv else _tray_icon(url)
+    # Eigenes Tray-Symbol NUR in der Standalone-exe (JB 14.07.2026: „nur für die
+    # Standalone-Version") — im Suite-Betrieb (Quellcode) läuft die App unsichtbar,
+    # gesteuert über Dashboard + SyncDashTray-Tray (Öffnen /yt, Beenden /api/beenden).
+    # --tray erzwingt das Symbol (Debug), --no-tray unterdrückt es auch in der exe.
+    tray_gewollt = getattr(sys, "frozen", False) or "--tray" in sys.argv
+    tray = _tray_icon(url) if (tray_gewollt and "--no-tray" not in sys.argv) else None
     if tray is not None:
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
@@ -2582,10 +2593,11 @@ def main():
         return
 
     try:
-        srv.serve_forever()
+        srv.serve_forever()                          # endet auch via POST /api/beenden
     except KeyboardInterrupt:
-        Q.speichern()
-        _sag("Beendet — Warteschlange gespeichert.")
+        pass
+    Q.speichern()
+    _sag("Beendet — Warteschlange gespeichert.")
 
 
 if __name__ == "__main__":
