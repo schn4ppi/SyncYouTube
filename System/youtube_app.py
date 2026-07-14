@@ -34,7 +34,7 @@ from urllib.parse import urlparse, parse_qs
 import geo
 import update
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 # Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
 # Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
