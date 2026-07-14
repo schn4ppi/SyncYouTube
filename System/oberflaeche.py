@@ -700,7 +700,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 44</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 45</span>
 </div>
 
 <div id="canvas"></div>
@@ -1395,7 +1395,14 @@ function verdraenge(p,fest,tiefe){
       {x:o.x,   y:unten,d:unten-o.y,       ok:true},
       {x:o.x,   y:oben, d:o.y-oben,        ok:oben>=0},
     ].filter(k=>k.ok).sort((a,b)=>Math.abs(a.d)-Math.abs(b.d));
-    const z=kand[0]||{x:o.x,y:unten};
+    // Ausweichplatz darf NICHT auf einem bereits fixierten Fenster landen —
+    // sonst entstehen genau die Rest-Überlappungen, die JB gesehen hat (14.07.).
+    let z=kand.find(k=>!L.panels.some(q=>fest.has(q.id)&&q.id!==o.id
+      &&k.x<q.x+q.w&&k.x+o.w>q.x&&k.y<q.y+q.h&&k.y+o.h>q.y));
+    if(!z){                                           // nirgendwo frei -> unter ALLES (immer frei)
+      const tiefstes=Math.max(0,...L.panels.filter(q=>q.id!==o.id).map(q=>q.y+q.h));
+      z={x:Math.max(0,Math.min(o.x,cw-o.w)), y:tiefstes+gap};
+    }
     o.x=Math.max(0,z.x); o.y=Math.max(0,z.y);
     fest.add(o.id);
     verdraenge(o,fest,tiefe+1);                       // wer ausweicht, schiebt ggf. weiter
@@ -1403,6 +1410,31 @@ function verdraenge(p,fest,tiefe){
 }
 function panelsPos(){L.panels.forEach(o=>{const e2=panelEl(o.id);
   if(e2){e2.style.left=o.x+'px'; e2.style.top=o.y+'px';}});}
+
+/* Nächste FREIE Position für ein neues Fenster (w×h) nahe dem Wunschpunkt —
+   bewegt NICHTS anderes (JB 14.07.: „die Ordnung darf sich nicht ändern").
+   Kandidaten sind bündige Anlege-Positionen an Nachbarn/Rand (Abstand = gap,
+   Standard 0); ist nirgendwo Platz, geht es unter das unterste Fenster. */
+function freiePosition(w,h,zx,zy){
+  const c=document.getElementById('canvas'), cw=c?c.clientWidth:window.innerWidth;
+  const gap=Math.max(0,fensterAbstand());
+  const xs=new Set([0, Math.max(0,cw-w), Math.max(0,Math.min(zx,cw-w))]);
+  const ys=new Set([0, Math.max(0,zy)]);
+  L.panels.forEach(o=>{
+    xs.add(o.x); xs.add(o.x+o.w+gap); xs.add(Math.max(0,o.x-w-gap));
+    ys.add(o.y); ys.add(o.y+o.h+gap); ys.add(Math.max(0,o.y-h-gap));
+  });
+  let best=null, bestD=Infinity;
+  for(const x of xs)for(const y of ys){
+    if(x<0||y<0||x+w>cw)continue;
+    if(L.panels.some(o=>x<o.x+o.w&&x+w>o.x&&y<o.y+o.h&&y+h>o.y))continue;
+    const d=(x-zx)*(x-zx)+(y-zy)*(y-zy);
+    if(d<bestD){bestD=d; best={x,y};}
+  }
+  if(best)return best;
+  const tiefstes=Math.max(0,...L.panels.map(o=>o.y+o.h));
+  return {x:Math.max(0,Math.min(zx,cw-w)), y:tiefstes+gap};
+}
 
 function startMove(el,p,e){
   e.preventDefault(); bringFront(p); el.classList.add('dragging');
@@ -1505,6 +1537,10 @@ function bindTab(t,panelId){
         moved=true;                                   // transluzente Vorschau wie beim Browser-Tab-Drag
         document.body.classList.add('nosel');
         ghost=document.createElement('div'); ghost.className='tabghost';
+        // Vorschau im Seitenverhältnis des Quellfensters (das neue Fenster
+        // bekommt später exakt dessen Größe)
+        ghost.style.width=Math.max(160,Math.min(320,Math.round(p.w*0.35)))+'px';
+        ghost.style.height=Math.max(110,Math.min(220,Math.round(p.h*0.35)))+'px';
         ghost.innerHTML='<div class="tabghost-kopf">'+esc(VIEWS[view]||view)+'</div>'+
                         '<div class="tabghost-body" id="tabghost-txt">Loslassen = eigenes Fenster hier</div>';
         document.body.appendChild(ghost);
@@ -1552,10 +1588,12 @@ function tearOut(panelId,view,cx,cy){
   const p=L.panels.find(x=>x.id===panelId); if(!p||p.views.length<2)return;
   p.views=p.views.filter(v=>v!==view); if(p.active===view)p.active=p.views[0];
   const r=document.getElementById('canvas').getBoundingClientRect();
-  const id='p'+(++L.z);
-  const neu={id,x:Math.max(0,cx-r.left-70),y:Math.max(0,cy-r.top-14),w:640,h:600,views:[view],active:view,zi:++L.z};
-  L.panels.push(neu);
-  verdraenge(neu);                                    // neues Fenster überlappt nie (JB 13.07.)
+  // Neues Fenster: GRÖSSE wie das Quellfenster, Position = nächste freie
+  // Stelle am Ablagepunkt — kein anderes Fenster bewegt sich, nichts
+  // überlappt, angelegt wird bündig (JB 14.07.).
+  const pos=freiePosition(p.w, p.h, Math.max(0,cx-r.left-70), Math.max(0,cy-r.top-14));
+  L.panels.push({id:'p'+(++L.z), x:pos.x, y:pos.y, w:p.w, h:p.h,
+                 views:[view], active:view, zi:++L.z});
   renderPanels();
 }
 
@@ -1585,11 +1623,11 @@ function plqFenster(){
     pl.w=pl.w-W-gap;
     neu={id:'p'+(++L.z), x:pl.x+pl.w+gap, y:pl.y, w:W, h:pl.h, views:['plq'], active:'plq', zi:++L.z};
     L.panels.push(neu);
-  }else{                                              // Player zu schmal -> daneben, Rest weicht aus
-    neu={id:'p'+(++L.z), x:pl?pl.x+pl.w+gap:40, y:pl?pl.y:20,
-         w:W, h:Math.max(320, pl?pl.h:420), views:['plq'], active:'plq', zi:++L.z};
+  }else{                                              // Player zu schmal -> nächste freie Stelle daneben
+    const H=Math.max(320, pl?pl.h:420);
+    const pos=freiePosition(W, H, pl?pl.x+pl.w+gap:40, pl?pl.y:20);
+    neu={id:'p'+(++L.z), x:pos.x, y:pos.y, w:W, h:H, views:['plq'], active:'plq', zi:++L.z};
     L.panels.push(neu);
-    verdraenge(neu);
   }
   renderPanels();
 }

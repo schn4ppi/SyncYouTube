@@ -21,6 +21,7 @@ import mimetypes
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -2426,6 +2427,20 @@ def main():
     url = f"http://127.0.0.1:{port}"
     # Einzel-Instanz: läuft schon eine? Dann nur den Browser öffnen und beenden,
     # statt einen zweiten Prozess (und ggf. ein Fenster) zu hinterlassen.
+    # WICHTIG (JB-Fund 14.07.2026): der Bind-Fehler ist auf Windows KEIN verlässlicher
+    # Wächter — HTTPServer setzt SO_REUSEADDR, ein zweiter Bind auf denselben Port
+    # GELINGT dort einfach (zwei Server, Anfragen landen zufällig). Deshalb AKTIV
+    # anklopfen: antwortet schon jemand auf dem Port, nur den Browser öffnen.
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            laeuft = True
+    except OSError:
+        laeuft = False
+    if laeuft:
+        _sag("Läuft bereits — öffne nur den Browser.")
+        if "--no-browser" not in sys.argv:
+            webbrowser.open(url)
+        return
     try:
         srv = ThreadingHTTPServer((host, port), Handler)
     except OSError:
