@@ -703,7 +703,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 51</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 52</span>
 </div>
 
 <div id="canvas"></div>
@@ -950,7 +950,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-player">
     <div class="card" id="pl-card" oncontextmenu="return playerKontext(event)">
-      <div class="pl-media" id="pl-media"><div class="pl-leer">Kein Titel gewählt — in der Bibliothek auf ▶ klicken.</div></div>
+      <div class="pl-media" id="pl-media" ondragover="plMediaOver(event)" ondrop="plMediaDrop(event)" title="Titel aus der Bibliothek hierher ziehen = abspielen / einreihen (Ad-hoc-Playlist, nichts wird gespeichert)"><div class="pl-leer">Kein Titel gewählt — in der Bibliothek auf ▶ klicken.</div></div>
       <div class="pl-side">
         <div class="pl-titel" id="pl-titel"></div>
         <div class="pl-ctrl">
@@ -2679,7 +2679,10 @@ async function libEnrich(btn){
 }
 function ytdatum(d){if(!d||d.length!==8)return'';return d.slice(6,8)+'.'+d.slice(4,6)+'.'+d.slice(0,4);}
 function technikText(x){
-  const istAudio=(x.kategorie==='MP3')||(!x.vcodec&&x.acodec);
+  // Nach der WIRKLICH servierten Datei entscheiden (dateiart vom Server):
+  // fehlt das Video und es gibt nur die MP3, gehört die Audio-Ansicht
+  // (Cover+Visualizer) her — statt schwarzem Video-Element (JB 14.07.).
+  const istAudio=x.dateiart?x.dateiart==='audio':((x.kategorie==='MP3')||(!x.vcodec&&x.acodec));
   const p=[];
   if(istAudio){
     if(x.acodec)p.push(x.acodec.toUpperCase());
@@ -3609,7 +3612,10 @@ function renderPlayerMedia(){
   if(!uebernahme)xfAbbrechen();                        // normaler Wechsel -> evtl. laufenden Fade verwerfen
   const src='/media?id='+encodeURIComponent(k);
   try{fetch('/api/played',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});}catch(e){}
-  const istAudio=(x.kategorie==='MP3')||(!x.vcodec&&x.acodec);
+  // Nach der WIRKLICH servierten Datei entscheiden (dateiart vom Server):
+  // fehlt das Video und es gibt nur die MP3, gehört die Audio-Ansicht
+  // (Cover+Visualizer) her — statt schwarzem Video-Element (JB 14.07.).
+  const istAudio=x.dateiart?x.dateiart==='audio':((x.kategorie==='MP3')||(!x.vcodec&&x.acodec));
   if(istAudio){
     const t=x.thumb?`<img class="pl-cover" src="${esc(x.thumb)}" style="cursor:pointer" onerror="this.style.display='none'">`:'';
     media.innerHTML=`<canvas id="pl-viz" class="pl-viz"></canvas><div class="pl-vizwrap">${t}</div>`+
@@ -3667,6 +3673,23 @@ function plqEinfuegen(key,i){                          // Bibliotheks-Titel an P
   if(playerState.idx<0){playerState.idx=0; ensurePlayer(); renderPlayerMedia(); return;}
   playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));
   renderPlayerQueue(); cmdNowRender();
+}
+/* Titel AUF das Video/Cover ziehen (JB 14.07.): spielt sofort, wenn nichts
+   läuft — sonst entsteht/wächst die Ad-hoc-Playlist (die Player-Queue, nichts
+   wird gespeichert; speichern geht weiter über ＋ Playlist). */
+function plMediaOver(e){
+  const t=e.dataTransfer?[...e.dataTransfer.types]:[];
+  if(t.includes('ytdl/key'))e.preventDefault();
+}
+function plMediaDrop(e){
+  e.preventDefault(); e.stopPropagation();
+  const key=e.dataTransfer.getData('ytdl/key'); if(!key)return;
+  const x=libFind(key); if(!x||!x.vorhanden)return;
+  if(playerState.idx<0||!playerState.queue.length){playerPlay([key]);return;}
+  if(!playerState.queue.includes(key))playerState.queue.push(key);
+  renderPlayerQueue(); cmdNowRender();
+  const info=document.getElementById('plinfo');
+  if(info)info.textContent='🎶 „'+((x.titel||'').slice(0,24))+'" eingereiht ('+playerState.queue.length+' Titel)';
 }
 function plqDrop(e,i){
   e.preventDefault();

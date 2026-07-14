@@ -218,6 +218,16 @@ def test_update_check_release():
     assert info3["available"] is False                                 # offline = kein Fehler
 
 
+def test_datei_aus():
+    # |beste-Key darf NIE die MP3 bekommen (Bild blieb schwarz), |audio nie das Video
+    beide = [r"C:\x\MP3\Song [id123456].mp3", r"C:\x\Video\Song [id123456].mp4"]
+    assert app._datei_aus(beide, "beste").endswith(".mp4")
+    assert app._datei_aus(beide, "audio").endswith(".mp3")
+    assert app._datei_aus([beide[0]], "beste").endswith(".mp3")   # nur Audio da -> besser als nichts
+    assert app._datei_aus([], "beste") is None
+    assert app._datei_aus(None, "audio") is None
+
+
 def test_soll_kategorie():
     # Einsortier-Selbstheilung (JB 14.07.): Audio-Endung reicht für MP3;
     # Nicht-Medien werden NIE angefasst ('' = tabu); unbekanntes Video ohne

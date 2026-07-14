@@ -559,10 +559,28 @@ def _datei_index():
     idx = {}
     for root, _, files in os.walk(ziel_ordner()):
         for f in files:
+            # NUR Mediendateien: die .vtt-Untertitel/.jpg-Cover NEBEN dem Video
+            # dürfen den Index nie vergiften — sonst spielt /media eine
+            # Untertitel-Datei aus und das Bild bleibt schwarz (JB-Fund 14.07.).
+            if not f.lower().endswith(AUDIO_EXT + VIDEO_EXT):
+                continue
             m = re.search(r"\[([\w-]{6,})\]", f)
-            if m and m.group(1) not in idx:
-                idx[m.group(1)] = os.path.join(root, f)
+            if m:
+                idx.setdefault(m.group(1), []).append(os.path.join(root, f))
     return idx
+
+
+def _datei_aus(liste, qualitaet=""):
+    """Aus mehreren Dateien derselben Video-ID die zur QUALITÄT passende wählen:
+    audio-Key -> Audio-Datei zuerst, alles andere -> Video-Datei zuerst. Sonst
+    bekam ein |beste-Eintrag die MP3-Fassung -> Ton ja, Bild schwarz (JB 14.07.)."""
+    if not liste:
+        return None
+    audio = [p for p in liste if p.lower().endswith(AUDIO_EXT)]
+    video = [p for p in liste if p.lower().endswith(VIDEO_EXT)]
+    if qualitaet == "audio":
+        return (audio or video or liste)[0]
+    return (video or audio or liste)[0]
 
 
 def bibliothek_liste():
@@ -571,9 +589,12 @@ def bibliothek_liste():
     for key, e in list(_geladen.items()):
         vid, _, qual = key.partition("|")
         gespeichert = e.get("pfad")
-        pfad = gespeichert if (gespeichert and os.path.isfile(gespeichert)) else idx.get(vid)
+        pfad = gespeichert if (gespeichert and os.path.isfile(gespeichert)) else _datei_aus(idx.get(vid), qual)
+        art = ""
+        if pfad:
+            art = "audio" if pfad.lower().endswith(AUDIO_EXT) else "video"
         out.append({
-            "id": key, "videoid": vid,
+            "id": key, "videoid": vid, "dateiart": art,
             "qualitaet": e.get("qualitaet") or qual or "",
             "titel": e.get("titel") or _titel_aus_name(e.get("name", "")),
             "uploader": e.get("uploader", ""), "dauer": e.get("dauer"),
@@ -604,7 +625,8 @@ def _pfad_zu_key(key):
     gespeichert = e.get("pfad")
     if gespeichert and os.path.isfile(gespeichert):
         return gespeichert
-    return _datei_index().get(key.split("|")[0])
+    vid, _, qual = key.partition("|")
+    return _datei_aus(_datei_index().get(vid), qual)
 
 
 # ---- Media-Streaming mit Range (fürs Abspielen/Suchen im HTML5-Player)
@@ -1158,7 +1180,8 @@ def playlist_sync(pl):
         e = _geladen.get(key)
         if not e:
             continue
-        src = e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad")) else idx.get(key.split("|")[0])
+        src = (e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad"))
+               else _datei_aus(idx.get(key.split("|")[0]), key.partition("|")[2]))
         if src and os.path.isfile(src):
             gewollt[os.path.basename(src)] = src
     kopiert = uebersprungen = geloescht = fehler = 0
@@ -1198,7 +1221,8 @@ def playlist_m3u(pl):
         e = _geladen.get(key)
         if not e:
             continue
-        src = e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad")) else idx.get(key.split("|")[0])
+        src = (e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad"))
+               else _datei_aus(idx.get(key.split("|")[0]), key.partition("|")[2]))
         if not src:
             continue
         zeilen.append(f"#EXTINF:{int(e.get('dauer') or 0)},{e.get('titel') or os.path.basename(src)}")
@@ -1369,7 +1393,8 @@ def technik_backfill():
             if e.get("acodec"):
                 continue
             vid = k.split("|")[0]
-            pfad = e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad")) else idx.get(vid)
+            pfad = (e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad"))
+                    else _datei_aus(idx.get(vid), k.partition("|")[2]))
             t = _technik(pfad) if pfad else {}
             if t:
                 e.update({"vcodec": t.get("vcodec", ""), "acodec": t.get("acodec", ""),
@@ -1468,9 +1493,35 @@ def downloads_einsortieren():
     return bewegt
 
 
+def pfade_heilen():
+    """Tote 'pfad'-Einträge der geladen-DB reparieren (z.B. nach einem Ordner-
+    Umzug wie Stage 3): existiert der gespeicherte Pfad nicht mehr, aber die
+    Datei ist per Video-ID im Downloads-Ordner auffindbar, wird der Eintrag
+    auf den echten Ort umgeschrieben. Rein additiv, löscht nie etwas."""
+    idx = _datei_index()
+    geheilt = 0
+    for k, e in _geladen.items():
+        p = e.get("pfad")
+        if p and not os.path.isfile(p):
+            neu = _datei_aus(idx.get(k.split("|")[0]), k.partition("|")[2])
+            if neu:
+                e["pfad"] = neu
+                e["name"] = os.path.basename(neu)
+                geheilt += 1
+    if geheilt:
+        with _io_lock:
+            _json_speichern(GELADEN_PFAD, _geladen)
+        _sag(f"Pfade geheilt: {geheilt} Bibliotheks-Einträge zeigen wieder auf echte Dateien")
+    return geheilt
+
+
 def _einsortieren_hintergrund():
     """Kurz nach dem Start + alle 6 h aufräumen (Daemon-Thread)."""
     time.sleep(20)
+    try:
+        pfade_heilen()
+    except Exception:                                 # noqa: BLE001
+        pass
     while True:
         try:
             downloads_einsortieren()
@@ -1518,8 +1569,9 @@ def _finde_datei(url, e):
             return k
     vid = _video_id(url)
     muster = os.path.join(ziel_ordner(), "**", f"*[[]{glob.escape(vid)}[]]*")
-    treffer = [p for p in glob.glob(muster, recursive=True) if os.path.isfile(p)]
-    return treffer[0] if treffer else None
+    treffer = [p for p in glob.glob(muster, recursive=True)
+               if os.path.isfile(p) and p.lower().endswith(AUDIO_EXT + VIDEO_EXT)]
+    return _datei_aus(treffer, e.get("qualitaet") or "")
 
 
 def schon_geladen(url, qualitaet):
@@ -2329,7 +2381,7 @@ class Handler(BaseHTTPRequestHandler):
                 vid = key.split("|")[0]
                 pfad = e.get("pfad")
                 if not (pfad and os.path.exists(pfad)):
-                    pfad = _datei_index().get(vid)
+                    pfad = _datei_aus(_datei_index().get(vid), key.partition("|")[2])
                 if pfad and os.path.exists(pfad):
                     subprocess.Popen(["explorer", "/select,", pfad])
                 else:
