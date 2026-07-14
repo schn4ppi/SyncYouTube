@@ -1387,6 +1387,83 @@ def _enrich_eintrag(key, e):
 _technik_laeuft = False
 
 
+_metadaten_laeuft = False
+
+
+def _hat_metadaten(pfad, ffprobe):
+    """True, wenn die Datei bereits einen Titel-Tag hat (dann nichts nachtragen)."""
+    try:
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format_tags=title",
+             "-of", "default=noprint_wrappers=1:nokey=1", pfad],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
+        return bool((out.stdout or "").strip())
+    except (OSError, subprocess.SubprocessError):
+        return True                                   # im Zweifel NICHT anfassen
+
+
+def metadaten_backfill():
+    """Fehlende Titel/Künstler/Datum in tag-losen Dateien nachtragen (Selbstheilung,
+    v.a. fuer per Ordner-Import aufgenommene Fremddateien; von der App selbst
+    geladene Dateien bekommen die Tags schon beim Download). Quelle ist die
+    geladen-DB (yt-dlp-Titel/Uploader/Datum). Non-destruktiv: ffmpeg
+    `-c copy` bewahrt Audio UND Cover, geschrieben wird atomar (tmp + replace);
+    Dateien, die schon einen Titel-Tag haben, bleiben unberührt."""
+    global _metadaten_laeuft
+    ff = _ffmpeg_pfad()
+    if _metadaten_laeuft or not ff:
+        return 0
+    _metadaten_laeuft = True
+    ffmpeg = os.path.join(BIN_DIR, "ffmpeg.exe")
+    ffprobe = os.path.join(BIN_DIR, "ffprobe.exe")
+    geheilt = 0
+    try:
+        idx = _datei_index()
+        for key, e in list(_geladen.items()):
+            titel = (e.get("titel") or "").strip()
+            if not titel:
+                continue
+            p = e.get("pfad")
+            pfad = p if (p and os.path.isfile(p)) else _datei_aus(idx.get(key.split("|")[0]), key.partition("|")[2])
+            if not pfad or not os.path.isfile(pfad):
+                continue
+            if _hat_metadaten(pfad, ffprobe):
+                continue
+            stem, ext = os.path.splitext(pfad)
+            tmp = stem + ".mdtmp" + ext
+            meta = ["-metadata", "title=" + titel]
+            if e.get("uploader"):
+                meta += ["-metadata", "artist=" + str(e["uploader"])]
+            if e.get("upload_date"):
+                meta += ["-metadata", "date=" + str(e["upload_date"])]
+            if e.get("url"):
+                meta += ["-metadata", "comment=" + str(e["url"])]
+            try:
+                r = subprocess.run(
+                    [ffmpeg, "-y", "-i", pfad, "-c", "copy", "-map_metadata", "0"] + meta + [tmp],
+                    capture_output=True, timeout=120,
+                    creationflags=subprocess.CREATE_NO_WINDOW)
+                if r.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
+                    os.replace(tmp, pfad)
+                    geheilt += 1
+                elif os.path.exists(tmp):
+                    os.remove(tmp)
+            except (OSError, subprocess.SubprocessError):
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except OSError:
+                    pass
+        if geheilt:
+            _sag(f"Metadaten nachgetragen: {geheilt} Alt-Datei(en) haben jetzt Titel/Künstler")
+    finally:
+        _metadaten_laeuft = False
+    return geheilt
+
+
+
+
 def technik_backfill():
     """Codec/Qualität für vorhandene Dateien nachtragen, die es noch nicht haben
     (per ffprobe, lokal, offline). Läuft einmal im Hintergrund beim Start."""
@@ -1570,9 +1647,9 @@ def pfade_heilen():
 def _einsortieren_hintergrund():
     """Kurz nach dem Start + alle 6 h aufräumen (Daemon-Thread)."""
     time.sleep(20)
-    for fn in (pfade_heilen, ordner_importieren):     # Pfade heilen + fremde Dateien aufnehmen
+    for fn in (pfade_heilen, ordner_importieren, metadaten_backfill):
         try:
-            fn()
+            fn()                                      # Pfade heilen, fremde Dateien aufnehmen, Metadaten nachtragen
         except Exception:                             # noqa: BLE001
             pass
     while True:

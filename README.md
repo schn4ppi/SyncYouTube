@@ -16,9 +16,13 @@ und — nur auf Wunsch — der Update-Check gegen dieses GitHub-Repo).
 - Dubletten-Erkennung über die Video-ID, „Schon geladen“-Datenbank
 - SponsorBlock (Werbung/Intros aus der Datei schneiden), Metadaten + Thumbnail als Cover
 - Kanal-/Playlist-**Abos** (holt nur Neues), Ausschnitt/Clip (von–bis, ohne Längenlimit)
+- Ganze **Playlists und Mixe** laden (bei `watch?v=…&list=…` fragt die App nach; Mixe bis 50 Titel)
 - Gestufte Geo-Umgehung: Header-Trick → eigene Proxys → Gratis-Proxys → VPN (Nord/Windscribe/WireGuard)
 - Downloads-Ordner heilt sich selbst: von Hand verschobene Dateien wandern automatisch
-  zurück nach `MP3` / `4K+` / `Video` (Unklares nach `Sonstiges`)
+  zurück nach `MP3` / `4K+` / `Video` (Unklares nach `Sonstiges`); Metadaten (Titel/Künstler)
+  werden bei Alt-Dateien automatisch nachgetragen
+- **Ordner-Import**: fremde Musik-/Videodateien im Downloads-Ordner werden automatisch
+  in die Bibliothek aufgenommen (nicht nur selbst geladene)
 
 **Player**
 - Steuerleiste **auf dem Video/Cover** (YouTube-Stil): Spulen, Transport, Untertitel, Clip,
