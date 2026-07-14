@@ -341,6 +341,10 @@ details.einst summary:hover{color:var(--akz)}
 @media(max-width:560px){.titel{white-space:normal}}
 
 /* ---- Bibliothek ---- */
+/* Kopfzeile (Suche/Sortierung/Playlist-Leiste) beim Scrollen sichtbar halten (JB 14.07.):
+   die zwei .libbar-Leisten stecken in .libhead, das im Fenster-Scroll (.panel-body) oben
+   klebt — nur die Titelliste (#libinhalt) scrollt darunter weg. */
+.libhead{position:sticky;top:0;z-index:30;background:var(--panel);padding-top:6px;margin-top:-6px}
 .libbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
 #libsuche{flex:1;min-width:130px}
 .libbar .spacer{flex:1}
@@ -933,6 +937,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-lib">
     <div class="card">
+      <div class="libhead">
       <div class="libbar">
         <input type="text" id="libsuche" placeholder="Suchen…" oninput="libMalen()">
         <select id="libsort" onchange="setSortSelect(this.value)" title="Sortieren nach"></select>
@@ -976,6 +981,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
         <button class="btn mini" onclick="radioStart()" title="Endlos-Radio: personalisierter Zufalls-Mix, der nie aufhört (Blacklist ausgenommen)">📻 Radio</button>
         <button class="btn mini" onclick="mixeMenu(event)" title="Meistgespielt · Zuletzt · Gefilterte · Smart-Playlists">▶ Mixe</button>
         <span id="plinfo" style="font-size:12px;color:#9ec49a"></span>
+      </div>
       </div>
       <div id="libinhalt"></div>
     </div>
