@@ -1644,10 +1644,44 @@ def pfade_heilen():
     return geheilt
 
 
+def _vtt_verwaist(pfad, stems):
+    """True, wenn ein .vtt zu KEINER Mediendatei gehört. Namensmuster gehörig:
+    <medien-stamm>.<sprache>.vtt (Sprache z.B. de, en, ja-orig) oder nackt
+    <medien-stamm>.vtt. Alt-Bug-Doppelungen wie '<stamm>.de.de.vtt' (Index
+    zeigte früher auf die .vtt statt aufs Medium) gelten als verwaist."""
+    base = pfad[:-4]                                  # ohne ".vtt"
+    if base.lower() in stems:
+        return False
+    base2, _, _ = base.rpartition(".")                # ohne ".<sprache>"
+    return not (base2 and base2.lower() in stems)
+
+
+def untertitel_aufraeumen():
+    """Selbstheilung: verwaiste .vtt-Reste (Mediendatei weg oder Doppelungen aus
+    dem Alt-Bug) in den Windows-Papierkorb — nie hart löschen. Gehörige
+    Untertitel bleiben liegen (Karaoke-Cache)."""
+    stems, vtts = set(), []
+    for wurzel, _, dateien in os.walk(ziel_ordner()):
+        for d in dateien:
+            p = os.path.join(wurzel, d)
+            if d.lower().endswith(".vtt"):
+                vtts.append(p)
+            elif d.lower().endswith(AUDIO_EXT + VIDEO_EXT):
+                stems.add(os.path.splitext(p)[0].lower())
+    n = 0
+    for p in vtts:
+        if _vtt_verwaist(p, stems) and _in_papierkorb(p):
+            n += 1
+    if n:
+        _sag(f"Untertitel aufgeräumt: {n} verwaiste .vtt in den Papierkorb")
+    return n
+
+
 def _einsortieren_hintergrund():
     """Kurz nach dem Start + alle 6 h aufräumen (Daemon-Thread)."""
     time.sleep(20)
-    for fn in (pfade_heilen, ordner_importieren, metadaten_backfill):
+    for fn in (pfade_heilen, ordner_importieren, metadaten_backfill,
+               untertitel_aufraeumen):
         try:
             fn()                                      # Pfade heilen, fremde Dateien aufnehmen, Metadaten nachtragen
         except Exception:                             # noqa: BLE001

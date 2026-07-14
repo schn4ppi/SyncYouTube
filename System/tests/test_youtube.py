@@ -247,6 +247,20 @@ def test_soll_kategorie():
         del app._geladen["testvid9999|beste"]      # JBs echte DB nicht anfassen
 
 
+def test_vtt_verwaist():
+    # Selbstheilung 14.07.: verwaiste .vtt erkennen — gehörige Untertitel
+    # (<stamm>.<sprache>.vtt neben existierendem Medium) bleiben, Doppelungen
+    # aus dem Alt-Index-Bug (.de.de.vtt) und Reste ohne Medium fliegen raus.
+    stems = {r"c:\d\mp3\song [abc12345678]".lower(),
+             r"c:\d\mp3\mr. blue sky [xyz98765432]".lower()}
+    assert app._vtt_verwaist(r"C:\d\mp3\Song [abc12345678].de.vtt", stems) is False
+    assert app._vtt_verwaist(r"C:\d\mp3\Song [abc12345678].ja-orig.vtt", stems) is False
+    assert app._vtt_verwaist(r"C:\d\mp3\Song [abc12345678].vtt", stems) is False
+    assert app._vtt_verwaist(r"C:\d\mp3\Mr. Blue Sky [xyz98765432].en.vtt", stems) is False
+    assert app._vtt_verwaist(r"C:\d\mp3\Song [abc12345678].de.de.vtt", stems) is True
+    assert app._vtt_verwaist(r"C:\d\mp3\Geloescht [ttt11111111].de.vtt", stems) is True
+
+
 def test_ist_untertitel_fehler():
     # JB-Vorfall 11.07.: YouTube drosselte die Untertitel (429) und der ganze
     # Download hing stundenlang bei 0% — solche Fehler müssen als "heilbar

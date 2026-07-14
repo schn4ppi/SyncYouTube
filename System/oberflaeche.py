@@ -555,9 +555,13 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
 @container plcard (max-width:380px){
   .pl-hint{display:none}
 }
-@container plmedia (max-width:580px){ .pl-bar .bo3{display:none} }
-@container plmedia (max-width:400px){ .pl-bar .bo2{display:none} }
-@container plmedia (max-width:230px){ .pl-bar .bo1,.pl-bar .pl-btime{display:none} }
+/* Stufen pixel-genau vermessen (14.07.): volle Leiste braucht 537px, ohne
+   YouTube-TEXT 486, ohne Stufe 3 343, ohne Stufe 2 151 — Schwellen knapp
+   darüber, damit so viel wie möglich sichtbar bleibt (JB: „Auge isst mit"). */
+@container plmedia (max-width:548px){ .pl-bar .bo-yttxt{display:none} }
+@container plmedia (max-width:496px){ .pl-bar .bo3{display:none} }
+@container plmedia (max-width:353px){ .pl-bar .bo2{display:none} }
+@container plmedia (max-width:161px){ .pl-bar .bo1,.pl-bar .pl-btime{display:none} }
 .pl-leer{color:#6a5c52;font-size:13px;text-align:center;padding:24px}
 .pl-titel{font-weight:600;font-size:14px;margin:10px 0 6px;flex:none}
 .pl-ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;flex:none}
@@ -731,7 +735,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 60</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 61</span>
 </div>
 
 <div id="canvas"></div>
@@ -1137,7 +1141,15 @@ function defaultLayout(){
 }
 function ladeLayout(){
   try{const s=JSON.parse(localStorage.getItem(LKEY)||'null');
-    if(s&&s.panels)s.panels=s.panels.filter(p=>p.id!=='pmini');   // Mini-Karte nie mitladen
+    if(s&&s.panels){
+      s.panels=s.panels.filter(p=>p.id!=='pmini');   // Mini-Karte nie mitladen
+      // Reload während Mini: der Player hing in der Mini-Karte — als Tab ins
+      // größte Fenster zurück, sonst legt ensurePlayer später ein neues Fenster an
+      if(s.panels.length&&!s.panels.some(p=>(p.views||[]).includes('player'))){
+        const g=s.panels.reduce((a,b)=>(a.w*a.h>=b.w*b.h?a:b));
+        (g.views=g.views||[]).push('player');
+      }
+    }
     if(s&&s.panels&&s.panels.length&&alleViews(s))return s;}catch(e){}
   return defaultLayout();
 }
@@ -1149,7 +1161,10 @@ function ensurePlayer(){
   let p=L.panels.find(pp=>pp.views.includes('player'));
   if(!p){
     const r=document.getElementById('canvas').getBoundingClientRect();
-    p={id:'p'+(++L.z),x:Math.max(10,Math.min(120,r.width-430)),y:70,w:420,h:540,views:['player'],active:'player',zi:++L.z};
+    // kollisionsfrei platzieren (JB-Fund 14.07.: fixe Position 120/70 lag über der Bibliothek)
+    const w=Math.min(420,Math.max(300,Math.round(r.width)-16)), h=540;
+    const pos=freiePosition(w,h,Math.max(8,Math.round(r.width)-w-8),8);
+    p={id:'p'+(++L.z),x:pos.x,y:pos.y,w,h,views:['player'],active:'player',zi:++L.z};
     L.panels.push(p);
   }
   p.active='player'; bringFront(p); merkeView(p.id,'player'); renderPanels(); return p;
@@ -1319,9 +1334,13 @@ function layoutSelectFuellen(){
       '<option value="v:tabs">Alles als Tabs</option></optgroup>'+
     (Object.keys(eigene).length?('<optgroup label="Meine Layouts">'+
       Object.keys(eigene).sort().map(n=>`<option value="m:${esc(n)}">${esc(n)}</option>`).join('')+'</optgroup>'):'');
+  // zuletzt gewählte Anordnung im Select anzeigen (überlebt den Reload, JB 14.07.)
+  try{const merk=localStorage.getItem('ytdl_layout_wahl');
+    if(merk&&[...sel.options].some(o=>o.value===merk))sel.value=merk;}catch(e){}
 }
 function layoutWaehlen(v){
   if(!v)return;
+  try{localStorage.setItem('ytdl_layout_wahl',v);}catch(e){}
   if(v.startsWith('v:'))layoutVorlage(v.slice(2));
   else if(v.startsWith('m:')){const l=meineLayouts()[v.slice(2)];
     if(l){layoutMerken(); miniVerlassen(); L=JSON.parse(JSON.stringify(l));
@@ -3286,6 +3305,28 @@ function playerNext(){
 function playerPrev(){
   const n=queueIdxPassend(playerState.idx-1,-1);
   if(n>=0){playerState.idx=n; renderPlayerMedia();}
+  // Symmetrisch zu playerNext (JB 14.07.: 'ich kann nur vor, nicht zurück, ohne Playlist'):
+  // Einzeltitel / nichts Passendes davor -> ⏮ geht in der Bibliothek einen zurück.
+  else if(playerState.queue.length<=1)vorherigesAusBibliothek();
+}
+/* Gegenstück zu naechstesAusBibliothek: der VORHERIGE Titel der aktuellen Ansicht
+   (Suche/Filter/Sortierung zählen). Bei Zufall ein zufälliger; am Anfang stoppt es ehrlich. */
+function vorherigesAusBibliothek(){
+  const k=aktKey();
+  const pool=libGefiltert().filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x));
+  if(!pool.length)return;
+  let pk=null;
+  if(playShuffle){
+    const kand=pool.filter(x=>x.id!==k);
+    if(kand.length)pk=kand[Math.floor(Math.random()*kand.length)].id;
+  }else{
+    const i=pool.findIndex(x=>x.id===k);
+    if(i>0)pk=pool[i-1].id;                         // der Vorherige in der Ansicht
+    else if(i<0)pk=pool[pool.length-1].id;          // aktueller nicht in der Ansicht -> ans Ende
+  }
+  if(!pk)return;
+  playerState.queue=[pk]; playerState.idx=0;        // bleibt Einzeltitel -> weiter navigierbar
+  renderPlayerMedia();
 }
 function playerExtern(){const k=aktKey(); if(k)biblio(k,'extern');}
 function playerYoutube(){const x=libFind(aktKey()); if(x&&x.url)window.open(x.url,'_blank','noreferrer');}
@@ -3687,7 +3728,7 @@ function plBarHTML(istVideo){
     `<button class="pl-bsp bo3" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
     `<button class="pl-bsp bo3" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
     `<span class="pl-bvolwrap bo2">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
-    `<button class="pl-bsp pl-byt bo3" onclick="playerYoutube()" title="Dieses Video auf YouTube öffnen">${ico('yt')} YouTube</button>`+
+    `<button class="pl-bsp pl-byt bo3" onclick="playerYoutube()" title="Dieses Video auf YouTube öffnen">${ico('yt')}<span class="bo-yttxt"> YouTube</span></button>`+
     (istVideo?`<button class="pl-bsp" onclick="plbFullscreen()" title="Vollbild">⛶</button>`:'')+
    `</div></div>`;
 }
