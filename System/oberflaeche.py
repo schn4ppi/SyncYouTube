@@ -417,6 +417,12 @@ html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
 .abo-fd{color:#8a7d74;font-size:11px;flex:none}
 .abo-nr{color:#8a7d74;font-size:11px;flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
 .pl-nr{color:var(--akz2);font-size:11px;font-variant-numeric:tabular-nums}
+.cmd-now.dropziel{outline:2px dashed var(--akz);outline-offset:2px;border-radius:8px;background:rgba(0,0,0,.15)}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(12px);z-index:9500;
+  background:#241f1b;color:#f0e6dc;padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.5);
+  opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:80vw}
+#toast.an{opacity:1;transform:translateX(-50%) translateY(0)}
+html.light #toast{background:#3a322c}
 .abo-b{font-size:10.5px;border-radius:5px;padding:1px 5px;flex:none}
 .abo-b.ok{background:#1d3020;color:#9ec49a}
 .abo-b.anders{background:#3a2a16;color:#e8b45a}   /* in ANDEREM Format geladen (JB: Markierung) */
@@ -727,7 +733,8 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="cmd-dl" onclick="cmdDownload()" title="In die Warteschlange laden">⬇ Download</button>
       </div>
       <div class="cmd-row2">
-        <div class="cmd-now" id="cmd-now"><span class="cmd-nolabel">// nichts läuft</span></div>
+        <div class="cmd-now" id="cmd-now" ondragover="cmdNowOver(event)" ondragleave="cmdNowLeave(event)" ondrop="cmdNowDrop(event)"
+             title="Titel aus der Bibliothek hierher ziehen = in die Playlist einreihen"><span class="cmd-nolabel">// nichts läuft</span></div>
         <div class="cmd-stat">
           <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
                 title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
@@ -764,7 +771,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 64</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 65</span>
 </div>
 
 <div id="canvas"></div>
@@ -1062,6 +1069,13 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 let daten = null;                                    // letzter /api/status (Sekundentakt via laden())
 
 function esc(t){const d=document.createElement('div');d.textContent=t||'';return d.innerHTML;}
+let _toastTimer=null;
+function toast(text){                                  // kurze, dezente Rückmeldung (calm — kein Alert-Stopp)
+  let t=document.getElementById('toast');
+  if(!t){t=document.createElement('div'); t.id='toast'; document.body.appendChild(t);}
+  t.textContent=text; t.classList.add('an');
+  clearTimeout(_toastTimer); _toastTimer=setTimeout(()=>t.classList.remove('an'),2600);
+}
 function mb(b){if(!b)return'–';if(b>=1e9)return(b/1e9).toFixed(2)+' GB';return(b/1e6).toFixed(1)+' MB';}
 function tempo(b){return b?(b/1e6).toFixed(1)+' MB/s':'';}
 function zeit(s){if(s==null)return'';s=Math.round(s);const m=Math.floor(s/60),h=Math.floor(m/60);
@@ -3962,7 +3976,8 @@ function plBarHTML(istVideo){
     `<button class="pl-bsp bo3" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
     `<span class="pl-bvolwrap bo2">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
     `<button class="pl-bsp pl-byt bo3" onclick="playerYoutube()" title="Dieses Video auf YouTube öffnen">${ico('yt')}<span class="bo-yttxt"> YouTube</span></button>`+
-    (istVideo?`<button class="pl-bsp" onclick="plbFullscreen()" title="Vollbild">⛶</button>`:'')+
+    (istVideo?`<button class="pl-bsp bo2" onclick="plbPip()" title="Bild-in-Bild: Video schwebt über allen Fenstern (Taste I)">⧉</button>`:'')+
+    (istVideo?`<button class="pl-bsp" onclick="plbFullscreen()" title="Vollbild (Taste F)">⛶</button>`:'')+
    `</div></div>`;
 }
 function plTogglePlay(){const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}}
@@ -3978,6 +3993,15 @@ function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
 function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)return;
   if(document.fullscreenElement)document.exitFullscreen();
   else if(m.requestFullscreen)m.requestFullscreen();}
+function plbPip(){                                     // natives Bild-in-Bild (JB 21.07.)
+  const el=document.getElementById('pl-el');
+  if(!el||el.tagName!=='VIDEO'){toast('Bild-in-Bild geht nur bei Videos.');return;}
+  try{
+    if(document.pictureInPictureElement)document.exitPictureInPicture();
+    else if(el.requestPictureInPicture)el.requestPictureInPicture();
+    else toast('Dein Browser kann kein Bild-in-Bild.');
+  }catch(e){toast('Bild-in-Bild nicht möglich.');}
+}
 function plbTick(){                                    // Position/Zeit der Leiste nachführen
   const el=document.getElementById('pl-el'), s=document.getElementById('plb-seek'),
         t0=document.getElementById('plb-t0'), t1=document.getElementById('plb-t1');
@@ -4079,6 +4103,22 @@ function plqEinfuegen(key,i){                          // Bibliotheks-Titel an P
 function plMediaOver(e){
   const t=e.dataTransfer?[...e.dataTransfer.types]:[];
   if(t.includes('ytdl/key'))e.preventDefault();
+}
+/* Command-Bar-Mini-Player als Drop-Ziel (JB 21.07.: „Video auf den Play-Knopf
+   oben links ziehen = in die Playlist"). Reiht ein — spielt sofort, wenn nichts läuft. */
+function cmdNowOver(e){
+  const t=e.dataTransfer?[...e.dataTransfer.types]:[];
+  if(t.includes('ytdl/key')){e.preventDefault(); const n=document.getElementById('cmd-now'); if(n)n.classList.add('dropziel');}
+}
+function cmdNowLeave(){const n=document.getElementById('cmd-now'); if(n)n.classList.remove('dropziel');}
+function cmdNowDrop(e){
+  e.preventDefault(); const n=document.getElementById('cmd-now'); if(n)n.classList.remove('dropziel');
+  const key=e.dataTransfer.getData('ytdl/key'); if(!key)return;
+  const x=libFind(key); if(!x||!x.vorhanden)return;
+  if(playerState.idx<0||!playerState.queue.length){playerPlay([key]);}
+  else{ if(!playerState.queue.includes(key))playerState.queue.push(key); renderPlayerQueue(); cmdNowRender(); }
+  const info=document.getElementById('plinfo');
+  if(info)info.textContent='🎶 „'+((x.titel||'').slice(0,24))+'" eingereiht ('+playerState.queue.length+' Titel)';
 }
 function plMediaDrop(e){
   e.preventDefault(); e.stopPropagation();
@@ -4269,17 +4309,42 @@ document.getElementById('urls').addEventListener('keydown',e=>{
 // Klick außerhalb schließt das Spalten-Menü
 document.addEventListener('click',e=>{ if(!e.target.closest('.colmenuwrap')){
   const m=document.getElementById('libcolmenu'); if(m)m.style.display='none';}});
-// Tastatur: Leertaste = Play/Pause · Strg+Pfeil = nächster/voriger Titel
+/* Tastenkürzel (JB 21.07., YouTube-/Player-Standard). Greifen NUR, wenn nicht in
+   einem Eingabefeld getippt wird. ? zeigt die Legende. */
+function tastenLegende(){
+  toast('⎵/K Play·Pause · J/L −/+10s · ←/→ −/+5s · ↑/↓ Lautstärke · N/P Titel · M stumm · F Vollbild · I Bild-in-Bild · S Untertitel');
+}
+function _vol(d){plbVol(Math.max(0,Math.min(100,(plVol||0)+d)));}
 document.addEventListener('keydown',e=>{
-  if(e.target.matches('input,textarea,select'))return;
+  const tgt=e.target;
+  if(tgt&&tgt.matches&&tgt.matches('input,textarea,select'))return;
+  if(tgt&&tgt.isContentEditable)return;
   const el=document.getElementById('pl-el');
-  if(e.code==='Space'&&el){e.preventDefault(); if(el.paused)el.play(); else el.pause();}
-  else if(e.ctrlKey&&e.key==='ArrowRight'){e.preventDefault();playerNext();}
-  else if(e.ctrlKey&&e.key==='ArrowLeft'){e.preventDefault();playerPrev();}
-  // Media-Tasten der Tastatur (feuern nur, wenn das Fenster im Vordergrund/fokussiert ist)
-  else if(e.code==='MediaPlayPause'){e.preventDefault(); if(el){if(el.paused)el.play(); else el.pause();}}
-  else if(e.code==='MediaTrackNext'){e.preventDefault(); playerNext();}
-  else if(e.code==='MediaTrackPrevious'){e.preventDefault(); playerPrev();}});
+  const springen=s=>{if(el&&el.duration){el.currentTime=Math.max(0,Math.min(el.duration,el.currentTime+s));}};
+  const playPause=()=>{if(el){if(el.paused)el.play(); else el.pause();}};
+  if(e.ctrlKey&&e.key==='ArrowRight'){e.preventDefault();playerNext();return;}
+  if(e.ctrlKey&&e.key==='ArrowLeft'){e.preventDefault();playerPrev();return;}
+  if(e.ctrlKey||e.metaKey||e.altKey)return;            // keine sonstigen Strg/Cmd/Alt-Kombis kapern
+  switch(e.code){
+    case 'Space': case 'KeyK': if(el){e.preventDefault(); playPause();} break;
+    case 'KeyJ': e.preventDefault(); springen(-10); break;
+    case 'KeyL': e.preventDefault(); springen(10); break;
+    case 'ArrowRight': e.preventDefault(); springen(5); break;
+    case 'ArrowLeft': e.preventDefault(); springen(-5); break;
+    case 'ArrowUp': e.preventDefault(); _vol(5); break;
+    case 'ArrowDown': e.preventDefault(); _vol(-5); break;
+    case 'KeyN': e.preventDefault(); playerNext(); break;
+    case 'KeyP': e.preventDefault(); playerPrev(); break;
+    case 'KeyM': if(el){e.preventDefault(); el.muted=!el.muted; toast(el.muted?'🔇 stumm':'🔊 Ton an');} break;
+    case 'KeyF': e.preventDefault(); plbFullscreen(); break;
+    case 'KeyI': e.preventDefault(); plbPip(); break;
+    case 'KeyS': e.preventDefault(); if(typeof subCycle==='function')subCycle(); break;
+    case 'MediaPlayPause': e.preventDefault(); playPause(); break;
+    case 'MediaTrackNext': e.preventDefault(); playerNext(); break;
+    case 'MediaTrackPrevious': e.preventDefault(); playerPrev(); break;
+    default:
+      if(e.key==='?'){e.preventDefault(); tastenLegende();}
+  }});
 
 /* ================= Init (läuft einmal beim Seiten-Start) ================= */
 themeIcon();
