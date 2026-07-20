@@ -501,6 +501,10 @@ html.light .kap:hover{color:#8a5a1e}html.light .pl-kapitel{border-color:#ece3d9}
 .pl-subzeile.karaoke{top:6%;bottom:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
 .kar-neben{color:rgba(255,255,255,.45);font-size:15px;max-width:92%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kar-akt{color:var(--akz2);font-size:23px;font-weight:700;text-align:center;max-width:94%;line-height:1.3}
+/* Karaoke-Mitleuchten (nur LRCLIB): schon gesungene Wörter hell/akzentuiert,
+   kommende gedimmt — der Fortschritt „läuft" durch die Zeile (JB 21.07.). */
+.kar-akt.lrc .kw{color:rgba(255,255,255,.38);transition:color .15s,text-shadow .15s}
+.kar-akt.lrc .kw.sung{color:var(--akz2);text-shadow:0 0 10px var(--akz)}
 /* Schwarzer Buchstaben-Rand: Untertitel/Karaoke auf JEDER Fläche lesbar (JB-Wunsch) */
 .subtxt,.kar-akt,.kar-neben{
   text-shadow:-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000,
@@ -740,14 +744,15 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
 </head>
 <body>
 <!-- Einbettungs-Modus (JB 21.07.2026: „ein Browser, ein Browser"): im Dashboard-iframe
-     (?embed=1) die eigene Chrome ausblenden — Logo, Layout-Leiste, Build-Marke weg. -->
-<style>body.embed .cmd-logo,body.embed #layoutbar,body.embed #buildmark{display:none}</style>
+     (?embed=1) nur Logo + Build-Marke ausblenden. Die Layout-Leiste (✏ Layout,
+     🔳 Mini) BLEIBT — JB braucht sie auch im Dashboard (21.07.). -->
+<style>body.embed .cmd-logo,body.embed #buildmark{display:none}</style>
 <script>if(location.search.indexOf('embed=1')>=0)document.body.classList.add('embed');</script>
 <div id="cmdbar">
   <div class="cmd-main">
     <div class="cmd-left">
       <div class="cmd-row1">
-        <span class="cmd-logo" title="YouTube-Downloader">▶ YTDL</span>
+        <span class="cmd-logo" title="YouTube-Downloader">▶ YouTube</span>
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link einfügen — Enter lädt…"
                onkeydown="if(event.key==='Enter')cmdDownload()">
 <select id="cmd-qual" class="cmd-qual" title="Qualität (Auswahl wird gemerkt)" onchange="qualMerken(this.value)">
@@ -796,7 +801,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 68</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 69</span>
 </div>
 
 <div id="canvas"></div>
@@ -3763,28 +3768,43 @@ async function subNachladen(){
   if(aktKey()===k){subAnzeigen();
     if(subMode!=='aus')toast('Für diesen Titel sind keine Untertitel verfügbar.');}
 }
+function karWorte(text){                                // Zeile in Wort-Spans zerlegen (fürs Mitleuchten)
+  return (text||'').split(/(\\s+)/).map(w=>/\\S/.test(w)?'<span class="kw">'+esc(w)+'</span>':esc(w)).join('');
+}
 function subTick(el){
   if(!subCues||subMode==='aus')return;
   const t=el.currentTime;
   let i=subIdx;
   if(i<0||i>=subCues.length||t<subCues[i].start||t>=subCues[i].ende)
     i=subCues.findIndex(c=>t>=c.start&&t<c.ende);
-  if(i===subIdx)return;
-  subIdx=i;
   const ov=document.getElementById('pl-sub-anzeige');
-  if(i<0){ if(ov&&subMode!=='transkript')ov.innerHTML=''; return; }
-  if(subMode==='zeilen'&&ov){
-    ov.innerHTML='<span class="subtxt">'+esc(subCues[i].text)+'</span>';
-  }else if(subMode==='karaoke'&&ov){
-    const prev=subCues[i-1], next=subCues[i+1];
-    ov.innerHTML='<div class="kar-neben">'+(prev?esc(prev.text):'&nbsp;')+'</div>'+
-      '<div class="kar-akt">'+esc(subCues[i].text)+'</div>'+
-      '<div class="kar-neben">'+(next?esc(next.text):'&nbsp;')+'</div>';
-  }else if(subMode==='transkript'){
-    const ly=document.getElementById('pl-lyrics'); if(!ly)return;
-    ly.querySelectorAll('.lyr.akt').forEach(x=>x.classList.remove('akt'));
-    const z=ly.querySelector('.lyr[data-i="'+i+'"]');
-    if(z){z.classList.add('akt'); z.scrollIntoView({block:'nearest'});}
+  const istLrc=(subLang==='LRC');
+  if(i!==subIdx){                                       // Zeile gewechselt -> neu aufbauen
+    subIdx=i;
+    if(i<0){ if(ov&&subMode!=='transkript')ov.innerHTML=''; }
+    else if(subMode==='zeilen'&&ov){
+      ov.innerHTML='<span class="subtxt">'+esc(subCues[i].text)+'</span>';
+    }else if(subMode==='karaoke'&&ov){
+      const prev=subCues[i-1], next=subCues[i+1];
+      // Bei LRCLIB die aktive Zeile in Wörter zerlegt (Mitleuchten, JB 21.07.);
+      // bei YouTube-Untertiteln normale Zeile (Wort-Timing dort unzuverlässig).
+      ov.innerHTML='<div class="kar-neben">'+(prev?esc(prev.text):'&nbsp;')+'</div>'+
+        '<div class="kar-akt'+(istLrc?' lrc':'')+'">'+(istLrc?karWorte(subCues[i].text):esc(subCues[i].text))+'</div>'+
+        '<div class="kar-neben">'+(next?esc(next.text):'&nbsp;')+'</div>';
+    }else if(subMode==='transkript'){
+      const ly=document.getElementById('pl-lyrics');
+      if(ly){ly.querySelectorAll('.lyr.akt').forEach(x=>x.classList.remove('akt'));
+        const z=ly.querySelector('.lyr[data-i="'+i+'"]');
+        if(z){z.classList.add('akt'); z.scrollIntoView({block:'nearest'});}}
+    }
+  }
+  // Wort-Mitleuchten INNERHALB der aktiven LRCLIB-Zeile — jeder Tick, per Zeit
+  // interpoliert (LRCLIB liefert Zeilen-, kein Wort-Timing -> gleichmäßig gefüllt).
+  if(subMode==='karaoke'&&istLrc&&i>=0&&ov){
+    const c=subCues[i], dauer=(c.ende-c.start)||1;
+    const p=Math.max(0,Math.min(1,(t-c.start)/dauer));
+    const kw=ov.querySelectorAll('.kar-akt .kw'), bis=Math.round(p*kw.length);
+    kw.forEach((s,n)=>s.classList.toggle('sung',n<bis));
   }
 }
 
