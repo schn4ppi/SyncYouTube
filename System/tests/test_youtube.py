@@ -277,6 +277,27 @@ def test_abo_rss_ids():
         app.urllib.request.urlopen = echt
 
 
+def test_abo_nr():
+    # CD-Muster (JB 21.07.): Folgen-Liste ist neueste-zuerst -> älteste = 1,
+    # neueste = Gesamtzahl. Nicht im Cache -> 0.
+    import json
+    import tempfile
+    d = tempfile.mkdtemp()
+    alt = app.ABO_INDEX_ORDNER
+    app.ABO_INDEX_ORDNER = d
+    try:
+        folgen = [{"id": "vNEU"}, {"id": "vMITTE"}, {"id": "vALT"}]
+        with open(os.path.join(d, "abo1.json"), "w", encoding="utf-8") as f:
+            json.dump({"folgen": folgen}, f)
+        assert app._abo_nr("abo1", "vNEU") == 3
+        assert app._abo_nr("abo1", "vMITTE") == 2
+        assert app._abo_nr("abo1", "vALT") == 1
+        assert app._abo_nr("abo1", "xxx") == 0
+        assert app._abo_nr("fehlt", "vNEU") == 0
+    finally:
+        app.ABO_INDEX_ORDNER = alt
+
+
 def test_abo_regel_ok():
     # Opt-in-Regeln je Abo: Shorts/Streams/Stichtag/Titel-Filter; fehlt ein
     # Datenfeld, greift die Regel NICHT (lieber laden als still verlieren).

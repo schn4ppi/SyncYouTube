@@ -639,6 +639,7 @@ def bibliothek_liste():
             "kapitel": e.get("kapitel") or [],
             "kuenstler": e.get("kuenstler", ""), "album": e.get("album", ""),
             "track": e.get("track", ""), "jahr": e.get("jahr", ""),
+            "abo_nr": e.get("abo_nr", ""),
         })
     out.sort(key=lambda x: x["ts"] or 0, reverse=True)
     return out
@@ -1378,6 +1379,13 @@ def _abo_playlist_zuordnen(abo_id, key):
             _json_speichern(ABO_PFAD, _abos)
         if key not in pl["items"]:
             pl["items"].append(key)
+        e = _geladen.get(key)                          # Folgen-Nummer merken (CD-Track, JB 21.07.)
+        if e is not None:
+            e["abo"] = abo_id
+            nr = _abo_nr(abo_id, key.split("|")[0])
+            if nr:
+                e["abo_nr"] = nr
+            _json_speichern(GELADEN_PFAD, _geladen)
     _playlists_speichern()
 
 
@@ -1508,12 +1516,25 @@ def abo_folgen(abo_id, aktualisieren=False):
         vid, _, q = k.partition("|")
         nach_vid.setdefault(vid, []).append(q)
     out = []
-    for f in cache["folgen"]:
+    gesamt = len(cache["folgen"])
+    for i, f in enumerate(cache["folgen"]):           # Liste ist neueste-zuerst
         quals = nach_vid.get(f["id"]) or []
-        out.append({**f, "geladen": bool(quals), "formate": quals,
+        out.append({**f, "nr": gesamt - i,            # CD-Muster: älteste = 1, neueste = gesamt
+                    "geladen": bool(quals), "formate": quals,
                     "passend": abo.get("qualitaet") in quals})
-    return {"ok": True, "ts": cache.get("ts"), "id": abo_id,
+    return {"ok": True, "ts": cache.get("ts"), "id": abo_id, "gesamt": gesamt,
             "qualitaet": abo.get("qualitaet"), "folgen": out}
+
+
+def _abo_nr(abo_id, vid):
+    """Folgen-Nummer (CD-Track) eines Videos aus dem Backkatalog-Cache:
+    älteste Folge = 1, neueste = Gesamtzahl. 0, wenn nicht im Cache."""
+    pfad = os.path.join(ABO_INDEX_ORDNER, f"{abo_id}.json")
+    folgen = _json_laden(pfad, {}).get("folgen") or []
+    for i, f in enumerate(folgen):
+        if f.get("id") == vid:
+            return len(folgen) - i
+    return 0
 
 
 def abo_folgen_laden(abo_id, vids):

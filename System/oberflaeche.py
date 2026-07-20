@@ -415,6 +415,8 @@ html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
 .abo-f.sel{background:#2e2620;outline:1px solid var(--akz)}
 .abo-ft{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .abo-fd{color:#8a7d74;font-size:11px;flex:none}
+.abo-nr{color:#8a7d74;font-size:11px;flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
+.pl-nr{color:var(--akz2);font-size:11px;font-variant-numeric:tabular-nums}
 .abo-b{font-size:10.5px;border-radius:5px;padding:1px 5px;flex:none}
 .abo-b.ok{background:#1d3020;color:#9ec49a}
 .abo-b.anders{background:#3a2a16;color:#e8b45a}   /* in ANDEREM Format geladen (JB: Markierung) */
@@ -762,7 +764,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 63</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 64</span>
 </div>
 
 <div id="canvas"></div>
@@ -1182,9 +1184,11 @@ function defaultLayout(){
   ]};
 }
 function ladeLayout(){
+  try{localStorage.removeItem('ytdl_layout_vormini');}catch(e){}   // frischer Start = kein Mini-Rest
   try{const s=JSON.parse(localStorage.getItem(LKEY)||'null');
     if(s&&s.panels){
-      s.panels=s.panels.filter(p=>p.id!=='pmini');   // Mini-Karte nie mitladen
+      delete s.mini;                                 // Mini-Layout nie als Hauptlayout übernehmen
+      s.panels=s.panels.filter(p=>p.id!=='pmini'&&p.id!=='mlib'&&p.id!=='mplq');   // Mini-Fenster nie mitladen
       // Reload während Mini: der Player hing in der Mini-Karte — als Tab ins
       // größte Fenster zurück, sonst legt ensurePlayer später ein neues Fenster an
       if(s.panels.length&&!s.panels.some(p=>(p.views||[]).includes('player'))){
@@ -1224,7 +1228,10 @@ function ensureView(view){
   }
   p.active=view; bringFront(p); merkeView(p.id,view); renderPanels(); return p;
 }
-function saveLayout(){try{localStorage.setItem(LKEY,JSON.stringify(L));}catch(e){}}
+function saveLayout(){
+  if(L&&L.mini)return;                                 // Mini ist transient — nie als Hauptlayout speichern
+  try{localStorage.setItem(LKEY,JSON.stringify(L));}catch(e){}
+}
 function layoutReset(){layoutMerken();L=defaultLayout();renderPanels();}
 function panelEl(id){return document.querySelector('.panel[data-id="'+id+'"]');}
 function bringFront(p){p.zi=++L.z;const el=panelEl(p.id);if(el)el.style.zIndex=p.zi;}
@@ -1417,45 +1424,58 @@ function layoutLoeschen(){
   layoutSelectFuellen();
 }
 
-/* ---- Mini-Player-Modus: Player-Karte kompakt oben rechts angeheftet —
-   alle anderen Fenster (Bibliothek!) bleiben stehen (JB 14.07.). ---- */
-let miniAn=false, miniQuelle=null;
+/* ---- Mini-Player-Modus (JB 21.07.): Player schrumpft zur kleinen Karte oben
+   rechts, und der Bildschirm wird zur Hör-Arbeitsfläche — Bibliothek füllt
+   links, die Playlist-Warteschlange steht als schmale Spalte rechts darunter
+   (Spotify/Plexamp-Muster: „Now Playing"-Queue rechts). Das Vor-Mini-Layout
+   wird gemerkt und beim Zurückschalten exakt wiederhergestellt. ---- */
+let miniAn=false, miniVor=null;
+const VORMINI='ytdl_layout_vormini';
+function miniLayoutBauen(){
+  const c=document.getElementById('canvas');
+  const cw=(c?c.clientWidth:window.innerWidth)||window.innerWidth;
+  const ch=Math.max(360,(c?c.clientHeight:window.innerHeight-96)||520);
+  const g=Math.max(0,fensterAbstand());
+  const mw=Math.min(380,Math.max(240,cw-16));         // Breite der Mini-Karte = Breite der Playlist-Spalte
+  // übrige Views (nicht player/plq) als Tabs auf das große Bibliotheks-Fenster,
+  // damit im Mini-Modus nichts unerreichbar wird.
+  const rest=[]; (miniVor?miniVor.panels:L.panels).forEach(p=>(p.views||[]).forEach(v=>{
+    if(v!=='player'&&v!=='plq'&&!rest.includes(v))rest.push(v);}));
+  if(!rest.includes('lib'))rest.unshift('lib');
+  const libViews=['lib',...rest.filter(v=>v!=='lib')];
+  const libW=Math.max(240,cw-mw-g-16);
+  // Die Mini-Karte ist position:fixed ÜBER dem Canvas (auf Höhe der Command-Bar),
+  // ragt also nicht in die Arbeitsfläche — Bibliothek und Playlist bekommen beide
+  // die volle Canvas-Höhe.
+  return {z:60,mini:true,panels:[
+    {id:'mlib',x:8,y:8,w:libW,h:ch-16,views:libViews,active:'lib',zi:20},
+    {id:'mplq',x:8+libW+g,y:8,w:mw,h:ch-16,views:['plq'],active:'plq',zi:21},
+    {id:'pmini',x:Math.max(0,cw-mw-8),y:8,w:mw,h:150,views:['player'],active:'player',zi:60},
+  ]};
+}
 function miniToggle(){
   const b=document.getElementById('mini-btn');
   if(!miniAn){
-    // Player-View aus seinem Fenster herauslösen (tearOut-Muster): das übrige
-    // Layout bleibt unverändert, nur die kleine Karte kommt dazu.
-    const src=L.panels.find(p=>p.views.includes('player'));
-    miniQuelle=src?{id:src.id,nurPlayer:src.views.length===1,x:src.x,y:src.y,w:src.w,h:src.h}:null;
-    if(src){
-      if(src.views.length===1)L.panels=L.panels.filter(p=>p.id!==src.id);
-      else{src.views=src.views.filter(v=>v!=='player'); if(src.active==='player')src.active=src.views[0];}
-    }
-    const cw=(document.getElementById('canvas')||{clientWidth:window.innerWidth}).clientWidth||window.innerWidth;
-    const mw=Math.min(380,cw-16);
-    L.panels.push({id:'pmini',x:Math.max(0,cw-mw-8),y:8,w:mw,h:150,views:['player'],active:'player',zi:++L.z});
+    miniVor=JSON.parse(JSON.stringify(L));             // echtes Layout merken (Session + Reload-Fallback)
+    try{localStorage.setItem(VORMINI,JSON.stringify(miniVor));}catch(e){}
     document.body.classList.add('mini');
-    miniAn=true; renderPanels(); if(b){b.classList.add('an'); b.textContent='🔳 Voll';}
+    L=miniLayoutBauen(); miniAn=true; renderPanels();
+    if(b){b.classList.add('an'); b.textContent='🔳 Voll';}
   }else{
-    document.body.classList.remove('mini');
-    L.panels=L.panels.filter(p=>p.id!=='pmini');
-    if(miniQuelle){                                    // Player dahin zurück, wo er herkam
-      const src=L.panels.find(p=>p.id===miniQuelle.id);
-      if(src){ if(!src.views.includes('player'))src.views.push('player'); src.active='player'; bringFront(src); }
-      else if(miniQuelle.nurPlayer){
-        const frei=kollidiert({id:'pmini'},miniQuelle.x,miniQuelle.y,miniQuelle.w,miniQuelle.h)
-          ?freiePosition(miniQuelle.w,miniQuelle.h,miniQuelle.x,miniQuelle.y):{x:miniQuelle.x,y:miniQuelle.y};
-        L.panels.push({id:miniQuelle.id,x:frei.x,y:frei.y,w:miniQuelle.w,h:miniQuelle.h,views:['player'],active:'player',zi:++L.z});
-      }
-      miniQuelle=null;
-    }
-    miniAn=false; renderPanels(); if(b){b.classList.remove('an'); b.textContent='🔳 Mini';}
+    document.body.classList.remove('mini'); miniAn=false;
+    let vor=miniVor;
+    if(!vor){try{vor=JSON.parse(localStorage.getItem(VORMINI)||'null');}catch(e){}}
+    if(vor&&vor.panels){delete vor.mini; vor.panels=vor.panels.filter(p=>p.id!=='pmini'); L=vor;}
+    else L=defaultLayout();
+    miniVor=null; try{localStorage.removeItem(VORMINI);}catch(e){}
+    renderPanels(); saveLayout();
+    if(b){b.classList.remove('an'); b.textContent='🔳 Mini';}
   }
 }
-function miniVerlassen(){                              // Layout-Wechsel beendet den Mini-Modus sauber
+function miniVerlassen(){                              // Layout-Wechsel beendet den Mini-Modus (Aufrufer setzt neues L)
   if(!miniAn)return;
-  miniAn=false; miniQuelle=null; document.body.classList.remove('mini');
-  L.panels=L.panels.filter(p=>p.id!=='pmini');
+  miniAn=false; miniVor=null; document.body.classList.remove('mini');
+  try{localStorage.removeItem(VORMINI);}catch(e){}
   const b=document.getElementById('mini-btn'); if(b){b.classList.remove('an'); b.textContent='🔳 Mini';}
 }
 
@@ -2358,7 +2378,8 @@ function aboFolgenMalen(id){
     return `<div class="abo-f ${x.geladen?'':'fehlt'} ${o.sel.has(x.id)?'sel':''}" data-vid="${x.id}"
       onclick="aboFolgeKlick(event,'${id}','${x.id}')" ondblclick="aboFolgenHolen('${id}',['${x.id}'])"
       oncontextmenu="return aboFolgeKontext(event,'${id}','${x.id}')"
-      title="${x.geladen?'geladen — Doppelklick lädt ggf. im Abo-Format nach':'noch nicht geladen — Doppelklick lädt im Abo-Format'}">
+      title="Folge ${x.nr} von ${alle.length}${x.geladen?' — geladen, Doppelklick lädt ggf. im Abo-Format nach':' — noch nicht geladen, Doppelklick lädt im Abo-Format'}">
+      <span class="abo-nr" title="Folge ${x.nr} (älteste = 1, neueste = ${alle.length})">#${x.nr}</span>
       <span class="abo-ft">${esc(x.titel)}</span>${x.dauer?'<span class="abo-fd">'+zeit(x.dauer)+'</span>':''}${badge}</div>`;
   }).join('');
   box.innerHTML=`<div class="abo-fkopf">
@@ -2982,6 +3003,7 @@ const COLDEF={
   videoid:{l:'Video-ID', t:x=>x.videoid, s:x=>x.videoid||''},
   added:{l:'Hinzugefügt', t:x=>x.ts?new Date(x.ts*1000).toLocaleDateString('de-DE'):'–', s:x=>x.ts||0},
   plays:{l:'Abspielungen', t:x=>String(x.plays||0), s:x=>x.plays||0},
+  folge:{l:'Folge #', t:x=>x.abo_nr?('#'+x.abo_nr):'–', s:x=>x.abo_nr||0},
   ext:{l:'Endung', t:x=>ext(x.name), s:x=>ext(x.name)}
 };
 const COLALL=Object.keys(COLDEF);
@@ -4093,9 +4115,11 @@ function renderPlayerQueue(){
   // rendert in BEIDE Ziele: seitliche Liste im Player + eigenes Playlist-Fenster
   const html=playerState.queue.map((k,i)=>{const x=libFind(k)||{titel:k};
     const aus=!artPasst(x||{});
+    // Abo-Folgen: die CD-Nummer (#12) vor den Titel — so ist die Reihenfolge sofort klar (JB 21.07.)
+    const nr=x.abo_nr?`<span class="pl-nr" title="Folge ${x.abo_nr}">#${x.abo_nr}</span> `:'';
     return `<div class="pl-item ${i===playerState.idx?'akt':''}${aus?' artaus':''}" draggable="true" `+
       `ondragstart="plqDragStart(event,${i})" ondragover="plqDragOver(event)" ondrop="plqDrop(event,${i})" `+
-      `onclick="plQueueKlick(${i})" title="Klick = abspielen/pausieren · Ziehen = umsortieren">${i+1}. ${esc(x.titel||k)}</div>`;}).join('')
+      `onclick="plQueueKlick(${i})" title="Klick = abspielen/pausieren · Ziehen = umsortieren">${i+1}. ${nr}${esc(x.titel||k)}</div>`;}).join('')
     ||'<div class="pl-leer">Leer — Titel aus der Bibliothek hierher ziehen.</div>';
   const q=document.getElementById('pl-queue'); if(q)q.innerHTML=html;
   const qw=document.getElementById('pl-queue-win'); if(qw)qw.innerHTML=html;
