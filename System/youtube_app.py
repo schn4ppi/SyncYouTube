@@ -1043,6 +1043,58 @@ def _romaji(vtt_text):
     return "\n".join(out)
 
 
+def _vtt_cues(pfad):
+    """VTT-Datei -> [(startsekunden, text)], Inline-Tags raus, rollende
+    Auto-Untertitel-Dubletten zusammengefasst."""
+    try:
+        with open(pfad, encoding="utf-8", errors="replace") as fh:
+            roh = fh.read()
+    except OSError:
+        return []
+    cues, letzte = [], None
+    for block in re.split(r"\n\n+", roh.replace("\r", "")):
+        zeilen = [z for z in block.split("\n") if z]
+        ti = next((i for i, z in enumerate(zeilen) if "-->" in z), -1)
+        if ti < 0:
+            continue
+        m = re.search(r"(\d+):(\d+):(\d+(?:\.\d+)?)", zeilen[ti])
+        if not m:
+            continue
+        sek = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+        import html as _html
+        txt = _html.unescape(re.sub(r"<[^>]*>", "", " ".join(zeilen[ti + 1:])))
+        txt = re.sub(r"\s+", " ", txt).strip()
+        if txt and txt != letzte:
+            cues.append((sek, txt))
+            letzte = txt
+    return cues
+
+
+def transkript_suche(q, limit=40):
+    """Volltextsuche über ALLE lokalen Untertitel/Transkripte (Tube-Archivist-
+    Muster): findet, in welchem Video ein Begriff wann gesagt wird.
+    -> [{key, titel, treffer:[{zeit, text}]}] (nur Titel MIT Treffern)."""
+    q = (q or "").strip().lower()
+    if len(q) < 2:
+        return []
+    treffer_titel = []
+    for key, e in list(_geladen.items()):
+        f, _ = untertitel_datei(key)
+        if not f:
+            continue
+        rein = []
+        for sek, txt in _vtt_cues(f):
+            if q in txt.lower():
+                rein.append({"zeit": round(sek, 1), "text": txt})
+                if len(rein) >= 8:                    # pro Video höchstens 8 Fundstellen
+                    break
+        if rein:
+            treffer_titel.append({"key": key, "titel": e.get("titel") or key, "treffer": rein})
+        if len(treffer_titel) >= limit:
+            break
+    return treffer_titel
+
+
 def untertitel_nachladen(key):
     """Untertitel für einen vorhandenen Titel nachträglich von YouTube holen
     (nur die .vtt, kein Video-Download). Läuft im Hintergrund-Thread."""
@@ -2653,6 +2705,9 @@ class Handler(BaseHTTPRequestHandler):
             key = (q.get("id") or [""])[0]
             lrc = lyrics_holen(key)
             _antwort(self, 200, {"lrc": lrc, "quelle": "lrclib" if lrc else ""})
+        elif self.path.startswith("/api/transkript_suche"):
+            q = parse_qs(urlparse(self.path).query)
+            _antwort(self, 200, {"treffer": transkript_suche((q.get("q") or [""])[0])})
         elif self.path.startswith("/api/untertitel"):
             q = parse_qs(urlparse(self.path).query)
             key = (q.get("id") or [""])[0]

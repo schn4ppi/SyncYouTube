@@ -277,6 +277,36 @@ def test_abo_rss_ids():
         app.urllib.request.urlopen = echt
 
 
+def test_vtt_cues_und_suche(tmp_path=None):
+    # Transkript-Volltextsuche (JB 21.07.): VTT parsen (Tags/Entities raus,
+    # rollende Dubletten zusammen), Begriff case-insensitiv finden.
+    import tempfile
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "clip.en.vtt")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n"
+                "Hello <c>there</c> &amp; welcome\n\n"
+                "00:00:03.000 --> 00:00:05.000\nHello there &amp; welcome\n\n"
+                "00:00:07.500 --> 00:00:09.000\nThe SECRET word is banana\n")
+    cues = app._vtt_cues(p)
+    assert cues[0] == (1.0, "Hello there & welcome")           # Tags weg, &amp; -> &
+    assert len(cues) == 2                                       # rollende Dublette zusammengefasst
+    assert cues[1][0] == 7.5 and "banana" in cues[1][1]
+
+    echt = app.untertitel_datei
+    app.untertitel_datei = lambda k: (p, "en") if k == "clipKEY" else (None, "")
+    app._geladen["clipKEY"] = {"titel": "Clip"}
+    try:
+        tr = app.transkript_suche("BANANA")                    # case-insensitiv
+        assert tr and tr[0]["key"] == "clipKEY"
+        assert tr[0]["treffer"][0]["zeit"] == 7.5
+        assert app.transkript_suche("x") == []                 # <2 Zeichen
+        assert app.transkript_suche("gibtsnicht") == []
+    finally:
+        app.untertitel_datei = echt
+        app._geladen.pop("clipKEY", None)
+
+
 def test_lyrics_holen():
     # LRCLIB-Lyrics (JB 21.07.): Künstler+Titel -> synced LRC, gecacht; ohne
     # Künstler/Titel gar keine Abfrage. Netz wird gemockt, Cache stillgelegt.

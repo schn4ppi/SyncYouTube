@@ -423,6 +423,23 @@ html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
   opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:80vw}
 #toast.an{opacity:1;transform:translateX(-50%) translateY(0)}
 html.light #toast{background:#3a322c}
+/* Transkript-Volltextsuche: Ergebnis-Overlay */
+#tsuche-ov{position:fixed;inset:0;z-index:9400;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center}
+#tsuche-ov.an{display:flex}
+.tsuche-box{background:var(--panel);margin-top:6vh;width:min(720px,94vw);max-height:84vh;overflow:auto;
+  border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,.6);padding:0}
+.tsuche-kopf{position:sticky;top:0;background:var(--panel);display:flex;gap:8px;align-items:center;
+  padding:14px 16px;border-bottom:1px solid #241f1b}
+.tsuche-kopf input{flex:1}
+.tsuche-body{padding:8px 12px 16px}
+.tsuche-treffer{margin:10px 0;border-left:2px solid var(--akz);padding-left:10px}
+.tsuche-t-titel{font-weight:600;font-size:13.5px;margin-bottom:3px}
+.tsuche-z{display:block;width:100%;text-align:left;background:none;border:0;color:var(--txt);
+  font-size:12.5px;padding:3px 4px;border-radius:6px;cursor:pointer}
+.tsuche-z:hover{background:#241f1b}
+.tsuche-z .zt{color:var(--akz2);font-variant-numeric:tabular-nums;margin-right:8px}
+.tsuche-z mark{background:rgba(230,160,70,.35);color:inherit;border-radius:3px}
+html.light .tsuche-z:hover{background:#efe7de}
 .abo-b{font-size:10.5px;border-radius:5px;padding:1px 5px;flex:none}
 .abo-b.ok{background:#1d3020;color:#9ec49a}
 .abo-b.anders{background:#3a2a16;color:#e8b45a}   /* in ANDEREM Format geladen (JB: Markierung) */
@@ -771,7 +788,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 66</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 67</span>
 </div>
 
 <div id="canvas"></div>
@@ -961,7 +978,9 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
     <div class="card">
       <div class="libhead">
       <div class="libbar">
-        <input type="text" id="libsuche" placeholder="Suchen…" oninput="libMalen()">
+        <input type="text" id="libsuche" placeholder="Suchen…" oninput="libMalen()"
+               onkeydown="if(event.key==='Enter')transkriptSuche()">
+        <button class="tog" onclick="transkriptSuche()" title="Im gesprochenen Text / in den Untertiteln aller Videos suchen (Volltext)">🔎 Text</button>
         <select id="libsort" onchange="setSortSelect(this.value)" title="Sortieren nach"></select>
         <div class="colmenuwrap">
           <button class="tog" id="libansichtbtn" onclick="ansichtToggle(event)" title="Filter, Spalten, Archiv, Auswahl, Dubletten …">⚙ Ansicht</button>
@@ -4189,6 +4208,56 @@ function renderPlayerQueue(){
   const qw=document.getElementById('pl-queue-win'); if(qw)qw.innerHTML=html;
   const za=document.getElementById('plq-anzahl');
   if(za)za.textContent=playerState.queue.length?(playerState.queue.length+' Titel'):'';
+}
+
+/* ---- Transkript-Volltextsuche (JB 21.07.): findet, in welchem Video ein
+   Begriff wann gesagt wird; Klick auf eine Fundstelle spielt das Video ab
+   und springt an die Stelle (Tube-Archivist-Muster). ---- */
+function tsMarkiere(text,q){
+  const i=text.toLowerCase().indexOf(q.toLowerCase());
+  if(i<0)return esc(text);
+  return esc(text.slice(0,i))+'<mark>'+esc(text.slice(i,i+q.length))+'</mark>'+esc(text.slice(i+q.length));
+}
+async function transkriptSuche(){
+  const q=(document.getElementById('libsuche').value||'').trim();
+  if(q.length<2){toast('Bitte mindestens 2 Zeichen für die Transkript-Suche.');return;}
+  let ov=document.getElementById('tsuche-ov');
+  if(!ov){ov=document.createElement('div'); ov.id='tsuche-ov';
+    ov.onclick=e=>{if(e.target===ov)ov.classList.remove('an');};
+    ov.innerHTML='<div class="tsuche-box"><div class="tsuche-kopf">'+
+      '<b>🔎 Im Transkript</b><input type="text" id="tsuche-inp" placeholder="Begriff…" '+
+      'onkeydown="if(event.key===\\'Enter\\')tsuchLauf()"><button class="tog" onclick="tsuchLauf()">Suchen</button>'+
+      '<button class="ib" title="Schließen" onclick="document.getElementById(\\'tsuche-ov\\').classList.remove(\\'an\\')">✕</button></div>'+
+      '<div class="tsuche-body" id="tsuche-body"></div></div>';
+    document.body.appendChild(ov);
+  }
+  document.getElementById('tsuche-inp').value=q;
+  ov.classList.add('an');
+  tsuchLauf();
+}
+async function tsuchLauf(){
+  const q=(document.getElementById('tsuche-inp').value||'').trim();
+  const body=document.getElementById('tsuche-body');
+  if(q.length<2){body.innerHTML='<div class="leer">Mindestens 2 Zeichen.</div>';return;}
+  body.innerHTML='<div class="leer">Durchsuche Transkripte…</div>';
+  try{
+    const r=await fetch('/api/transkript_suche?q='+encodeURIComponent(q));
+    const d=await r.json(); const tr=d.treffer||[];
+    if(!tr.length){body.innerHTML='<div class="leer">Nichts gefunden. (Nur Videos mit heruntergeladenen Untertiteln/Transkripten werden durchsucht.)</div>';return;}
+    body.innerHTML=tr.map(v=>`<div class="tsuche-treffer"><div class="tsuche-t-titel">${esc(v.titel)}</div>`+
+      v.treffer.map(t=>`<button class="tsuche-z" onclick="tsSpring('${v.key}',${t.zeit})"><span class="zt">${zeit(t.zeit)}</span>${tsMarkiere(t.text,q)}</button>`).join('')+
+      '</div>').join('');
+  }catch(e){body.innerHTML='<div class="leer">Suche fehlgeschlagen.</div>';}
+}
+function tsSpring(key,zeitSek){
+  document.getElementById('tsuche-ov').classList.remove('an');
+  ensurePlayer();
+  playerPlay([key]);
+  let versuche=0;
+  const spring=()=>{const el=document.getElementById('pl-el');
+    if(el&&el.duration){el.currentTime=Math.min(el.duration,zeitSek); el.play&&el.play().catch(()=>{});}
+    else if(versuche++<40)setTimeout(spring,150);};
+  setTimeout(spring,300);
 }
 
 /* ================= Playlists ================= */
