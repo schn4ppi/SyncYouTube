@@ -2637,7 +2637,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:                        # noqa: BLE001
                 pass
             return _antwort(self, 200, handy.HTML.encode("utf-8"), "text/html")
-        if self.path in ("/", "/index.html"):
+        if urlparse(self.path).path in ("/", "/index.html"):
+            # Query ignorieren (JB 21.07.: Dashboard lädt „/?embed=1" -> Einbettungs-Modus).
             # Oberfläche bei jedem Aufruf FRISCH laden (sonst cacht Python das Modul
             # und Änderungen an oberflaeche.py erscheinen erst nach App-Neustart —
             # ein Browser-Refresh reicht jetzt).

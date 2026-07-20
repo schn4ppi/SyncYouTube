@@ -735,6 +735,10 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
 </style>
 </head>
 <body>
+<!-- Einbettungs-Modus (JB 21.07.2026: „ein Browser, ein Browser"): im Dashboard-iframe
+     (?embed=1) die eigene Chrome ausblenden — Logo, Layout-Leiste, Build-Marke weg. -->
+<style>body.embed .cmd-logo,body.embed #layoutbar,body.embed #buildmark{display:none}</style>
+<script>if(location.search.indexOf('embed=1')>=0)document.body.classList.add('embed');</script>
 <div id="cmdbar">
   <div class="cmd-main">
     <div class="cmd-left">
