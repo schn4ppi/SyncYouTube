@@ -247,6 +247,72 @@ def test_soll_kategorie():
         del app._geladen["testvid9999|beste"]      # JBs echte DB nicht anfassen
 
 
+def test_abo_feed_url():
+    # RSS-Puls (Pinchflat-Muster): Feed-URL aus Kanal-/Playlist-Info ableiten
+    assert app._abo_feed_url({"channel_id": "UCabc123"}).endswith("channel_id=UCabc123")
+    assert app._abo_feed_url({"id": "PLxyz"}).endswith("playlist_id=PLxyz")
+    assert app._abo_feed_url({"id": "@handle"}) == ""
+    assert app._abo_feed_url({}) == ""
+
+
+def test_abo_rss_ids():
+    # IDs aus dem Feed-XML; Netzfehler -> None (dann übernimmt der Voll-Weg)
+    xml = ("<feed><entry><yt:videoId>abc123XYZ_-</yt:videoId></entry>"
+           "<entry><yt:videoId>def456ghi78</yt:videoId></entry></feed>")
+
+    class _Antwort:
+        def read(self):
+            return xml.encode()
+
+    echt = app.urllib.request.urlopen
+    try:
+        app.urllib.request.urlopen = lambda *a, **k: _Antwort()
+        assert app._abo_rss_ids("https://x") == ["abc123XYZ_-", "def456ghi78"]
+
+        def kaputt(*a, **k):
+            raise OSError("Netz weg")
+        app.urllib.request.urlopen = kaputt
+        assert app._abo_rss_ids("https://x") is None
+    finally:
+        app.urllib.request.urlopen = echt
+
+
+def test_abo_regel_ok():
+    # Opt-in-Regeln je Abo: Shorts/Streams/Stichtag/Titel-Filter; fehlt ein
+    # Datenfeld, greift die Regel NICHT (lieber laden als still verlieren).
+    abo = {"filter_titel": "", "ohne_shorts": True, "ohne_streams": True, "ab_datum": "2026-01-01"}
+    assert app._abo_regel_ok(abo, {"title": "x", "duration": 30}) is False
+    assert app._abo_regel_ok(abo, {"title": "x", "live_status": "is_live"}) is False
+    assert app._abo_regel_ok(abo, {"title": "x", "upload_date": "20250101"}) is False
+    assert app._abo_regel_ok(abo, {"title": "x", "duration": 600, "upload_date": "20260315"}) is True
+    assert app._abo_regel_ok(abo, {"title": "x", "duration": 600}) is True
+    assert app._abo_regel_ok({"filter_titel": "Folge"}, {"title": "Podcast Folge 12"}) is True
+    assert app._abo_regel_ok({"filter_titel": "Folge"}, {"title": "Trailer"}) is False
+
+
+def test_abo_playlist_zuordnen():
+    # Fertiger Abo-Download -> eigene Abo-Playlist (anlegen, nie doppelt).
+    # Speichern wird stillgelegt, damit JBs echte JSON-Dateien unberührt bleiben.
+    def still(*a, **k):
+        return None
+    echt_json, echt_pl = app._json_speichern, app._playlists_speichern
+    app._json_speichern, app._playlists_speichern = still, still
+    app._abos.append({"id": "aboTEST", "name": "TestKanal", "qualitaet": "audio"})
+    app._geladen["vidTEST9999|audio"] = {"name": "t.mp3"}
+    try:
+        app._abo_playlist_zuordnen("aboTEST", "vidTEST9999|audio")
+        pl = next(p for p in app._playlists if p.get("name") == "TestKanal")
+        assert pl["items"] == ["vidTEST9999|audio"]
+        app._abo_playlist_zuordnen("aboTEST", "vidTEST9999|audio")
+        assert pl["items"] == ["vidTEST9999|audio"]      # nicht doppelt
+        assert next(a for a in app._abos if a["id"] == "aboTEST")["playlist_id"] == pl["id"]
+    finally:
+        app._json_speichern, app._playlists_speichern = echt_json, echt_pl
+        app._playlists[:] = [p for p in app._playlists if p.get("name") != "TestKanal"]
+        app._abos[:] = [a for a in app._abos if a.get("id") != "aboTEST"]
+        app._geladen.pop("vidTEST9999|audio", None)
+
+
 def test_dubletten_score():
     # Dubletten-Heilung (JB 14.07.): bei mehreren Einträgen auf dieselbe Datei
     # gewinnt der echte Download vor dem Ordner-Import, benannte Qualität vor

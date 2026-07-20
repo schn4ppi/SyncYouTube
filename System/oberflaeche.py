@@ -395,10 +395,33 @@ html.light .itemmenu{background:#fffdfa;border-color:#e0d7cc;box-shadow:0 10px 3
 html.light .itemmenu button{color:#4a3f37}
 html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
 /* Abos */
-.abo-liste{display:flex;flex-direction:column;gap:4px;margin-top:8px}
-.abo-item{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 2px;border-bottom:1px solid #241f1b}
-.abo-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d7c7bd}
+.abo-liste{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.abo-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d7c7bd;font-weight:600}
 .abo-meta{color:#8a7d74;font-size:11px;flex:none}
+/* Abo-Karte (Sonarr-Muster: Quelle + Episodenliste mit Lade-Status) */
+.abo-card{border:1px solid #241f1b;border-radius:10px;padding:8px 10px}
+.abo-kopf{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.abo-qsel{font-size:12px}
+.abo-regeln{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;padding-top:8px;
+  border-top:1px dashed #241f1b;font-size:12px;color:#b7a89e}
+.abo-regeln label{display:flex;gap:4px;align-items:center;white-space:nowrap}
+.abo-regeln input[type=text]{width:130px}
+.abo-fkopf{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.abo-fkopf input[type=text]{flex:1;min-width:110px}
+.abo-fliste{max-height:420px;overflow:auto;margin-top:6px;display:flex;flex-direction:column;gap:1px}
+.abo-f{display:flex;gap:8px;align-items:center;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;flex:none}
+.abo-f:hover{background:#241f1b}
+.abo-f.fehlt{opacity:.45}                      /* verfügbar, aber noch nicht geladen -> ausgegraut (JB) */
+.abo-f.sel{background:#2e2620;outline:1px solid var(--akz)}
+.abo-ft{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.abo-fd{color:#8a7d74;font-size:11px;flex:none}
+.abo-b{font-size:10.5px;border-radius:5px;padding:1px 5px;flex:none}
+.abo-b.ok{background:#1d3020;color:#9ec49a}
+.abo-b.anders{background:#3a2a16;color:#e8b45a}   /* in ANDEREM Format geladen (JB: Markierung) */
+html.light .abo-card{border-color:#e3d8cc}
+html.light .abo-regeln{border-color:#e3d8cc}
+html.light .abo-f:hover{background:#efe7de}
+html.light .abo-f.sel{background:#f3e2c8}
 /* Smart-Playlists-Popover */
 .sm-titel{font-size:11px;color:#8a7d74;padding:2px 6px 6px;text-transform:uppercase;letter-spacing:.03em}
 .sm-row{display:flex;align-items:center;gap:6px;padding:2px 4px}
@@ -739,7 +762,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 62</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 63</span>
 </div>
 
 <div id="canvas"></div>
@@ -811,19 +834,9 @@ Playlist-Link (…/playlist?list=…) übernimmt die ganze Liste."></textarea>
 
     <div class="card">
       <div class="kopfzeile"><h2>🔔 Abos</h2>
-        <button class="btn mini" onclick="aboPruefen(this)" title="Jetzt alle Abos auf neue Videos prüfen">🔄 Jetzt prüfen</button></div>
-      <div class="zeile">
-        <input type="text" id="abo-url" placeholder="Kanal- oder Playlist-Link…" style="flex:1;min-width:150px"
-               onkeydown="if(event.key==='Enter')aboCreate()">
-        <select id="abo-qual">
-          <option value="beste">Beste</option><option value="1080p">1080p</option>
-          <option value="720p">720p</option><option value="audio">MP3</option>
-        </select>
-        <button class="btn" onclick="aboCreate()">＋ Abonnieren</button>
-      </div>
-      <div id="abo-liste" class="abo-liste"></div>
-      <div class="hinweis">Beim Abonnieren werden die aktuellen Videos nur „gemerkt“ (nicht geladen) — automatisch
-        geholt wird nur, was danach neu erscheint. Geprüft wird beim Start und alle 6&nbsp;Stunden.</div>
+        <button class="btn mini" onclick="ensureView('abos')" title="Abo-Fenster öffnen: abonnieren, Backkatalog nachladen, Format &amp; Regeln je Abo">📡 Abo-Fenster öffnen</button></div>
+      <div class="hinweis">Kanäle/Playlists abonnieren, ältere Folgen nachladen, Format und Regeln je Abo —
+        alles im Abo-Fenster (andockbar wie jeder Tab).</div>
     </div>
 
     <div class="card" id="settingscard">
@@ -1017,6 +1030,29 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
            title="Titel aus der Bibliothek hierher ziehen = einreihen"></div>
     </div>
   </div>
+
+  <div id="view-abos">
+    <div class="card">
+      <div class="kopfzeile"><h2>📡 Abos</h2>
+        <span class="spacer"></span>
+        <button class="btn mini" onclick="aboPruefen(this)" title="Jetzt alle Abos auf neue Videos prüfen">🔄 Jetzt prüfen</button></div>
+      <div class="zeile">
+        <input type="text" id="abo-url" placeholder="Kanal- oder Playlist-Link…" style="flex:1;min-width:150px"
+               onkeydown="if(event.key==='Enter')aboCreate()">
+        <select id="abo-qual">
+          <option value="beste">Beste</option><option value="1080p">1080p</option>
+          <option value="720p">720p</option><option value="audio">MP3</option>
+        </select>
+        <button class="btn" onclick="aboCreate()">＋ Abonnieren</button>
+      </div>
+      <div id="abo-liste" class="abo-liste"></div>
+      <div class="hinweis">Beim Abonnieren werden die aktuellen Videos nur „gemerkt“ (nicht geladen) — automatisch
+        geholt wird nur, was danach neu erscheint (Start + alle 6&nbsp;Stunden, leichter RSS-Puls).
+        📜 zeigt den kompletten Backkatalog: Ausgegrautes ist noch nicht geladen — Doppelklick oder
+        markieren&nbsp;+&nbsp;„⬇ Auswahl laden“ holt es nach. Fertige Abo-Downloads landen automatisch
+        in der Playlist des Abos.</div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1115,7 +1151,7 @@ async function setFehlerMin(v){
 }
 
 /* ================= Panels / Docking ================= */
-const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Warteschlange', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player', plq:'🎶 Playlist'};
+const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Warteschlange', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player', plq:'🎶 Playlist', abos:'📡 Abos'};
 const LKEY='ytdl_layout_v5';
 let L=ladeLayout(), libTimer=null;
 
@@ -1175,6 +1211,19 @@ function ensurePlayer(){
   }
   p.active='player'; bringFront(p); merkeView(p.id,'player'); renderPanels(); return p;
 }
+function ensureView(view){
+  // Eine Ansicht sichtbar machen: existiert sie als Tab, nach vorn holen —
+  // sonst ein neues Fenster kollisionsfrei öffnen (Muster ensurePlayer).
+  let p=L.panels.find(pp=>pp.views.includes(view));
+  if(!p){
+    const r=document.getElementById('canvas').getBoundingClientRect();
+    const w=Math.min(560,Math.max(340,Math.round(r.width)-16)), h=560;
+    const pos=freiePosition(w,h,Math.max(8,Math.round(r.width)-w-8),8);
+    p={id:'p'+(++L.z),x:pos.x,y:pos.y,w,h,views:[view],active:view,zi:++L.z};
+    L.panels.push(p);
+  }
+  p.active=view; bringFront(p); merkeView(p.id,view); renderPanels(); return p;
+}
 function saveLayout(){try{localStorage.setItem(LKEY,JSON.stringify(L));}catch(e){}}
 function layoutReset(){layoutMerken();L=defaultLayout();renderPanels();}
 function panelEl(id){return document.querySelector('.panel[data-id="'+id+'"]');}
@@ -1207,6 +1256,7 @@ function renderPanels(){
   const libSichtbar=L.panels.some(p=>p.active==='lib');
   if(libSichtbar){if(!libTimer){libLaden();libTimer=setInterval(libLaden,5000);}}
   else{clearInterval(libTimer);libTimer=null;}
+  if(L.panels.some(p=>p.active==='abos'))aboLaden();   // Abo-Fenster sichtbar -> Stand auffrischen
   // Playlist als eigenes Fenster? Dann blendet der Player seine Seitenliste aus.
   const plqExtern=L.panels.some(p=>p.views.includes('plq'));
   document.body.classList.toggle('plq-extern',plqExtern);
@@ -2213,18 +2263,173 @@ document.addEventListener('drop',async e=>{
   laden();
 });
 
-/* ---- Abos: Kanäle/Playlists abonnieren (neue Videos werden automatisch geholt) ---- */
-let aboState=[];
+/* ---- Abos: Kanäle/Playlists abonnieren (neue Videos werden automatisch geholt).
+   Abo-Fenster nach Sonarr-Muster: Karte je Abo mit Format-Wahl, Regeln (⚙) und
+   Backkatalog (📜) — fehlende Folgen ausgegraut, per Doppelklick/Auswahl nachladbar. ---- */
+let aboState=[], aboOffen={}, aboLetzterKlick={};
+async function aboPost(daten){
+  const r=await fetch('/api/abo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(daten)});
+  return await r.json();
+}
 async function aboLaden(){try{const r=await fetch('/api/abos'); aboState=(await r.json()).items||[]; aboMalen();}catch(e){}}
+function aboVor(ts){
+  if(!ts)return '';
+  const m=Math.max(0,Math.round((Date.now()/1000-ts)/60));
+  return m<60?('vor '+m+' min'):(m<2880?('vor '+Math.round(m/60)+' h'):('vor '+Math.round(m/1440)+' Tagen'));
+}
+const ABO_Q={beste:'Beste','1080p':'1080p','720p':'720p','1440p':'1440p','2160p':'4K',audio:'MP3'};
 function aboMalen(){
   const el=document.getElementById('abo-liste'); if(!el)return;
   if(!aboState.length){el.innerHTML='<div class="leer" style="text-align:left;padding:6px 0">Noch keine Abos.</div>'; return;}
-  el.innerHTML=aboState.map(a=>{
-    const q={beste:'Beste','1080p':'1080p','720p':'720p',audio:'MP3'}[a.qualitaet]||a.qualitaet;
-    return `<div class="abo-item"><span class="abo-name" title="${esc(a.url)}">📡 ${esc(a.name||a.url)}</span>`+
-      `<span class="abo-meta">${q}${a.neu?' · '+a.neu+' geholt':''}</span>`+
-      `<button class="ib" title="Abo entfernen" onclick="aboDelete('${a.id}')">🗑</button></div>`;
+  el.innerHTML=aboState.map(a=>aboKarteHTML(a)).join('');
+  aboState.forEach(a=>{const o=aboOffen[a.id]; if(o&&o.auf)aboFolgenMalen(a.id);});
+}
+function aboKarteHTML(a){
+  const o=aboOffen[a.id]||{};
+  const qsel=`<select class="abo-qsel" title="Download-Format dieses Abos (gilt ab der nächsten Prüfung; Bisheriges unter ⚙ erneuerbar)" onchange="aboQualitaet('${a.id}',this.value)">`+
+    Object.keys(ABO_Q).map(q=>`<option value="${q}" ${q===a.qualitaet?'selected':''}>${ABO_Q[q]}</option>`).join('')+'</select>';
+  return `<div class="abo-card" data-abo="${a.id}">
+    <div class="abo-kopf">
+      <span class="abo-name" title="${esc(a.url)}">📡 ${esc(a.name||a.url)}</span>
+      ${qsel}
+      <span class="abo-meta">${a.neu?('+'+a.neu+' geholt · '):''}${a.geprueft?('geprüft '+aboVor(a.geprueft)):''}</span>
+      <button class="ib" title="Abo-Playlist im Player abspielen" onclick="aboAbspielen('${a.id}')">▶</button>
+      <button class="ib ${o.auf?'an':''}" title="Backkatalog: alle Folgen des Kanals — Ausgegrautes ist noch nicht geladen" onclick="aboFolgenToggle('${a.id}')">📜</button>
+      <button class="ib ${o.regeln?'an':''}" title="Regeln: Titel-Filter, Stichtag, Shorts/Streams, Auto-Löschen, Format-Erneuern" onclick="aboRegelnToggle('${a.id}')">⚙</button>
+      <button class="ib" title="Abo entfernen (heruntergeladene Videos bleiben)" onclick="aboDelete('${a.id}')">🗑</button>
+    </div>
+    ${o.regeln?aboRegelnHTML(a):''}
+    ${o.auf?`<div class="abo-folgen" id="abo-folgen-${a.id}"></div>`:''}
+  </div>`;
+}
+function aboRegelnHTML(a){
+  return `<div class="abo-regeln">
+    <label title="Nur Videos laden, deren Titel diesen Text enthält (leer = alle)">Titel enthält
+      <input type="text" value="${esc(a.filter_titel||'')}" onchange="aboRegel('${a.id}','filter_titel',this.value)"></label>
+    <label title="Nur Videos ab diesem Datum laden (leer = alle)">ab
+      <input type="date" value="${esc(a.ab_datum||'')}" onchange="aboRegel('${a.id}','ab_datum',this.value)"></label>
+    <label title="Kurzvideos (≤ 62 s) überspringen"><input type="checkbox" ${a.ohne_shorts?'checked':''}
+      onchange="aboRegel('${a.id}','ohne_shorts',this.checked)"> keine Shorts</label>
+    <label title="Livestreams und Premieren überspringen"><input type="checkbox" ${a.ohne_streams?'checked':''}
+      onchange="aboRegel('${a.id}','ohne_streams',this.checked)"> keine Streams</label>
+    <label title="Folgen der Abo-Playlist nach X Tagen automatisch in den Papierkorb (0 = aus)">löschen nach
+      <input type="number" min="0" max="3650" style="width:58px" value="${a.loeschen_nach_tagen||0}"
+        onchange="aboRegel('${a.id}','loeschen_nach_tagen',parseInt(this.value,10)||0)"> Tagen</label>
+    <span class="spacer"></span>
+    <button class="btn mini" onclick="aboErneuern('${a.id}',false)"
+      title="Alles bereits Geladene zusätzlich im aktuellen Abo-Format holen — alte Dateien bleiben">🔁 Erneuern (behalten)</button>
+    <button class="btn mini" onclick="aboErneuern('${a.id}',true)"
+      title="…und die alte Datei im anderen Format NACH dem Erfolg in den Papierkorb legen">🔁 Erneuern (ersetzen)</button>
+  </div>`;
+}
+async function aboRegel(id,feld,wert){const d={art:'aendern',id}; d[feld]=wert; await aboPost(d); aboLaden();}
+async function aboQualitaet(id,q){await aboPost({art:'aendern',id,qualitaet:q}); aboLaden();}
+function aboRegelnToggle(id){const o=aboOffen[id]=aboOffen[id]||{zeige:300,sel:new Set()}; o.regeln=!o.regeln; aboMalen();}
+function aboFolgenToggle(id){
+  const o=aboOffen[id]=aboOffen[id]||{zeige:300,sel:new Set()};
+  o.auf=!o.auf; aboMalen();
+  if(o.auf&&!o.folgen)aboFolgenLaden(id,false);
+}
+async function aboFolgenLaden(id,frisch){
+  const o=aboOffen[id]; if(!o)return;
+  o.laedt=true; aboFolgenMalen(id);
+  const d=await aboPost({art:'folgen',id,aktualisieren:!!frisch});
+  o.laedt=false;
+  if(d.fehler){o.fehler=d.fehler;}
+  else{o.fehler=''; o.folgen=d.folgen||[]; o.qual=d.qualitaet; o.ts=d.ts;}
+  aboFolgenMalen(id);
+}
+function aboFolgenMalen(id){
+  const box=document.getElementById('abo-folgen-'+id); if(!box)return;
+  const o=aboOffen[id];
+  if(o.laedt){box.innerHTML='<div class="leer">Hole Folgen-Liste vom Kanal… (bei großen Kanälen dauert das etwas)</div>'; return;}
+  if(o.fehler){box.innerHTML='<div class="leer">'+esc(o.fehler)+'</div>'; return;}
+  const alle=o.folgen||[];
+  const f=(o.filter||'').toLowerCase();
+  let liste=f?alle.filter(x=>(x.titel||'').toLowerCase().includes(f)):alle;
+  if(o.nur==='fehlt')liste=liste.filter(x=>!x.geladen);
+  else if(o.nur==='da')liste=liste.filter(x=>x.geladen);
+  const fehlen=alle.filter(x=>!x.geladen).length;
+  const fq=q=>ABO_Q[q]||q;
+  const zeilen=liste.slice(0,o.zeige).map(x=>{
+    const badge=x.geladen?(x.passend
+      ?`<span class="abo-b ok" title="im Abo-Format geladen">✓ ${x.formate.map(fq).join('·')}</span>`
+      :`<span class="abo-b anders" title="in ANDEREM Format geladen — ⚙ → Erneuern holt das Abo-Format">≠ ${x.formate.map(fq).join('·')}</span>`):'';
+    return `<div class="abo-f ${x.geladen?'':'fehlt'} ${o.sel.has(x.id)?'sel':''}" data-vid="${x.id}"
+      onclick="aboFolgeKlick(event,'${id}','${x.id}')" ondblclick="aboFolgenHolen('${id}',['${x.id}'])"
+      oncontextmenu="return aboFolgeKontext(event,'${id}','${x.id}')"
+      title="${x.geladen?'geladen — Doppelklick lädt ggf. im Abo-Format nach':'noch nicht geladen — Doppelklick lädt im Abo-Format'}">
+      <span class="abo-ft">${esc(x.titel)}</span>${x.dauer?'<span class="abo-fd">'+zeit(x.dauer)+'</span>':''}${badge}</div>`;
   }).join('');
+  box.innerHTML=`<div class="abo-fkopf">
+      <input type="text" placeholder="Folgen durchsuchen…" value="${esc(o.filter||'')}"
+        oninput="aboOffen['${id}'].filter=this.value;aboOffen['${id}'].zeige=300;aboFolgenMalen('${id}')">
+      <select onchange="aboOffen['${id}'].nur=this.value;aboFolgenMalen('${id}')" title="Anzeige filtern">
+        <option value="">alle (${alle.length})</option>
+        <option value="fehlt" ${o.nur==='fehlt'?'selected':''}>fehlende (${fehlen})</option>
+        <option value="da" ${o.nur==='da'?'selected':''}>geladene (${alle.length-fehlen})</option></select>
+      <button class="btn mini" onclick="aboAuswahlLaden('${id}')" ${o.sel.size?'':'disabled'}
+        title="Markierte Folgen im Abo-Format in die Warteschlange (Klick = markieren, Shift-Klick = Bereich)">⬇ Auswahl (${o.sel.size})</button>
+      <button class="btn mini" onclick="aboAlleFehlenden('${id}')" title="ALLE noch fehlenden Folgen im Abo-Format laden">⬇ Alle fehlenden</button>
+      <button class="ib" title="Folgen-Liste frisch vom Kanal holen${o.ts?' (Stand '+aboVor(o.ts)+')':''}" onclick="aboFolgenLaden('${id}',true)">🔄</button>
+    </div>
+    <div class="abo-fliste">${zeilen||'<div class="leer">nichts gefunden</div>'}</div>
+    ${liste.length>o.zeige?`<button class="btn mini" style="margin-top:4px" onclick="aboOffen['${id}'].zeige+=600;aboFolgenMalen('${id}')">… mehr anzeigen (${liste.length-o.zeige} weitere)</button>`:''}`;
+}
+function aboFolgeKlick(ev,id,vid){
+  const o=aboOffen[id]; if(!o)return;
+  const box=ev.currentTarget.parentElement;
+  const sichtbar=[...box.querySelectorAll('.abo-f')].map(n=>n.dataset.vid);
+  if(ev.shiftKey&&aboLetzterKlick[id]){
+    const i1=sichtbar.indexOf(aboLetzterKlick[id]), i2=sichtbar.indexOf(vid);
+    if(i1>=0&&i2>=0)sichtbar.slice(Math.min(i1,i2),Math.max(i1,i2)+1).forEach(v=>o.sel.add(v));
+  }else if(o.sel.has(vid))o.sel.delete(vid);
+  else o.sel.add(vid);
+  aboLetzterKlick[id]=vid;
+  aboFolgenMalen(id);
+}
+function aboFolgeKontext(ev,id,vid){
+  ev.preventDefault();
+  const o=aboOffen[id]||{sel:new Set()};
+  const eintraege=[['⬇ Im Abo-Format laden',()=>aboFolgenHolen(id,[vid])]];
+  if(o.sel.size)eintraege.push(['⬇ Auswahl laden ('+o.sel.size+')',()=>aboAuswahlLaden(id)]);
+  eintraege.push(['▶ Auf YouTube öffnen',()=>window.open('https://www.youtube.com/watch?v='+vid,'_blank','noreferrer')]);
+  kontextMenuBauen(ev,eintraege);
+  return false;
+}
+async function aboFolgenHolen(id,vids){
+  const d=await aboPost({art:'folgen_laden',id,vids});
+  if(d.fehler){alert(d.fehler);return;}
+  const o=aboOffen[id]; if(o){vids.forEach(v=>o.sel.delete(v));}
+  laden();
+  setTimeout(()=>aboFolgenLaden(id,false),1500);   // Status-Punkte nachziehen
+}
+function aboAuswahlLaden(id){
+  const o=aboOffen[id]; if(!o||!o.sel.size)return;
+  const vids=[...o.sel]; o.sel.clear();
+  aboFolgenHolen(id,vids);
+}
+function aboAlleFehlenden(id){
+  const o=aboOffen[id]; if(!o)return;
+  const fehlt=(o.folgen||[]).filter(x=>!x.geladen).map(x=>x.id);
+  if(!fehlt.length){alert('Nichts offen — alles ist geladen.');return;}
+  if(!confirm(fehlt.length+' fehlende Folge(n) im Abo-Format in die Warteschlange legen?'))return;
+  aboFolgenHolen(id,fehlt);
+}
+async function aboErneuern(id,ersetzen){
+  const was=ersetzen?'Die alte Datei im anderen Format wandert NACH dem Erfolg in den Papierkorb.'
+                    :'Alte Dateien bleiben zusätzlich erhalten.';
+  if(!confirm('Alles bereits Geladene dieses Abos im aktuellen Abo-Format neu laden? '+was))return;
+  const d=await aboPost({art:'erneuern',id,ersetzen});
+  alert(d.fehler||(d.neu?d.neu+' Folge(n) eingereiht.':'Nichts zu erneuern — alles passt schon.'));
+  laden();
+}
+async function aboAbspielen(id){
+  const a=aboState.find(x=>x.id===id);
+  if(!a||!a.playlist_id){alert('Noch keine fertigen Abo-Downloads — die Playlist entsteht mit dem ersten.');return;}
+  await plLaden();
+  const sel=document.getElementById('plsel'); if(sel)sel.value=a.playlist_id;
+  ensurePlayer(); plPlaySel();
 }
 async function aboCreate(){
   const inp=document.getElementById('abo-url'); const url=(inp.value||'').trim(); if(!url)return;

@@ -29,6 +29,7 @@ import threading
 import time
 import uuid
 import webbrowser
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -427,13 +428,19 @@ def _ist_untertitel_fehler(exc):
                                 or "unable to download" in t)
 
 
-def aufloesen(url, qualitaet, ganze_liste=False):
+def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None):
     """URL prüfen und in Queue-Einträge verwandeln (Playlist/Mix -> Einzelvideos).
     ganze_liste=True erzwingt die komplette Liste/den Mix auch bei einem
     watch?v=…&list=…-Link (JB-/Kumpel-Wunsch: „YouTube-Mixe runterladen").
+    abo: Abo-Id — fertige Downloads landen dann in der Abo-Playlist;
+    ersetzt: alte Bibliotheks-Keys, die NACH dem Erfolg in den Papierkorb gehen.
     Läuft im Hintergrund-Thread, damit die Oberfläche nie blockiert."""
     import yt_dlp
     platzhalter = Q.neu(url, None, qualitaet)
+    if abo:
+        platzhalter["abo"] = abo
+    if ersetzt:
+        platzhalter["abo_ersetzt"] = list(ersetzt)
     platzhalter["status"] = "prueft"
     Q.speichern()
     opts = _ydl_basis_opts()
@@ -478,9 +485,13 @@ def aufloesen(url, qualitaet, ganze_liste=False):
                 if _schon_da(v_url, qualitaet):
                     continue
                 neu = Q.neu(v_url, e.get("title"), qualitaet, e.get("duration"))
+                if abo:
+                    neu["abo"] = abo
                 fund = schon_geladen(v_url, qualitaet)
                 if fund:
                     _als_uebersprungen(neu, fund)
+                    if abo:                          # war schon da -> trotzdem in die Abo-Playlist
+                        _abo_playlist_zuordnen(abo, _geladen_key(v_url, qualitaet))
         else:
             platzhalter["titel"] = info.get("title") or url
             platzhalter["dauer"] = info.get("duration")
@@ -542,6 +553,15 @@ def geladen_merken(item):
         "archiviert": alt.get("archiviert", False), "ts": time.time()}
     with _io_lock:
         _json_speichern(GELADEN_PFAD, _geladen)
+    if item.get("abo"):                              # Abo-Download -> in die Abo-Playlist
+        _abo_playlist_zuordnen(item["abo"], key)
+    for altkey in (item.get("abo_ersetzt") or []):   # Format-Erneuern: Altes ERST NACH Erfolg weg
+        if altkey != key and altkey in _geladen:
+            with _io_lock:
+                _datei_loeschen(altkey)
+                _geladen.pop(altkey, None)
+                _json_speichern(GELADEN_PFAD, _geladen)
+            _playlists_speichern()
 
 
 # ---- Bibliothek: Ansicht über alle je geladenen Titel (aus geladen_log.json).
@@ -1271,25 +1291,94 @@ if not isinstance(_abos, list):
     _abos = []
 
 
-def _abo_ids(url, limit=60):
-    """Video-IDs eines Kanals / einer Playlist (flach, ohne Download) + Titel."""
+def _abo_flach(url, limit=60):
+    """Flacher yt-dlp-Blick auf Kanal/Playlist (ohne Download): info-Dict mit
+    entries (id/title/duration/live_status) — Basis für Prüfen und Backkatalog."""
     import yt_dlp
     opts = _ydl_basis_opts()
     opts.update({"extract_flat": "in_playlist", "skip_download": True,
                  "playlistend": limit, "noplaylist": False})
-    ids, titel = [], ""
     for _ in (1, 2):
         try:
             with yt_dlp.YoutubeDL(opts) as y:
-                info = y.extract_info(url, download=False)
-            titel = info.get("title") or info.get("uploader") or ""
-            for e in (info.get("entries") or []):
-                if e and e.get("id"):
-                    ids.append(e["id"])
-            break
+                return y.extract_info(url, download=False) or {}
         except Exception:                            # noqa: BLE001 — Cookie/Netz, 2. Versuch ohne Cookies
             opts.pop("cookiesfrombrowser", None)
-    return ids, titel
+    return {}
+
+
+def _abo_ids(url, limit=60):
+    """Video-IDs eines Kanals / einer Playlist (flach) + Titel + info."""
+    info = _abo_flach(url, limit)
+    titel = info.get("title") or info.get("uploader") or ""
+    ids = [e["id"] for e in (info.get("entries") or []) if e and e.get("id")]
+    return ids, titel, info
+
+
+def _abo_feed_url(info):
+    """RSS-Feed zu Kanal/Playlist (Pinchflat-Muster „fast indexing": EIN leichter
+    GET je Prüfung statt eines yt-dlp-Laufs). Leer, wenn kein Feed ableitbar."""
+    cid = str((info or {}).get("channel_id") or "")
+    pid = str((info or {}).get("id") or "")
+    if cid.startswith("UC"):
+        return "https://www.youtube.com/feeds/videos.xml?channel_id=" + cid
+    if pid.startswith(("PL", "UU", "OL")):
+        return "https://www.youtube.com/feeds/videos.xml?playlist_id=" + pid
+    return ""
+
+
+def _abo_rss_ids(feed):
+    """Video-IDs aus dem YouTube-RSS-Feed (die letzten ~15).
+    None = Feed nicht erreichbar (dann übernimmt der Voll-Weg)."""
+    try:
+        req = urllib.request.Request(feed, headers={"User-Agent": "Mozilla/5.0"})
+        xml = urllib.request.urlopen(req, timeout=15).read().decode("utf-8", "replace")
+        return re.findall(r"<yt:videoId>([\w-]+)</yt:videoId>", xml)
+    except Exception:                                # noqa: BLE001 — Netz/Format
+        return None
+
+
+def _abo_regel_ok(abo, e):
+    """Opt-in-Regeln je Abo (Tube-Archivist-Muster: Shorts/Streams/Filter je
+    Kanal konfigurierbar): True = Video darf geladen werden. Standard: alles aus.
+    Fehlt ein Datenfeld (z.B. upload_date im Flach-Blick), greift die Regel
+    bewusst NICHT — lieber laden als still verlieren."""
+    f = (abo.get("filter_titel") or "").strip()
+    if f and f.lower() not in (e.get("title") or "").lower():
+        return False
+    if abo.get("ohne_shorts"):
+        d = e.get("duration")
+        if (d is not None and d <= 62) or "/shorts/" in (e.get("url") or ""):
+            return False
+    if abo.get("ohne_streams") and (e.get("live_status") or "") in (
+            "is_live", "is_upcoming", "was_live", "post_live"):
+        return False
+    ab = (abo.get("ab_datum") or "").replace("-", "")
+    if ab:
+        ud = str(e.get("upload_date") or "")
+        if ud and ud < ab:
+            return False
+    return True
+
+
+def _abo_playlist_zuordnen(abo_id, key):
+    """Fertige Abo-Downloads landen automatisch in der Playlist des Abos
+    (JB 20.07., je Abo eine eigene — Pinchflat: je Quelle eine Sammlung).
+    Legt die Playlist beim ersten Treffer an; reiht nie doppelt ein."""
+    abo = next((a for a in _abos if a.get("id") == abo_id), None)
+    if not abo or key not in _geladen:
+        return
+    with _io_lock:
+        pl = next((p for p in _playlists if p.get("id") == abo.get("playlist_id")), None)
+        if pl is None:
+            pl = {"id": uuid.uuid4().hex[:8], "name": abo.get("name") or "Abo",
+                  "items": [], "ts": time.time()}
+            _playlists.append(pl)
+            abo["playlist_id"] = pl["id"]
+            _json_speichern(ABO_PFAD, _abos)
+        if key not in pl["items"]:
+            pl["items"].append(key)
+    _playlists_speichern()
 
 
 def abo_aktion(daten):
@@ -1299,9 +1388,10 @@ def abo_aktion(daten):
         if not url.lower().startswith(("http://", "https://")):
             return {"fehler": "Bitte einen Kanal- oder Playlist-Link angeben."}
         qual = daten.get("qualitaet") if daten.get("qualitaet") in QUALITAETEN else CFG["standard_qualitaet"]
-        ids, titel = _abo_ids(url)                    # Baseline merken, NICHT laden
+        ids, titel, info = _abo_ids(url)              # Baseline merken, NICHT laden
         abo = {"id": uuid.uuid4().hex[:8], "url": url, "name": titel or url,
-               "qualitaet": qual, "bekannt": ids, "ts": time.time(), "neu": 0}
+               "qualitaet": qual, "bekannt": ids, "ts": time.time(), "neu": 0,
+               "feed": _abo_feed_url(info)}
         with _io_lock:
             _abos.append(abo)
             _json_speichern(ABO_PFAD, _abos)
@@ -1313,33 +1403,197 @@ def abo_aktion(daten):
         return {"ok": True}
     if art == "pruefen":
         return {"ok": True, "neu": abos_pruefen()}
+    if art == "aendern":                              # Format + Regeln nachträglich (JB 20.07.)
+        with _io_lock:
+            for a in _abos:
+                if a.get("id") != daten.get("id"):
+                    continue
+                if daten.get("qualitaet") in QUALITAETEN:
+                    a["qualitaet"] = daten["qualitaet"]
+                for feld in ("filter_titel", "ab_datum"):
+                    if feld in daten:
+                        a[feld] = str(daten.get(feld) or "").strip()[:120]
+                for feld in ("ohne_shorts", "ohne_streams"):
+                    if isinstance(daten.get(feld), bool):
+                        a[feld] = daten[feld]
+                if "loeschen_nach_tagen" in daten:
+                    try:
+                        a["loeschen_nach_tagen"] = max(0, int(daten.get("loeschen_nach_tagen") or 0))
+                    except (TypeError, ValueError):
+                        pass
+            _json_speichern(ABO_PFAD, _abos)
+        return {"ok": True}
+    if art == "folgen":                               # Backkatalog fürs Abo-Fenster
+        return abo_folgen(daten.get("id") or "", bool(daten.get("aktualisieren")))
+    if art == "folgen_laden":                         # markierte Folgen nachladen
+        return abo_folgen_laden(daten.get("id") or "", daten.get("vids") or [])
+    if art == "erneuern":                             # alles Geladene im Abo-Format neu
+        return abo_erneuern(daten.get("id") or "", bool(daten.get("ersetzen")))
     return {"fehler": "unbekannt"}
 
 
 def abos_pruefen():
     """Alle Abos auf neue Videos prüfen und Neues in die Warteschlange legen.
-    Gibt die Zahl neu eingereihter Videos zurück."""
+    Gibt die Zahl neu eingereihter Videos zurück. Leichter Puls zuerst:
+    der RSS-Feed sagt billig, OB es Neues gibt — nur dann läuft der volle
+    flat-extract (Details für die Regeln)."""
     gesamt = 0
     for abo in list(_abos):
-        ids, titel = _abo_ids(abo.get("url", ""))
-        if not ids:
+        feed = abo.get("feed") or ""
+        if feed:
+            rss = _abo_rss_ids(feed)
+            if rss is not None and set(rss) <= set(abo.get("bekannt") or []):
+                with _io_lock:
+                    abo["geprueft"] = time.time()
+                    _json_speichern(ABO_PFAD, _abos)
+                continue
+        info = _abo_flach(abo.get("url", ""))
+        entries = [e for e in (info.get("entries") or []) if e and e.get("id")]
+        if not entries:
             continue
+        ids = [e["id"] for e in entries]
+        titel = info.get("title") or info.get("uploader") or ""
         bekannt = set(abo.get("bekannt") or [])
-        neu = [i for i in ids if i not in bekannt]
-        for vid in neu:
-            url = f"https://www.youtube.com/watch?v={vid}"
+        neu = [e for e in entries if e["id"] not in bekannt]
+        for e in neu:
+            if not _abo_regel_ok(abo, e):
+                continue
+            url = f"https://www.youtube.com/watch?v={e['id']}"
             if _schon_da(url, abo["qualitaet"]) or schon_geladen(url, abo["qualitaet"]):
                 continue
-            threading.Thread(target=aufloesen, args=(url, abo["qualitaet"]), daemon=True).start()
+            threading.Thread(target=aufloesen, args=(url, abo["qualitaet"]),
+                             kwargs={"abo": abo["id"]}, daemon=True).start()
             gesamt += 1
         with _io_lock:
             abo["bekannt"] = ids
+            if not abo.get("feed"):
+                abo["feed"] = _abo_feed_url(info)
             if titel and (not abo.get("name") or abo["name"] == abo["url"]):
                 abo["name"] = titel
             abo["neu"] = abo.get("neu", 0) + len(neu)
             abo["geprueft"] = time.time()
             _json_speichern(ABO_PFAD, _abos)
+    try:
+        abo_aufraeumen()                              # Auto-Löschen (Opt-in), gleicher 6-h-Takt
+    except Exception:                                 # noqa: BLE001
+        pass
     return gesamt
+
+
+ABO_INDEX_ORDNER = os.path.join(SCRIPT_DIR, "abo_index")
+
+
+def abo_folgen(abo_id, aktualisieren=False):
+    """Kompletter Backkatalog eines Abos (Sonarr-Muster: Episodenliste mit
+    Lade-Status). Der Voll-Blick ist teuer (bis 5000 Folgen) -> Datei-Cache
+    je Abo in System/abo_index/; aktualisieren=True holt frisch."""
+    abo = next((a for a in _abos if a.get("id") == abo_id), None)
+    if not abo:
+        return {"fehler": "Abo nicht gefunden."}
+    os.makedirs(ABO_INDEX_ORDNER, exist_ok=True)
+    pfad = os.path.join(ABO_INDEX_ORDNER, f"{abo_id}.json")
+    cache = _json_laden(pfad, {})
+    if aktualisieren or not cache.get("folgen"):
+        info = _abo_flach(abo.get("url", ""), limit=5000)
+        folgen = [{"id": e["id"], "titel": e.get("title") or "",
+                   "dauer": e.get("duration"), "live": e.get("live_status") or ""}
+                  for e in (info.get("entries") or []) if e and e.get("id")]
+        if folgen:
+            cache = {"ts": time.time(), "folgen": folgen}
+            _json_speichern(pfad, cache)
+        elif not cache.get("folgen"):
+            return {"fehler": "Kanal nicht erreichbar — später erneut versuchen."}
+    nach_vid = {}
+    for k in _geladen:
+        vid, _, q = k.partition("|")
+        nach_vid.setdefault(vid, []).append(q)
+    out = []
+    for f in cache["folgen"]:
+        quals = nach_vid.get(f["id"]) or []
+        out.append({**f, "geladen": bool(quals), "formate": quals,
+                    "passend": abo.get("qualitaet") in quals})
+    return {"ok": True, "ts": cache.get("ts"), "id": abo_id,
+            "qualitaet": abo.get("qualitaet"), "folgen": out}
+
+
+def abo_folgen_laden(abo_id, vids):
+    """Markierte Backkatalog-Folgen im Abo-Format laden (JB 20.07.: „eigene
+    Playlist vervollständigen"). Schon Vorhandenes wird nur der Abo-Playlist
+    zugeordnet, nicht neu geladen."""
+    abo = next((a for a in _abos if a.get("id") == abo_id), None)
+    if not abo:
+        return {"fehler": "Abo nicht gefunden."}
+    neu, zugeordnet = 0, 0
+    for vid in list(vids)[:5000]:
+        if not re.fullmatch(r"[\w-]{6,}", str(vid) or ""):
+            continue
+        url = f"https://www.youtube.com/watch?v={vid}"
+        key = f"{vid}|{abo.get('qualitaet')}"
+        if key in _geladen:
+            _abo_playlist_zuordnen(abo_id, key)
+            zugeordnet += 1
+            continue
+        if _schon_da(url, abo.get("qualitaet")):
+            continue
+        threading.Thread(target=aufloesen, args=(url, abo.get("qualitaet")),
+                         kwargs={"abo": abo_id}, daemon=True).start()
+        neu += 1
+    return {"ok": True, "neu": neu, "zugeordnet": zugeordnet}
+
+
+def abo_erneuern(abo_id, ersetzen=False):
+    """Alles bisher Geladene des Abos im AKTUELLEN Abo-Format neu holen
+    (JB 20.07., nach Format-Wechsel). ersetzen=True: die alte Datei im anderen
+    Format wandert NACH dem Erfolg in den Papierkorb (nie vorher!)."""
+    abo = next((a for a in _abos if a.get("id") == abo_id), None)
+    if not abo:
+        return {"fehler": "Abo nicht gefunden."}
+    stand = abo_folgen(abo_id)
+    if not stand.get("ok"):
+        return stand
+    qual = abo.get("qualitaet")
+    neu = 0
+    for f in stand["folgen"]:
+        if not f["geladen"] or f["passend"]:
+            continue                                  # fehlt ganz oder passt schon
+        url = f"https://www.youtube.com/watch?v={f['id']}"
+        if _schon_da(url, qual):
+            continue
+        alte = [f"{f['id']}|{q}" for q in f["formate"] if q != qual] if ersetzen else []
+        threading.Thread(target=aufloesen, args=(url, qual),
+                         kwargs={"abo": abo_id, "ersetzt": alte}, daemon=True).start()
+        neu += 1
+    return {"ok": True, "neu": neu}
+
+
+def abo_aufraeumen():
+    """Auto-Löschen alter Abo-Folgen (Opt-in je Abo, loeschen_nach_tagen>0):
+    NUR Inhalte der eigenen Abo-Playlist, Datei in den Windows-Papierkorb,
+    Eintrag vergessen — nie die übrige Bibliothek anfassen."""
+    n = 0
+    for abo in list(_abos):
+        try:
+            tage = int(abo.get("loeschen_nach_tagen") or 0)
+        except (TypeError, ValueError):
+            tage = 0
+        pl = next((p for p in _playlists if p.get("id") == abo.get("playlist_id")), None)
+        if tage <= 0 or not pl:
+            continue
+        grenze = time.time() - tage * 86400
+        for key in list(pl.get("items") or []):
+            e = _geladen.get(key)
+            if not e or (e.get("ts") or time.time()) > grenze:
+                continue
+            with _io_lock:
+                _datei_loeschen(key)                  # Papierkorb + aus allen Playlists
+                _geladen.pop(key, None)
+            n += 1
+    if n:
+        with _io_lock:
+            _json_speichern(GELADEN_PFAD, _geladen)
+        _playlists_speichern()
+        _sag(f"Abo-Aufräumen: {n} alte Folge(n) in den Papierkorb")
+    return n
 
 
 def _abos_hintergrund():
