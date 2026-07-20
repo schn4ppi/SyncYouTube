@@ -771,7 +771,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 65</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 66</span>
 </div>
 
 <div id="canvas"></div>
@@ -3610,9 +3610,33 @@ function parseVTT(t){
   }
   return cues;
 }
+function parseLRC(t){
+  // LRCLIB-Format: [mm:ss.xx] Text (mehrere Zeitmarken je Zeile möglich).
+  // -> [{start, ende, text}] wie parseVTT; ende = Beginn der nächsten Zeile.
+  const roh=[];
+  for(const zeile of (t||'').split(/\\r?\\n/)){
+    const txt=zeile.replace(/\\[[^\\]]*\\]/g,'').trim();   // alle [..]-Marken (Zeit + Meta) raus
+    let m; const re=/\\[(\\d+):(\\d+(?:\\.\\d+)?)\\]/g;
+    while((m=re.exec(zeile))){roh.push({start:parseInt(m[1],10)*60+parseFloat(m[2]), text:txt});}
+  }
+  roh.sort((a,b)=>a.start-b.start);
+  const cues=roh.filter(c=>c.text);                    // Leerzeilen als Marker droppen
+  cues.forEach((c,i)=>c.ende=i+1<cues.length?cues[i+1].start:c.start+5);
+  return cues;
+}
 async function subLaden(key){
   subCues=null; subLang=''; subIdx=-1; subAnzeigen();
   try{
+    // 1) Musik-Karaoke: erst LRCLIB (echte, zeilengenaue Songtexte) — nur wenn
+    //    Untertitel/Karaoke überhaupt an ist, spart Netz.
+    if(subMode!=='aus'){
+      try{
+        const rl=await fetch('/api/lyrics?id='+encodeURIComponent(key));
+        if(rl.ok){const dl=await rl.json();
+          if(dl.lrc){const cl=parseLRC(dl.lrc); if(cl.length){subCues=cl; subLang='LRC';}}}
+      }catch(e){}
+    }
+    // 2) Fallback: YouTube-Untertitel (auch für Sprachwahl/Romaji/Transkript)
     let u='/api/untertitel?id='+encodeURIComponent(key);
     if(subLangWahl)u+='&lang='+encodeURIComponent(subLangWahl);   // Wunsch; Server fällt sonst auf Beste zurück
     if(subRomaji)u+='&romaji=1';                                  // greift nur bei ja/…-orig
@@ -3620,7 +3644,7 @@ async function subLaden(key){
     if(r.ok){
       const d=await r.json();
       const c=parseVTT(d.vtt);
-      if(c.length){subCues=c; subLang=d.lang||'';}
+      if(c.length&&!subCues){subCues=c; subLang=d.lang||'';}      // LRCLIB hat Vorrang, wenn vorhanden
       subSprachen=d.sprachen||[];
     }else subSprachen=[];
   }catch(e){}

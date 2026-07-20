@@ -1070,6 +1070,60 @@ def untertitel_nachladen(key):
             opts.pop("cookiesfrombrowser", None)
 
 
+# ---- Synchronisierte Lyrics via LRCLIB (lrclib.net, kein API-Key) ----
+#      Ergänzt die YouTube-Untertitel fürs Musik-Karaoke: echte, zeilengenaue
+#      Songtexte. Rein lesend, Ergebnis-Cache neben dem Code (keine Fremddaten).
+
+LYRICS_CACHE = os.path.join(SCRIPT_DIR, "lyrics_cache.json")
+_lyrics = _json_laden(LYRICS_CACHE, {})
+if not isinstance(_lyrics, dict):
+    _lyrics = {}
+
+
+def _lrclib_get(artist, titel, album, dauer):
+    """Einen Song bei LRCLIB abfragen -> synced LRC (oder '')."""
+    from urllib.parse import urlencode
+    basis = "https://lrclib.net/api/"
+    kopf = {"User-Agent": "SyncYouTube (https://github.com/schn4ppi/SyncYouTube)"}
+
+    def hol(pfad, params):
+        try:
+            req = urllib.request.Request(basis + pfad + "?" + urlencode(params), headers=kopf)
+            return json.loads(urllib.request.urlopen(req, timeout=12).read().decode("utf-8", "replace"))
+        except Exception:                            # noqa: BLE001 — 404/Netz
+            return None
+
+    params = {"artist_name": artist, "track_name": titel}
+    if album:
+        params["album_name"] = album
+    if dauer:
+        params["duration"] = int(dauer)
+    d = hol("get", params)                           # exakter Treffer (mit Dauer-Toleranz serverseitig)
+    if not (d and d.get("syncedLyrics")):
+        treffer = hol("search", {"artist_name": artist, "track_name": titel}) or []
+        d = next((t for t in treffer if t.get("syncedLyrics")), None)
+    return (d or {}).get("syncedLyrics") or "" if d else ""
+
+
+def lyrics_holen(key):
+    """Synchronisierte Lyrics zu einem Bibliotheks-Key (LRCLIB), gecacht.
+    Leer, wenn kein Künstler/Titel bekannt oder nichts gefunden."""
+    e = _geladen.get(key)
+    if not e:
+        return ""
+    if key in _lyrics:
+        return _lyrics[key]                          # Cache (auch "" = „nichts gefunden", nicht neu fragen)
+    artist = (e.get("kuenstler") or e.get("uploader") or "").strip()
+    titel = (e.get("track") or e.get("titel") or "").strip()
+    if not (artist and titel):
+        return ""
+    lrc = _lrclib_get(artist, titel, e.get("album") or "", e.get("dauer") or 0)
+    with _io_lock:
+        _lyrics[key] = lrc
+        _json_speichern(LYRICS_CACHE, _lyrics)
+    return lrc
+
+
 # ---- Handy-Fernsteuerung: LAN-Adresse + Befehls-Kanal (Handy -> PC-Player) ----
 
 def _lan_ip():
@@ -2594,6 +2648,11 @@ class Handler(BaseHTTPRequestHandler):
             st["proxy_anzahl"] = len(CFG.get("geo_proxies") or [])
             st["test"] = _geo_test
             _antwort(self, 200, st)
+        elif self.path.startswith("/api/lyrics"):
+            q = parse_qs(urlparse(self.path).query)
+            key = (q.get("id") or [""])[0]
+            lrc = lyrics_holen(key)
+            _antwort(self, 200, {"lrc": lrc, "quelle": "lrclib" if lrc else ""})
         elif self.path.startswith("/api/untertitel"):
             q = parse_qs(urlparse(self.path).query)
             key = (q.get("id") or [""])[0]

@@ -277,6 +277,29 @@ def test_abo_rss_ids():
         app.urllib.request.urlopen = echt
 
 
+def test_lyrics_holen():
+    # LRCLIB-Lyrics (JB 21.07.): Künstler+Titel -> synced LRC, gecacht; ohne
+    # Künstler/Titel gar keine Abfrage. Netz wird gemockt, Cache stillgelegt.
+    echt_get, echt_json = app._lrclib_get, app._json_speichern
+    app._json_speichern = lambda *a, **k: None
+    app._lyrics.clear()
+    app._geladen["lyrTEST|audio"] = {"kuenstler": "Michael Jackson", "titel": "Rockin' Robin", "dauer": 165}
+    app._geladen["lyrLEER|audio"] = {"titel": "Ohne Kuenstler"}
+    rufe = []
+    try:
+        app._lrclib_get = lambda a, t, al, d: rufe.append((a, t)) or "[00:01.00] la la"
+        assert app.lyrics_holen("lyrTEST|audio") == "[00:01.00] la la"
+        assert app.lyrics_holen("lyrTEST|audio") == "[00:01.00] la la"   # 2. Mal: Cache
+        assert len(rufe) == 1                                            # nur EINMAL wirklich gefragt
+        assert app.lyrics_holen("lyrLEER|audio") == ""                   # kein Künstler -> keine Abfrage
+        assert len(rufe) == 1
+    finally:
+        app._lrclib_get, app._json_speichern = echt_get, echt_json
+        app._lyrics.clear()
+        app._geladen.pop("lyrTEST|audio", None)
+        app._geladen.pop("lyrLEER|audio", None)
+
+
 def test_abo_nr():
     # CD-Muster (JB 21.07.): Folgen-Liste ist neueste-zuerst -> älteste = 1,
     # neueste = Gesamtzahl. Nicht im Cache -> 0.
