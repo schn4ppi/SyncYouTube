@@ -991,20 +991,64 @@ def _vtt_sprache(pfad):
     return m.group(1) if m else ""
 
 
+def untertitel_ordner():
+    """Ein eigener Ordner für ALLE Untertitel (JB 21.07.: nicht bei den Videos).
+    Verknüpfung läuft über die Video-ID im Dateinamen (`<id>.<sprache>.vtt`) —
+    magnetisch: überlebt Umbenennen/Verschieben der Videodatei."""
+    d = os.path.join(ziel_ordner(), "Untertitel")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def untertitel_liste(key):
     """Alle .vtt-Dateien zu einem Bibliotheks-Key als [(pfad, sprache)], sortiert:
-    ORIGINAL-Sprache (…-orig, fürs Karaoke) vor Deutsch vor Englisch vor Rest."""
-    pfad = _pfad_zu_key(key)
-    if not pfad:
+    ORIGINAL-Sprache (…-orig, fürs Karaoke) vor Deutsch vor Englisch vor Rest.
+    Bevorzugt den Untertitel-Ordner (nach Video-ID); Altbestand neben dem Video
+    bleibt Rückfallebene, bis der Einsortier-Lauf ihn verschoben hat."""
+    vid = key.split("|")[0]
+    dateien = glob.glob(os.path.join(glob.escape(untertitel_ordner()), glob.escape(vid) + ".*.vtt"))
+    if not dateien:
+        pfad = _pfad_zu_key(key)
+        if pfad:
+            dateien = glob.glob(glob.escape(os.path.splitext(pfad)[0]) + ".*.vtt")
+    if not dateien:
         return []
-    stem = os.path.splitext(pfad)[0]
-    dateien = glob.glob(glob.escape(stem) + ".*.vtt")
 
     def rang(f):
         s = _vtt_sprache(f).lower()
         return 0 if s.endswith("-orig") else (1 if s.startswith("de") else (2 if s.startswith("en") else 3))
     dateien.sort(key=rang)
     return [(f, _vtt_sprache(f)) for f in dateien]
+
+
+def untertitel_einsortieren():
+    """Verschiebt .vtt-Dateien, die noch bei den Videos liegen, in den
+    Untertitel-Ordner (`<video-id>.<sprache>.vtt`). Additiv, nie hart löschen:
+    liegt am Ziel schon dieselbe Sprache, wandert die Kopie in den Papierkorb."""
+    ziel = untertitel_ordner()
+    n = 0
+    for wurzel, _, dateien in os.walk(ziel_ordner()):
+        if os.path.normcase(wurzel) == os.path.normcase(ziel):
+            continue                                  # den Zielordner selbst überspringen
+        for d in dateien:
+            if not d.lower().endswith(".vtt"):
+                continue
+            m = re.search(r"\[([\w-]{6,})\]", d)
+            if not m:
+                continue                              # ohne Video-ID -> Rückfallebene greift
+            quelle = os.path.join(wurzel, d)
+            zdatei = os.path.join(ziel, f"{m.group(1)}.{_vtt_sprache(d) or 'und'}.vtt")
+            try:
+                if os.path.exists(zdatei):
+                    _in_papierkorb(quelle)            # Dublette -> Papierkorb (nicht hart löschen)
+                else:
+                    os.replace(quelle, zdatei)
+                n += 1
+            except OSError:
+                pass
+    if n:
+        _sag(f"Untertitel einsortiert: {n} .vtt in den Untertitel-Ordner verschoben")
+    return n
 
 
 def untertitel_datei(key, sprache=None):
@@ -1070,26 +1114,43 @@ def _vtt_cues(pfad):
     return cues
 
 
+def _lrc_cues(lrc):
+    """LRCLIB-Text [mm:ss.xx] -> [(startsekunden, text)]."""
+    out = []
+    for zeile in (lrc or "").split("\n"):
+        txt = re.sub(r"\[[^\]]*\]", "", zeile).strip()
+        if not txt:
+            continue
+        for m in re.finditer(r"\[(\d+):(\d+(?:\.\d+)?)\]", zeile):
+            out.append((int(m.group(1)) * 60 + float(m.group(2)), txt))
+    return out
+
+
 def transkript_suche(q, limit=40):
-    """Volltextsuche über ALLE lokalen Untertitel/Transkripte (Tube-Archivist-
-    Muster): findet, in welchem Video ein Begriff wann gesagt wird.
-    -> [{key, titel, treffer:[{zeit, text}]}] (nur Titel MIT Treffern)."""
+    """Volltextsuche über ALLE lokalen Transkripte: heruntergeladene Untertitel
+    (.vtt) UND die synchronisierten LRCLIB-Songtexte (Tube-Archivist-Muster).
+    Findet, in welchem Titel ein Begriff wann gesagt/gesungen wird.
+    -> [{key, titel, quelle, treffer:[{zeit, text}]}] (nur Titel MIT Treffern)."""
     q = (q or "").strip().lower()
     if len(q) < 2:
         return []
     treffer_titel = []
     for key, e in list(_geladen.items()):
+        cues, quelle = [], ""
         f, _ = untertitel_datei(key)
-        if not f:
-            continue
+        if f:
+            cues, quelle = _vtt_cues(f), "Untertitel"
+        if not cues and _lyrics.get(key):            # kein .vtt -> LRCLIB-Songtext durchsuchen
+            cues, quelle = _lrc_cues(_lyrics[key]), "Lyrics"
         rein = []
-        for sek, txt in _vtt_cues(f):
+        for sek, txt in cues:
             if q in txt.lower():
                 rein.append({"zeit": round(sek, 1), "text": txt})
-                if len(rein) >= 8:                    # pro Video höchstens 8 Fundstellen
+                if len(rein) >= 8:                    # pro Titel höchstens 8 Fundstellen
                     break
         if rein:
-            treffer_titel.append({"key": key, "titel": e.get("titel") or key, "treffer": rein})
+            treffer_titel.append({"key": key, "titel": e.get("titel") or key,
+                                  "quelle": quelle, "treffer": rein})
         if len(treffer_titel) >= limit:
             break
     return treffer_titel
@@ -1107,12 +1168,12 @@ def untertitel_nachladen(key):
     url = e.get("url") or (f"https://www.youtube.com/watch?v={vid}" if _plausible_id(vid) else "")
     if not url:
         return
-    stem = os.path.splitext(pfad)[0]
+    ziel = os.path.join(untertitel_ordner(), vid)     # -> Untertitel-Ordner, nach Video-ID
     opts = _ydl_basis_opts()
     opts.update({"skip_download": True, "noplaylist": True,
                  "writesubtitles": True, "writeautomaticsub": True,
                  "subtitleslangs": ["de", "en", ".*-orig"], "subtitlesformat": "vtt/best",
-                 "outtmpl": {"default": stem + ".%(ext)s"}})   # .vtt landet neben der Datei
+                 "outtmpl": {"default": ziel + ".%(ext)s"}})   # .vtt landet im Untertitel-Ordner
     for _ in (1, 2):
         try:
             with yt_dlp.YoutubeDL(opts) as y:
@@ -2086,19 +2147,29 @@ def _vtt_verwaist(pfad, stems):
 
 
 def untertitel_aufraeumen():
-    """Selbstheilung: verwaiste .vtt-Reste (Mediendatei weg oder Doppelungen aus
-    dem Alt-Bug) in den Windows-Papierkorb — nie hart löschen. Gehörige
-    Untertitel bleiben liegen (Karaoke-Cache)."""
-    stems, vtts = set(), []
+    """Selbstheilung: verwaiste .vtt (kein zugehöriges Video mehr) in den
+    Windows-Papierkorb — nie hart löschen. Im Untertitel-Ordner ist die
+    Zugehörigkeit die Video-ID im Namen; Altbestand neben Videos per Stamm."""
+    ziel = untertitel_ordner()
+    vids, stems, legacy = set(), set(), []
     for wurzel, _, dateien in os.walk(ziel_ordner()):
+        istziel = os.path.normcase(wurzel) == os.path.normcase(ziel)
         for d in dateien:
             p = os.path.join(wurzel, d)
-            if d.lower().endswith(".vtt"):
-                vtts.append(p)
-            elif d.lower().endswith(AUDIO_EXT + VIDEO_EXT):
+            if d.lower().endswith(AUDIO_EXT + VIDEO_EXT):
                 stems.add(os.path.splitext(p)[0].lower())
+                m = re.search(r"\[([\w-]{6,})\]", d)
+                if m:
+                    vids.add(m.group(1))
+            elif d.lower().endswith(".vtt") and not istziel:
+                legacy.append(p)                      # noch nicht einsortiert
+    vids |= {k.split("|")[0] for k in _geladen}       # auch verschobene, aber bekannte Videos
     n = 0
-    for p in vtts:
+    for f in glob.glob(os.path.join(glob.escape(ziel), "*.vtt")):
+        vid = os.path.basename(f).split(".")[0]
+        if vid not in vids and _in_papierkorb(f):
+            n += 1
+    for p in legacy:
         if _vtt_verwaist(p, stems) and _in_papierkorb(p):
             n += 1
     if n:
@@ -2110,7 +2181,7 @@ def _einsortieren_hintergrund():
     """Kurz nach dem Start + alle 6 h aufräumen (Daemon-Thread)."""
     time.sleep(20)
     for fn in (pfade_heilen, dubletten_heilen, ordner_importieren,
-               metadaten_backfill, untertitel_aufraeumen):
+               metadaten_backfill, untertitel_einsortieren, untertitel_aufraeumen):
         try:
             fn()                                      # Pfade heilen, fremde Dateien aufnehmen, Metadaten nachtragen
         except Exception:                             # noqa: BLE001
@@ -2492,6 +2563,10 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
         item["phase"] = ""
         item["fertig_ts"] = time.time()
         geladen_merken(item)
+        try:
+            untertitel_einsortieren()                 # mitgeladene .vtt in den Untertitel-Ordner
+        except Exception:                             # noqa: BLE001
+            pass
     except AbbruchError:
         item["status"] = "pausiert"
         item["phase"] = ""

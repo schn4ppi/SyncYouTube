@@ -307,6 +307,14 @@ def test_vtt_cues_und_suche(tmp_path=None):
         app._geladen.pop("clipKEY", None)
 
 
+def test_lrc_cues():
+    # LRCLIB-Text -> (zeit, text) für die Transkript-Suche (Build 68).
+    cues = app._lrc_cues("[ar:X]\n[00:01.50] erste Zeile\n[00:04.00] zweite Zeile\n\n[00:06.00]")
+    assert cues[0] == (1.5, "erste Zeile")
+    assert cues[1] == (4.0, "zweite Zeile")
+    assert len(cues) == 2                              # Meta-Zeile + leere Marke fallen weg
+
+
 def test_lyrics_holen():
     # LRCLIB-Lyrics (JB 21.07.): Künstler+Titel -> synced LRC, gecacht; ohne
     # Künstler/Titel gar keine Abfrage. Netz wird gemockt, Cache stillgelegt.

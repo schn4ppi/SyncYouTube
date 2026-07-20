@@ -423,6 +423,10 @@ html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
   opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:80vw}
 #toast.an{opacity:1;transform:translateX(-50%) translateY(0)}
 html.light #toast{background:#3a322c}
+.ziehghost{position:fixed;top:-999px;left:-999px;pointer-events:none;z-index:9999;
+  background:#241f1b;color:#f0e6dc;padding:5px 10px;border-radius:8px;font-size:12.5px;
+  max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+html.light .ziehghost{background:#3a322c}
 /* Transkript-Volltextsuche: Ergebnis-Overlay */
 #tsuche-ov{position:fixed;inset:0;z-index:9400;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center}
 #tsuche-ov.an{display:flex}
@@ -792,7 +796,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 67</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 68</span>
 </div>
 
 <div id="canvas"></div>
@@ -1200,19 +1204,21 @@ function defaultLayout(){
   const W=window.innerWidth, g=Math.max(0,fensterAbstand());
   const bw=Math.max(320, W-16), H=Math.max(420, window.innerHeight-130);
   if(W>1180){
-    // Tabs Fertig/Log/Hinzufügen schmal + Bibliothek groß + Player.
-    const lw=Math.round(Math.min(400, bw*0.26));
+    // EIN „Downloads"-Fenster (Hinzufügen/Warteschlange/Fertig/Log) schmal links,
+    // Bibliothek groß in der Mitte, Player rechts (JB 21.07.: Downloads gebündelt,
+    // Bibliothek+Player sind die Hauptfläche — Muster Plexamp/Feishin/MeTube).
+    const lw=Math.round(Math.min(380, bw*0.24));
     const plW=Math.max(320, Math.round(bw*0.30));
     const libW=bw-lw-plW-2*g;
     return {z:30,panels:[
-      {id:'p1',x:8,           y:8, w:lw,   h:H, views:['done','log','add'], active:'done', zi:12},
+      {id:'p1',x:8,           y:8, w:lw,   h:H, views:['add','queue','done','log'], active:'add', zi:12},
       {id:'p4',x:8+lw+g,      y:8, w:libW, h:H, views:['lib'],    active:'lib',    zi:14},
       {id:'p5',x:8+lw+g+libW+g, y:8, w:plW, h:H, views:['player'], active:'player', zi:15},
     ]};
   }
   if(W>760){
     return {z:20,panels:[
-      {id:'p1',x:8,       y:8, w:320,      h:H, views:['done','log','add'], active:'done', zi:12},
+      {id:'p1',x:8,       y:8, w:320,      h:H, views:['add','queue','done','log'], active:'add', zi:12},
       {id:'p4',x:8+320+g, y:8, w:bw-320-g, h:H, views:['lib','player'], active:'lib', zi:14},
     ]};
   }
@@ -3374,7 +3380,18 @@ function dragAttrs(id){
 function libDragStart(ev,id){
   try{ev.dataTransfer.setData('ytdl/key',id);}catch(e){}   // fürs Fallenlassen in der Player-Playlist
   ev.dataTransfer.effectAllowed='copyMove';
+  ziehTooltip(ev,id);                                      // kleiner Text-Anfasser statt großem Bild (JB 21.07.)
   if(libPlaylistView)plvDragStart(ev,id);                  // Reihenfolge ziehen wie bisher
+}
+/* Drag-Ghost: nur der Titel als kleiner Tooltip mitgezogen — nicht das ganze
+   Kachelbild (JB 21.07.: „nur der Text, nicht das Bild bewegt sich"). */
+function ziehTooltip(ev,id){
+  const x=libFind(id); const t=x?(x.titel||id):id;
+  const g=document.createElement('div'); g.className='ziehghost';
+  g.textContent='🎵 '+t;
+  document.body.appendChild(g);
+  try{ev.dataTransfer.setDragImage(g,12,12);}catch(e){}
+  setTimeout(()=>g.remove(),0);                            // Browser hat das Bild bereits kopiert
 }
 
 /* Generischer Menü-Bauer: an Mausposition (clientX) oder an einem Knopf (currentTarget).
@@ -3688,6 +3705,7 @@ function subRomajiToggle(){
   try{localStorage.setItem('ytdl_subromaji',subRomaji?'1':'0');}catch(e){}
   const k=aktKey(); if(k)subLaden(k);
 }
+let subLaedt=false;                                    // läuft gerade ein Untertitel-Download?
 function subAnzeigen(){
   const m=SUBMODES.find(x=>x[0]===subMode)||SUBMODES[0];
   const b=document.getElementById('plb-sub');           // Knopf in der Leiste auf dem Video
@@ -3696,7 +3714,10 @@ function subAnzeigen(){
     b.classList.toggle('an',subMode!=='aus'&&!!subCues);}
   const ov=document.getElementById('pl-sub-anzeige');
   if(ov){ov.className='pl-subzeile'+(subMode==='karaoke'?' karaoke':'');
-    ov.style.display=(subCues&&(subMode==='zeilen'||subMode==='karaoke'))?'':'none'; ov.innerHTML='';}
+    // Sichtbares Feedback (JB 21.07.): beim Laden „⏳", damit nicht „nichts passiert" wirkt.
+    const warte=subLaedt&&!subCues&&(subMode==='zeilen'||subMode==='karaoke');
+    ov.style.display=((subCues||warte)&&(subMode==='zeilen'||subMode==='karaoke'))?'':'none';
+    ov.innerHTML=warte?'<span class="subtxt" style="opacity:.7">⏳ Untertitel werden geladen …</span>':'';}
   const ly=document.getElementById('pl-lyrics');
   if(ly){
     if(subCues&&subMode==='transkript'){
@@ -3721,13 +3742,26 @@ function subCycle(){
    nachladen (JB 13.07.: „Ich will keine Fenster aufploppen sehen"). Je Titel
    nur einmal pro Sitzung versucht; das Ergebnis holt subLaden zeitversetzt ab. */
 let subAutoVersucht=new Set();
-function subNachladen(){
+async function subNachladen(){
   const k=aktKey(); if(!k||subAutoVersucht.has(k))return;
   subAutoVersucht.add(k);
-  try{fetch('/api/untertitel_laden',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});}catch(e){}
-  const info=document.getElementById('plinfo');
-  if(info)info.textContent='💬 Untertitel werden im Hintergrund von YouTube geladen …';
-  [6000,15000,30000].forEach(t=>setTimeout(()=>{if(aktKey()===k)subLaden(k);},t));
+  subLaedt=true; subAnzeigen();                         // sofort „⏳ …" zeigen (JB 21.07.)
+  try{await fetch('/api/untertitel_laden',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});}catch(e){}
+  // Statt starrer Zeitpunkte: nachfragen, BIS die .vtt da ist (max ~40 s) und dann anzeigen.
+  for(let i=0;i<20;i++){
+    await new Promise(r=>setTimeout(r,2000));
+    if(aktKey()!==k){subLaedt=false; return;}          // Titel gewechselt -> abbrechen
+    try{
+      const r=await fetch('/api/untertitel?id='+encodeURIComponent(k));
+      if(r.ok){const d=await r.json(); const c=parseVTT(d.vtt);
+        if(c.length){subCues=c; subLang=d.lang||''; subSprachen=d.sprachen||[];
+          subLaedt=false; subAnzeigen(); return;}}
+    }catch(e){}
+  }
+  subLaedt=false;                                        // nichts gefunden -> ehrlich melden
+  subAutoVersucht.delete(k);                             // erneuter Versuch später erlaubt
+  if(aktKey()===k){subAnzeigen();
+    if(subMode!=='aus')toast('Für diesen Titel sind keine Untertitel verfügbar.');}
 }
 function subTick(el){
   if(!subCues||subMode==='aus')return;
@@ -4043,11 +4077,16 @@ function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)retu
 function plbPip(){                                     // natives Bild-in-Bild (JB 21.07.)
   const el=document.getElementById('pl-el');
   if(!el||el.tagName!=='VIDEO'){toast('Bild-in-Bild geht nur bei Videos.');return;}
+  const istFirefox=/firefox/i.test(navigator.userAgent);
   try{
     if(document.pictureInPictureElement)document.exitPictureInPicture();
-    else if(el.requestPictureInPicture)el.requestPictureInPicture();
+    else if(el.requestPictureInPicture&&document.pictureInPictureEnabled!==false)el.requestPictureInPicture();
+    else if(istFirefox)toast('Firefox: nutze den kleinen Bild-in-Bild-Knopf, der beim Überfahren am Video erscheint (die Schnittstelle ist per Knopf gesperrt).');
     else toast('Dein Browser kann kein Bild-in-Bild.');
-  }catch(e){toast('Bild-in-Bild nicht möglich.');}
+  }catch(e){
+    toast(istFirefox?'Firefox: nutze den eigenen Bild-in-Bild-Knopf am Video (rechts am Rand beim Überfahren).'
+                    :'Bild-in-Bild nicht möglich.');
+  }
 }
 function plbTick(){                                    // Position/Zeit der Leiste nachführen
   const el=document.getElementById('pl-el'), s=document.getElementById('plb-seek'),
