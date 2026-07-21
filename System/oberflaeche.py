@@ -93,6 +93,16 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .dlbox-body{flex:1 1 auto;min-height:0;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
 .dlbox-body::-webkit-scrollbar{width:6px}.dlbox-body::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
 .dlbox-body .card{margin:0;background:transparent;border:0;padding:6px 10px}
+/* Abos im kompakten Download-Fenster: kleiner + ohne die lange Erklärung, damit
+   man nicht scrollen muss (JB 21.07.). */
+.dlbox-body #view-abos{font-size:11.5px}
+.dlbox-body #view-abos .hinweis{display:none}
+.dlbox-body #view-abos .zeile{gap:5px;margin-bottom:6px}
+.dlbox-body #view-abos input,.dlbox-body #view-abos select,.dlbox-body #view-abos .btn{font-size:11.5px;padding:4px 8px}
+.dlbox-body #view-abos .abo-liste{gap:5px}
+.dlbox-body #view-abos .abo-card{padding:5px 8px}
+.dlbox-body #view-abos .abo-name{font-size:12px}
+.dlbox-body #view-abos .abo-regeln,.dlbox-body #view-abos .abo-f{font-size:11px}
 /* Mini: statt der Download-Reiter sitzt hier der eingebettete Mini-Player */
 #cmd-mini:empty{display:none}
 #cmd-mini{display:flex;flex-direction:column;flex:1;min-height:0}
@@ -118,8 +128,14 @@ html.light .cmd-logo .sg{stroke:#f3ede2}
 /* Mini-Player (JB 13.07.): füllt den linken Block — große Spotify-artige
    Knöpfe oben, Titel darunter, Spulleiste unten; rechts Zähler + vertikale Knöpfe */
 .cmd-row2{align-items:stretch;gap:10px}
-.cmd-now{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:5px;font-size:12px;color:#9a8d84}
-.cmd-nowtitel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:12.5px;color:#d7c7bd}
+/* Command-Bar-Player als eigene, wertige Karte (JB 21.07.): Rahmen, dezenter
+   Hintergrund, runde Ecken; läuft etwas, glimmt der Rahmen in Programm-Rot. */
+.cmd-now{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:6px;font-size:12px;color:#9a8d84;
+  border:1px solid #2e2823;border-radius:12px;padding:7px 14px;background:rgba(255,255,255,.022)}
+.cmd-now.spielt{border-color:rgba(214,95,95,.45);box-shadow:0 0 0 1px rgba(214,95,95,.12),0 4px 16px rgba(0,0,0,.25)}
+.cmd-now.dropziel{outline:2px dashed var(--akz);outline-offset:2px}
+html.light .cmd-now{border-color:#e3d8cc;background:rgba(0,0,0,.02)}
+.cmd-nowtitel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:12.5px;color:#d7c7bd;font-weight:500}
 .cmd-nolabel{color:#6a5c52}
 .cmd-seekline{display:flex;align-items:center;gap:8px}
 .cmd-time{flex:none;font-size:11px;color:#8a7d74;min-width:36px;text-align:center;font-variant-numeric:tabular-nums}
@@ -439,7 +455,6 @@ html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
 .abo-fd{color:#8a7d74;font-size:11px;flex:none}
 .abo-nr{color:#8a7d74;font-size:11px;flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
 .pl-nr{color:var(--akz2);font-size:11px;font-variant-numeric:tabular-nums}
-.cmd-now.dropziel{outline:2px dashed var(--akz);outline-offset:2px;border-radius:8px;background:rgba(0,0,0,.15)}
 #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(12px);z-index:9500;
   background:#241f1b;color:#f0e6dc;padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.5);
   opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:80vw}
@@ -787,7 +802,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 80</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 81</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -2306,6 +2321,7 @@ let cmdNowSig='', cmdSeekAktiv=false;
 function cmdNowRender(){
   const el=document.getElementById('cmd-now'); if(!el)return;
   const k=playerState.queue[playerState.idx], x=k?libFind(k):null;
+  el.classList.toggle('spielt', !!x);                  // Rahmen glimmt, wenn etwas läuft
   const sig=[k||'',x?x.titel:''].join('|');            // Play/Pause & Toggles zieht transportRender nach
   if(sig===cmdNowSig){transportRender();cmdSeekTick();return;}
   cmdNowSig=sig;
