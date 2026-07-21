@@ -323,6 +323,11 @@ body.plq-extern #view-player .pl-side{display:none}
 .gtestrow{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid #241f1b;font-size:13px}
 a.glink{color:var(--akz2);text-decoration:none;border-bottom:1px dotted #6b4a2a}a.glink:hover{color:var(--akz)}
 html.light .modal-box,html.light .modal-head{background:#fff;border-color:#e6ddd3}
+.eig-tab{width:100%;border-collapse:collapse;font-size:13px}
+.eig-tab td{padding:5px 8px;border-bottom:1px solid var(--panelln);vertical-align:top}
+.eig-tab td.k{opacity:.62;white-space:nowrap;width:36%}
+.eig-tab td.v{word-break:break-word}
+.eig-tab a{color:var(--akzent,#d65f5f)}
 html.light .gsec,html.light .gsec>summary{background:#faf6f1;border-color:#e6ddd3}
 html.light .gsec .ginner{color:#4a3f38}
 html.light .gcmp th,html.light .gcmp td{border-color:#ece3d9}
@@ -822,7 +827,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 86</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 87</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1135,6 +1140,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
     <div class="card" style="height:100%;display:flex;flex-direction:column">
       <div class="kopfzeile"><h2 id="plq-titel">Playlist</h2><span class="muted2" id="plq-anzahl"></span>
         <span class="spacer"></span>
+        <button class="btn mini" onclick="plqWerkzeuge(event)" title="Warteschlangen-Werkzeuge: als Playlist speichern · sortieren · Duplikate entfernen · leeren">⋯ Werkzeuge</button>
         <button class="btn mini" onclick="plqFenster()" title="Playlist wieder in den Player eingliedern — der Player bekommt seine Breite zurück">⧉ In den Player</button></div>
       <div class="pl-queue plq-gross" id="pl-queue-win" ondragover="plqZielOver(event)" ondrop="plqZielDrop(event)"
            title="Titel aus der Bibliothek hierher ziehen = einreihen"></div>
@@ -1240,6 +1246,8 @@ function optionenToggle(ev){
       '<div style="display:flex;justify-content:space-between;width:100%">'+
       '<span>Überblend-Dauer</span><span id="xfval">'+(crossfadeSek?crossfadeSek+' s':'aus')+'</span></div>'+
       '<input type="range" min="0" max="12" value="'+crossfadeSek+'" style="width:100%;margin-top:4px" oninput="setCrossfade(this.value)"></div>'+
+    '<div class="optrow"><span>Lautstärke angleichen</span><label class="chk"><input type="checkbox" id="opt_norm" '+
+      (normAn?'checked':'')+' onchange="normSetzen(this.checked)"> Titel gleich laut</label></div>'+
     '<div class="optrow"><span>Canvas-Hintergrund</span><label class="chk"><input type="checkbox" id="opt_canvas" '+
       (canvasAn?'checked':'')+' onchange="setCanvas(this.checked)"> animiertes Cover</label></div>'+
     '<div class="optrow"><span>Sleep-Timer</span><span><select id="opt_sleep" onchange="sleepSetzen(this.value)">'+
@@ -3506,6 +3514,8 @@ function libItemMenu(ev,id){
   const eintraege=[];
   if(!x.vorhanden)eintraege.push(['⬇ Erneut herunterladen', ()=>biblioNeuladen(id)]);
   if(x.vorhanden)eintraege.push(['▶ Abspielen', ()=>playerPlay([id])]);
+  if(x.vorhanden)eintraege.push(['⏭ Als Nächstes abspielen', ()=>queueAlsNaechstes(id)]);
+  if(x.vorhanden)eintraege.push(['➕ Ans Ende der Warteschlange', ()=>queueAnsEnde(id)]);
   eintraege.push(['＋ Zu Playlist…', (m)=>plAddListe(m,id), 'bleib']);
   if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(id,'ordner')]);
   if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
@@ -3513,6 +3523,7 @@ function libItemMenu(ev,id){
   eintraege.push([x.archiviert?'↩ Aus dem Archiv holen':'🗄 Ins Archiv legen', ()=>biblio(id, x.archiviert?'entarchiv':'archiv')]);
   eintraege.push([x.blacklist?'✓ Für Meistgespielt zulassen':'🚫 Von Meistgespielt ausschließen', ()=>biblio(id, x.blacklist?'unblacklist':'blacklist')]);
   if(libPlaylistView)eintraege.push(['✖ Aus dieser Playlist entfernen', ()=>plRemove(id)]);
+  eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(id)]);
   eintraege.push(['🗑 In den Papierkorb', ()=>delEinzeln(id)]);
   const m=document.createElement('div'); m.className='itemmenu';
   m.innerHTML=eintraege.map((e,i)=>`<button data-i="${i}">${e[0]}</button>`).join('');
@@ -3641,6 +3652,7 @@ function playerKontext(ev){
   eintraege.push(['⏭ Nächster Titel', playerNext]);
   // Untermenüs klappen wie in Windows RECHTS aus (Hover oder Klick), Haken = aktiv
   eintraege.push(['＋ Zu Playlist', ()=>plOptionen(k), 'sub']);
+  eintraege.push(['🎶 Warteschlange', queueWerkzeugListe, 'sub']);
   eintraege.push(['📊 Visualizer', ()=>VIZMODES.map(v=>[v[2], v[0]===vizMode, ()=>{vizMode=v[0];
       try{localStorage.setItem('ytdl_viz',vizMode);}catch(e){} vizModeRender();}]), 'sub']);
   eintraege.push(['⚡ Geschwindigkeit ('+playSpeed+'×)', ()=>
@@ -3656,6 +3668,7 @@ function playerKontext(ev){
   if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(k,'ordner')]);
   if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
   eintraege.push(['⧉ In VLC / extern öffnen', playerExtern]);
+  eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(k)]);
   kontextMenuBauen(ev, eintraege);
   return false;
 }
@@ -4415,13 +4428,138 @@ function plItemKontext(ev,i){                          // Rechtsklick auf einen 
   const x=libFind(k)||{};
   const eintraege=[];
   eintraege.push([i===playerState.idx?'⏯ Pause / Weiter':'▶ Abspielen', ()=>plQueueKlick(i)]);
+  if(i!==playerState.idx)eintraege.push(['⏭ Als Nächstes abspielen', ()=>queueAlsNaechstes(k)]);
   if(i>0)eintraege.push(['⏫ Nach oben', ()=>plqVerschieben(i,-1)]);
   if(i<playerState.queue.length-1)eintraege.push(['⏬ Nach unten', ()=>plqVerschieben(i,1)]);
   eintraege.push([i===playerState.idx?'✖ Entfernen (Titel endet)':'✖ Aus Playlist entfernen', ()=>plqRemove(i)]);
+  eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(k)]);
   if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(k,'ordner')]);
   if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
   kontextMenuBauen(ev, eintraege);
   return false;
+}
+/* Warteschlangen-Aktionen (JB 22.07., Muster Spotify „Add to queue/Play next"
+   + MusicBee „Queue Next/Last"): einen Bibliotheks-/Playlist-Titel direkt HINTER
+   den laufenden setzen bzw. ANS ENDE hängen. Läuft nichts, spielt er sofort.
+   Ist er schon in der Queue, wird er verschoben (keine Dublette). */
+function queueAlsNaechstes(key){
+  const x=libFind(key); if(!x||!x.vorhanden){toast('Titel ist nicht (mehr) auf der Platte.');return;}
+  ensurePlayer();
+  if(playerState.idx<0||!playerState.queue.length){playerPlay([key]); return;}   // nichts läuft -> sofort
+  const cur=aktKey(); if(key===cur)return;                                        // ist schon der laufende
+  const vorhanden=playerState.queue.indexOf(key);
+  if(vorhanden>=0)playerState.queue.splice(vorhanden,1);                          // erst raus -> keine Dublette
+  const at=Math.max(0, playerState.queue.indexOf(cur))+1;                         // hinter den laufenden
+  playerState.queue.splice(at,0,key);
+  playerState.idx=Math.max(0, playerState.queue.indexOf(cur));
+  renderPlayerQueue(); cmdNowRender();
+  toast('⏭ Als Nächstes: „'+((x.titel||key).slice(0,40))+'"');
+}
+function queueAnsEnde(key){
+  const x=libFind(key); if(!x||!x.vorhanden){toast('Titel ist nicht (mehr) auf der Platte.');return;}
+  ensurePlayer();
+  if(playerState.idx<0||!playerState.queue.length){playerPlay([key]); return;}
+  const cur=aktKey(); if(key===cur)return;
+  const vorhanden=playerState.queue.indexOf(key);
+  if(vorhanden>=0)playerState.queue.splice(vorhanden,1);
+  playerState.queue.push(key);
+  playerState.idx=Math.max(0, playerState.queue.indexOf(cur));
+  renderPlayerQueue(); cmdNowRender();
+  toast('➕ Ans Ende: „'+((x.titel||key).slice(0,40))+'"');
+}
+/* Warteschlangen-Werkzeuge (JB 22.07., Muster foobar/MusicBee): die aktuelle
+   Ad-hoc-Playlist als benannte Playlist speichern, sortieren, umkehren,
+   Duplikate entfernen, leeren. Der laufende Titel behält über alle Umbauten
+   seinen Platz (curKey-Rettung). */
+async function queueAlsPlaylist(){
+  if(!playerState.queue.length){toast('Die Warteschlange ist leer.');return;}
+  const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim())return;
+  const keys=playerState.queue.slice();
+  await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'create',name:n.trim()})});
+  await plLaden();                                     // plState frisch -> neue id am Ende
+  const neu=plState[plState.length-1]; if(!neu){toast('Konnte die Playlist nicht anlegen.');return;}
+  for(const k of keys){                                // Backend-add nimmt einen Key; Reihenfolge bleibt
+    await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'add',id:neu.id,key:k})});
+  }
+  await plLaden();
+  toast('💾 „'+n.trim()+'" gespeichert ('+keys.length+' Titel).');
+}
+function queueSortieren(art){
+  if(playerState.queue.length<2)return;
+  const cur=aktKey();
+  const val=({titel:k=>((libFind(k)||{}).titel||k).toLowerCase(),
+              dauer:k=>((libFind(k)||{}).dauer||0),
+              datum:k=>((libFind(k)||{}).upload_date||'')})[art]||(k=>k);
+  playerState.queue.sort((a,b)=>{const va=val(a),vb=val(b); return va<vb?-1:(va>vb?1:0);});
+  playerState.idx=Math.max(0, playerState.queue.indexOf(cur));
+  renderPlayerQueue(); toast('↕ Sortiert nach '+({titel:'Titel',dauer:'Dauer',datum:'Datum'}[art]||art)+'.');
+}
+function queueUmkehren(){
+  if(playerState.queue.length<2)return;
+  const cur=aktKey(); playerState.queue.reverse();
+  playerState.idx=Math.max(0, playerState.queue.indexOf(cur));
+  renderPlayerQueue(); toast('↕ Reihenfolge umgekehrt.');
+}
+function queueDuplikate(){
+  const cur=aktKey(), seen=new Set(), neu=[];
+  playerState.queue.forEach(k=>{if(!seen.has(k)){seen.add(k); neu.push(k);}});
+  const weg=playerState.queue.length-neu.length;
+  if(!weg){toast('Keine Dubletten in der Warteschlange.');return;}
+  playerState.queue=neu; playerState.idx=Math.max(0, neu.indexOf(cur)); plqSel=null;
+  renderPlayerQueue(); toast('🧹 '+weg+' Dublette(n) entfernt.');
+}
+function queueLeeren(){
+  if(!playerState.queue.length)return;
+  if(!confirm('Die ganze Warteschlange leeren? (Titel-Dateien und gespeicherte Playlists bleiben.)'))return;
+  playerState.queue=[]; playerState.idx=-1; plqSel=null;
+  renderPlayerQueue(); renderPlayerMedia(); cmdNowRender();
+  toast('Warteschlange geleert.');
+}
+function queueWerkzeugListe(){                          // gemeinsame Liste [Label, aktiv?, fn] für Flyout + ⋯-Menü
+  return [['💾 Als Playlist speichern…', false, queueAlsPlaylist],
+          ['↕ Nach Titel sortieren', false, ()=>queueSortieren('titel')],
+          ['↕ Nach Dauer sortieren', false, ()=>queueSortieren('dauer')],
+          ['↕ Reihenfolge umkehren', false, queueUmkehren],
+          ['🧹 Duplikate entfernen', false, queueDuplikate],
+          ['🗑 Warteschlange leeren', false, queueLeeren]];
+}
+function plqWerkzeuge(ev){                              // ⋯-Knopf im Playlist-Fenster
+  ev.stopPropagation();
+  kontextMenuBauen(ev, queueWerkzeugListe().map(o=>[o[0], o[2]]));
+}
+/* Eigenschaften-Popup (JB 22.07., foobar „Properties"): alle Metadaten eines
+   Titels auf einen Blick — Codec/Bitrate/Auflösung/Größe/Pfad-Herkunft/Tags. */
+function eigKopiere(key){const x=libFind(key); try{navigator.clipboard&&navigator.clipboard.writeText((x&&x.titel)||key);}catch(e){} toast('Titel kopiert.');}
+function eigenschaften(key){
+  const x=libFind(key); if(!x){toast('Keine Infos zu diesem Titel.');return;}
+  const vid=(String(key).split('|')[0])||key;
+  const zeilen=[
+    ['Titel', x.titel||key],
+    ['Kanal / Uploader', x.uploader||'–'],
+    ['Kategorie', x.kategorie||'–'],
+    ['Qualität', x.qualitaet||'–'],
+    ['Technik', technikText(x)],
+    ['Dauer', x.dauer?zeit(x.dauer):'–'],
+    ['Dateigröße', mb(x.groesse)],
+    ['Hochgeladen', ytdatum(x.upload_date)||'–'],
+    ['Zuletzt gespielt', x.last_play?new Date(x.last_play*1000).toLocaleString('de-DE'):'–'],
+    ['Wiedergaben', String(x.plays||0)],
+    ['Video-ID', vid],
+    ['Status', x.vorhanden?'auf der Platte':'verschoben / gelöscht']
+  ];
+  const rows=zeilen.map(z=>`<tr><td class="k">${esc(z[0])}</td><td class="v">${esc(String(z[1]))}</td></tr>`).join('');
+  const yt=x.url?`<tr><td class="k">YouTube</td><td class="v"><a href="${esc(x.url)}" target="_blank" rel="noreferrer">${esc(x.url)}</a></td></tr>`:'';
+  const cover=x.thumb?`<img src="${esc(x.thumb)}" style="max-width:190px;width:40%;border-radius:8px;float:right;margin:0 0 8px 12px" onerror="this.style.display='none'">`:'';
+  const ov=document.createElement('div'); ov.className='modal';
+  ov.innerHTML=`<div class="modal-box" style="max-width:560px"><div class="modal-head"><b>ℹ Eigenschaften</b>`+
+    `<button class="ib" title="Schließen" onclick="this.closest('.modal').remove()">✕</button></div>`+
+    `<div style="padding:14px 16px 18px">${cover}<table class="eig-tab">${rows}${yt}</table>`+
+    `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;clear:both">`+
+      (x.vorhanden?`<button class="btn mini" onclick="biblio('${key}','ordner')">📁 Im Ordner zeigen</button>`:'')+
+      `<button class="btn mini" onclick="eigKopiere('${key}')">⧉ Titel kopieren</button>`+
+    `</div></div></div>`;
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  document.body.appendChild(ov);
 }
 function plqDragStart(e,i){plqVon=i; e.dataTransfer.effectAllowed='move';}
 function plqDragOver(e){e.preventDefault(); e.dataTransfer.dropEffect='move';}
