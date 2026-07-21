@@ -55,7 +55,8 @@ und — nur auf Wunsch — der Update-Check gegen dieses GitHub-Repo).
 **Extras**
 - 📱 Handy-Fernsteuerung im Heim-WLAN (opt-in, Zugangscode, Gerät wählbar wie bei Spotify Connect)
 - Browser-Erweiterung für Firefox/Chrome/Edge (`System/browser-addon/`, ein Code; die signierte
-  Firefox-`.xpi` liegt beim Release und ist über das Tray-Menü/die Einstellungen installierbar)
+  Firefox-`.xpi` liegt beim Release und ist über das Tray-Menü/die Einstellungen installierbar —
+  ab v1.0.4 aktualisiert sie sich in Firefox selbst über die Releases dieses Repos)
 - **Selbst-Update** (opt-in, Standard aus): die exe prüft täglich dieses Repo, lädt verifiziert
   (SHA256-Abgleich gegen das `.sha256`-Asset) und tauscht sich ohne Adminrechte selbst
 
@@ -93,8 +94,9 @@ sie gehören bewusst **nicht** ins Repo.
 
 Unter **Releases** liegt die all-inclusive `SyncYouTube.exe` (ffmpeg/ffprobe/deno eingebaut):
 herunterladen, starten, fertig. Daneben das `.sha256`-Asset zum Prüfen und die signierte
-Firefox-Erweiterung. Updates holt die exe auf Wunsch selbst (Einstellungen → „Selbst-Update“,
-oder Tray → „Nach Updates suchen…“).
+Firefox-Erweiterung (+ `updates.json`, ihr Update-Kanal: einmal installiert, hält Firefox
+sie ab v1.0.4 selbst aktuell). Updates holt die exe auf Wunsch selbst (Einstellungen →
+„Selbst-Update“, oder Tray → „Nach Updates suchen…“).
 
 ## Lizenz
 
