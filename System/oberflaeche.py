@@ -762,7 +762,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
     <div class="cmd-left">
       <div class="cmd-row1">
         <span class="cmd-logo" title="YouTube-Downloader">▶ YouTube</span>
-        <input id="cmd-url" class="cmd-url" placeholder="🔗 Link einfügen — Enter lädt…"
+        <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
                onkeydown="if(event.key==='Enter')cmdDownload()">
 <select id="cmd-qual" class="cmd-qual" title="Qualität (Auswahl wird gemerkt)" onchange="qualMerken(this.value)">
           <option value="beste">Beste</option><option value="2160p">2160p</option>
@@ -785,7 +785,6 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
           <button class="iconbtn sm" id="theme" onclick="themeToggle()" title="Tag-/Nacht-Modus schnell umschalten">🌙</button>
           <button class="iconbtn sm" onclick="hilfeModal(true)" title="Legende: alle Knöpfe, Gesten &amp; Tasten erklärt">?</button>
           <button class="iconbtn sm" id="optbtn" onclick="optionenToggle(event)" title="Optionen (Look, Crossfade, Sleep-Timer, Fenster-Abstand …)">⚙</button>
-          <button class="iconbtn sm" onclick="appBeenden()" title="App komplett beenden (schließt auch den Hintergrund-Dienst)">⏻</button>
         </div>
       </div>
     </div>
@@ -819,7 +818,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 73</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 74</span>
 </div>
 
 <div id="canvas"></div>
@@ -830,7 +829,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <button class="btn mini" onclick="hilfeModal(false)">✕ Schließen</button></div>
     <div class="legbody">
       <div class="legsec">🖱 Gesten</div>
-      <div class="legrow"><b>Klick</b> auf Video/Cover im Player = Pause/Weiter · auf einen Download oben rechts = Pause/Fortsetzen</div>
+      <div class="legrow"><b>Klick</b> auf Video/Cover im Player = Pause/Weiter · auf einen Download im <b>Downloads</b>-Reiter = Pause/Fortsetzen</div>
       <div class="legrow"><b>Rechtsklick</b> auf Titel in der Bibliothek ODER in den Player = Menü mit allen Aktionen</div>
       <div class="legrow"><b>Mausrad kippen</b> (links/rechts) = zurück/vor zur vorherigen Ansicht — wie im Browser</div>
       <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster auf ein anderes ziehen = als Tab andocken (schnappt sonst zurück) · Tab auf ein anderes Fenster ziehen = dort als Tab andocken · Tab auf Freifläche = eigenes Fenster, das die Lücke dort ausfüllt (andere Fenster bleiben stehen)</div>
@@ -839,16 +838,18 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legrow"><b>Strg-/Shift-Klick</b> in der Bibliothek = mehrere markieren (Leiste mit Sammel-Aktionen erscheint)</div>
       <div class="legsec">▶ Player</div>
       <div class="legrow">Steuerung liegt <b>auf dem Video/Cover</b> (erscheint bei Mausbewegung): Zufall 🔀 und Wiederholen 🔁 sind <b>getrennte Schalter</b> — farbig mit Punkt = an, 🔁 nochmal klicken = nur diesen Titel (Zeichen zeigt eine kleine 1)</div>
-      <div class="legrow">Rechts auf der Leiste: <b>💬</b> Untertitel/Karaoke (werden bei Bedarf automatisch geladen) · <b>✂</b> Clip schneiden · <b>1×</b> Geschwindigkeit · 🔊 Lautstärke · <b>YouTube</b> öffnet das Video im Browser · <b>⛶</b> Vollbild</div>
+      <div class="legrow">Rechts auf der Leiste: <b>💬</b> Untertitel/Karaoke (Musik zeigt echte, mitleuchtende Songtexte via LRCLIB; sonst YouTube-Untertitel, still nachgeladen) · <b>✂</b> Clip schneiden · <b>1×</b> Geschwindigkeit · 🔊 Lautstärke · <b>YouTube</b> öffnet das Video · <b>⧉</b> Bild-in-Bild · <b>⛶</b> Vollbild</div>
       <div class="legrow">Einzeltitel zu Ende = automatisch der <b>nächste Titel der Bibliothek</b> (bei 🔀 ein zufälliger; Playlists stoppen wie gehabt am Ende)</div>
       <div class="legrow"><b>Rechtsklick in den Player</b> = alles Weitere: Visualizer-Liste, Geschwindigkeit, Untertitel-Sprachen, Equalizer, Playlist, VLC …</div>
       <div class="legsec">📚 Bibliothek</div>
       <div class="legrow"><b>▶</b> abspielen · <b>＋</b> zu Playlist (Liste wählen) · <b>📁</b> im Ordner zeigen · <b>⋯</b> mehr · <b>⊞/▤/☰</b> Kacheln/Alben/Liste · <b>⚙ Ansicht</b> Filter &amp; Werkzeuge</div>
-      <div class="legrow"><b>📃 Öffnen</b> zeigt eine Playlist (Ziehen = Reihenfolge) · <b>📻</b> Endlos-Radio · <b>▶ Mixe</b> Meistgespielt/Zuletzt/Smart</div>
-      <div class="legsec">⌨ Tasten</div>
-      <div class="legrow"><b>Leertaste</b> Pause/Weiter · <b>Strg+←/→</b> vorheriger/nächster Titel · <b>Medientasten</b> (wenn das Fenster im Vordergrund ist)</div>
-      <div class="legsec">⚡ Oben (Command-Bar)</div>
-      <div class="legrow">Links: Link einfügen + <b>⬇ Download</b> · Mini-Player (🔀 ⏮ ⏯ ⏭ 🔁 📻, Titel darunter, <b>Spulleiste</b> mit Zeit — ziehen = spulen · <b>🎶/🎬</b> was spielt: nur Musik / nur Videos / beides). Rechts: laufende Downloads (Klick = Pause, <b>✖</b> = abbrechen &amp; entfernen — Dateien bleiben). <b>🔗</b> Kopierte YouTube-Links werden automatisch erkannt.</div>
+      <div class="legrow"><b>📃 Öffnen</b> zeigt eine Playlist (Ziehen = Reihenfolge) · <b>📻</b> Endlos-Radio · <b>▶ Mixe</b> Meistgespielt/Zuletzt/Smart · <b>🔎 Text</b> durchsucht die Untertitel/Transkripte ALLER Videos (Klick auf einen Treffer springt an die Stelle)</div>
+      <div class="legsec">⬇ Downloads &amp; Abos</div>
+      <div class="legrow">Oben rechts das feste <b>Download-Fenster</b>: <b>Downloads</b> (was gerade lädt/wartet, Klick = Pause, <b>✖</b> = abbrechen — Dateien bleiben) · <b>Fertig</b> · <b>Log</b> (Übersicht + Ereignisse). Laden: Link/Playlist oben einfügen + <b>⬇ Download</b>. <b>📡</b> öffnet die <b>Abos</b> (Kanäle/Playlists abonnieren, Backkatalog nachladen, Format &amp; Regeln je Abo).</div>
+      <div class="legsec">⌨ Tasten (wenn nicht in einem Eingabefeld)</div>
+      <div class="legrow"><b>Leertaste/K</b> Pause/Weiter · <b>J/L</b> −/+10 s · <b>←/→</b> −/+5 s · <b>↑/↓</b> Lautstärke · <b>N/P</b> nächster/voriger Titel · <b>M</b> stumm · <b>F</b> Vollbild · <b>I</b> Bild-in-Bild · <b>S</b> Untertitel · <b>?</b> diese Legende · <b>Strg+←/→</b> &amp; <b>Medientasten</b> weiterhin</div>
+      <div class="legsec">⚡ Command-Bar oben</div>
+      <div class="legrow">Links: Link/Playlist einfügen + <b>⬇ Download</b> · Mini-Player (🔀 ⏮ ⏯ ⏭ 🔁 📻, Titel darunter, <b>Spulleiste</b> — ziehen = spulen · <b>🎶/🎬</b> was spielt: nur Musik / nur Videos / beides · Titel aus der Bibliothek auf den Player ziehen = einreihen). Rechts das Download-Fenster. <b>🔗</b> Kopierte YouTube-Links werden automatisch erkannt. <b>🔳 Mini</b>: Player klein &amp; eingebettet oben, Bibliothek + Playlist + Downloads darunter.</div>
     </div>
   </div>
 </div>
@@ -982,7 +983,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-queue">
     <div class="card">
-      <div class="kopfzeile"><h2>Downloads</h2>
+      <div class="kopfzeile" style="justify-content:flex-end">
         <button class="btn mini" onclick="aktion('','ordner_offen')" title="Downloads-Ordner im Explorer öffnen">📂 Zielordner</button></div>
       <div id="liste"></div>
     </div>
@@ -990,7 +991,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-done">
     <div class="card">
-      <div class="kopfzeile"><h2>Fertig</h2>
+      <div class="kopfzeile" style="justify-content:flex-end">
         <button class="btn mini" onclick="aktion('','queue_aufraeumen')" title="Fertige, Übersprungene und Fehlgeschlagene aus der Liste nehmen — Dateien bleiben">🧹 Aufräumen</button></div>
       <div id="fertigliste"></div>
     </div>
@@ -998,7 +999,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-log">
     <div class="card">
-      <div class="kopfzeile"><h2>Log</h2>
+      <div class="kopfzeile" style="justify-content:flex-end">
         <button class="btn mini" onclick="logLeeren()" title="Log-Liste leeren">Leeren</button></div>
       <div class="chips" id="logchips"></div>
       <div id="logliste" class="logliste"></div>
@@ -1306,17 +1307,21 @@ function ensurePlayer(){
   p.active='player'; bringFront(p); merkeView(p.id,'player'); renderPanels(); return p;
 }
 function ensureView(view){
-  // Eine Ansicht sichtbar machen: existiert sie als Tab, nach vorn holen —
-  // sonst ein neues Fenster kollisionsfrei öffnen (Muster ensurePlayer).
+  // Eine Ansicht sichtbar machen: existiert sie als Tab, nach vorn holen — sonst
+  // ein neues Fenster SICHTBAR oben öffnen (überlappt kurz, per bringFront vorn;
+  // freiePosition würde es bei vollem Canvas unter den Falz schieben, JB-Fund 21.07.).
   let p=L.panels.find(pp=>pp.views.includes(view));
   if(!p){
     const r=document.getElementById('canvas').getBoundingClientRect();
-    const w=Math.min(560,Math.max(340,Math.round(r.width)-16)), h=560;
-    const pos=freiePosition(w,h,Math.max(8,Math.round(r.width)-w-8),8);
-    p={id:'p'+(++L.z),x:pos.x,y:pos.y,w,h,views:[view],active:view,zi:++L.z};
+    const w=Math.min(560,Math.max(340,Math.round(r.width)-16));
+    const h=Math.min(620,Math.max(360,Math.round(r.height)-16));
+    const x=Math.max(8,Math.round((r.width-w)/2));      // mittig, im sichtbaren Bereich
+    p={id:'p'+(++L.z),x,y:16,w,h,views:[view],active:view,zi:++L.z};
     L.panels.push(p);
   }
-  p.active=view; bringFront(p); merkeView(p.id,view); renderPanels(); return p;
+  p.active=view; bringFront(p); merkeView(p.id,view); renderPanels();
+  const el=panelEl(p.id); if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});
+  return p;
 }
 function saveLayout(){
   if(L&&L.mini)return;                                 // Mini ist transient — nie als Hauptlayout speichern
