@@ -76,8 +76,20 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
   padding:6px 12px;font-family:Consolas,"Courier New",monospace;box-shadow:0 2px 12px rgba(0,0,0,.4)}
 .cmd-main{display:flex;gap:14px;align-items:stretch}
 .cmd-left{flex:1 1 50%;min-width:0;display:flex;flex-direction:column;gap:6px;justify-content:center}
-.cmd-right{flex:1 1 50%;min-width:0;max-height:118px;overflow-y:auto;border-left:1px solid var(--panelln);padding-left:12px}
-.cmd-right::-webkit-scrollbar{width:6px}.cmd-right::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
+.cmd-right{flex:1 1 46%;min-width:0;border-left:1px solid var(--panelln);padding-left:12px;display:flex;flex-direction:column;gap:5px}
+/* Fest eingebettetes Download-Fenster in der Command-Bar */
+.dlbox-tabs{display:flex;gap:2px;flex:none}
+.dlbox-tab{background:none;border:0;color:#8a7d74;font:inherit;font-size:12px;padding:4px 9px;border-radius:7px 7px 0 0;cursor:pointer}
+.dlbox-tab:hover{color:#d7c7bd}
+.dlbox-tab.an{background:var(--panel2,#241f1b);color:var(--akz2)}
+.dlbox-body{flex:1;min-height:150px;max-height:230px;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
+.dlbox-body::-webkit-scrollbar{width:6px}.dlbox-body::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
+.dlbox-body .card{margin:0;background:transparent;border:0;padding:10px 12px}
+.dlbox-body .kopfzeile h2{font-size:14px}
+/* Im Mini-Modus verschwindet das eingebettete Fenster (es lebt dann im Canvas) */
+body.mini #dlbox{display:none}
+html.light .dlbox-tab.an{background:#efe7de}
+html.light .dlbox-body{background:#f3ede4}
 .cmd-row1,.cmd-row2{display:flex;align-items:center;gap:8px}
 .cmd-row2 .spacer{flex:1}
 .cmd-logo{color:var(--akz);font-weight:700;letter-spacing:.08em;font-size:13px;white-space:nowrap;flex:none}
@@ -779,8 +791,16 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         </div>
       </div>
     </div>
-    <div class="cmd-right">
-      <div class="cmd-queue" id="cmd-queue"><span class="cmd-empty">// keine aktiven Downloads</span></div>
+    <!-- Fest eingebettetes Download-Fenster (JB 21.07.): vier Reiter, oben rechts
+         verankert. Im Mini-Modus löst es sich und wandert unter die Playlist. -->
+    <div class="cmd-right" id="dlbox">
+      <div class="dlbox-tabs" id="dlbox-tabs">
+        <button class="dlbox-tab" data-dlt="add" onclick="dlboxTab('add')">Hinzufügen</button>
+        <button class="dlbox-tab an" data-dlt="queue" onclick="dlboxTab('queue')">Warteschlange</button>
+        <button class="dlbox-tab" data-dlt="done" onclick="dlboxTab('done')">Fertig</button>
+        <button class="dlbox-tab" data-dlt="log" onclick="dlboxTab('log')">Log</button>
+      </div>
+      <div class="dlbox-body" id="dlbox-body"></div>
     </div>
   </div>
   <div id="cmd-clip" class="cmd-clip" style="display:none"></div>
@@ -801,7 +821,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 71</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 72</span>
 </div>
 
 <div id="canvas"></div>
@@ -1200,6 +1220,20 @@ async function setFehlerMin(v){
 
 /* ================= Panels / Docking ================= */
 const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Warteschlange', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player', plq:'🎶 Playlist', abos:'📡 Abos'};
+const DLV=['add','queue','done','log'];              // Download-Views: fest im dlbox (normal) / Canvas-Panel (mini)
+let dlboxAktiv='queue';
+function dlboxTab(v){ if(!DLV.includes(v))return; dlboxAktiv=v; dlboxRender(); }
+function dlboxRender(){
+  const box=document.getElementById('dlbox'), body=document.getElementById('dlbox-body');
+  if(!box||!body)return;
+  if(miniAn){box.style.display='none'; return;}       // im Mini leben die Download-Views im Canvas
+  box.style.display='';
+  document.querySelectorAll('#dlbox-tabs .dlbox-tab').forEach(t=>t.classList.toggle('an',t.dataset.dlt===dlboxAktiv));
+  const stash=document.getElementById('stash');
+  DLV.forEach(v=>{if(v!==dlboxAktiv){const n=document.getElementById('view-'+v); if(n&&n.parentNode===body)stash.appendChild(n);}});
+  const node=document.getElementById('view-'+dlboxAktiv);
+  if(node&&node.parentNode!==body)body.appendChild(node);
+}
 const LKEY='ytdl_layout_v5';
 let L=ladeLayout(), libTimer=null;
 
@@ -1208,27 +1242,24 @@ function defaultLayout(){
   // „Vorlagen schlagen alte Größen vor"), Abstände = eingestellter Gap (Standard 0).
   const W=window.innerWidth, g=Math.max(0,fensterAbstand());
   const bw=Math.max(320, W-16), H=Math.max(420, window.innerHeight-130);
+  // Downloads (Hinzufügen/Warteschlange/Fertig/Log) leben jetzt fest eingebettet
+  // in der Command-Bar (#dlbox) — der Canvas trägt nur noch Bibliothek + Player
+  // (JB 21.07.). Bibliothek ist die Hauptfläche, Player als Spalte rechts.
   if(W>1180){
-    // EIN „Downloads"-Fenster (Hinzufügen/Warteschlange/Fertig/Log) schmal links,
-    // Bibliothek groß in der Mitte, Player rechts (JB 21.07.: Downloads gebündelt,
-    // Bibliothek+Player sind die Hauptfläche — Muster Plexamp/Feishin/MeTube).
-    const lw=Math.round(Math.min(380, bw*0.24));
-    const plW=Math.max(320, Math.round(bw*0.30));
-    const libW=bw-lw-plW-2*g;
+    const plW=Math.max(340, Math.round(bw*0.33));
+    const libW=bw-plW-g;
     return {z:30,panels:[
-      {id:'p1',x:8,           y:8, w:lw,   h:H, views:['add','queue','done','log'], active:'add', zi:12},
-      {id:'p4',x:8+lw+g,      y:8, w:libW, h:H, views:['lib'],    active:'lib',    zi:14},
-      {id:'p5',x:8+lw+g+libW+g, y:8, w:plW, h:H, views:['player'], active:'player', zi:15},
+      {id:'p4',x:8,          y:8, w:libW, h:H, views:['lib'],    active:'lib',    zi:14},
+      {id:'p5',x:8+libW+g,   y:8, w:plW,  h:H, views:['player'], active:'player', zi:15},
     ]};
   }
   if(W>760){
     return {z:20,panels:[
-      {id:'p1',x:8,       y:8, w:320,      h:H, views:['add','queue','done','log'], active:'add', zi:12},
-      {id:'p4',x:8+320+g, y:8, w:bw-320-g, h:H, views:['lib','player'], active:'lib', zi:14},
+      {id:'p4',x:8, y:8, w:bw, h:H, views:['lib','player'], active:'lib', zi:14},
     ]};
   }
   return {z:12,panels:[
-    {id:'p1',x:8,y:8,w:bw,h:H,views:['lib','player','done','log','add','queue'],active:'lib',zi:11},
+    {id:'p4',x:8,y:8,w:bw,h:H,views:['lib','player'],active:'lib',zi:11},
   ]};
 }
 function ladeLayout(){
@@ -1236,7 +1267,11 @@ function ladeLayout(){
   try{const s=JSON.parse(localStorage.getItem(LKEY)||'null');
     if(s&&s.panels){
       delete s.mini;                                 // Mini-Layout nie als Hauptlayout übernehmen
-      s.panels=s.panels.filter(p=>p.id!=='pmini'&&p.id!=='mlib'&&p.id!=='mplq');   // Mini-Fenster nie mitladen
+      s.panels=s.panels.filter(p=>!['pmini','mlib','mplq','mdl'].includes(p.id));   // Mini-Fenster nie mitladen
+      // Migration (JB 21.07.): Download-Views leben jetzt im festen dlbox, nicht
+      // mehr im Canvas — aus Alt-Layouts entfernen, leere Fenster fallen weg.
+      s.panels.forEach(p=>{p.views=(p.views||[]).filter(v=>!DLV.includes(v)); if(!p.views.includes(p.active))p.active=p.views[0];});
+      s.panels=s.panels.filter(p=>p.views&&p.views.length);
       // Reload während Mini: der Player hing in der Mini-Karte — als Tab ins
       // größte Fenster zurück, sonst legt ensurePlayer später ein neues Fenster an
       if(s.panels.length&&!s.panels.some(p=>(p.views||[]).includes('player'))){
@@ -1249,7 +1284,7 @@ function ladeLayout(){
 }
 function alleViews(s){
   const drin=new Set(); s.panels.forEach(p=>(p.views||[]).forEach(v=>drin.add(v)));
-  return ['done','lib'].every(v=>drin.has(v));   // Kern: Fertig + Bibliothek; Rest optional
+  return drin.has('lib');   // Kern: Bibliothek (Downloads sind fest im dlbox)
 }
 function ensurePlayer(){
   let p=L.panels.find(pp=>pp.views.includes('player'));
@@ -1316,6 +1351,7 @@ function renderPanels(){
   const plqExtern=L.panels.some(p=>p.views.includes('plq'));
   document.body.classList.toggle('plq-extern',plqExtern);
   const pb=document.getElementById('plq-btn'); if(pb)pb.classList.toggle('an',plqExtern);
+  dlboxRender();                                       // Download-Views ins feste Fenster (normal) hosten
   renderPlayerQueue();
   saveLayout();
 }
@@ -1421,15 +1457,14 @@ function layoutVorlage(name){
     // Bildschirm füllend, Abstände = Gap (Standard 0) — keine alten Festmaße mehr
     const g=Math.max(0,fensterAbstand());
     const vidW=Math.round(bw*0.60), sideW=bw-vidW-g, H=Math.max(560,window.innerHeight-130);
-    const oben=Math.round(H*0.62);
+    const H2=Math.max(560,window.innerHeight-130);
     L={z:40,panels:[
-      {id:'p1',x:8,y:8,w:vidW,h:oben,views:['player'],active:'player',zi:14},
-      {id:'p2',x:8,y:8+oben+g,w:vidW,h:H-oben-g,views:['add','queue','done'],active:'queue',zi:13},
-      {id:'p3',x:8+vidW+g,y:8,w:sideW-8,h:H,views:['lib'],active:'lib',zi:15},
+      {id:'p1',x:8,y:8,w:vidW,h:H2,views:['player'],active:'player',zi:14},
+      {id:'p3',x:8+vidW+g,y:8,w:sideW-8,h:H2,views:['lib'],active:'lib',zi:15},
     ]};
   }else if(name==='tabs'){
     L={z:20,panels:[{id:'p1',x:8,y:8,w:bw,h:Math.max(560,window.innerHeight-130),
-      views:['add','queue','done','lib','player'],active:'lib',zi:11}]};
+      views:['lib','player'],active:'lib',zi:11}]};
   }else{ L=defaultLayout(); }
   renderPanels();
 }
@@ -1485,19 +1520,21 @@ function miniLayoutBauen(){
   const ch=Math.max(360,(c?c.clientHeight:window.innerHeight-96)||520);
   const g=Math.max(0,fensterAbstand());
   const mw=Math.min(380,Math.max(240,cw-16));         // Breite der Mini-Karte = Breite der Playlist-Spalte
-  // übrige Views (nicht player/plq) als Tabs auf das große Bibliotheks-Fenster,
-  // damit im Mini-Modus nichts unerreichbar wird.
+  // übrige Views (nicht player/plq/Downloads) als Tabs auf das große Bibliotheks-
+  // Fenster — die Download-Views bekommen ihr eigenes Fenster (mdl, unter der Playlist).
   const rest=[]; (miniVor?miniVor.panels:L.panels).forEach(p=>(p.views||[]).forEach(v=>{
-    if(v!=='player'&&v!=='plq'&&!rest.includes(v))rest.push(v);}));
+    if(v!=='player'&&v!=='plq'&&!DLV.includes(v)&&!rest.includes(v))rest.push(v);}));
   if(!rest.includes('lib'))rest.unshift('lib');
   const libViews=['lib',...rest.filter(v=>v!=='lib')];
   const libW=Math.max(240,cw-mw-g-16);
-  // Die Mini-Karte ist position:fixed ÜBER dem Canvas (auf Höhe der Command-Bar),
-  // ragt also nicht in die Arbeitsfläche — Bibliothek und Playlist bekommen beide
-  // die volle Canvas-Höhe.
+  // Mini-Layout (JB 21.07.): Bibliothek links groß; rechts als Spalte die
+  // Playlist OBEN und darunter das gelöste Download-Fenster (gestapelt). Die
+  // Mini-Karte ist position:fixed oben rechts (über der Command-Bar).
+  const oben=Math.round((ch-16-g)*0.5);               // Playlist obere Hälfte
   return {z:60,mini:true,panels:[
     {id:'mlib',x:8,y:8,w:libW,h:ch-16,views:libViews,active:'lib',zi:20},
-    {id:'mplq',x:8+libW+g,y:8,w:mw,h:ch-16,views:['plq'],active:'plq',zi:21},
+    {id:'mplq',x:8+libW+g,y:8,w:mw,h:oben,views:['plq'],active:'plq',zi:21},
+    {id:'mdl', x:8+libW+g,y:8+oben+g,w:mw,h:ch-16-oben-g,views:['queue','add','done','log'],active:'queue',zi:22},
     {id:'pmini',x:Math.max(0,cw-mw-8),y:8,w:mw,h:150,views:['player'],active:'player',zi:60},
   ]};
 }
@@ -2032,7 +2069,7 @@ function malen(){
   counterMalen(z);
   const fw=document.getElementById('ffwarn'); if(fw)fw.style.display=daten.ffmpeg?'none':'';   // ffmpeg-Warnung sichtbar!
   const al=document.getElementById('addon_lokal'); if(al)al.style.display=daten.addon_xpi?'':'none';
-  cmdQueueRender(items); cmdNowRender();               // Command-Bar oben mitversorgen
+  cmdNowRender();                                      // „Now Playing"-Mini oben mitversorgen
   logDiff(items);                                      // Ereignisse in den Log schreiben
   autotagStatus();                                     // Auto-Tagging-Fortschritt anzeigen
   const sub=document.getElementById('sub'); if(sub)sub.textContent=
