@@ -833,7 +833,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 75</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 76</span>
 </div>
 
 <div id="canvas"></div>
@@ -1098,7 +1098,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-plq">
     <div class="card" style="height:100%;display:flex;flex-direction:column">
-      <div class="kopfzeile"><h2>Player-Playlist</h2><span class="muted2" id="plq-anzahl"></span>
+      <div class="kopfzeile"><h2 id="plq-titel">Playlist</h2><span class="muted2" id="plq-anzahl"></span>
         <span class="spacer"></span>
         <button class="btn mini" onclick="plqFenster()" title="Playlist wieder in den Player eingliedern — der Player bekommt seine Breite zurück">⧉ In den Player</button></div>
       <div class="pl-queue plq-gross" id="pl-queue-win" ondragover="plqZielOver(event)" ondrop="plqZielDrop(event)"
@@ -2614,7 +2614,7 @@ function smartPlay(id){
   const s=smartListen.find(x=>x.id===id); if(!s)return;
   const ids=smartBerechnen(s.rules);
   if(!ids.length){alert('„'+s.name+'" ist gerade leer (keine passenden Titel).');return;}
-  if(playShuffle)mische(ids); playerPlay(ids,0);
+  if(playShuffle)mische(ids); playerPlay(ids,0,'✨ '+s.name);
 }
 function smartLoeschen(id){smartListen=smartListen.filter(s=>s.id!==id); smartSpeichern(); smartPopover(null,true);}
 function smartNeu(){
@@ -2872,7 +2872,7 @@ async function bulkAktion(op){
   libAuswahl.clear(); libLaden();
 }
 function bulkPlay(){ const arr=libGefiltert().filter(x=>libAuswahl.has(x.id)&&x.vorhanden).map(x=>x.id);
-  if(arr.length)playerPlay(arr,0); }
+  if(arr.length)playerPlay(arr,0,'Auswahl'); }
 async function bulkTags(){                              // Batch-Tag-Editor: Kanal + Titel suchen/ersetzen
   const keys=[...libAuswahl]; if(!keys.length)return;
   const uploader=prompt('Kanal / Künstler für alle '+keys.length+' Titel setzen?\\n(leer lassen = unverändert)','');
@@ -3017,20 +3017,20 @@ function naechstesAusBibliothek(){
     else if(i<0)nk=pool[0].id;                     // aktueller nicht in der Ansicht -> von vorn
   }
   if(!nk)return;
-  playerState.queue=[nk]; playerState.idx=0;       // bleibt Einzeltitel -> spielt immer weiter
+  playerState.queue=[nk]; playerState.idx=0; playerState.quelle='Bibliothek';
   renderPlayerMedia();
 }
 function playMostPlayed(){
   let arr=libdaten.filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x))
     .sort((a,b)=>(b.plays||0)-(a.plays||0)).slice(0,100).map(x=>x.id);
   if(!arr.length){alert('Noch nichts abgespielt.');return;}
-  if(playShuffle)mische(arr); playerPlay(arr,0);
+  if(playShuffle)mische(arr); playerPlay(arr,0,'★ Meistgespielt');
 }
 function playLetzte(){                                // „Zuletzt gespielt"
   const arr=libdaten.filter(x=>x.vorhanden&&(x.last_play||0)>0&&artPasst(x))
     .sort((a,b)=>(b.last_play||0)-(a.last_play||0)).slice(0,100).map(x=>x.id);
   if(!arr.length){alert('Noch nichts abgespielt.');return;}
-  playerPlay(arr,0);
+  playerPlay(arr,0,'🕘 Zuletzt gespielt');
 }
 
 /* ---- 📻 Radio: endloser, personalisierter Zufalls-Stream ---- */
@@ -3058,7 +3058,7 @@ function radioStart(){
   const erste=radioPick(40,[]);
   if(!erste.length){alert('Noch keine abspielbaren Titel — lade erst etwas herunter.');return;}
   radioAktiv=true;
-  playerState.queue=erste; playerState.idx=0;
+  playerState.queue=erste; playerState.idx=0; playerState.quelle='📻 Radio';
   ensurePlayer(); renderPlayerMedia();
   const info=document.getElementById('plinfo'); if(info)info.textContent='📻 Radio läuft — endloser Mix aus deiner Bibliothek';
 }
@@ -3622,7 +3622,7 @@ function listeTab(arr){
 }
 
 /* ================= Player ================= */
-let playerState={queue:[],idx:-1};
+let playerState={queue:[],idx:-1,quelle:''};
 let playerLayout='horizontal';   // Standard: Video links, Playlist rechts (JB-Favorit)
 try{const v=localStorage.getItem('ytdl_player_layout'); if(v)playerLayout=v;}catch(e){}
 function playerLayoutSet(){
@@ -3635,9 +3635,9 @@ function playerLayoutToggle(){
   playerLayoutSet();
 }
 function libFind(k){return libdaten.find(x=>x.id===k);}
-function playerPlay(keys,start){
+function playerPlay(keys,start,quelle){
   if(!(libdaten||[]).length){                          // Bibliothek noch nicht geladen -> erst holen,
-    libLaden().then(()=>playerPlay(keys,start));       // sonst filtert der Check ALLES raus und der
+    libLaden().then(()=>playerPlay(keys,start,quelle));// sonst filtert der Check ALLES raus und der
     return;                                            // Player bleibt schwarz (JB-Fund 14.07.)
   }
   keys=(keys||[]).filter(k=>{const x=libFind(k); return x&&x.vorhanden;});
@@ -3647,6 +3647,7 @@ function playerPlay(keys,start){
   if(el && keys.length===1 && keys[0]===aktKey()){ if(el.paused)el.play(); else el.pause(); return; }
   radioAktiv=false;                                  // manueller Start beendet den Radio-Stream
   playerState.queue=keys; playerState.idx=start||0;
+  playerState.quelle=quelle||'Bibliothek';           // Name fürs Playlist-Fenster (JB 21.07.)
   ensurePlayer(); renderPlayerMedia();
 }
 function playGefilterte(){
@@ -3685,7 +3686,7 @@ function vorherigesAusBibliothek(){
     else if(i<0)pk=pool[pool.length-1].id;          // aktueller nicht in der Ansicht -> ans Ende
   }
   if(!pk)return;
-  playerState.queue=[pk]; playerState.idx=0;        // bleibt Einzeltitel -> weiter navigierbar
+  playerState.queue=[pk]; playerState.idx=0; playerState.quelle='Bibliothek';
   renderPlayerMedia();
 }
 function playerExtern(){const k=aktKey(); if(k)biblio(k,'extern');}
@@ -4266,6 +4267,7 @@ function plqDragOver(e){e.preventDefault(); e.dataTransfer.dropEffect='move';}
 function plqEinfuegen(key,i){                          // Bibliotheks-Titel an Position i einreihen
   const x=libFind(key); if(!x||!x.vorhanden)return;
   const curKey=aktKey();
+  if(!playerState.queue.length)playerState.quelle='Playlist';   // frische Ad-hoc-Playlist
   playerState.queue.splice(i,0,key);
   if(playerState.idx<0){playerState.idx=0; ensurePlayer(); renderPlayerMedia(); return;}
   playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));
@@ -4339,6 +4341,10 @@ function renderPlayerQueue(){
   const qw=document.getElementById('pl-queue-win'); if(qw)qw.innerHTML=html;
   const za=document.getElementById('plq-anzahl');
   if(za)za.textContent=playerState.queue.length?(playerState.queue.length+' Titel'):'';
+  // Playlist-Fenster trägt den echten Quellen-Namen (Radio / Playlist-Name /
+  // Bibliothek / Mix …) statt statisch „Player-Playlist" (JB 21.07.).
+  const pt=document.getElementById('plq-titel');
+  if(pt)pt.textContent=playerState.queue.length?(playerState.quelle||'Playlist'):'Playlist';
 }
 
 /* ---- Transkript-Volltextsuche (JB 21.07.): findet, in welchem Video ein
@@ -4468,13 +4474,13 @@ function plPlaySel(){const id=document.getElementById('plsel').value; const p=pl
     let alle=libGefiltert().filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x)).map(x=>x.id);
     if(!alle.length){alert('Nichts Abspielbares in der aktuellen Ansicht (Suche/Filter prüfen).');return;}
     if(playShuffle)mische(alle);
-    playerPlay(alle,0); return;
+    playerPlay(alle,0,'Bibliothek'); return;
   }
   if(!p.items.length){alert('Diese Playlist ist leer.');return;}
   let ids=p.items.slice(); if(playShuffle)mische(ids);
   const start=ids.findIndex(k=>{const x=libFind(k); return x&&x.vorhanden&&artPasst(x);});
   if(start<0){alert('Nach dem 🎶/🎬-Filter bleibt in dieser Playlist nichts übrig.');return;}
-  playerPlay(ids,start);}
+  playerPlay(ids,start,p.name);}
 function plExport(){
   const id=document.getElementById('plsel').value;
   if(!id){alert('Bitte oben eine Playlist wählen.');return;}
