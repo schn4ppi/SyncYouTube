@@ -462,10 +462,25 @@ html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
 .abo-fkopf{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap}
 .abo-fkopf input[type=text]{flex:1;min-width:110px}
 .abo-fliste{max-height:420px;overflow:auto;margin-top:6px;display:flex;flex-direction:column;gap:1px}
-.abo-f{display:flex;gap:8px;align-items:center;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;flex:none}
+.abo-f{display:flex;gap:8px;align-items:center;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;flex:none;user-select:none}
 .abo-f:hover{background:#241f1b}
 .abo-f.fehlt{opacity:.45}                      /* verfügbar, aber noch nicht geladen -> ausgegraut (JB) */
 .abo-f.sel{background:#2e2620;outline:1px solid var(--akz)}
+/* Backkatalog-Flyout (Build 93, JB): eigenes grosses Fenster AM 📜-Knopf statt
+   Inline-Ausklappen in der engen Box — schwebend + fixiert (Anti-Scroll), wird
+   IMMER in den Viewport geklemmt, nur die Folgen-Liste scrollt innen. */
+.abo-flyout{position:fixed;z-index:900;background:var(--panel);border:1px solid var(--panelln);
+  border-radius:12px;box-shadow:0 14px 42px rgba(0,0,0,.55);display:flex;flex-direction:column;
+  padding:10px 12px;min-width:340px}
+.abo-flyout .abo-fkopf{position:sticky;top:0}
+.abo-flyout .abo-fliste{flex:1 1 auto;min-height:0;overflow:auto;position:relative}
+.abo-fly-titel{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-weight:600;color:#d7c7bd}
+.abo-fly-titel .spacer{flex:1}
+.abo-staffel{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:4px 0 6px;font-size:12px;color:#8a7d74}
+.abo-staffel .btn.mini{padding:2px 8px}
+.abo-band{position:fixed;z-index:901;border:1px solid var(--akz);background:rgba(201,149,43,.14);
+  border-radius:3px;pointer-events:none}
+html.light .abo-flyout{background:#faf5ec;border-color:#e3d8cc;box-shadow:0 14px 42px rgba(90,70,40,.25)}
 .abo-ft{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .abo-fd{color:#8a7d74;font-size:11px;flex:none}
 .abo-nr{color:#8a7d74;font-size:11px;flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
@@ -827,7 +842,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 92</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 93</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -2662,6 +2677,8 @@ function aboVor(ts){
 const ABO_Q={beste:'Beste','1080p':'1080p','720p':'720p','1440p':'1440p','2160p':'4K',audio:'MP3'};
 function aboMalen(){
   const el=document.getElementById('abo-liste'); if(!el)return;
+  const fly=document.getElementById('abo-flyout');   // Abo weg (gelöscht)? Waisen-Flyout schließen
+  if(fly&&!aboState.some(a=>a.id===fly.dataset.abo)){fly.remove(); document.removeEventListener('pointerdown',aboFlyoutAussen,true);}
   if(!aboState.length){el.innerHTML='<div class="leer" style="text-align:left;padding:6px 0">Noch keine Abos.</div>'; return;}
   el.innerHTML=aboState.map(a=>aboKarteHTML(a)).join('');
   aboState.forEach(a=>{const o=aboOffen[a.id]; if(o&&o.auf)aboFolgenMalen(a.id);});
@@ -2676,12 +2693,11 @@ function aboKarteHTML(a){
       ${qsel}
       <span class="abo-meta">${a.neu?('+'+a.neu+' geholt · '):''}${a.geprueft?('geprüft '+aboVor(a.geprueft)):''}</span>
       <button class="ib" title="Abo-Playlist im Player abspielen" onclick="aboAbspielen('${a.id}')">▶</button>
-      <button class="ib ${o.auf?'an':''}" title="Backkatalog: alle Folgen des Kanals — Ausgegrautes ist noch nicht geladen" onclick="aboFolgenToggle('${a.id}')">📜</button>
+      <button class="ib ${o.auf?'an':''}" title="Backkatalog: alle Folgen des Kanals als eigenes Fenster — Ausgegrautes ist noch nicht geladen" onclick="aboFolgenToggle('${a.id}',event)">📜</button>
       <button class="ib ${o.regeln?'an':''}" title="Regeln: Titel-Filter, Stichtag, Shorts/Streams, Auto-Löschen, Format-Erneuern" onclick="aboRegelnToggle('${a.id}')">⚙</button>
       <button class="ib" title="Abo entfernen (heruntergeladene Videos bleiben)" onclick="aboDelete('${a.id}')">🗑</button>
     </div>
     ${o.regeln?aboRegelnHTML(a):''}
-    ${o.auf?`<div class="abo-folgen" id="abo-folgen-${a.id}"></div>`:''}
   </div>`;
 }
 function aboRegelnHTML(a){
@@ -2707,10 +2723,79 @@ function aboRegelnHTML(a){
 async function aboRegel(id,feld,wert){const d={art:'aendern',id}; d[feld]=wert; await aboPost(d); aboLaden();}
 async function aboQualitaet(id,q){await aboPost({art:'aendern',id,qualitaet:q}); aboLaden();}
 function aboRegelnToggle(id){const o=aboOffen[id]=aboOffen[id]||{zeige:300,sel:new Set()}; o.regeln=!o.regeln; aboMalen();}
-function aboFolgenToggle(id){
+/* ---- Backkatalog-Flyout (Build 93, JB): grosses Fenster am 📜-Knopf, nie aus
+   dem Viewport. Nur EINES gleichzeitig; Esc/Aussenklick schliesst. ---- */
+function aboFolgenToggle(id,ev){
   const o=aboOffen[id]=aboOffen[id]||{zeige:300,sel:new Set()};
-  o.auf=!o.auf; aboMalen();
-  if(o.auf&&!o.folgen)aboFolgenLaden(id,false);
+  if(o.auf){aboFlyoutZu(); return;}
+  aboFlyoutZu();                                       // evtl. offenes anderes Abo zu
+  o.auf=true;
+  const fly=document.createElement('div');
+  fly.className='abo-flyout'; fly.id='abo-flyout'; fly.dataset.abo=id; fly.tabIndex=-1;
+  const a=aboState.find(x=>x.id===id)||{};
+  fly.innerHTML=`<div class="abo-fly-titel">📜 ${esc(a.name||'Backkatalog')}<span class="spacer"></span>
+      <button class="ib" title="Schliessen (Esc)" onclick="aboFlyoutZu()">✕</button></div>
+    <div class="abo-folgen" id="abo-folgen-${id}"></div>`;
+  document.body.appendChild(fly);
+  const anker=ev&&ev.currentTarget?ev.currentTarget.getBoundingClientRect():{left:80,bottom:80,top:60};
+  aboFlyoutPositionieren(fly,anker);
+  fly.addEventListener('keydown',e=>aboFlyoutTasten(e,id));
+  setTimeout(()=>document.addEventListener('pointerdown',aboFlyoutAussen,true),0);
+  fly.focus();
+  aboMalen();
+  if(o.folgen)aboFolgenMalen(id); else aboFolgenLaden(id,false);
+}
+function aboFlyoutPositionieren(fly,anker){
+  // Wunschgroesse: richtig gross — aber IMMER komplett lesbar im Viewport.
+  const vw=window.innerWidth, vh=window.innerHeight, R=12;
+  const w=Math.min(820, Math.max(340, Math.round(vw*0.75)), vw-2*R);
+  const h=Math.min(Math.round(vh*0.7), vh-2*R);
+  let x=Math.round(anker.left||R), y=Math.round((anker.bottom||R)+6);
+  if(y+h>vh-R)y=Math.max(R, Math.round((anker.top||vh)-h-6));   // unten kein Platz -> ueber den Knopf
+  if(y+h>vh-R)y=Math.max(R, vh-R-h);                            // immer noch nicht -> an die Unterkante klemmen
+  x=Math.max(R, Math.min(x, vw-R-w));
+  fly.style.left=x+'px'; fly.style.top=y+'px'; fly.style.width=w+'px'; fly.style.height=h+'px';
+}
+function aboFlyoutZu(){
+  const fly=document.getElementById('abo-flyout');
+  if(fly){const id=fly.dataset.abo; if(aboOffen[id])aboOffen[id].auf=false; fly.remove();}
+  document.removeEventListener('pointerdown',aboFlyoutAussen,true);
+  aboMalen();
+}
+function aboFlyoutAussen(e){
+  const fly=document.getElementById('abo-flyout'); if(!fly)return;
+  if(fly.contains(e.target)||e.target.closest('.itemmenu'))return;   // Rechtsklick-Menü gehört dazu
+  aboFlyoutZu();
+}
+function aboFlyoutNachklemmen(){                       // Fenster-Resize: Flyout bleibt komplett lesbar
+  const fly=document.getElementById('abo-flyout'); if(!fly)return;
+  const vw=window.innerWidth, vh=window.innerHeight, R=12;
+  const w=Math.min(parseInt(fly.style.width,10)||600, vw-2*R), h=Math.min(parseInt(fly.style.height,10)||400, vh-2*R);
+  fly.style.width=w+'px'; fly.style.height=h+'px';
+  fly.style.left=Math.max(R,Math.min(parseInt(fly.style.left,10)||R, vw-R-w))+'px';
+  fly.style.top =Math.max(R,Math.min(parseInt(fly.style.top,10)||R, vh-R-h))+'px';
+}
+window.addEventListener('resize',aboFlyoutNachklemmen);
+function aboFlyoutTasten(e,id){
+  const o=aboOffen[id]; if(!o)return;
+  const imFeld=/^(INPUT|SELECT|TEXTAREA)$/.test((e.target.tagName||''));
+  if(e.key==='Escape'){
+    if(o.sel.size&&!imFeld){o.sel.clear(); aboFolgenMalen(id);}
+    else aboFlyoutZu();
+    e.stopPropagation();
+  }else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'&&!imFeld){
+    e.preventDefault();
+    aboGefiltert(id).forEach(x=>o.sel.add(x.id));      // Strg+A = die ganze gefilterte Sicht
+    aboFolgenMalen(id);
+  }
+}
+function aboGefiltert(id){
+  const o=aboOffen[id]||{}; const alle=o.folgen||[];
+  const f=(o.filter||'').toLowerCase();
+  let liste=f?alle.filter(x=>(x.titel||'').toLowerCase().includes(f)):alle;
+  if(o.nur==='fehlt')liste=liste.filter(x=>!x.geladen);
+  else if(o.nur==='da')liste=liste.filter(x=>x.geladen);
+  return liste;
 }
 async function aboFolgenLaden(id,frisch){
   const o=aboOffen[id]; if(!o)return;
@@ -2727,10 +2812,7 @@ function aboFolgenMalen(id){
   if(o.laedt){box.innerHTML='<div class="leer">Hole Folgen-Liste vom Kanal… (bei großen Kanälen dauert das etwas)</div>'; return;}
   if(o.fehler){box.innerHTML='<div class="leer">'+esc(o.fehler)+'</div>'; return;}
   const alle=o.folgen||[];
-  const f=(o.filter||'').toLowerCase();
-  let liste=f?alle.filter(x=>(x.titel||'').toLowerCase().includes(f)):alle;
-  if(o.nur==='fehlt')liste=liste.filter(x=>!x.geladen);
-  else if(o.nur==='da')liste=liste.filter(x=>x.geladen);
+  const liste=aboGefiltert(id);
   const fehlen=alle.filter(x=>!x.geladen).length;
   const fq=q=>ABO_Q[q]||q;
   const zeilen=liste.slice(0,o.zeige).map(x=>{
@@ -2744,6 +2826,10 @@ function aboFolgenMalen(id){
       <span class="abo-nr" title="Folge ${x.nr} (älteste = 1, neueste = ${alle.length})">#${x.nr}</span>
       <span class="abo-ft">${esc(x.titel)}</span>${x.dauer?'<span class="abo-fd">'+zeit(x.dauer)+'</span>':''}${badge}</div>`;
   }).join('');
+  const fehltSicht=liste.filter(x=>!x.geladen).length;
+  const staffel=[10,25,50,100].map(n=>
+    `<button class="btn mini" onclick="aboFehlendeLaden('${id}',${n})" ${fehltSicht?'':'disabled'}
+       title="Die ${o.richtung==='neu'?'neuesten':'ältesten'} ${n} noch fehlenden Folgen der aktuellen Sicht laden">${n}</button>`).join('');
   box.innerHTML=`<div class="abo-fkopf">
       <input type="text" placeholder="Folgen durchsuchen…" value="${esc(o.filter||'')}"
         oninput="aboOffen['${id}'].filter=this.value;aboOffen['${id}'].zeige=300;aboFolgenMalen('${id}')">
@@ -2752,24 +2838,79 @@ function aboFolgenMalen(id){
         <option value="fehlt" ${o.nur==='fehlt'?'selected':''}>fehlende (${fehlen})</option>
         <option value="da" ${o.nur==='da'?'selected':''}>geladene (${alle.length-fehlen})</option></select>
       <button class="btn mini" onclick="aboAuswahlLaden('${id}')" ${o.sel.size?'':'disabled'}
-        title="Markierte Folgen im Abo-Format in die Warteschlange (Klick = markieren, Shift-Klick = Bereich)">⬇ Auswahl (${o.sel.size})</button>
-      <button class="btn mini" onclick="aboAlleFehlenden('${id}')" title="ALLE noch fehlenden Folgen im Abo-Format laden">⬇ Alle fehlenden</button>
+        title="Markierte Folgen im Abo-Format in die Warteschlange (Klick = diese, Strg+Klick = dazu/weg, Shift = Bereich, Strg+A = alle, Rahmen aufziehen = viele)">⬇ Auswahl (${o.sel.size})</button>
       <button class="ib" title="Folgen-Liste frisch vom Kanal holen${o.ts?' (Stand '+aboVor(o.ts)+')':''}" onclick="aboFolgenLaden('${id}',true)">🔄</button>
     </div>
-    <div class="abo-fliste">${zeilen||'<div class="leer">nichts gefunden</div>'}</div>
+    <div class="abo-staffel">⬇ Fehlende laden: ${staffel}
+      <button class="btn mini" onclick="aboAlleFehlenden('${id}')" ${fehltSicht?'':'disabled'}
+        title="ALLE noch fehlenden Folgen der aktuellen Sicht laden">Alle (${fehltSicht})</button>
+      <button class="btn mini" onclick="aboOffen['${id}'].richtung=aboOffen['${id}'].richtung==='neu'?'alt':'neu';aboFolgenMalen('${id}')"
+        title="Reihenfolge der Mengen-Knöpfe umschalten">${o.richtung==='neu'?'⏭ neueste zuerst':'⏮ älteste zuerst'}</button>
+    </div>
+    <div class="abo-fliste" onpointerdown="aboBandStart(event,'${id}')">${zeilen||'<div class="leer">nichts gefunden</div>'}</div>
     ${liste.length>o.zeige?`<button class="btn mini" style="margin-top:4px" onclick="aboOffen['${id}'].zeige+=600;aboFolgenMalen('${id}')">… mehr anzeigen (${liste.length-o.zeige} weitere)</button>`:''}`;
 }
 function aboFolgeKlick(ev,id,vid){
+  // Windows-Semantik (Build 93, JB-Entscheid): Klick = NUR diese, Strg+Klick =
+  // dazu/weg, Shift = Bereich (ersetzt; mit Strg additiv). Anker bleibt beim
+  // Shift-Klick stehen — wie im Explorer.
   const o=aboOffen[id]; if(!o)return;
   const box=ev.currentTarget.parentElement;
   const sichtbar=[...box.querySelectorAll('.abo-f')].map(n=>n.dataset.vid);
   if(ev.shiftKey&&aboLetzterKlick[id]){
     const i1=sichtbar.indexOf(aboLetzterKlick[id]), i2=sichtbar.indexOf(vid);
+    if(!ev.ctrlKey&&!ev.metaKey)o.sel.clear();
     if(i1>=0&&i2>=0)sichtbar.slice(Math.min(i1,i2),Math.max(i1,i2)+1).forEach(v=>o.sel.add(v));
-  }else if(o.sel.has(vid))o.sel.delete(vid);
-  else o.sel.add(vid);
-  aboLetzterKlick[id]=vid;
+  }else if(ev.ctrlKey||ev.metaKey){
+    if(o.sel.has(vid))o.sel.delete(vid); else o.sel.add(vid);
+    aboLetzterKlick[id]=vid;
+  }else{
+    o.sel.clear(); o.sel.add(vid);
+    aboLetzterKlick[id]=vid;
+  }
   aboFolgenMalen(id);
+}
+/* Rahmen aufziehen (Rubberband, Build 93): auf freier Listen-Flaeche starten,
+   Rechteck markiert alle geschnittenen Folgen; mit Strg additiv zur Auswahl. */
+function aboBandStart(ev,id){
+  if(ev.button!==0||ev.target.closest('.abo-f')||ev.target.closest('button'))return;
+  const o=aboOffen[id]; if(!o)return;
+  const liste=ev.currentTarget, basis=new Set(ev.ctrlKey||ev.metaKey?[...o.sel]:[]);
+  const x0=ev.clientX, y0=ev.clientY; let band=null;
+  function mv(e){
+    if(!band){
+      if(Math.abs(e.clientX-x0)<5&&Math.abs(e.clientY-y0)<5)return;   // erst ab 5 px ein Band
+      band=document.createElement('div'); band.className='abo-band'; document.body.appendChild(band);
+    }
+    const l=Math.min(x0,e.clientX), t=Math.min(y0,e.clientY),
+          r=Math.max(x0,e.clientX), b=Math.max(y0,e.clientY);
+    band.style.left=l+'px'; band.style.top=t+'px';
+    band.style.width=(r-l)+'px'; band.style.height=(b-t)+'px';
+    const lr=liste.getBoundingClientRect();                           // Rand-Nachschieben bei langen Listen
+    if(e.clientY>lr.bottom-18)liste.scrollTop+=14;
+    else if(e.clientY<lr.top+18)liste.scrollTop-=14;
+    o.sel=new Set(basis);
+    [...liste.querySelectorAll('.abo-f')].forEach(n=>{
+      const q=n.getBoundingClientRect();
+      if(q.left<r&&q.right>l&&q.top<b&&q.bottom>t)o.sel.add(n.dataset.vid);
+      n.classList.toggle('sel',o.sel.has(n.dataset.vid));
+    });
+  }
+  function up(){
+    document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
+    if(band){band.remove(); aboFolgenMalen(id);}                      // Zaehler im Kopf nachziehen
+  }
+  document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
+}
+function aboFehlendeLaden(id,n){
+  // Mengen-Staffel (Build 93): die naechsten n fehlenden der AKTUELLEN Sicht —
+  // Liste ist neueste-zuerst; Standard laedt chronologisch (aelteste zuerst).
+  const o=aboOffen[id]; if(!o)return;
+  let fehlt=aboGefiltert(id).filter(x=>!x.geladen);
+  if(o.richtung!=='neu')fehlt=fehlt.slice().reverse();
+  const vids=fehlt.slice(0,n).map(x=>x.id);
+  if(!vids.length){alert('Nichts offen — alles in dieser Sicht ist geladen.');return;}
+  aboFolgenHolen(id,vids);
 }
 function aboFolgeKontext(ev,id,vid){
   ev.preventDefault();
@@ -2794,8 +2935,8 @@ function aboAuswahlLaden(id){
 }
 function aboAlleFehlenden(id){
   const o=aboOffen[id]; if(!o)return;
-  const fehlt=(o.folgen||[]).filter(x=>!x.geladen).map(x=>x.id);
-  if(!fehlt.length){alert('Nichts offen — alles ist geladen.');return;}
+  const fehlt=aboGefiltert(id).filter(x=>!x.geladen).map(x=>x.id);   // Sicht-bezogen wie die Staffel (Build 93)
+  if(!fehlt.length){alert('Nichts offen — alles in dieser Sicht ist geladen.');return;}
   if(!confirm(fehlt.length+' fehlende Folge(n) im Abo-Format in die Warteschlange legen?'))return;
   aboFolgenHolen(id,fehlt);
 }
@@ -3946,7 +4087,15 @@ function vorherigesAusBibliothek(){
   renderPlayerMedia();
 }
 function playerExtern(){const k=aktKey(); if(k)biblio(k,'extern');}
-function playerYoutube(){const x=libFind(aktKey()); if(x&&x.url)window.open(x.url,'_blank','noreferrer');}
+function playerYoutube(){
+  // Build 93 (JB): YouTube genau DA oeffnen, wo der Player gerade steht (&t=…s);
+  // unter 4 s bleibt der Link sauber ohne Zeitangabe.
+  const x=libFind(aktKey()); if(!x||!x.url)return;
+  const el=document.getElementById('pl-el');
+  const s=el&&isFinite(el.currentTime)?Math.floor(el.currentTime):0;
+  const url=s>3?x.url+(x.url.includes('?')?'&':'?')+'t='+s+'s':x.url;
+  window.open(url,'_blank','noreferrer');
+}
 
 /* ---- Abspielgeschwindigkeit ---- */
 let playSpeed=1; try{const v=parseFloat(localStorage.getItem('ytdl_speed')); if(v>=0.25&&v<=3)playSpeed=v;}catch(e){}
