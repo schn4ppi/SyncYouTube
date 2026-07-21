@@ -646,6 +646,13 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
   .card.pl-horizontal .pl-side{width:auto;height:auto}
   .card.pl-horizontal .pl-side .pl-queue{flex:none;max-height:150px}
 }
+/* Dashboard-Embed, Video oben (JB 22.07.): die Videofläche NICHT den ganzen Rest fressen
+   lassen (das erzeugte die großen schwarzen Balken), sondern an ~16:9 binden — dann füllt
+   das Video sie fast randlos. Der frei werdende Platz geht an die Playlist. Ein bisschen
+   Letterbox bei Nicht-16:9 bleibt (ok). max-height deckelt für kurze/breite Rahmen. */
+body.embed #view-player .card:not(.pl-horizontal) .pl-media{flex:none;aspect-ratio:16/9;max-height:70%}
+body.embed #view-player .card:not(.pl-horizontal) .pl-side{flex:1;min-height:0}
+body.embed #view-player .card:not(.pl-horizontal) .pl-side .pl-queue{flex:1;max-height:none}
 /* Zu-klein-Verhalten (JB 14.07., Muster Video.js/Media Chrome/VLC): Knöpfe haben
    Vorrang — die Videofläche gibt zuerst nach, dann fallen Playlist/Titel weg,
    und in der Video-Leiste verschwinden Sekundär-Knöpfe GESTUFT (bo3→bo2→bo1);
@@ -3713,14 +3720,19 @@ function listeTab(arr){
 /* ================= Player ================= */
 let playerState={queue:[],idx:-1,quelle:''};
 let playerLayout='horizontal';   // Standard: Video links, Playlist rechts (JB-Favorit)
-try{const v=localStorage.getItem('ytdl_player_layout'); if(v)playerLayout=v;}catch(e){}
+// Dashboard-Embed (?embed=1): standardmäßig Video OBEN, Playlist UNTEN (JB 22.07.). Die
+// GETEILTE localStorage-Preferenz bewusst NICHT lesen, damit die Standalone-Wahl nicht ins
+// Embed leckt (und der Toggle unten schreibt im Embed auch nichts zurück).
+const _plEmbed=(typeof location!=='undefined'&&location.search.indexOf('embed=1')>=0);
+if(_plEmbed){playerLayout='vertikal';}
+else{try{const v=localStorage.getItem('ytdl_player_layout'); if(v)playerLayout=v;}catch(e){}}
 function playerLayoutSet(){
   const card=document.getElementById('pl-card');
   if(card)card.classList.toggle('pl-horizontal', playerLayout==='horizontal');
 }
 function playerLayoutToggle(){
   playerLayout=(playerLayout==='horizontal')?'vertikal':'horizontal';
-  try{localStorage.setItem('ytdl_player_layout',playerLayout);}catch(e){}
+  if(!_plEmbed){try{localStorage.setItem('ytdl_player_layout',playerLayout);}catch(e){}}  // Embed: nur für die Sitzung
   playerLayoutSet();
 }
 function libFind(k){return libdaten.find(x=>x.id===k);}
