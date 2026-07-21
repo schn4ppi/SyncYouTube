@@ -4751,6 +4751,9 @@ function plqRemove(i){                                 // Titel aus der Ad-hoc-P
       playerState.idx=-1; plqSel=playerState.queue.length-1;
       renderPlayerQueue(); renderPlayerMedia(); cmdNowRender();
     }
+    // Fokus-Restore auch HIER (JB-Sicht-Check 22.07.): sonst braucht die Tastatur nach dem
+    // Entfernen des laufenden Titels wieder einen Klick (gleicher Tick-Trick wie unten).
+    if(plqSel!==null)setTimeout(function(){plqFocus(plqSel);},0);
     return;
   }
   playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));   // anderer Titel raus -> laufender spielt ungestört weiter
