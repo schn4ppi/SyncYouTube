@@ -812,7 +812,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 84</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 85</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1373,6 +1373,7 @@ function ensureView(view){
 }
 function saveLayout(){
   if(L&&L.mini)return;                                 // Mini ist transient — nie als Hauptlayout speichern
+  try{if(!miniAn){const m=_vpMasse(); if(m)L.vp=m;}}catch(e){}   // Bezugsgröße merken → Reload passt daran an
   try{localStorage.setItem(LKEY,JSON.stringify(L));}catch(e){}
 }
 function layoutReset(){layoutMerken();L=defaultLayout();renderPanels();}
@@ -1439,6 +1440,32 @@ function canvasAnpassen(){
     p.w=Math.max(220,Math.round(p.w*rx)); p.h=Math.max(160,Math.round(p.h*ry));
   });
   _vpRef=m; renderPanels();
+}
+/* Gespeichertes Layout beim LADEN an die aktuelle Fenstergröße anpassen
+   (JB 22.07.: „im YouTube-Modus verschwindet die Bibliothek ausserhalb des
+   Bildschirms — am Anfang"). Ursache: absolute Pixel aus der Größe beim
+   Speichern; der Resize-Handler oben greift erst bei echtem Resize. Hier: exakt
+   proportional aus dem gemerkten Bezug (L.vp) skalieren, plus Sicherheitsnetz,
+   damit auch Alt-Layouts OHNE Bezug nie aus dem Canvas ragen. */
+function layoutAnViewport(){
+  if(miniAn)return;
+  const m=_vpMasse(); if(!m||!L||!L.panels||!L.panels.length)return;
+  // Bezug: die gemerkte Speichergröße (exakt) — oder, bei Alt-Layouts ohne Bezug,
+  // die eigene Bounding-Box, damit das Arrangement genau in den Canvas gemappt wird.
+  let ref=(L.vp&&L.vp.cw>0&&L.vp.ch>0)?L.vp:null;
+  if(!ref){
+    const maxR=Math.max.apply(null,L.panels.map(p=>p.x+p.w));
+    const maxB=Math.max.apply(null,L.panels.map(p=>p.y+p.h));
+    ref={cw:Math.max(320,maxR), ch:Math.max(320,maxB)};
+  }
+  const rx=m.cw/ref.cw, ry=m.ch/ref.ch;
+  if(Math.abs(rx-1)>0.01||Math.abs(ry-1)>0.01){        // ganzes Layout uniform skalieren → Adjazenz bleibt, kein Überlappen
+    L.panels.forEach(p=>{
+      p.x=Math.max(0,Math.round(p.x*rx)); p.y=Math.max(0,Math.round(p.y*ry));
+      p.w=Math.max(220,Math.round(p.w*rx)); p.h=Math.max(160,Math.round(p.h*ry));
+    });
+  }
+  L.vp=m;
 }
 window.addEventListener('resize',()=>{clearTimeout(_resizeT); _resizeT=setTimeout(canvasAnpassen,90);});
 
@@ -1575,7 +1602,7 @@ function layoutWaehlen(v){
   if(v.startsWith('v:'))layoutVorlage(v.slice(2));
   else if(v.startsWith('m:')){const l=meineLayouts()[v.slice(2)];
     if(l){layoutMerken(); miniVerlassen(); L=JSON.parse(JSON.stringify(l));
-      L.panels=L.panels.filter(p=>p.id!=='pmini'); renderPanels(); saveLayout();}}
+      L.panels=L.panels.filter(p=>p.id!=='pmini'); layoutAnViewport(); renderPanels(); saveLayout();}}
 }
 function layoutSpeichern(){
   const n=prompt('Name für diese Fenster-Anordnung:'); if(!n||!n.trim())return;
@@ -4637,6 +4664,7 @@ document.addEventListener('keydown',e=>{
 
 /* ================= Init (läuft einmal beim Seiten-Start) ================= */
 themeIcon();
+layoutAnViewport();                              // gespeichertes Layout an die aktuelle Fenstergröße anpassen (JB 22.07.: „am Anfang ausserhalb des Bildschirms")
 renderPanels();
 layoutEntwirren();                               // alte Layouts mit Überlappungen einmalig bereinigen
 _vpRef=_vpMasse();                               // Bezugsmaß fürs proportionale Mitwachsen beim Resize
