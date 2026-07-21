@@ -86,8 +86,10 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .dlbox-body::-webkit-scrollbar{width:6px}.dlbox-body::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
 .dlbox-body .card{margin:0;background:transparent;border:0;padding:10px 12px}
 .dlbox-body .kopfzeile h2{font-size:14px}
-/* Im Mini-Modus verschwindet das eingebettete Fenster (es lebt dann im Canvas) */
-body.mini #dlbox{display:none}
+/* Mini: statt der Download-Reiter sitzt hier der eingebettete Mini-Player */
+#cmd-mini:empty{display:none}
+#cmd-mini{display:flex;flex-direction:column;min-height:150px;max-height:260px}
+body.mini #cmd-mini #view-player{height:100%}
 html.light .dlbox-tab.an{background:#efe7de}
 html.light .dlbox-body{background:#f3ede4}
 .cmd-row1,.cmd-row2{display:flex;align-items:center;gap:8px}
@@ -164,16 +166,11 @@ html.light .dlbar{background:#e6ddd3}
 #layoutbar select{max-width:230px}
 #layouttools{display:none}                             /* Werkzeuge nur im ✏-Modus (mehr Platz) */
 body.layoutedit #layouttools{display:contents}
-/* Mini-Player-Modus: kleine Player-Karte oben rechts angeheftet — alle anderen
-   Fenster (Bibliothek!) bleiben sichtbar und bedienbar (JB 14.07.). */
+/* Mini-Player-Modus: der Player sitzt kompakt eingebettet in der Command-Bar
+   (#cmd-mini) — Seitenliste weg, Karte flach (JB 21.07.). */
 body.mini #view-player .pl-side{display:none}
 body.mini #view-player .card{flex-direction:row}
 body.mini .pl-media{min-height:0}
-/* Nur das Mini-Panel klebt FIX oben rechts über dem Ende der Command-Bar
-   (JB-Skizze 14.07.) — der Rest des Layouts bleibt unangetastet. */
-body.mini .panel[data-id="pmini"]{box-shadow:0 8px 30px rgba(0,0,0,.6);
-  position:fixed;top:6px!important;right:6px;left:auto!important;bottom:auto;z-index:500!important}
-body.mini .panel[data-id="pmini"] .panel-tabs{display:none}
 /* Drag&Drop-Ziel (Link ins Fenster ziehen) */
 body.dragziel::after{content:"⬇ Link hier loslassen = Download";position:fixed;inset:8px;z-index:9000;
   border:3px dashed var(--akz);border-radius:16px;background:rgba(0,0,0,.35);color:var(--akz2);
@@ -784,6 +781,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
           <span class="apidot bad" id="apidot" title="API-Status"></span>
         </div>
         <div class="cmd-side">
+          <button class="iconbtn sm" onclick="ensureView('abos')" title="Abos: Kanäle/Playlists abonnieren, Backkatalog, Format &amp; Regeln je Abo">📡</button>
           <button class="iconbtn sm" id="theme" onclick="themeToggle()" title="Tag-/Nacht-Modus schnell umschalten">🌙</button>
           <button class="iconbtn sm" onclick="hilfeModal(true)" title="Legende: alle Knöpfe, Gesten &amp; Tasten erklärt">?</button>
           <button class="iconbtn sm" id="optbtn" onclick="optionenToggle(event)" title="Optionen (Look, Crossfade, Sleep-Timer, Fenster-Abstand …)">⚙</button>
@@ -795,12 +793,12 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
          verankert. Im Mini-Modus löst es sich und wandert unter die Playlist. -->
     <div class="cmd-right" id="dlbox">
       <div class="dlbox-tabs" id="dlbox-tabs">
-        <button class="dlbox-tab" data-dlt="add" onclick="dlboxTab('add')">Hinzufügen</button>
-        <button class="dlbox-tab an" data-dlt="queue" onclick="dlboxTab('queue')">Warteschlange</button>
+        <button class="dlbox-tab an" data-dlt="queue" onclick="dlboxTab('queue')">Downloads</button>
         <button class="dlbox-tab" data-dlt="done" onclick="dlboxTab('done')">Fertig</button>
         <button class="dlbox-tab" data-dlt="log" onclick="dlboxTab('log')">Log</button>
       </div>
       <div class="dlbox-body" id="dlbox-body"></div>
+      <div id="cmd-mini"></div>
     </div>
   </div>
   <div id="cmd-clip" class="cmd-clip" style="display:none"></div>
@@ -821,7 +819,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 72</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 73</span>
 </div>
 
 <div id="canvas"></div>
@@ -984,9 +982,8 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-queue">
     <div class="card">
-      <div class="kopfzeile"><h2>Warteschlange</h2>
+      <div class="kopfzeile"><h2>Downloads</h2>
         <button class="btn mini" onclick="aktion('','ordner_offen')" title="Downloads-Ordner im Explorer öffnen">📂 Zielordner</button></div>
-      <div class="chips" id="chips"></div>
       <div id="liste"></div>
     </div>
   </div>
@@ -1003,6 +1000,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
     <div class="card">
       <div class="kopfzeile"><h2>Log</h2>
         <button class="btn mini" onclick="logLeeren()" title="Log-Liste leeren">Leeren</button></div>
+      <div class="chips" id="logchips"></div>
       <div id="logliste" class="logliste"></div>
     </div>
   </div>
@@ -1219,15 +1217,23 @@ async function setFehlerMin(v){
 }
 
 /* ================= Panels / Docking ================= */
-const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Warteschlange', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player', plq:'🎶 Playlist', abos:'📡 Abos'};
-const DLV=['add','queue','done','log'];              // Download-Views: fest im dlbox (normal) / Canvas-Panel (mini)
+const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Downloads', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player', plq:'🎶 Playlist', abos:'📡 Abos'};
+const DLV=['queue','done','log'];                    // Download-Views: fest im dlbox (normal) / Canvas-Panel (mini). Hinzufügen läuft über „Link einfügen" oben
 let dlboxAktiv='queue';
 function dlboxTab(v){ if(!DLV.includes(v))return; dlboxAktiv=v; dlboxRender(); }
 function dlboxRender(){
   const box=document.getElementById('dlbox'), body=document.getElementById('dlbox-body');
+  const tabs=document.getElementById('dlbox-tabs'), cm=document.getElementById('cmd-mini');
   if(!box||!body)return;
-  if(miniAn){box.style.display='none'; return;}       // im Mini leben die Download-Views im Canvas
-  box.style.display='';
+  if(miniAn){
+    // Mini: Download-Views leben im Canvas; das eingebettete Fenster wird zum
+    // Mini-Player (oben, eingebettet, überdeckt nichts — JB 21.07.).
+    if(tabs)tabs.style.display='none'; body.style.display='none';
+    const pl=document.getElementById('view-player');
+    if(cm&&pl&&pl.parentNode!==cm)cm.appendChild(pl);
+    return;
+  }
+  if(tabs)tabs.style.display=''; body.style.display=''; if(cm)cm.innerHTML='';
   document.querySelectorAll('#dlbox-tabs .dlbox-tab').forEach(t=>t.classList.toggle('an',t.dataset.dlt===dlboxAktiv));
   const stash=document.getElementById('stash');
   DLV.forEach(v=>{if(v!==dlboxAktiv){const n=document.getElementById('view-'+v); if(n&&n.parentNode===body)stash.appendChild(n);}});
@@ -1287,6 +1293,7 @@ function alleViews(s){
   return drin.has('lib');   // Kern: Bibliothek (Downloads sind fest im dlbox)
 }
 function ensurePlayer(){
+  if(miniAn){renderPanels(); return null;}             // Mini: Player sitzt eingebettet in #cmd-mini
   let p=L.panels.find(pp=>pp.views.includes('player'));
   if(!p){
     const r=document.getElementById('canvas').getBoundingClientRect();
@@ -1531,11 +1538,12 @@ function miniLayoutBauen(){
   // Playlist OBEN und darunter das gelöste Download-Fenster (gestapelt). Die
   // Mini-Karte ist position:fixed oben rechts (über der Command-Bar).
   const oben=Math.round((ch-16-g)*0.5);               // Playlist obere Hälfte
+  // Kein pmini-Fenster mehr: der Mini-Player sitzt eingebettet oben in der
+  // Command-Bar (#cmd-mini) und überdeckt nichts (JB 21.07.).
   return {z:60,mini:true,panels:[
     {id:'mlib',x:8,y:8,w:libW,h:ch-16,views:libViews,active:'lib',zi:20},
     {id:'mplq',x:8+libW+g,y:8,w:mw,h:oben,views:['plq'],active:'plq',zi:21},
-    {id:'mdl', x:8+libW+g,y:8+oben+g,w:mw,h:ch-16-oben-g,views:['queue','add','done','log'],active:'queue',zi:22},
-    {id:'pmini',x:Math.max(0,cw-mw-8),y:8,w:mw,h:150,views:['player'],active:'player',zi:60},
+    {id:'mdl', x:8+libW+g,y:8+oben+g,w:mw,h:ch-16-oben-g,views:['queue','done','log'],active:'queue',zi:22},
   ]};
 }
 function miniToggle(){
@@ -2055,7 +2063,10 @@ function malen(){
   const fertig=items.filter(i=>ende.includes(i.status));
   const z={laeuft:0,wartend:0,pausiert:0,fehler:0,prueft:0,uebersprungen:0};
   items.forEach(i=>{if(z[i.status]!=null)z[i.status]++;});
-  document.getElementById('chips').innerHTML=
+  // Zähler nicht mehr in den Downloads (JB 21.07.: sieht man an den Reitern) —
+  // stattdessen als Übersicht oben im Log.
+  const lc=document.getElementById('logchips'); if(lc)lc.innerHTML=
+    `<span class="chip"><b>${(daten.db||{}).gesamt||0}</b> insgesamt</span>`+
     `<span class="chip laeuft"><b>${z.laeuft}</b> lädt</span>`+
     `<span class="chip"><b>${z.wartend+z.prueft}</b> wartet</span>`+
     `<span class="chip fertig"><b>${fertig.length-z.uebersprungen}</b> fertig</span>`+
@@ -2063,7 +2074,7 @@ function malen(){
     (z.fehler?`<span class="chip fehler"><b>${z.fehler}</b> Fehler</span>`:'')+
     (z.pausiert?`<span class="chip"><b>${z.pausiert}</b> pausiert</span>`:'');
   document.getElementById('liste').innerHTML=
-    aktiv.length?aktiv.map(reihe).join(''):'<div class="leer">Warteschlange ist leer — im Hinzufügen-Fenster Links einfügen.</div>';
+    aktiv.length?aktiv.map(reihe).join(''):'<div class="leer">Keine aktiven Downloads — oben einen Link einfügen und laden.</div>';
   document.getElementById('fertigliste').innerHTML=
     fertig.length?fertig.slice().reverse().map(reihe).join(''):'<div class="leer">Noch nichts fertig.</div>';
   counterMalen(z);
@@ -2177,7 +2188,7 @@ function logDiff(items){
 }
 function logMalen(){
   const el=document.getElementById('logliste'); if(!el)return;
-  if(!logEintraege.length){el.innerHTML='<div class="leer" style="text-align:left">Noch keine Ereignisse.</div>'; return;}
+  if(!logEintraege.length){el.innerHTML='<div class="leer" style="text-align:left">Noch keine Ereignisse in dieser Sitzung. Hier erscheinen Downloads, sobald sie starten, fertig werden oder fehlschlagen — die Übersicht oben zeigt den Gesamtstand.</div>'; return;}
   el.innerHTML=logEintraege.map(e=>{
     const t=new Date(e.t).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     return `<div class="logrow ${e.typ}"><span class="logt">${t}</span><span class="logx">${esc(e.text)}</span></div>`;
