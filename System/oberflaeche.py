@@ -86,12 +86,14 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .dlbox-tab.an{background:var(--panel2,#241f1b);color:var(--akz2)}
 .dlbox-tabs .spacer{flex:1}
 .dlbox-action{padding:2px 9px!important;font-size:11px!important}
-.dlbox-body{flex:1 1 auto;min-height:200px;max-height:320px;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
+/* Höhe kommt aus der linken Steuerspalte (cmd-main align-items:stretch) — so ist
+   die Command-Bar in Voll- UND Mini-Modus EXAKT gleich hoch, nichts springt (JB 21.07.). */
+.dlbox-body{flex:1 1 auto;min-height:0;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
 .dlbox-body::-webkit-scrollbar{width:6px}.dlbox-body::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
 .dlbox-body .card{margin:0;background:transparent;border:0;padding:6px 10px}
 /* Mini: statt der Download-Reiter sitzt hier der eingebettete Mini-Player */
 #cmd-mini:empty{display:none}
-#cmd-mini{display:flex;flex-direction:column;min-height:150px;max-height:260px}
+#cmd-mini{display:flex;flex-direction:column;flex:1;min-height:0}
 body.mini #cmd-mini #view-player{height:100%}
 html.light .dlbox-tab.an{background:#efe7de}
 html.light .dlbox-body{background:#f3ede4}
@@ -783,7 +785,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 78</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 79</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
