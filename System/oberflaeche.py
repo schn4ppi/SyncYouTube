@@ -851,7 +851,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 95</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 96</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1788,7 +1788,7 @@ function miniLayoutBauen(){
   return {z:60,mini:true,panels:[
     {id:'mlib',x:8,y:8,w:libW,h:ch-16,views:libViews,active:'lib',zi:20},
     {id:'mplq',x:8+libW+g,y:8,w:mw,h:oben,views:['plq'],active:'plq',zi:21},
-    {id:'mdl', x:8+libW+g,y:8+oben+g,w:mw,h:ch-16-oben-g,views:['queue','done','log'],active:'queue',zi:22},
+    {id:'mdl', x:8+libW+g,y:8+oben+g,w:mw,h:ch-16-oben-g,views:['queue','done','log','abos'],active:'queue',zi:22},
   ]};
 }
 function miniToggle(){
