@@ -473,7 +473,8 @@ html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
   border-radius:12px;box-shadow:0 14px 42px rgba(0,0,0,.55);display:flex;flex-direction:column;
   padding:10px 12px;min-width:340px}
 .abo-flyout .abo-fkopf{position:sticky;top:0}
-.abo-flyout .abo-fliste{flex:1 1 auto;min-height:0;overflow:auto;position:relative}
+.abo-flyout .abo-folgen{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.abo-flyout .abo-fliste{flex:1 1 auto;min-height:0;max-height:none;overflow:auto;position:relative;user-select:none}
 .abo-fly-titel{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-weight:600;color:#d7c7bd}
 .abo-fly-titel .spacer{flex:1}
 .abo-staffel{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:4px 0 6px;font-size:12px;color:#8a7d74}
@@ -842,7 +843,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 93</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 94</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -2746,13 +2747,23 @@ function aboFolgenToggle(id,ev){
   if(o.folgen)aboFolgenMalen(id); else aboFolgenLaden(id,false);
 }
 function aboFlyoutPositionieren(fly,anker){
-  // Wunschgroesse: richtig gross — aber IMMER komplett lesbar im Viewport.
-  const vw=window.innerWidth, vh=window.innerHeight, R=12;
+  // JB (Build 94): rechtsbuendig UNTER dem eingebetteten Downloads-Fenster
+  // (dlbox) andocken und bis zur Unterkante nutzen — richtig gross, aber
+  // IMMER komplett lesbar (lesbar schlaegt andocken: bei Zwergfenstern
+  // wandert es hoch, statt unlesbar zu quetschen).
+  const vw=window.innerWidth, vh=window.innerHeight, R=12, MINH=260;
+  const db=document.getElementById('dlbox');
+  const dbr=db?db.getBoundingClientRect():null;
   const w=Math.min(820, Math.max(340, Math.round(vw*0.75)), vw-2*R);
-  const h=Math.min(Math.round(vh*0.7), vh-2*R);
-  let x=Math.round(anker.left||R), y=Math.round((anker.bottom||R)+6);
-  if(y+h>vh-R)y=Math.max(R, Math.round((anker.top||vh)-h-6));   // unten kein Platz -> ueber den Knopf
-  if(y+h>vh-R)y=Math.max(R, vh-R-h);                            // immer noch nicht -> an die Unterkante klemmen
+  let x, y;
+  if(dbr&&dbr.bottom<vh-R-MINH){
+    x=vw-R-w;                                          // rechte Kante fluchtet mit der dlbox
+    y=Math.round(dbr.bottom+6);
+  }else{
+    x=Math.round((anker&&anker.left)||R); y=Math.round(((anker&&anker.bottom)||R)+6);
+  }
+  let h=vh-R-y;                                        // bis zur Unterkante ausnutzen
+  if(h<MINH){y=Math.max(R, vh-R-MINH); h=vh-R-y;}      // zu eng? hochziehen statt quetschen
   x=Math.max(R, Math.min(x, vw-R-w));
   fly.style.left=x+'px'; fly.style.top=y+'px'; fly.style.width=w+'px'; fly.style.height=h+'px';
 }
@@ -2855,6 +2866,7 @@ function aboFolgeKlick(ev,id,vid){
   // dazu/weg, Shift = Bereich (ersetzt; mit Strg additiv). Anker bleibt beim
   // Shift-Klick stehen — wie im Explorer.
   const o=aboOffen[id]; if(!o)return;
+  if(o._bandLief)return;                               // der Klick war das Ende eines Band-Zugs
   const box=ev.currentTarget.parentElement;
   const sichtbar=[...box.querySelectorAll('.abo-f')].map(n=>n.dataset.vid);
   if(ev.shiftKey&&aboLetzterKlick[id]){
@@ -2870,12 +2882,16 @@ function aboFolgeKlick(ev,id,vid){
   }
   aboFolgenMalen(id);
 }
-/* Rahmen aufziehen (Rubberband, Build 93): auf freier Listen-Flaeche starten,
-   Rechteck markiert alle geschnittenen Folgen; mit Strg additiv zur Auswahl. */
+/* Rahmen aufziehen (Rubberband, Build 94): startet AUCH auf einer Zeile —
+   JB-Fund: die Zeilen sind vollbreit, freie Flaeche gibt es kaum. Erst ab
+   5 px Bewegung wird es ein Band (darunter bleibt es ein normaler Klick);
+   nach einem Band wird der nachlaufende click der Startzeile geschluckt.
+   Mit Strg additiv zur bestehenden Auswahl. */
 function aboBandStart(ev,id){
-  if(ev.button!==0||ev.target.closest('.abo-f')||ev.target.closest('button'))return;
+  if(ev.button!==0||ev.target.closest('button')||ev.target.closest('input')||ev.target.closest('select'))return;
   const o=aboOffen[id]; if(!o)return;
-  const liste=ev.currentTarget, basis=new Set(ev.ctrlKey||ev.metaKey?[...o.sel]:[]);
+  const liste=ev.currentTarget.closest('.abo-fliste')||ev.currentTarget;
+  const basis=new Set(ev.ctrlKey||ev.metaKey?[...o.sel]:[]);
   const x0=ev.clientX, y0=ev.clientY; let band=null;
   function mv(e){
     if(!band){
@@ -2898,7 +2914,11 @@ function aboBandStart(ev,id){
   }
   function up(){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
-    if(band){band.remove(); aboFolgenMalen(id);}                      // Zaehler im Kopf nachziehen
+    if(band){
+      band.remove(); o._bandLief=true;                                // nachlaufenden Zeilen-click schlucken
+      setTimeout(()=>{o._bandLief=false;},0);
+      aboFolgenMalen(id);                                             // Zaehler im Kopf nachziehen
+    }
   }
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
 }
