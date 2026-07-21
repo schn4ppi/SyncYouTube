@@ -827,7 +827,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 89</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 90</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -2207,7 +2207,11 @@ function reihe(it){
   else if(fertigartig)rechts=it.gesamt?mb(it.gesamt):'ok';
   else if(it.status==='wartend')rechts='queued';
   else if(it.status==='prueft')rechts='…';
-  const zeile=`<div class="qline ${it.status}" onclick="qToggle('${it.id}')" title="${esc(it.titel)}">`+
+  // Fertig-Zeilen sind abspielbar (JB 22.07.): Doppelklick spielt, Klick fokussiert
+  // (tabindex) -> Enter spielt, Entf entfernt den Eintrag (Datei bleibt).
+  const fx=fertigartig?` tabindex="0" data-fid="${it.id}" ondblclick="fertigPlay('${it.id}')"`:'';
+  const tip=fertigartig?'Doppelklick/Enter = abspielen · Entf = Eintrag entfernen (Datei bleibt) · Klick = Details':esc(it.titel);
+  const zeile=`<div class="qline ${it.status}"${fx} onclick="qToggle('${it.id}')" title="${tip}">`+
     `<span class="qtri">${auf?'▾':'▸'}</span>`+
     `<span class="qbar">[${balkenAscii(proz)}]</span>`+
     `<span class="qtitel">${esc(it.titel)}</span>`+
@@ -2221,7 +2225,8 @@ function reihe(it){
   if(it.status==='uebersprungen')k.push(['weiter','▶ Trotzdem']);
   if(fertigartig)k.push(['ordner','📂 Ordner']);
   k.push(['entfernen','✖ Entfernen']);               // geht auch bei Laufenden: bricht ab + nimmt raus
-  const knoepfe=k.map(([a,t])=>`<button class="btn mini" onclick="event.stopPropagation();aktion('${it.id}','${a}')">${t}</button>`).join('');
+  let knoepfe=k.map(([a,t])=>`<button class="btn mini" onclick="event.stopPropagation();aktion('${it.id}','${a}')">${t}</button>`).join('');
+  if(fertigartig)knoepfe=`<button class="btn mini" onclick="event.stopPropagation();fertigPlay('${it.id}')" title="Im Player abspielen">▶ Abspielen</button>`+knoepfe;
   let det='';
   if(it.status==='laeuft')det=`${mb(it.geladen)} / ${mb(it.gesamt)}`+(it.phase?' · '+esc(it.phase):'');
   else if(it.status==='fehler')det=`<span class="fehltext">${esc(it.fehler||'unbekannter Fehler')}</span>`;
@@ -2230,6 +2235,23 @@ function reihe(it){
   return zeile+`<div class="qdetail"><div class="qdinfo">${esc(it.qualitaet)}`+
     `${it.kategorie?' · '+esc(it.kategorie):''}${det?' · '+det:''}</div>`+
     `<div class="aktionen">${knoepfe}</div></div>`;
+}
+
+/* Fertig-Eintrag im Player abspielen (JB 22.07.): aus der Download-URL die
+   Video-ID ziehen und den passenden Bibliotheks-Key finden — exakt (id|qualitaet),
+   sonst irgendein vorhandenes Format desselben Videos. */
+function fertigVid(url){
+  const m=(url||'').match(/(?:v=|youtu\\.be\\/|shorts\\/|embed\\/)([A-Za-z0-9_-]{6,})/);
+  return m?m[1]:null;
+}
+function fertigPlay(qid){
+  const it=((daten&&daten.items)||[]).find(x=>x.id===qid); if(!it)return;
+  const vid=fertigVid(it.url);
+  if(!vid){toast('Kein Video-Link an diesem Eintrag.');return;}
+  let x=libFind(vid+'|'+it.qualitaet);
+  if(!x||!x.vorhanden)x=(libdaten||[]).find(e=>e.id.indexOf(vid+'|')===0&&e.vorhanden);
+  if(!x){toast('Noch nicht in der Bibliothek — kurz nach dem Download-Ende erneut versuchen.');return;}
+  ensurePlayer(); playerPlay([x.id]);
 }
 
 function counterMalen(z){
@@ -2271,8 +2293,12 @@ function malen(){
     (z.pausiert?`<span class="chip"><b>${z.pausiert}</b> pausiert</span>`:'');
   document.getElementById('liste').innerHTML=
     aktiv.length?aktiv.map(reihe).join(''):'<div class="leer">Keine aktiven Downloads — oben einen Link einfügen und laden.</div>';
+  // Fokus in der Fertig-Liste über das Neu-Rendern retten (der Status-Ticker
+  // malt alle paar Sekunden — sonst verlöre Entf/Enter seinen Bezug, JB 22.07.)
+  const af=document.activeElement, fid=(af&&af.dataset)?af.dataset.fid:null;
   document.getElementById('fertigliste').innerHTML=
     fertig.length?fertig.slice().reverse().map(reihe).join(''):'<div class="leer">Noch nichts fertig.</div>';
+  if(fid){const nb=document.querySelector('#fertigliste [data-fid="'+fid+'"]'); if(nb)nb.focus();}
   counterMalen(z);
   const fw=document.getElementById('ffwarn'); if(fw)fw.style.display=daten.ffmpeg?'none':'';   // ffmpeg-Warnung sichtbar!
   const al=document.getElementById('addon_lokal'); if(al)al.style.display=daten.addon_xpi?'':'none';
@@ -4949,6 +4975,12 @@ document.addEventListener('keydown',e=>{
   const tgt=e.target;
   if(tgt&&tgt.matches&&tgt.matches('input,textarea,select'))return;
   if(tgt&&tgt.isContentEditable)return;
+  // In der Fertig-Liste (JB 22.07.): fokussierte Zeile mit Enter abspielen,
+  // mit Entf den Eintrag entfernen (Datei bleibt). Fokus kommt per Klick (tabindex).
+  if(tgt&&tgt.dataset&&tgt.dataset.fid&&tgt.closest&&tgt.closest('#view-done')){
+    if(e.key==='Enter'){e.preventDefault(); fertigPlay(tgt.dataset.fid); return;}
+    if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault(); aktion(tgt.dataset.fid,'entfernen'); return;}
+  }
   // In der Player-Playlist steuern die Tasten die LISTE (JB 22.07.): Pfeile bewegen die
   // Auswahl, Enter spielt, Entf löscht. Nur wenn der Fokus wirklich in der Liste sitzt —
   // sonst gelten ↑/↓ weiter global als Lautstärke.

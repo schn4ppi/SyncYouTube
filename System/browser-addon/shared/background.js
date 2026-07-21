@@ -3,6 +3,21 @@
 // nicht im Content-Skript — so gibt es keine CORS-Probleme mit der YouTube-Seite.
 const api = (typeof browser !== "undefined") ? browser : chrome;
 const APP = "http://127.0.0.1:8776/api/add";
+const APP_STATUS = "http://127.0.0.1:8776/api/status";
+
+// App-läuft-Ping mit Cache (JB 22.07.): das Content-Skript fragt vor dem
+// Einblenden des Hover-Knopfs — läuft der Downloader nicht, gibt es keinen Knopf.
+let appOk = false, appOkTs = 0;
+async function appLebt() {
+  const now = Date.now();
+  if (now - appOkTs < 20000) return appOk;         // 20-s-Cache, kein Dauerfeuer
+  appOkTs = now;
+  try {
+    const r = await fetch(APP_STATUS, { method: "GET" });
+    appOk = !!r.ok;
+  } catch (e) { appOk = false; }
+  return appOk;
+}
 
 const QUALITAETEN = [
   ["default", "Standard-Qualität"],
@@ -44,6 +59,10 @@ api.contextMenus.onClicked.addListener((info) => {
 });
 
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.typ === "ping") {
+    appLebt().then((ok) => sendResponse({ ok }));
+    return true;                                   // Antwort kommt asynchron
+  }
   if (msg && msg.typ === "add" && istYoutube(msg.url)) {
     senden(msg.url, msg.qualitaet || null).then(sendResponse);
     return true;                                   // Antwort kommt asynchron -> Knopf zeigt ✓/✗
@@ -59,10 +78,12 @@ async function senden(url, qualitaet) {
     // (MV3 = opt-in!) nicht erteilt hat. Der Server parst den Body ohnehin als JSON.
     const r = await fetch(APP, { method: "POST", body: JSON.stringify(body) });
     if (!r.ok) throw new Error("HTTP " + r.status);
+    appOk = true; appOkTs = Date.now();                    // Erfolg zählt als frischer Ping
     melden("In die Warteschlange ✓", kurz(url), false);   // Erfolg: nur wenn eingeschaltet
     return { ok: true };
   } catch (e) {
     const grund = String((e && e.message) || e);
+    appOk = false; appOkTs = Date.now();                   // App offenbar aus -> Knopf verschwindet
     melden("Fehlgeschlagen: " + grund, "Läuft die App? (YouTube-Downloader.bat)", true);
     return { ok: false, fehler: grund };
   }

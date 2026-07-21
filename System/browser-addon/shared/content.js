@@ -5,6 +5,21 @@
   const api = (typeof browser !== "undefined") ? browser : chrome;
   let btn = null, curUrl = null, hideTimer = null, lastMove = 0;
 
+  // App-läuft-Wächter (JB 22.07.): der Knopf erscheint NUR, wenn der Downloader
+  // wirklich läuft — vorher tauchte er immer auf und der Klick lief ins Leere.
+  // Der Ping läuft im Hintergrund-Skript (Cache dort), hier nur das Ergebnis.
+  let appAn = false, appTs = 0;
+  function appPruefen() {
+    const now = Date.now();
+    if (now - appTs < 30000) return;                 // höchstens alle 30 s fragen
+    appTs = now;
+    try {
+      api.runtime.sendMessage({ typ: "ping" }).then(
+        (res) => { appAn = !!(res && res.ok); },
+        () => { appAn = false; });
+    } catch (e) { appAn = false; }
+  }
+
   function mkBtn() {
     btn = document.createElement("button");
     btn.className = "ytdl-hoverbtn";
@@ -41,13 +56,18 @@
   function videoAnker(el) {
     if (!el || !el.closest) return null;
     const a = el.closest('a#thumbnail, a.ytd-thumbnail, a[href*="/watch?v="], a[href*="/shorts/"]');
-    if (a && a.href && (a.href.includes("/watch?v=") || a.href.includes("/shorts/"))) return a;
-    return null;
+    if (!(a && a.href && (a.href.includes("/watch?v=") || a.href.includes("/shorts/")))) return null;
+    // NUR echte Vorschaubilder (JB 22.07.): Titel-Links matchten auch — dann saß
+    // der Knopf am Zeilenende genau ÜBER YouTubes ⋮-Menü („Video ausblenden").
+    if (!a.querySelector("img, yt-image")) return null;
+    return a;
   }
 
   function zeigen(rect, url) {
     curUrl = url;
-    btn.style.left = Math.max(4, rect.right - 32) + "px";
+    // Oben LINKS statt oben rechts (JB 22.07.): oben rechts liegen YouTubes
+    // eigene Hover-Knöpfe (Später ansehen / ⋮) — die dürfen wir nie verdecken.
+    btn.style.left = Math.max(4, rect.left + 6) + "px";
     btn.style.top = Math.max(4, rect.top + 8) + "px";
     btn.classList.add("an");
   }
@@ -62,8 +82,15 @@
     const now = Date.now();
     if (now - lastMove < 60) return;            // Drosselung
     lastMove = now;
+    appPruefen();
+    if (!appAn) { verstecken(); return; }       // App aus -> Knopf existiert nicht (JB 22.07.)
     if (!btn) mkBtn();
     if (e.target === btn || (btn && btn.contains(e.target))) { resetIdle(); return; }
+    // Über YouTubes eigenen Bedienelementen (⋮-Menü, Knöpfe, Dropdowns) sofort
+    // weg — nie deren Klickfläche verdecken (JB 22.07., „Video ausblenden").
+    if (e.target.closest && e.target.closest("button, yt-icon-button, ytd-menu-renderer, tp-yt-iron-dropdown, tp-yt-paper-listbox")) {
+      verstecken(); return;
+    }
     const a = videoAnker(e.target);
     if (a) { zeigen(a.getBoundingClientRect(), a.href); resetIdle(); return; }
     const player = e.target.closest ? e.target.closest("#movie_player, .html5-video-player") : null;
