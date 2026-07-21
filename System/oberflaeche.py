@@ -95,7 +95,8 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 body.mini #cmd-mini #view-player{height:100%}
 html.light .dlbox-tab.an{background:#efe7de}
 html.light .dlbox-body{background:#f3ede4}
-.cmd-row1,.cmd-row2{display:flex;align-items:center;gap:8px}
+.cmd-row1,.cmd-row2,.cmd-rowadd{display:flex;align-items:center;gap:8px}
+.cmd-rowadd .cmd-url{flex:1;min-width:120px}
 .cmd-row2 .spacer{flex:1}
 .cmd-logo{display:inline-flex;align-items:center;gap:7px;font-size:14px;white-space:nowrap;flex:none}
 .cmd-logo .emblem{flex:none}
@@ -170,10 +171,10 @@ html.light .cmd-url,html.light .cmd-qual{background:#f7f3ee;border-color:#e0d7cc
 html.light .dlrow:hover{background:#f3ede7}
 html.light .dltitel,html.light .cmd-count{color:#5a4f47}
 html.light .dlbar{background:#e6ddd3}
-#layoutbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:0 18px 8px;font-size:12px;color:#8a7d74}
+/* Layout-Werkzeuge-Leiste NUR im ✏-Modus (sonst kein toter Raum, JB 21.07.) */
+#layoutbar{display:none;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 18px 8px;font-size:12px;color:#8a7d74}
+body.layoutedit #layoutbar{display:flex}
 #layoutbar select{max-width:230px}
-#layouttools{display:none}                             /* Werkzeuge nur im ✏-Modus (mehr Platz) */
-body.layoutedit #layouttools{display:contents}
 /* Mini-Player-Modus: der Player sitzt kompakt eingebettet in der Command-Bar
    (#cmd-mini) — Seitenliste weg, Karte flach (JB 21.07.). */
 body.mini #view-player .pl-side{display:none}
@@ -778,9 +779,16 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
             <path class="sg" d="M 73 34 C 70 26 57 23 49 26 C 40 29 38 37 41 44 C 44 51 54 53 60 55 C 68 57 75 61 75 69 C 75 79 65 85 55 84 C 46 83 40 78 39 71"
                   fill="none" stroke="#141110" stroke-width="14" stroke-linecap="round"/>
           </svg><b>YouTube-Downloader</b></span>
+        <span class="spacer"></span>
+        <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
+                title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
+        <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 78</span>
+      </div>
+      <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
                onkeydown="if(event.key==='Enter')cmdDownload()">
-<select id="cmd-qual" class="cmd-qual" title="Qualität (Auswahl wird gemerkt)" onchange="qualMerken(this.value)">
+        <select id="cmd-qual" class="cmd-qual" title="Qualität (Auswahl wird gemerkt)" onchange="qualMerken(this.value)">
           <option value="beste">Beste</option><option value="2160p">2160p</option>
           <option value="1440p">1440p</option><option value="1080p">1080p</option>
           <option value="720p">720p</option><option value="audio">MP3</option>
@@ -822,22 +830,16 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <div id="cmd-clip" class="cmd-clip" style="display:none"></div>
 </div>
 
+<!-- Layout-Werkzeuge: NUR im ✏-Modus sichtbar (✏ Layout / 🔳 Mini / Build sind
+     jetzt oben in der Command-Bar — JB 21.07., mehr Platz unten). -->
 <div id="layoutbar">
-  <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
-          title="Layout bearbeiten: klappt die Layout-Werkzeuge aus, Fenster lassen sich verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: schlanke Leiste, Ziehen dockt nur als Tab an">✏ Layout</button>
-  <!-- Layout-Werkzeuge: nur im ✏-Modus sichtbar (Dashboard-Muster, JB 14.07. — mehr Platz) -->
-  <span id="layouttools">
-    <label style="font-size:12px;color:#8a7d74">Layout:</label>
-    <select id="layoutsel" onchange="layoutWaehlen(this.value)" title="Vorlagen &amp; deine gespeicherten Layouts"></select>
-    <button class="btn mini" onclick="layoutSpeichern()" title="Aktuelle Fenster-Anordnung unter einem Namen speichern">💾 Speichern</button>
-    <button class="btn mini" onclick="layoutLoeschen()" title="Das gewählte gespeicherte Layout löschen">🗑</button>
-    <button class="btn mini" onclick="layoutVorheriges()" title="Vorherige Fenster-Anordnung zurückholen — nochmal klicken wechselt wieder vor">↩ Vorheriges</button>
-    <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
-    <span><b>Tipp:</b> Rechtsklick öffnet überall Menüs · Ziehen ohne ✏ dockt nur als Tab an</span>
-  </span>
-  <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
-  <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 77</span>
+  <label style="font-size:12px;color:#8a7d74">Layout:</label>
+  <select id="layoutsel" onchange="layoutWaehlen(this.value)" title="Vorlagen &amp; deine gespeicherten Layouts"></select>
+  <button class="btn mini" onclick="layoutSpeichern()" title="Aktuelle Fenster-Anordnung unter einem Namen speichern">💾 Speichern</button>
+  <button class="btn mini" onclick="layoutLoeschen()" title="Das gewählte gespeicherte Layout löschen">🗑</button>
+  <button class="btn mini" onclick="layoutVorheriges()" title="Vorherige Fenster-Anordnung zurückholen — nochmal klicken wechselt wieder vor">↩ Vorheriges</button>
+  <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
+  <span><b>Tipp:</b> Rechtsklick öffnet überall Menüs · Ziehen ohne ✏ dockt nur als Tab an</span>
 </div>
 
 <div id="canvas"></div>
