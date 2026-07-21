@@ -4755,7 +4755,11 @@ function plqRemove(i){                                 // Titel aus der Ad-hoc-P
   }
   playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));   // anderer Titel raus -> laufender spielt ungestört weiter
   plqSel=Math.min(i, playerState.queue.length-1);
-  renderPlayerQueue(); if(plqSel!==null)plqFocus(plqSel);
+  renderPlayerQueue();
+  // Fokus einen Tick SPÄTER zurückholen (JB-Sicht-Check 22.07.): der Browser setzt den
+  // Fokus nach dem Handler auf body, weil das fokussierte Element entfernt wurde —
+  // sofortiges focus() wird davon überschrieben; erst dann greifen Entf/Pfeile erneut.
+  if(plqSel!==null)setTimeout(function(){plqFocus(plqSel);},0);
 }
 function plqVerschieben(i,d){                          // einen Titel im Rechtsklick-Menü hoch/runter schieben
   const j=i+d; if(j<0||j>=playerState.queue.length)return;
