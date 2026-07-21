@@ -36,6 +36,8 @@ HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>YouTube-Downloader</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 112'%3E%3Cpath d='M 10 96.6 A 100 100 0 0 0 110 96.6 A 100 100 0 0 0 60 10 A 100 100 0 0 0 10 96.6 Z' fill='%23d65f5f'/%3E%3Cpath d='M 73 34 C 70 26 57 23 49 26 C 40 29 38 37 41 44 C 44 51 54 53 60 55 C 68 57 75 61 75 69 C 75 79 65 85 55 84 C 46 83 40 78 39 71' fill='none' stroke='%23f3ede2' stroke-width='14' stroke-linecap='round'/%3E%3C/svg%3E">
+
 <script>(function(){try{var s=localStorage.getItem('ytdl_skin');
   if(!s&&localStorage.getItem('ytdl_theme')==='light')s='hell';   // alte Einstellung übernehmen
   var cls={hell:'light',hacker:'theme-hacker',neon:'theme-neon',ozean:'theme-ozean'}[s];
@@ -94,7 +96,12 @@ html.light .dlbox-tab.an{background:#efe7de}
 html.light .dlbox-body{background:#f3ede4}
 .cmd-row1,.cmd-row2{display:flex;align-items:center;gap:8px}
 .cmd-row2 .spacer{flex:1}
-.cmd-logo{color:var(--akz);font-weight:700;letter-spacing:.08em;font-size:13px;white-space:nowrap;flex:none}
+.cmd-logo{display:inline-flex;align-items:center;gap:7px;font-size:14px;white-space:nowrap;flex:none}
+.cmd-logo .emblem{flex:none}
+.cmd-logo b{font-weight:600;letter-spacing:.01em;color:#e9ded3}
+html.light .cmd-logo b{color:#3a322c}
+.cmd-logo .sg{stroke:#141110}                        /* S-Rille = Seiten-Hintergrund, folgt Tag/Nacht */
+html.light .cmd-logo .sg{stroke:#f3ede2}
 .cmd-url{flex:1;min-width:80px;background:#0e0c0a;border:1px solid var(--panelln);border-radius:7px;
   color:#e7dccf;padding:5px 10px;font:inherit;font-size:12px}
 .cmd-url:focus{outline:none;border-color:var(--akz)}
@@ -761,7 +768,15 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   <div class="cmd-main">
     <div class="cmd-left">
       <div class="cmd-row1">
-        <span class="cmd-logo" title="YouTube-Downloader">▶ YouTube</span>
+        <span class="cmd-logo" title="YouTube-Downloader — Sync-Familie">
+          <svg class="emblem" viewBox="0 0 120 112" width="26" height="24" aria-hidden="true">
+            <defs><linearGradient id="ytemb" x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0" stop-color="#e7a2a2"/><stop offset="0.55" stop-color="#d65f5f"/><stop offset="1" stop-color="#8d3e3e"/>
+            </linearGradient></defs>
+            <path d="M 10 96.6 A 100 100 0 0 0 110 96.6 A 100 100 0 0 0 60 10 A 100 100 0 0 0 10 96.6 Z" fill="url(#ytemb)"/>
+            <path class="sg" d="M 73 34 C 70 26 57 23 49 26 C 40 29 38 37 41 44 C 44 51 54 53 60 55 C 68 57 75 61 75 69 C 75 79 65 85 55 84 C 46 83 40 78 39 71"
+                  fill="none" stroke="#141110" stroke-width="14" stroke-linecap="round"/>
+          </svg><b>YouTube-Downloader</b></span>
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
                onkeydown="if(event.key==='Enter')cmdDownload()">
 <select id="cmd-qual" class="cmd-qual" title="Qualität (Auswahl wird gemerkt)" onchange="qualMerken(this.value)">
@@ -818,7 +833,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 74</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 75</span>
 </div>
 
 <div id="canvas"></div>
