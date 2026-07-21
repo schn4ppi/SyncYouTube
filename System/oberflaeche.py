@@ -779,6 +779,9 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         </div>
       </div>
     </div>
+    <div class="cmd-right">
+      <div class="cmd-queue" id="cmd-queue"><span class="cmd-empty">// keine aktiven Downloads</span></div>
+    </div>
   </div>
   <div id="cmd-clip" class="cmd-clip" style="display:none"></div>
 </div>
@@ -798,7 +801,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 70</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 71</span>
 </div>
 
 <div id="canvas"></div>
@@ -2029,13 +2032,7 @@ function malen(){
   counterMalen(z);
   const fw=document.getElementById('ffwarn'); if(fw)fw.style.display=daten.ffmpeg?'none':'';   // ffmpeg-Warnung sichtbar!
   const al=document.getElementById('addon_lokal'); if(al)al.style.display=daten.addon_xpi?'':'none';
-  // Aktive Downloads leben jetzt in der Warteschlange (JB 21.07.): startet ein
-  // neuer Download (0 -> aktiv), springt das Downloads-Fenster dorthin, damit
-  // man den Fortschritt sofort sieht — steht die Warteschlange schon irgendwo, reicht das.
-  const nAktiv=z.laeuft+z.wartend+z.prueft;
-  if(nAktiv>0&&_aktivVorher===0)zeigeWarteschlange();
-  _aktivVorher=nAktiv;
-  cmdNowRender();                                      // „Now Playing"-Mini oben mitversorgen
+  cmdQueueRender(items); cmdNowRender();               // Command-Bar oben mitversorgen
   logDiff(items);                                      // Ereignisse in den Log schreiben
   autotagStatus();                                     // Auto-Tagging-Fortschritt anzeigen
   const sub=document.getElementById('sub'); if(sub)sub.textContent=
@@ -2215,10 +2212,10 @@ function cmdDlRow(i){                                  // eine Download-Zeile (D
     `<span class="dlpct">${esc(rechts)}</span>`+
     `<button class="dlx" onclick="event.stopPropagation();aktion('${i.id}','entfernen')" title="Abbrechen &amp; aus der Warteschlange entfernen (Dateien bleiben)">✖</button></div>`;
 }
-let _aktivVorher=0;
-function zeigeWarteschlange(){                         // Downloads-Fenster auf die Warteschlange schalten
-  const p=L.panels.find(x=>(x.views||[]).includes('queue'));
-  if(p&&p.active!=='queue'){p.active='queue'; merkeView(p.id,'queue'); renderPanels();}
+function cmdQueueRender(items){                        // rechte Spalte: alle aktiven Downloads untereinander
+  const el=document.getElementById('cmd-queue'); if(!el)return;
+  const aktiv=(items||[]).filter(i=>i.status!=='fertig'&&i.status!=='uebersprungen');
+  el.innerHTML=aktiv.length?aktiv.slice(0,40).map(cmdDlRow).join(''):'<span class="cmd-empty">// keine aktiven Downloads</span>';
 }
 function dlKlick(id,status){                           // Download anhalten / fortsetzen
   if(status==='laeuft')aktion(id,'pause');
