@@ -827,7 +827,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 87</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 88</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -838,6 +838,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
           <option value="720p">720p</option><option value="audio">MP3</option>
         </select>
         <button class="cmd-dl" onclick="cmdDownload()" title="In die Warteschlange laden">⬇ Download</button>
+        <button class="iconbtn sm" onclick="ganzerKanal(this)" title="Ganzen Kanal / ganze Playlist laden — löst den Link auf und stellt ALLE Videos in die Warteschlange (fragt vorher mit Anzahl)">📺</button>
       </div>
       <div class="cmd-row2">
         <div class="cmd-now" id="cmd-now" ondragover="cmdNowOver(event)" ondragleave="cmdNowLeave(event)" ondrop="cmdNowDrop(event)"
@@ -1207,6 +1208,9 @@ function setSkin(name){applySkin(name);}
 function themeToggle(){                                 // 🌙/☀ = schneller Tag/Nacht-Wechsel
   applySkin(document.documentElement.classList.contains('light')?'terracotta':'hell');
 }
+// Vom Dashboard eingebettet (JB 22.07.): dessen Tag/Nacht uebernehmen — nur die Hell-Klasse
+// direkt schalten, OHNE die gespeicherte Skin-Wahl (ytdl_skin) zu ueberschreiben (nicht persistent).
+window.addEventListener('message',function(e){if(e&&e.data&&e.data.dashTheme)document.documentElement.classList.toggle('light',e.data.dashTheme==='light')});
 function themeIcon(){
   const b=document.getElementById('theme');
   if(b)b.textContent=document.documentElement.classList.contains('light')?'☀':'🌙';
@@ -2366,6 +2370,29 @@ async function cmdDownload(){
   await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({urls,qualitaet:document.getElementById('cmd-qual').value,ganze_liste:ganze})});
   inp.value=''; cmdClipVerstecken(); laden();
+}
+/* „Ganzen Kanal laden" (JB 22.07.): Kanal-Link auflösen (Backend normalisiert
+   /@name -> /videos, sonst kämen nur die Reiter), Anzahl zeigen, nach Rückfrage
+   ALLE Videos in die Warteschlange (ganze_liste=true; schon Geladenes wird
+   übersprungen). Funktioniert auch für reine Playlist-Links. */
+async function ganzerKanal(btn){
+  const inp=document.getElementById('cmd-url'); const url=(inp.value||'').trim();
+  if(!url){toast('Erst einen Kanal- oder Playlist-Link oben einfügen.');return;}
+  if(btn){btn.disabled=true; btn.dataset.alt=btn.textContent; btn.textContent='⏳';}
+  toast('🔎 Kanal wird aufgelöst…');
+  let d=null;
+  try{const r=await fetch('/api/kanal_info?url='+encodeURIComponent(url)); d=await r.json();}catch(e){}
+  if(btn){btn.disabled=false; btn.textContent=btn.dataset.alt||'📺';}
+  if(!d||!d.ok){toast((d&&d.fehler)||'Kanal/Playlist nicht gefunden.'); return;}
+  const q=document.getElementById('cmd-qual').value;
+  const qtext=({beste:'Beste',audio:'MP3'}[q])||q;
+  const n=d.anzahl+(d.gedeckelt?'+':'');
+  if(!confirm('„'+d.name+'"\\n\\n'+n+' Videos gefunden.\\n\\nAlle in Qualität '+qtext+' laden?\\nSchon geladene werden übersprungen.'))return;
+  await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true})});
+  inp.value=''; cmdClipVerstecken(); laden();
+  try{dlboxTab('queue');}catch(e){}
+  toast('📺 „'+d.name+'": '+n+' Videos werden geladen.');
 }
 async function appBeenden(){
   if(!confirm('SyncYouTube komplett beenden?\\n\\nLaufende Downloads werden pausiert (setzen beim naechsten Start fort). Auch der Hintergrund-Dienst wird geschlossen.'))return;

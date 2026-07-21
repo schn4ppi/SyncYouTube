@@ -387,6 +387,29 @@ def ist_einzelvideo(url):
         return True
 
 
+def _kanal_url(url):
+    """Kanal-Link auf die Video-Liste normalisieren, damit yt-dlp ALLE Videos
+    listet — ein blosses /@name liefert sonst nur die Kanal-Reiter (belegt:
+    /@MrBeast -> 2 Reiter, /@MrBeast/videos -> die Videos). Playlist-/Watch-/
+    schon-Unterseiten-Links bleiben unveraendert."""
+    try:
+        p = urlparse(url)
+    except ValueError:
+        return url
+    if "youtube.com" not in (p.netloc or "").lower():
+        return url
+    path = (p.path or "").rstrip("/")
+    low = path.lower()
+    if parse_qs(p.query).get("v") or "/playlist" in low or "/watch" in low:
+        return url
+    if any(low.endswith(s) for s in ("/videos", "/streams", "/shorts",
+                                     "/playlists", "/featured", "/live")):
+        return url
+    if re.match(r"^/(@[^/]+|channel/[^/]+|c/[^/]+|user/[^/]+)$", path):
+        return "https://www.youtube.com" + path + "/videos"
+    return url
+
+
 # ---------------------------------------------------------------- yt-dlp
 
 def _ydl_basis_opts(mit_cookies=True):
@@ -1481,6 +1504,23 @@ def _abo_ids(url, limit=60):
     titel = info.get("title") or info.get("uploader") or ""
     ids = [e["id"] for e in (info.get("entries") or []) if e and e.get("id")]
     return ids, titel, info
+
+
+def kanal_info(url):
+    """Kanal/Playlist ohne Download aufloesen: Name + Videozahl fuer die
+    Rueckfrage vor „ganzen Kanal laden". Kanal-Links werden auf /videos
+    normalisiert; bis 5000 Videos (wie der Backkatalog-Deckel)."""
+    norm = _kanal_url((url or "").strip())
+    if not norm.lower().startswith(("http://", "https://")):
+        return {"fehler": "Bitte einen Kanal- oder Playlist-Link einfuegen."}
+    try:
+        ids, titel, _ = _abo_ids(norm, limit=5000)
+    except Exception:                                    # noqa: BLE001 — Nutzer sieht Text
+        ids, titel = [], ""
+    if not ids:
+        return {"fehler": "Kanal/Playlist nicht erreichbar oder ohne Videos."}
+    return {"ok": True, "name": titel or norm, "anzahl": len(ids),
+            "url": norm, "gedeckelt": len(ids) >= 5000}
 
 
 def _abo_feed_url(info):
@@ -2756,6 +2796,9 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/abos":
             with _io_lock:
                 _antwort(self, 200, {"items": _abos})
+        elif self.path.startswith("/api/kanal_info"):   # ganzen Kanal aufloesen (Name + Videozahl)
+            url = (parse_qs(urlparse(self.path).query).get("url") or [""])[0]
+            _antwort(self, 200, kanal_info(url))
         elif self.path.startswith("/api/playlist_export"):
             pid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             pl = next((p for p in _playlists if p.get("id") == pid), None)

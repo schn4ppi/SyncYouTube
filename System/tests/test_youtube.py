@@ -81,6 +81,19 @@ def test_ist_einzelvideo():
     assert app.ist_einzelvideo("https://www.youtube.com/playlist?list=PL1") is False
 
 
+def test_kanal_url_normalisieren():
+    # bloße Kanal-Formen bekommen /videos angehängt (sonst nur Reiter statt Videos)
+    assert app._kanal_url("https://www.youtube.com/@MrBeast") == "https://www.youtube.com/@MrBeast/videos"
+    assert app._kanal_url("https://www.youtube.com/channel/UC123") == "https://www.youtube.com/channel/UC123/videos"
+    assert app._kanal_url("https://www.youtube.com/c/Name/") == "https://www.youtube.com/c/Name/videos"
+    assert app._kanal_url("https://www.youtube.com/user/Name") == "https://www.youtube.com/user/Name/videos"
+    # bereits /videos, Playlists, Watch-Links und Fremd-Hosts bleiben unveraendert
+    assert app._kanal_url("https://www.youtube.com/@MrBeast/videos") == "https://www.youtube.com/@MrBeast/videos"
+    assert app._kanal_url("https://www.youtube.com/playlist?list=PL1") == "https://www.youtube.com/playlist?list=PL1"
+    assert app._kanal_url("https://www.youtube.com/watch?v=abc") == "https://www.youtube.com/watch?v=abc"
+    assert app._kanal_url("https://example.com/@foo") == "https://example.com/@foo"
+
+
 def test_kategorie():
     assert app._kategorie("audio", 0) == "MP3"
     assert app._kategorie("beste", 2160) == "4K+"
