@@ -32,7 +32,13 @@ VARIANTEN = {
                               # Firefox verlangt seit 2025 eine Datenschutz-Erklärung im Manifest.
                               # Die Erweiterung sammelt NICHTS: sie redet nur mit 127.0.0.1:8776
                               # (dem lokalen Downloader) -> "none". Ohne dieses Feld lehnt AMO ab.
-                              "data_collection_permissions": {"required": ["none"]}}}},
+                              "data_collection_permissions": {"required": ["none"]},
+                              # Selbst verteilter (unlisted) Kanal: Firefox holt sich Updates
+                              # selbst — die URL zeigt IMMER aufs neueste GitHub-Release
+                              # (updates.json erzeugt amo_sign.py nach dem Signieren und
+                              # liegt als Asset in JEDEM Release; nur listed-Addons duerfen
+                              # kein update_url tragen).
+                              "update_url": "https://github.com/schn4ppi/SyncYouTube/releases/latest/download/updates.json"}}},
 }
 
 

@@ -36,6 +36,25 @@ Kein Tracking, keine Fremd-Server — das ist bei der Store-Prüfung ein klarer 
 3. Neues Zip im jeweiligen Store hochladen → **die Browser aktualisieren die Nutzer automatisch**
    (kein Zutun der Nutzer). Firefox-selbst-gehostet: neue `.xpi` + `updates.json` austauschen.
 
+### Firefox-Selbst-Update (AKTIV seit v1.0.4, 22.07.2026)
+Das Firefox-Manifest trägt `browser_specific_settings.gecko.update_url` →
+`https://github.com/schn4ppi/SyncYouTube/releases/latest/download/updates.json`.
+Firefox fragt diese Adresse regelmäßig ab und installiert neue signierte Versionen
+**selbst** — nie wieder xpi von Hand ziehen. Damit die Kette hält, MUSS **jedes**
+GitHub-Release zwei Addon-Assets tragen (Release-Checkliste!):
+- `ytdl-firefox-vX.Y.Z-signiert.xpi` (die aktuelle signierte Erweiterung)
+- `updates.json` (erzeugt `amo_sign.py` automatisch nach dem Signieren,
+  inkl. `sha256`-Hash der xpi; zeigt per `releases/latest/download/…` auf die xpi)
+
+Auch wenn ein App-Release KEINE neue Addon-Version bringt: die zuletzt signierte
+xpi + updates.json unverändert wieder mit hochladen, sonst läuft `latest/download`
+ins Leere (Firefox behält dann still die installierte Version — heilt sich beim
+nächsten vollständigen Release).
+
+**Einmaliger Umstieg:** Versionen ≤ 1.0.3 haben noch KEIN `update_url` und erfahren
+von Updates nie — die v1.0.4 einmal von Hand installieren (xpi auf `about:addons`
+ziehen), ab dann updatet Firefox selbst.
+
 **Automatisierung:** Der Upload lässt sich per Store-API skripten, dann kann Claude
 Versionsbumps + Upload komplett übernehmen. Dafür braucht es **einmalig** Zugangsdaten:
 - Chrome: OAuth-Client + Refresh-Token (Chrome Web Store API) — noch offen.

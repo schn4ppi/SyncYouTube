@@ -44,6 +44,27 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 API = "https://addons.mozilla.org/api/v5"
 GUID = "youtube-downloader@jbk.local"          # gecko-id aus build.py/manifest
 KEYRING_DIENST = "SyncYouTube-AMO"             # Windows-Anmeldeinformationsspeicher
+RELEASE_LATEST = "https://github.com/schn4ppi/SyncYouTube/releases/latest/download/"
+
+
+def updates_json_schreiben(vnum, xpi_pfad):
+    """Mozilla-Update-Manifest fuer den Self-Hosting-Kanal: das Erweiterungs-
+    Manifest zeigt per update_url auf releases/latest/download/updates.json —
+    deshalb MUSS diese Datei (+ die signierte .xpi) als Asset in JEDES
+    GitHub-Release. Entsteht hier NACH dem Signieren, damit der sha256-Hash
+    der fertigen .xpi hinein kann (Schutz gegen manipulierte Downloads)."""
+    with open(xpi_pfad, "rb") as f:
+        h = hashlib.sha256(f.read()).hexdigest()
+    daten = {"addons": {GUID: {"updates": [{
+        "version": vnum,
+        "update_link": RELEASE_LATEST + os.path.basename(xpi_pfad),
+        "update_hash": "sha256:" + h,
+    }]}}}
+    ziel = os.path.join(HERE, "dist", "updates.json")
+    with open(ziel, "w", encoding="utf-8") as f:
+        json.dump(daten, f, ensure_ascii=False, indent=2)
+    print(f"Update-Manifest -> dist/updates.json (v{vnum}, "
+          f"zeigt auf {os.path.basename(xpi_pfad)}) — mit ins GitHub-Release!")
 
 
 # ---------------------------------------------------------------- Schlüssel --
@@ -188,6 +209,7 @@ def hochladen(kanal):
             print(f"Fertig: signierte Datei -> dist/{os.path.basename(ziel)}\n"
                   "Die .xpi ist dauerhaft in Firefox installierbar (Datei ins "
                   "Add-ons-Fenster ziehen) und darf mit ins GitHub-Release.")
+            updates_json_schreiben(vnum, ziel)
             return
         print(f"  … Status: {datei.get('status', '?')}")
     sys.exit("Signierung nach 10 Minuten nicht fertig — später mit --status prüfen.")
@@ -214,6 +236,7 @@ def xpi_holen():
             print(f"Signierte Datei -> dist/{os.path.basename(ziel)} "
                   f"({os.path.getsize(ziel)} Bytes)\n"
                   "Dauerhaft installieren: Datei in Firefox auf about:addons ziehen.")
+            updates_json_schreiben(v["version"], ziel)
             return
     sys.exit("Keine fertig signierte Version gefunden (Status mit --status prüfen).")
 
