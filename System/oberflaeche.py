@@ -80,14 +80,15 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .cmd-left{flex:1 1 50%;min-width:0;display:flex;flex-direction:column;gap:6px;justify-content:center}
 .cmd-right{flex:1 1 46%;min-width:0;border-left:1px solid var(--panelln);padding-left:12px;display:flex;flex-direction:column;gap:5px}
 /* Fest eingebettetes Download-Fenster in der Command-Bar */
-.dlbox-tabs{display:flex;gap:2px;flex:none}
-.dlbox-tab{background:none;border:0;color:#8a7d74;font:inherit;font-size:12px;padding:4px 9px;border-radius:7px 7px 0 0;cursor:pointer}
+.dlbox-tabs{display:flex;gap:2px;flex:none;align-items:center}
+.dlbox-tab{background:none;border:0;color:#8a7d74;font:inherit;font-size:12px;padding:3px 9px;border-radius:7px 7px 0 0;cursor:pointer}
 .dlbox-tab:hover{color:#d7c7bd}
 .dlbox-tab.an{background:var(--panel2,#241f1b);color:var(--akz2)}
-.dlbox-body{flex:1;min-height:150px;max-height:230px;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
+.dlbox-tabs .spacer{flex:1}
+.dlbox-action{padding:2px 9px!important;font-size:11px!important}
+.dlbox-body{flex:1 1 auto;min-height:200px;max-height:320px;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
 .dlbox-body::-webkit-scrollbar{width:6px}.dlbox-body::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
-.dlbox-body .card{margin:0;background:transparent;border:0;padding:10px 12px}
-.dlbox-body .kopfzeile h2{font-size:14px}
+.dlbox-body .card{margin:0;background:transparent;border:0;padding:6px 10px}
 /* Mini: statt der Download-Reiter sitzt hier der eingebettete Mini-Player */
 #cmd-mini:empty{display:none}
 #cmd-mini{display:flex;flex-direction:column;min-height:150px;max-height:260px}
@@ -796,7 +797,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
           <span class="apidot bad" id="apidot" title="API-Status"></span>
         </div>
         <div class="cmd-side">
-          <button class="iconbtn sm" onclick="ensureView('abos')" title="Abos: Kanäle/Playlists abonnieren, Backkatalog, Format &amp; Regeln je Abo">📡</button>
+          <button class="iconbtn sm" onclick="abosZeigen()" title="Abos: Kanäle/Playlists abonnieren, Backkatalog, Format &amp; Regeln je Abo (Reiter im Download-Fenster)">📡</button>
           <button class="iconbtn sm" id="theme" onclick="themeToggle()" title="Tag-/Nacht-Modus schnell umschalten">🌙</button>
           <button class="iconbtn sm" onclick="hilfeModal(true)" title="Legende: alle Knöpfe, Gesten &amp; Tasten erklärt">?</button>
           <button class="iconbtn sm" id="optbtn" onclick="optionenToggle(event)" title="Optionen (Look, Crossfade, Sleep-Timer, Fenster-Abstand …)">⚙</button>
@@ -810,6 +811,9 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="dlbox-tab an" data-dlt="queue" onclick="dlboxTab('queue')">Downloads</button>
         <button class="dlbox-tab" data-dlt="done" onclick="dlboxTab('done')">Fertig</button>
         <button class="dlbox-tab" data-dlt="log" onclick="dlboxTab('log')">Log</button>
+        <button class="dlbox-tab" data-dlt="abos" onclick="dlboxTab('abos')">📡 Abos</button>
+        <span class="spacer"></span>
+        <button class="btn mini dlbox-action" id="dlbox-action"></button>
       </div>
       <div class="dlbox-body" id="dlbox-body"></div>
       <div id="cmd-mini"></div>
@@ -833,7 +837,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
   </span>
   <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben">🔳 Mini</button>
   <span class="spacer"></span>
-  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 76</span>
+  <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 77</span>
 </div>
 
 <div id="canvas"></div>
@@ -997,25 +1001,15 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
   </div>
 
   <div id="view-queue">
-    <div class="card">
-      <div class="kopfzeile" style="justify-content:flex-end">
-        <button class="btn mini" onclick="aktion('','ordner_offen')" title="Downloads-Ordner im Explorer öffnen">📂 Zielordner</button></div>
-      <div id="liste"></div>
-    </div>
+    <div class="card"><div id="liste"></div></div>
   </div>
 
   <div id="view-done">
-    <div class="card">
-      <div class="kopfzeile" style="justify-content:flex-end">
-        <button class="btn mini" onclick="aktion('','queue_aufraeumen')" title="Fertige, Übersprungene und Fehlgeschlagene aus der Liste nehmen — Dateien bleiben">🧹 Aufräumen</button></div>
-      <div id="fertigliste"></div>
-    </div>
+    <div class="card"><div id="fertigliste"></div></div>
   </div>
 
   <div id="view-log">
     <div class="card">
-      <div class="kopfzeile" style="justify-content:flex-end">
-        <button class="btn mini" onclick="logLeeren()" title="Log-Liste leeren">Leeren</button></div>
       <div class="chips" id="logchips"></div>
       <div id="logliste" class="logliste"></div>
     </div>
@@ -1108,9 +1102,6 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-abos">
     <div class="card">
-      <div class="kopfzeile"><h2>📡 Abos</h2>
-        <span class="spacer"></span>
-        <button class="btn mini" onclick="aboPruefen(this)" title="Jetzt alle Abos auf neue Videos prüfen">🔄 Jetzt prüfen</button></div>
       <div class="zeile">
         <input type="text" id="abo-url" placeholder="Kanal- oder Playlist-Link…" style="flex:1;min-width:150px"
                onkeydown="if(event.key==='Enter')aboCreate()">
@@ -1234,9 +1225,16 @@ async function setFehlerMin(v){
 
 /* ================= Panels / Docking ================= */
 const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Downloads', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player', plq:'🎶 Playlist', abos:'📡 Abos'};
-const DLV=['queue','done','log'];                    // Download-Views: fest im dlbox (normal) / Canvas-Panel (mini). Hinzufügen läuft über „Link einfügen" oben
+const DLV=['queue','done','log','abos'];             // Download-Views: fest im dlbox (normal) / Canvas-Panel (mini). Hinzufügen läuft über „Link einfügen" oben
+const DLACTION={queue:["📂 Zielordner","aktion('','ordner_offen')"],
+                done:["🧹 Aufräumen","aktion('','queue_aufraeumen')"],
+                log:["Leeren","logLeeren()"], abos:["🔄 Jetzt prüfen","aboPruefen(this)"]};
 let dlboxAktiv='queue';
 function dlboxTab(v){ if(!DLV.includes(v))return; dlboxAktiv=v; dlboxRender(); }
+function abosZeigen(){                                 // 📡: Abos-Reiter zeigen (normal im dlbox, mini im mdl-Fenster)
+  if(miniAn){const p=L.panels.find(x=>(x.views||[]).includes('abos')); if(p){p.active='abos'; renderPanels();} aboLaden(); return;}
+  dlboxTab('abos'); aboLaden();
+}
 function dlboxRender(){
   const box=document.getElementById('dlbox'), body=document.getElementById('dlbox-body');
   const tabs=document.getElementById('dlbox-tabs'), cm=document.getElementById('cmd-mini');
@@ -1251,10 +1249,14 @@ function dlboxRender(){
   }
   if(tabs)tabs.style.display=''; body.style.display=''; if(cm)cm.innerHTML='';
   document.querySelectorAll('#dlbox-tabs .dlbox-tab').forEach(t=>t.classList.toggle('an',t.dataset.dlt===dlboxAktiv));
+  const act=document.getElementById('dlbox-action'), a=DLACTION[dlboxAktiv];   // Aktion oben in der Reiter-Leiste
+  if(act&&a){act.textContent=a[0]; act.setAttribute('onclick',a[1]); act.style.display='';}
+  else if(act)act.style.display='none';
   const stash=document.getElementById('stash');
   DLV.forEach(v=>{if(v!==dlboxAktiv){const n=document.getElementById('view-'+v); if(n&&n.parentNode===body)stash.appendChild(n);}});
   const node=document.getElementById('view-'+dlboxAktiv);
   if(node&&node.parentNode!==body)body.appendChild(node);
+  if(dlboxAktiv==='abos')aboLaden();
 }
 const LKEY='ytdl_layout_v5';
 let L=ladeLayout(), libTimer=null;
