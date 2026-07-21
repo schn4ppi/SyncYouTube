@@ -36,7 +36,7 @@ from urllib.parse import urlparse, parse_qs
 import geo
 import update
 
-__version__ = "1.1.10"
+__version__ = "1.2.0"
 
 # Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
 # Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
@@ -1637,10 +1637,34 @@ def abo_aktion(daten):
             _json_speichern(ABO_PFAD, _abos)
         return {"ok": True, "id": abo["id"], "name": abo["name"], "basis": len(ids)}
     if art == "delete":
+        abo = next((a for a in _abos if a.get("id") == daten.get("id")), None)
+        geloescht = 0
+        if abo and daten.get("mit_videos"):
+            # JB (Build 95): optional die UEBER DIESES ABO geladenen Videos mit
+            # entfernen — NUR Inhalte der eigenen Abo-Playlist (Kriterium wie
+            # abo_aufraeumen), Datei in den Windows-Papierkorb (wiederherstellbar);
+            # manuell Geladenes bleibt unberuehrt.
+            pl = next((p for p in _playlists if p.get("id") == abo.get("playlist_id")), None)
+            for key in list((pl or {}).get("items") or []):
+                if key not in _geladen:
+                    continue
+                with _io_lock:
+                    _datei_loeschen(key)
+                    _geladen.pop(key, None)
+                geloescht += 1
+            with _io_lock:
+                if pl is not None:
+                    _playlists[:] = [p for p in _playlists if p.get("id") != pl.get("id")]
+                _json_speichern(GELADEN_PFAD, _geladen)
+            _playlists_speichern()
+        try:                                          # Folgen-Cache des Abos ist jetzt Waise
+            os.remove(os.path.join(ABO_INDEX_ORDNER, f"{daten.get('id')}.json"))
+        except OSError:
+            pass
         with _io_lock:
             _abos[:] = [a for a in _abos if a.get("id") != daten.get("id")]
             _json_speichern(ABO_PFAD, _abos)
-        return {"ok": True}
+        return {"ok": True, "geloescht": geloescht}
     if art == "pruefen":
         return {"ok": True, "neu": abos_pruefen()}
     if art == "aendern":                              # Format + Regeln nachträglich (JB 20.07.)

@@ -487,6 +487,49 @@ def test_abo_baseline_topic_uploads():
         app._abo_flach = echt_flach
 
 
+def test_abo_delete_mit_videos():
+    # Build 95 (JB): Abo entfernen optional MIT den über das Abo geladenen
+    # Videos — NUR Inhalte der eigenen Abo-Playlist (wie abo_aufraeumen),
+    # Papierkorb statt hart, manuell Geladenes bleibt unberührt.
+    import tempfile
+    d = tempfile.mkdtemp()
+    alt_ordner = app.ABO_INDEX_ORDNER
+    app.ABO_INDEX_ORDNER = d
+    still = lambda *a, **k: None                       # noqa: E731
+    echt_json, echt_pl = app._json_speichern, app._playlists_speichern
+    echt_del = app._datei_loeschen
+    app._json_speichern, app._playlists_speichern = still, still
+    weg = []
+    app._datei_loeschen = lambda key: weg.append(key)
+    app._abos.append({"id": "aboWEG", "name": "K", "qualitaet": "audio", "playlist_id": "plWEG"})
+    app._playlists.append({"id": "plWEG", "name": "K", "items": ["vidA0000001|audio", "vidB0000001|audio"]})
+    app._geladen["vidA0000001|audio"] = {"name": "a.mp3"}
+    app._geladen["vidB0000001|audio"] = {"name": "b.mp3"}
+    app._geladen["fremd0000001|audio"] = {"name": "f.mp3"}   # NICHT vom Abo — muss bleiben
+    try:
+        r = app.abo_aktion({"art": "delete", "id": "aboWEG", "mit_videos": True})
+        assert r.get("ok") and r.get("geloescht") == 2
+        assert sorted(weg) == ["vidA0000001|audio", "vidB0000001|audio"]
+        assert "vidA0000001|audio" not in app._geladen
+        assert "vidB0000001|audio" not in app._geladen
+        assert "fremd0000001|audio" in app._geladen            # unberührt
+        assert not any(a.get("id") == "aboWEG" for a in app._abos)
+        assert not any(p.get("id") == "plWEG" for p in app._playlists)
+        # OHNE mit_videos: nur das Abo geht (Bestandsverhalten)
+        app._abos.append({"id": "aboBLEIBT", "name": "B", "qualitaet": "audio"})
+        r2 = app.abo_aktion({"art": "delete", "id": "aboBLEIBT"})
+        assert r2.get("ok") and r2.get("geloescht", 0) == 0
+        assert "fremd0000001|audio" in app._geladen
+    finally:
+        app.ABO_INDEX_ORDNER = alt_ordner
+        app._json_speichern, app._playlists_speichern = echt_json, echt_pl
+        app._datei_loeschen = echt_del
+        app._abos[:] = [a for a in app._abos if a.get("id") not in ("aboWEG", "aboBLEIBT")]
+        app._playlists[:] = [p for p in app._playlists if p.get("id") != "plWEG"]
+        for k in ("vidA0000001|audio", "vidB0000001|audio", "fremd0000001|audio"):
+            app._geladen.pop(k, None)
+
+
 def test_abo_heilen():
     # Build 91: Bestands-Abos aus der Build-88-Zeit tragen den blossen
     # Kanal-Link + Reiter-IDs als Baseline (JBs KateBush-Abo). Heilen =

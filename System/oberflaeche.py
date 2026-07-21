@@ -468,7 +468,15 @@ html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
 .abo-f.sel{background:#2e2620;outline:1px solid var(--akz)}
 /* Backkatalog-Flyout (Build 93, JB): eigenes grosses Fenster AM 📜-Knopf statt
    Inline-Ausklappen in der engen Box — schwebend + fixiert (Anti-Scroll), wird
-   IMMER in den Viewport geklemmt, nur die Folgen-Liste scrollt innen. */
+   IMMER in den Viewport geklemmt, nur die Folgen-Liste scrollt innen.
+   Build 95 (JB-Griff 2): schmaler Scrollbalken mit Abstand zur Zeit-Spalte +
+   hauchduenne Trennlinien zwischen den Zeilen. */
+.abo-flyout .abo-fliste{padding-right:10px}
+.abo-flyout .abo-fliste::-webkit-scrollbar{width:6px}
+.abo-flyout .abo-fliste::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
+.abo-flyout .abo-f{border-bottom:1px solid rgba(255,255,255,.045);border-radius:0}
+.abo-flyout .abo-f:last-child{border-bottom:none}
+html.light .abo-flyout .abo-f{border-bottom-color:rgba(0,0,0,.055)}
 .abo-flyout{position:fixed;z-index:900;background:var(--panel);border:1px solid var(--panelln);
   border-radius:12px;box-shadow:0 14px 42px rgba(0,0,0,.55);display:flex;flex-direction:column;
   padding:10px 12px;min-width:340px}
@@ -843,7 +851,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 94</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 95</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -2573,7 +2581,8 @@ function cmdNowRender(){
     `<button class="mp-btn mp-tog" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
     `<button class="mp-btn mp-tog mp-radio" data-tr="radio" onclick="radioStart()" title="📻 Radio — endloser Mix aus deiner Bibliothek">📻</button>`+
     `<button class="mp-btn mp-tog mp-art" data-tr="art" onclick="playArtCycle()"></button>`+
-    `<button class="mp-btn mp-yt" onclick="playerYoutube()" title="Diesen Titel auf YouTube öffnen">${ico('yt')}</button>`+
+    `<button class="mp-btn mp-yt" onclick="playerYoutube()" title="Diesen Titel auf YouTube öffnen — springt zur aktuellen Stelle">${ico('yt')}</button>`+
+    `<button class="mp-btn" onclick="playerLinkKopieren()" title="YouTube-Link kopieren (zum Teilen, OHNE Zeitstempel)">🔗</button>`+
     `<span class="pl-bvolwrap mp-vol">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
     `</div>`+titel+
     `<div class="cmd-seekline"><span class="cmd-time" id="cmd-t0">0:00</span>`+
@@ -2696,7 +2705,7 @@ function aboKarteHTML(a){
       <button class="ib" title="Abo-Playlist im Player abspielen" onclick="aboAbspielen('${a.id}')">▶</button>
       <button class="ib ${o.auf?'an':''}" title="Backkatalog: alle Folgen des Kanals als eigenes Fenster — Ausgegrautes ist noch nicht geladen" onclick="aboFolgenToggle('${a.id}',event)">📜</button>
       <button class="ib ${o.regeln?'an':''}" title="Regeln: Titel-Filter, Stichtag, Shorts/Streams, Auto-Löschen, Format-Erneuern" onclick="aboRegelnToggle('${a.id}')">⚙</button>
-      <button class="ib" title="Abo entfernen (heruntergeladene Videos bleiben)" onclick="aboDelete('${a.id}')">🗑</button>
+      <button class="ib" title="Abo entfernen — mit oder ohne die geladenen Videos" onclick="aboDelete('${a.id}',event)">🗑</button>
     </div>
     ${o.regeln?aboRegelnHTML(a):''}
   </div>`;
@@ -2987,10 +2996,21 @@ async function aboCreate(){
   }catch(e){alert('Abonnieren fehlgeschlagen (App erreichbar?)');}
   inp.disabled=false; aboLaden();
 }
-async function aboDelete(id){
-  if(!confirm('Abo entfernen? (heruntergeladene Videos bleiben)'))return;
-  await fetch('/api/abo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'delete',id})});
-  aboLaden();
+function aboDelete(id,ev){
+  // Build 95 (JB): beim Entfernen wahlweise die ueber DIESES Abo geladenen
+  // Videos mit in den Windows-Papierkorb (nur Abo-Playlist-Inhalte,
+  // wiederherstellbar) — manuell Geladenes bleibt immer unberuehrt.
+  kontextMenuBauen(ev,[
+    ['🗑 Nur das Abo entfernen (Videos bleiben)', async()=>{
+      await aboPost({art:'delete',id}); aboLaden();
+    }],
+    ['🗑 Abo + geladene Videos in den Papierkorb', async()=>{
+      if(!confirm('Auch alle über dieses Abo geladenen Videos in den Windows-Papierkorb legen? Manuell Geladenes bleibt.'))return;
+      const d=await aboPost({art:'delete',id,mit_videos:true});
+      toast('🗑 '+(d.geloescht||0)+' Datei(en) in den Papierkorb');
+      aboLaden(); libLaden();
+    }],
+  ]);
 }
 async function aboPruefen(btn){
   const t=btn&&btn.textContent; if(btn){btn.disabled=true; btn.textContent='prüfe…';}
@@ -4109,12 +4129,20 @@ function vorherigesAusBibliothek(){
 function playerExtern(){const k=aktKey(); if(k)biblio(k,'extern');}
 function playerYoutube(){
   // Build 93 (JB): YouTube genau DA oeffnen, wo der Player gerade steht (&t=…s);
-  // unter 4 s bleibt der Link sauber ohne Zeitangabe.
+  // unter 4 s bleibt der Link sauber ohne Zeitangabe. (Der Parameter steuert
+  // NUR das Abspielen — ein Download ueber die App laedt immer das GANZE Video.)
   const x=libFind(aktKey()); if(!x||!x.url)return;
   const el=document.getElementById('pl-el');
   const s=el&&isFinite(el.currentTime)?Math.floor(el.currentTime):0;
   const url=s>3?x.url+(x.url.includes('?')?'&':'?')+'t='+s+'s':x.url;
   window.open(url,'_blank','noreferrer');
+}
+function playerLinkKopieren(){
+  // Build 95 (JB): Link zum TEILEN — bewusst OHNE Zeitstempel (x.url ist die
+  // gespeicherte saubere watch-URL; das t haengt nur playerYoutube beim Oeffnen an).
+  const x=libFind(aktKey()); if(!x||!x.url){toast('Kein Titel im Player');return;}
+  try{navigator.clipboard.writeText(x.url); toast('🔗 Link kopiert (ohne Zeitstempel)');}
+  catch(e){prompt('Link zum Kopieren:',x.url);}
 }
 
 /* ---- Abspielgeschwindigkeit ---- */
@@ -4570,7 +4598,8 @@ function plBarHTML(istVideo){
     `<button class="pl-bsp bo3" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
     `<button class="pl-bsp bo3" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
     `<span class="pl-bvolwrap bo2">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
-    `<button class="pl-bsp pl-byt bo3" onclick="playerYoutube()" title="Dieses Video auf YouTube öffnen">${ico('yt')}<span class="bo-yttxt"> YouTube</span></button>`+
+    `<button class="pl-bsp pl-byt bo3" onclick="playerYoutube()" title="Dieses Video auf YouTube öffnen — springt zur aktuellen Stelle">${ico('yt')}<span class="bo-yttxt"> YouTube</span></button>`+
+    `<button class="pl-bsp bo3" onclick="playerLinkKopieren()" title="YouTube-Link kopieren (zum Teilen, OHNE Zeitstempel)">🔗</button>`+
     (istVideo?`<button class="pl-bsp bo2" onclick="plbPip()" title="Bild-in-Bild: Video schwebt über allen Fenstern (Taste I)">⧉</button>`:'')+
     (istVideo?`<button class="pl-bsp" onclick="plbFullscreen()" title="Vollbild (Taste F)">⛶</button>`:'')+
    `</div></div>`;
