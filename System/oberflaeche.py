@@ -4712,6 +4712,9 @@ function plQueueKlick(i){
     return;
   }
   playerState.idx=i; renderPlayerMedia();
+  // Fokus überlebt das Neu-Rendern (JB-Sicht-Check 22.07.): nach Enter/Doppelklick sonst
+  // Fokus weg -> Entf/Pfeile brauchten erst wieder einen Klick in die Liste.
+  plqSel=i; plqMark(); plqFocus(i);
 }
 /* Player-Warteschlange: Einträge umsortieren (HTML5-Drag) + Titel aus der
    Bibliothek hineinziehen (JB 13.07.: „aus der Bibliothek in die Playlist schieben") */
