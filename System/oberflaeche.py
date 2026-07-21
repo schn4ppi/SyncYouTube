@@ -76,7 +76,9 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 /* ---- Sticky Command-Bar (oben, hacker/monospace) — 50/50: links Eingabe+Player, rechts Downloads ---- */
 #cmdbar{position:sticky;top:0;z-index:400;background:var(--panel);border-bottom:1px solid var(--panelln);
   padding:6px 12px;font-family:Consolas,"Courier New",monospace;box-shadow:0 2px 12px rgba(0,0,0,.4)}
-.cmd-main{display:flex;gap:14px;align-items:stretch}
+/* FESTE Command-Bar-Höhe (JB 21.07.: „muss fix sein, egal wie und wo") — kein
+   Reiter, kein Modus, kein Inhalt ändert sie; die rechte Seite scrollt intern. */
+.cmd-main{display:flex;gap:14px;align-items:stretch;height:188px}
 .cmd-left{flex:1 1 50%;min-width:0;display:flex;flex-direction:column;gap:6px;justify-content:center}
 .cmd-right{flex:1 1 46%;min-width:0;border-left:1px solid var(--panelln);padding-left:12px;display:flex;flex-direction:column;gap:5px}
 /* Fest eingebettetes Download-Fenster in der Command-Bar */
@@ -165,7 +167,7 @@ html.light .cmd-nowtitel{color:#4a3f37}
 .cmd-clip{margin-top:6px;align-items:center;gap:8px;font-size:11.5px;color:var(--akz2);
   background:var(--akzbg);border:1px solid var(--akz);border-radius:7px;padding:4px 9px;display:flex}
 .clipurl{color:#d7c7bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-@media(max-width:660px){.cmd-main{flex-direction:column}
+@media(max-width:660px){.cmd-main{flex-direction:column;height:auto}
   .cmd-right{border-left:0;border-top:1px solid var(--panelln);padding-left:0;padding-top:6px;max-height:96px}
   .cmd-side,.cmd-stat{flex-direction:row;align-items:center}}
 html.light #cmdbar{background:#fff;border-color:#e6ddd3}
@@ -785,7 +787,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 79</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 80</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
