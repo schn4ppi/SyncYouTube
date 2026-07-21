@@ -212,7 +212,7 @@ body.dragziel::after{content:"⬇ Link hier loslassen = Download";position:fixed
 .legrow b{color:var(--akz2);font-weight:600}
 html.light .legrow{color:#4a3f38}
 #layoutbar .btn{padding:5px 11px}
-#canvas{position:relative;width:100%;min-height:calc(100vh - 118px);padding:2px 10px 50px}
+#canvas{position:relative;width:100%;min-height:calc(100vh - 210px);padding:2px 10px 50px}
 
 /* ---- Panels (bewegliche Fenster) ---- */
 .panel{position:absolute;background:var(--panel);border:1px solid var(--panelln);border-radius:12px;display:flex;
@@ -802,7 +802,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 81</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 82</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1403,8 +1403,39 @@ function renderPanels(){
   const pb=document.getElementById('plq-btn'); if(pb)pb.classList.toggle('an',plqExtern);
   dlboxRender();                                       // Download-Views ins feste Fenster (normal) hosten
   renderPlayerQueue();
+  canvasHoehe();                                        // Canvas mind. so hoch wie das tiefste Fenster
   saveLayout();
 }
+/* Fenster-Resize (JB 22.07.): die Canvas-Fenster (Bibliothek/Player/…) wachsen
+   proportional mit — kein manuelles Layout-Neuwählen mehr. Alle Kanten skalieren
+   gleich, Adjazenz bleibt (keine Lücken/Überlappungen). Eingebettete Command-Bar-
+   Fenster regelt das CSS selbst. */
+let _vpRef=null, _resizeT=null;
+function canvasHoehe(){
+  const c=document.getElementById('canvas'); if(!c)return;
+  const r=c.getBoundingClientRect();
+  const sicht=Math.max(320, Math.round(window.innerHeight - r.top - 8));
+  const tief=Math.max(0,...L.panels.map(p=>p.y+p.h));
+  c.style.minHeight=Math.max(sicht, tief+8)+'px';
+}
+function _vpMasse(){
+  const c=document.getElementById('canvas'); if(!c)return null;
+  const r=c.getBoundingClientRect();
+  return {cw:Math.max(320, c.clientWidth-20), ch:Math.max(320, Math.round(window.innerHeight - r.top - 8))};
+}
+function canvasAnpassen(){
+  if(miniAn){ L=miniLayoutBauen(); renderPanels(); _vpRef=_vpMasse(); return; }
+  const m=_vpMasse(); if(!m)return;
+  if(!_vpRef){_vpRef=m; return;}
+  const rx=m.cw/_vpRef.cw, ry=m.ch/_vpRef.ch;
+  if(Math.abs(rx-1)<0.008 && Math.abs(ry-1)<0.008){_vpRef=m; return;}   // kaum Änderung
+  L.panels.forEach(p=>{
+    p.x=Math.max(0,Math.round(p.x*rx)); p.y=Math.max(0,Math.round(p.y*ry));
+    p.w=Math.max(220,Math.round(p.w*rx)); p.h=Math.max(160,Math.round(p.h*ry));
+  });
+  _vpRef=m; renderPanels();
+}
+window.addEventListener('resize',()=>{clearTimeout(_resizeT); _resizeT=setTimeout(canvasAnpassen,90);});
 
 /* ---- Ansicht-Verlauf: Mausrad links = zurück (Vergangenheit), rechts = vor (Gegenwart).
    Springt zu der Ansicht, in der man vorher war — auch über Fenster hinweg
@@ -4604,6 +4635,7 @@ document.addEventListener('keydown',e=>{
 themeIcon();
 renderPanels();
 layoutEntwirren();                               // alte Layouts mit Überlappungen einmalig bereinigen
+_vpRef=_vpMasse();                               // Bezugsmaß fürs proportionale Mitwachsen beim Resize
 L.panels.forEach(p=>merkeView(p.id,p.active));   // Start-Stationen in den Verlauf
 layoutSelectFuellen();
 einstellungenModalInit();                        // Einstellungs-Karte ins Modal umziehen
