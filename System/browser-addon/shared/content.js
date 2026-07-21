@@ -5,6 +5,19 @@
   const api = (typeof browser !== "undefined") ? browser : chrome;
   let btn = null, curUrl = null, hideTimer = null, lastMove = 0;
 
+  // Hover-Knopf abschaltbar (JB v1.0.5, Popup-Schalter; Standard AN) —
+  // wirkt sofort über storage.onChanged, das Rechtsklick-Menü bleibt immer.
+  let hoverAn = true;
+  try {
+    api.storage.local.get("ytdl_hover").then((o) => { hoverAn = !(o && o.ytdl_hover === false); }, () => {});
+    api.storage.onChanged.addListener((aend, bereich) => {
+      if (bereich === "local" && aend.ytdl_hover) {
+        hoverAn = aend.ytdl_hover.newValue !== false;
+        if (!hoverAn) verstecken();
+      }
+    });
+  } catch (e) { /* Storage nicht verfügbar -> Knopf bleibt an */ }
+
   // App-läuft-Wächter (JB 22.07.): der Knopf erscheint NUR, wenn der Downloader
   // wirklich läuft — vorher tauchte er immer auf und der Klick lief ins Leere.
   // Der Ping läuft im Hintergrund-Skript (Cache dort), hier nur das Ergebnis.
@@ -82,6 +95,7 @@
     const now = Date.now();
     if (now - lastMove < 60) return;            // Drosselung
     lastMove = now;
+    if (!hoverAn) { verstecken(); return; }     // Knopf im Popup abgeschaltet (JB v1.0.5)
     appPruefen();
     if (!appAn) { verstecken(); return; }       // App aus -> Knopf existiert nicht (JB 22.07.)
     if (!btn) mkBtn();
@@ -95,7 +109,13 @@
     if (a) { zeigen(a.getBoundingClientRect(), a.href); resetIdle(); return; }
     const player = e.target.closest ? e.target.closest("#movie_player, .html5-video-player") : null;
     if (player && location.href.includes("/watch")) {
-      zeigen(player.getBoundingClientRect(), location.href.split("&")[0]);
+      // Am echten BILD ausrichten (JB v1.0.5): der Player-Container umfasst
+      // auch Letterbox/Chrome — der Knopf sass dadurch "etwas ausserhalb"
+      // des sichtbaren Videos. Das <video>-Element hat die echten Bild-Masse.
+      const video = player.querySelector("video");
+      const rect = (video && video.getBoundingClientRect().width > 0)
+        ? video.getBoundingClientRect() : player.getBoundingClientRect();
+      zeigen(rect, location.href.split("&")[0]);
       resetIdle();
       return;
     }

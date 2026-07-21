@@ -28,10 +28,17 @@
     <option value="720p">720p</option>
     <option value="audio">Nur Audio (MP3)</option>
   </select>
+  <label style="display:flex;align-items:center;gap:7px;margin-top:12px;cursor:pointer">
+    <input type="checkbox" id="hover" checked style="width:auto;margin:0">
+    ⬇-Knopf auf YouTube anzeigen</label>
+  <label style="display:flex;align-items:center;gap:7px;margin-top:8px;cursor:pointer">
+    <input type="checkbox" id="notify" style="width:auto;margin:0">
+    Meldung nach dem Einreihen</label>
   <button id="oeffnen">Warteschlange öffnen</button>
   <div class="status" id="status">prüfe Verbindung…</div>
   <div class="hint">Rechtsklick auf ein Video wählt die Qualität einzeln.
-    Der kleine ⬇-Knopf erscheint beim Überfahren eines Videos.</div>
+    Der kleine ⬇-Knopf erscheint beim Überfahren eines Videos —
+    oben abschaltbar, Rechtsklick geht weiter.</div>
   <script src="popup.js"></script>
 </body>
 </html>
