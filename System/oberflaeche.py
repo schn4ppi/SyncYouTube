@@ -46,7 +46,7 @@ HTML = """<!doctype html>
 *{box-sizing:border-box}
 /* Farbwelt als Variablen — ein „Look" setzt nur diese um (Standard = Terracotta).
    So bleibt das Standard-Aussehen exakt gleich, neue Looks tönen alles konsistent. */
-:root{--akz:#c9952b;--akz2:#e0b878;--akzbg:#2a2016;--head:#d67756;--bg:#14110f;--panel:#1c1814;--panelln:#2a2522}
+:root{--akz:#c9952b;--akz2:#e0b878;--akzbg:#2a2016;--head:#d67756;--bg:#141110;--panel:#1c1814;--panelln:#2a2522}
 html.theme-hacker{--akz:#37f000;--akz2:#8dff6a;--akzbg:#0f2410;--head:#37f000;--bg:#060a06;--panel:#0b140b;--panelln:#18391b}
 html.theme-neon{--akz:#ff3ad6;--akz2:#79f5ff;--akzbg:#251236;--head:#ff3ad6;--bg:#0a0812;--panel:#140f22;--panelln:#2c2047}
 html.theme-ozean{--akz:#2ba6ff;--akz2:#7ad4ff;--akzbg:#0e2740;--head:#3ec2ff;--bg:#060e18;--panel:#0b1a2b;--panelln:#153450}
@@ -827,7 +827,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 88</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 89</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1170,6 +1170,96 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 </div>
 
 <script>
+/*LAYOUT_KERN_START*/
+/* layout_kern.js — gemeinsamer Layout-Mathe-Kern der Sync-Familie
+   (Overlay-Projekt, JB-Go 22.07.2026: "layout_kern go, eigenes Projekt").
+
+   REINE Funktionen, KEIN DOM, KEIN localStorage: Rechtecke rein ({x,y,w,h,id}),
+   Rechtecke/Werte raus. Jede Oberflaeche behaelt ihr eigenes Rendering und
+   Aussehen (JB: "YouTube gefaellt mir wie es gerade aussieht") — geteilt wird
+   nur die Geometrie: Kanten-Magnet (Snapping), Ueberlappungs-Pruefung, uniforme
+   Viewport-Einpassung mit Minima. Die Formeln sind ORIGINALGETREU aus dem
+   SyncYouTube-Canvas extrahiert (Verhalten per Konstruktion erhalten); der
+   Aequivalenz-Waechter test_layout_kern prueft das gegen Referenzvektoren.
+
+   MASTER: SyncDashTray/System/layout_kern.js (vendor_kern verteilt Kopien).
+   In SyncYouTube lebt der Kern als markierter Inline-Block in oberflaeche.py
+   (LAYOUT_KERN_START/_END — exe-sicher, kein Laufzeit-Dateizugriff); der
+   Waechter erzwingt Byte-Gleichheit von Block und Master. */
+(function(root){
+"use strict";
+var LK={};
+
+/* Ueberlappen sich zwei Rechtecke? (Kanten-Beruehrung = KEIN Ueberlappen) */
+LK.ueberlappt=function(a,b){
+  return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+};
+
+/* Kollidiert der Kasten (x,y,w,h) mit einem ANDEREN Rechteck der Liste? */
+LK.kollidiert=function(rects,selbstId,x,y,w,h){
+  return rects.some(function(o){
+    return o.id!==selbstId && x<o.x+o.w && x+w>o.x && y<o.y+o.h && y+h>o.y;
+  });
+};
+
+/* Die NAECHSTE Kante im Fangradius T — sonst die Ausgangsposition. */
+LK.naechsteKante=function(pos,kandidaten,T){
+  var best=pos,bestD=T+0.001;
+  for(var i=0;i<kandidaten.length;i++){
+    var d=Math.abs(pos-kandidaten[i]);
+    if(d<bestD){bestD=d; best=kandidaten[i];}
+  }
+  return best;
+};
+
+/* Kanten-Magnet beim Ziehen: Rand, Kanten-Ausrichtung mit Nachbarn und Anlegen
+   mit Gap. Liefert die gefangene Position {x,y} (mutiert nichts). */
+LK.snapXY=function(p,rects,cw,ch,gap,T){
+  if(T==null)T=16;
+  var xk=[0,cw-p.w], yk=[0,ch-p.h];
+  rects.forEach(function(o){
+    if(o.id===p.id)return;
+    xk.push(o.x, o.x+o.w-p.w, o.x-gap-p.w, o.x+o.w+gap);
+    yk.push(o.y, o.y+o.h-p.h, o.y-gap-p.h, o.y+o.h+gap);
+  });
+  return {x:LK.naechsteKante(p.x,xk,T), y:LK.naechsteKante(p.y,yk,T)};
+};
+
+/* Uniforme Skalierung ALLER Rechtecke um (rx,ry) mit Minima-Klemme — Adjazenz
+   bleibt, nichts rutscht ins Negative. Mutiert die Objekte (wie das Original). */
+LK.skaliere=function(rects,rx,ry,minW,minH){
+  rects.forEach(function(p){
+    p.x=Math.max(0,Math.round(p.x*rx)); p.y=Math.max(0,Math.round(p.y*ry));
+    p.w=Math.max(minW,Math.round(p.w*rx)); p.h=Math.max(minH,Math.round(p.h*ry));
+  });
+};
+
+/* Layout in einen Ziel-Viewport einpassen: Bezug = gemerkte Speichergroesse
+   (ref) oder — bei Alt-Layouts ohne Bezug — die eigene Bounding-Box. Skaliert
+   nur bei Abweichung > schwelle (Default 1%). Rueckgabe: true wenn skaliert. */
+LK.passeInViewport=function(rects,ref,ziel,minW,minH,schwelle){
+  if(schwelle==null)schwelle=0.01;
+  if(!rects||!rects.length||!ziel)return false;
+  if(!(ref&&ref.cw>0&&ref.ch>0)){
+    var maxR=Math.max.apply(null,rects.map(function(p){return p.x+p.w;}));
+    var maxB=Math.max.apply(null,rects.map(function(p){return p.y+p.h;}));
+    ref={cw:Math.max(320,maxR), ch:Math.max(320,maxB)};
+  }
+  var rx=ziel.cw/ref.cw, ry=ziel.ch/ref.ch;
+  if(Math.abs(rx-1)>schwelle||Math.abs(ry-1)>schwelle){
+    LK.skaliere(rects,rx,ry,minW,minH);
+    return true;
+  }
+  return false;
+};
+
+if(typeof module!=="undefined"&&module.exports)module.exports=LK;
+if(root)root.LK=LK;
+})(typeof window!=="undefined"?window:null);
+/*LAYOUT_KERN_END*/
+</script>
+
+<script>
 /* ================= Helfer & globaler Zustand ================= */
 let daten = null;                                    // letzter /api/status (Sekundentakt via laden())
 
@@ -1457,10 +1547,7 @@ function canvasAnpassen(){
   if(!_vpRef){_vpRef=m; return;}
   const rx=m.cw/_vpRef.cw, ry=m.ch/_vpRef.ch;
   if(Math.abs(rx-1)<0.008 && Math.abs(ry-1)<0.008){_vpRef=m; return;}   // kaum Änderung
-  L.panels.forEach(p=>{
-    p.x=Math.max(0,Math.round(p.x*rx)); p.y=Math.max(0,Math.round(p.y*ry));
-    p.w=Math.max(220,Math.round(p.w*rx)); p.h=Math.max(160,Math.round(p.h*ry));
-  });
+  LK.skaliere(L.panels, rx, ry, 220, 160);            // Mathe: layout_kern (Adjazenz bleibt)
   _vpRef=m; renderPanels();
 }
 /* Gespeichertes Layout beim LADEN an die aktuelle Fenstergröße anpassen
@@ -1472,21 +1559,9 @@ function canvasAnpassen(){
 function layoutAnViewport(){
   if(miniAn)return;
   const m=_vpMasse(); if(!m||!L||!L.panels||!L.panels.length)return;
-  // Bezug: die gemerkte Speichergröße (exakt) — oder, bei Alt-Layouts ohne Bezug,
-  // die eigene Bounding-Box, damit das Arrangement genau in den Canvas gemappt wird.
-  let ref=(L.vp&&L.vp.cw>0&&L.vp.ch>0)?L.vp:null;
-  if(!ref){
-    const maxR=Math.max.apply(null,L.panels.map(p=>p.x+p.w));
-    const maxB=Math.max.apply(null,L.panels.map(p=>p.y+p.h));
-    ref={cw:Math.max(320,maxR), ch:Math.max(320,maxB)};
-  }
-  const rx=m.cw/ref.cw, ry=m.ch/ref.ch;
-  if(Math.abs(rx-1)>0.01||Math.abs(ry-1)>0.01){        // ganzes Layout uniform skalieren → Adjazenz bleibt, kein Überlappen
-    L.panels.forEach(p=>{
-      p.x=Math.max(0,Math.round(p.x*rx)); p.y=Math.max(0,Math.round(p.y*ry));
-      p.w=Math.max(220,Math.round(p.w*rx)); p.h=Math.max(160,Math.round(p.h*ry));
-    });
-  }
+  // Bezug (gemerkte Speichergröße, sonst Bounding-Box) + uniforme Skalierung mit
+  // Minima: exakt die alte Formel, jetzt aus layout_kern (Adjazenz bleibt).
+  LK.passeInViewport(L.panels, (L.vp&&L.vp.cw>0&&L.vp.ch>0)?L.vp:null, m, 220, 160, 0.01);
   L.vp=m;
 }
 window.addEventListener('resize',()=>{clearTimeout(_resizeT); _resizeT=setTimeout(canvasAnpassen,90);});
@@ -1730,19 +1805,13 @@ function fensterAbstand(){let v=NaN; try{v=parseInt(localStorage.getItem('ytdl_g
 // Fenster „kleben": die linke/obere Kante des gezogenen Fensters an sinnvolle
 // Positionen fangen — Rand, Kanten-Ausrichtung mit Nachbarn, und Anlegen mit
 // eingestelltem Abstand (Gap). So sitzen Fenster sauber nebeneinander.
-function naechsteKante(pos, kandidaten, T){          // die NÄCHSTE Kante im Fangradius
-  let best=pos, bestD=T+0.001;
-  for(const k of kandidaten){const d=Math.abs(pos-k); if(d<bestD){bestD=d; best=k;}}
-  return best;
+function naechsteKante(pos, kandidaten, T){          // die NÄCHSTE Kante im Fangradius (Mathe: layout_kern)
+  return LK.naechsteKante(pos, kandidaten, T);
 }
-function snapKanten(p){
-  const T=16, gap=fensterAbstand(), c=document.getElementById('canvas');   // kräftiger Magnet (JB: „haften!")
-  const xk=[0, c.clientWidth-p.w], yk=[0, c.clientHeight-p.h];
-  L.panels.forEach(o=>{ if(o.id===p.id)return;
-    xk.push(o.x, o.x+o.w-p.w, o.x-gap-p.w, o.x+o.w+gap);   // ausrichten & anlegen mit Gap
-    yk.push(o.y, o.y+o.h-p.h, o.y-gap-p.h, o.y+o.h+gap);
-  });
-  p.x=naechsteKante(p.x,xk,T); p.y=naechsteKante(p.y,yk,T);
+function snapKanten(p){                               // kräftiger Magnet (JB: „haften!") — Mathe: layout_kern
+  const c=document.getElementById('canvas');
+  const s=LK.snapXY(p, L.panels, c.clientWidth, c.clientHeight, fensterAbstand(), 16);
+  p.x=s.x; p.y=s.y;
 }
 
 /* ---- ✏-Layout-Modus (JB 13.07., Muster wie im Dashboard): AUS = Ziehen ist
@@ -1761,10 +1830,10 @@ function layoutEditToggle(){
   clearDock();
   if(layoutEdit)layoutEntwirren();                    // beim Einschalten: Altlasten entwirren
 }
-function kollidiert(p,x,y,w,h){                       // überlappt der Kasten ein anderes Fenster?
-  return L.panels.some(o=>o.id!==p.id && x<o.x+o.w && x+w>o.x && y<o.y+o.h && y+h>o.y);
+function kollidiert(p,x,y,w,h){                       // überlappt der Kasten ein anderes Fenster? (layout_kern)
+  return LK.kollidiert(L.panels, p.id, x, y, w, h);
 }
-function ueberlappt(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+function ueberlappt(a,b){return LK.ueberlappt(a,b);}
 /* Verdrängen (JB 13.07.: „das bewegte Fenster muss Priorität haben"): alle
    Fenster, die dem priorisierten im Weg stehen, weichen mit der KLEINSTEN
    möglichen Verschiebung aus (rechts/links/unter/über, notfalls nach unten —
