@@ -203,8 +203,13 @@ body.layoutedit #layoutbar{display:flex}
 /* Mini-Player-Modus: der Player sitzt kompakt eingebettet in der Command-Bar
    (#cmd-mini) — Seitenliste weg, Karte flach (JB 21.07.). */
 body.mini #view-player .pl-side{display:none}
-body.mini #view-player .card{flex-direction:row}
-body.mini .pl-media{min-height:0}
+/* Mini-Player fuellt die Leiste (Build 97, JB: „warum so mini?") — die Karte
+   bekam nie die Hoehe der Zone, das Video rendere in Naturgroesse klein in
+   der Ecke; ohne Titel kollabierte die Box sogar auf 0 Breite. */
+body.mini #view-player .card{flex-direction:row;height:100%}
+body.mini .pl-media{min-height:0;height:100%;flex:1 1 auto;display:flex;align-items:center;justify-content:center}
+body.mini .pl-media video,body.mini .pl-media audio{height:100%;max-height:100%;width:auto;max-width:100%}
+body.mini .cmd-right{min-width:340px}
 /* Drag&Drop-Ziel (Link ins Fenster ziehen) */
 body.dragziel::after{content:"⬇ Link hier loslassen = Download";position:fixed;inset:8px;z-index:9000;
   border:3px dashed var(--akz);border-radius:16px;background:rgba(0,0,0,.35);color:var(--akz2);
@@ -851,7 +856,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 96</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 97</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1577,6 +1582,12 @@ function _vpMasse(){
   return {cw:Math.max(320, c.clientWidth-20), ch:Math.max(320, c.clientHeight-16)};
 }
 function canvasAnpassen(){
+  // Vollbild loest SELBST ein resize aus (Build 97, JB: „geht sofort wieder
+  // raus") — renderPanels haengt die Views kurz in den Stash um, und ein
+  // Element, das den DOM verlaesst, beendet das Vollbild augenblicklich.
+  // Waehrend Vollbild: nichts umbauen; beim Verlassen kommt das naechste
+  // resize und passt normal an.
+  if(document.fullscreenElement)return;
   if(miniAn){ L=miniLayoutBauen(); renderPanels(); return; }
   const m=_vpMasse(); if(!m)return;
   if(L.vp&&Math.abs(m.cw/L.vp.cw-1)<0.008&&Math.abs(m.ch/L.vp.ch-1)<0.008)return;   // kaum Änderung seit letzter Projektion
