@@ -1506,6 +1506,30 @@ def _abo_ids(url, limit=60):
     return ids, titel, info
 
 
+def _abo_baseline(url, limit=60):
+    """Erst-Blick fuer Abo-Anlage/Heilung/Kanal-Knopf mit Fallback-Kette
+    (Simulations-Funde Build 91): 1. die /videos-Liste; 2. leer? den
+    /shorts-Tab — Shorts-only-Kanaele haben KEINEN videos-Tab; 3. immer noch
+    leer? die Uploads-Playlist UU<Kanal-Suffix> — Kuenstler-Topic-Kanaele
+    (auto-generiert) haben GAR keine Tabs, nur die tragen die Songs.
+    Tab-Titel „Kanal - Videos/Shorts" und „Uploads from X" werden zum reinen
+    Namen gesaeubert, sonst landet das im Abo-Namen.
+    Rueckgabe (tragende_url, ids, titel, info)."""
+    ids, titel, info = _abo_ids(url, limit)
+    if not ids and url.endswith("/videos"):
+        m = re.search(r"/channel/UC([\w-]{10,})$", url[:-len("/videos")])
+        ersatzwege = [url[:-len("videos")] + "shorts"]
+        if m:
+            ersatzwege.append("https://www.youtube.com/playlist?list=UU" + m.group(1))
+        for ersatz in ersatzwege:
+            e_ids, e_titel, e_info = _abo_ids(ersatz, limit)
+            if e_ids:
+                url, ids, titel, info = ersatz, e_ids, e_titel, e_info
+                break
+    titel = re.sub(r"^Uploads from ", "", re.sub(r" - (Videos|Shorts)$", "", titel or ""))
+    return url, ids, titel, info
+
+
 def kanal_info(url):
     """Kanal/Playlist ohne Download aufloesen: Name + Videozahl fuer die
     Rueckfrage vor „ganzen Kanal laden". Kanal-Links werden auf /videos
@@ -1514,7 +1538,7 @@ def kanal_info(url):
     if not norm.lower().startswith(("http://", "https://")):
         return {"fehler": "Bitte einen Kanal- oder Playlist-Link einfuegen."}
     try:
-        ids, titel, _ = _abo_ids(norm, limit=5000)
+        norm, ids, titel, _ = _abo_baseline(norm, limit=5000)
     except Exception:                                    # noqa: BLE001 — Nutzer sieht Text
         ids, titel = [], ""
     if not ids:
@@ -1602,8 +1626,9 @@ def abo_aktion(daten):
         url = (str(daten.get("url") or "")).strip()
         if not url.lower().startswith(("http://", "https://")):
             return {"fehler": "Bitte einen Kanal- oder Playlist-Link angeben."}
+        url = _kanal_url(url)                         # blosser Kanal-Link liefert nur die REITER (Build 91)
         qual = daten.get("qualitaet") if daten.get("qualitaet") in QUALITAETEN else CFG["standard_qualitaet"]
-        ids, titel, info = _abo_ids(url)              # Baseline merken, NICHT laden
+        url, ids, titel, info = _abo_baseline(url)    # Baseline merken, NICHT laden
         abo = {"id": uuid.uuid4().hex[:8], "url": url, "name": titel or url,
                "qualitaet": qual, "bekannt": ids, "ts": time.time(), "neu": 0,
                "feed": _abo_feed_url(info)}
@@ -1647,6 +1672,41 @@ def abo_aktion(daten):
     return {"fehler": "unbekannt"}
 
 
+def _abo_heilen(abo):
+    """Bestands-Abo mit blossem Kanal-Link heilen (Build-91-Selbstheilung):
+    Abos aus der Zeit vor der _kanal_url-Normalisierung merkten sich nur die
+    Kanal-REITER als Baseline („#1 Shorts / #2 Videos" statt Folgen, JB-Fund).
+    Heilt in einem Zug: URL auf /videos normalisieren, Baseline NEU holen
+    (ohne einen einzigen Download — sonst Lawine: die Reiter-Baseline kennt
+    keine echten Video-IDs), Feed neu ableiten, Reiter-Folgen-Cache verwerfen.
+    Nicht-destruktiv: schlaegt der Netz-Abruf fehl, bleibt ALLES unveraendert
+    (naechster Anlauf beim folgenden Puls). Rueckgabe (ok, geheilt):
+    (True, False) = war schon sauber, (True, True) = frisch geheilt,
+    (False, False) = Heilung noetig, aber Kanal nicht erreichbar."""
+    url = str(abo.get("url") or "")
+    norm = _kanal_url(url)
+    if norm == url:
+        return True, False
+    norm, ids, titel, info = _abo_baseline(norm)
+    if not ids:
+        return False, False
+    with _io_lock:
+        abo["url"] = norm
+        abo["bekannt"] = ids                          # Baseline neu, NICHT laden (wie create)
+        abo["feed"] = _abo_feed_url(info) or abo.get("feed") or ""
+        if titel and (not abo.get("name") or abo["name"] == url):
+            abo["name"] = titel
+        abo["geprueft"] = time.time()
+        _json_speichern(ABO_PFAD, _abos)
+    pfad = os.path.join(ABO_INDEX_ORDNER, f"{abo.get('id')}.json")
+    try:
+        if os.path.exists(pfad):
+            os.remove(pfad)                           # reiner Ableitungs-Cache (zeigte Reiter) — wird frisch geholt
+    except OSError:
+        pass
+    return True, True
+
+
 def abos_pruefen():
     """Alle Abos auf neue Videos prüfen und Neues in die Warteschlange legen.
     Gibt die Zahl neu eingereihter Videos zurück. Leichter Puls zuerst:
@@ -1654,6 +1714,9 @@ def abos_pruefen():
     flat-extract (Details für die Regeln)."""
     gesamt = 0
     for abo in list(_abos):
+        ok, geheilt = _abo_heilen(abo)
+        if not ok or geheilt:
+            continue                                  # Netz weg ⇒ naechster Puls; geheilt ⇒ Baseline ist sekundenfrisch
         feed = abo.get("feed") or ""
         if feed:
             rss = _abo_rss_ids(feed)
@@ -1705,6 +1768,9 @@ def abo_folgen(abo_id, aktualisieren=False):
     abo = next((a for a in _abos if a.get("id") == abo_id), None)
     if not abo:
         return {"fehler": "Abo nicht gefunden."}
+    ok, _ = _abo_heilen(abo)                          # Alt-Abo? Erst heilen — nie wieder Reiter als „Folgen" zeigen
+    if not ok:
+        return {"fehler": "Kanal nicht erreichbar — später erneut versuchen."}
     os.makedirs(ABO_INDEX_ORDNER, exist_ok=True)
     pfad = os.path.join(ABO_INDEX_ORDNER, f"{abo_id}.json")
     cache = _json_laden(pfad, {})

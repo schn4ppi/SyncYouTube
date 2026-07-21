@@ -408,6 +408,162 @@ def test_abo_playlist_zuordnen():
         app._geladen.pop("vidTEST9999|audio", None)
 
 
+def test_abo_create_normalisiert_kanal_url():
+    # Build 91 (JB-Fund): Abo auf blossen Kanal-Link (/@name, /channel/UC…)
+    # muss auf /videos normalisiert werden — sonst merkt sich die Baseline
+    # nur die Kanal-REITER („#1 Shorts / #2 Videos" statt Folgen).
+    rufe = []
+
+    def fake_flach(url, limit=60):
+        rufe.append(url)
+        return {"title": "TestKanal - Videos", "channel_id": "UCtest",
+                "entries": [{"id": "vid00000001"}, {"id": "vid00000002"}]}
+
+    echt_flach, echt_json = app._abo_flach, app._json_speichern
+    app._abo_flach, app._json_speichern = fake_flach, lambda *a, **k: None
+    try:
+        r = app.abo_aktion({"art": "create", "url": "https://www.youtube.com/@TestKanal"})
+        assert r.get("ok") and r["basis"] == 2
+        assert rufe == ["https://www.youtube.com/@TestKanal/videos"]
+        abo = next(a for a in app._abos if a["id"] == r["id"])
+        assert abo["url"] == "https://www.youtube.com/@TestKanal/videos"
+        assert abo["name"] == "TestKanal"              # Tab-Suffix „ - Videos" weg
+        assert abo["bekannt"] == ["vid00000001", "vid00000002"]
+    finally:
+        app._abo_flach, app._json_speichern = echt_flach, echt_json
+        app._abos[:] = [a for a in app._abos if a.get("name") != "TestKanal"]
+
+
+def test_abo_baseline_shorts_fallback():
+    # Build 91 (Simulations-Fund): Shorts-only-Kanaele (@YouTubeShorts) haben
+    # KEINEN /videos-Tab — yt-dlp liefert 404/leer. Dann den /shorts-Tab
+    # probieren, statt das Abo mit „ohne Videos" abzulehnen. Tab-Titel wie
+    # „Kanal - Videos" verlieren ihr Suffix (sonst wird es der Abo-Name).
+    def fake_flach(url, limit=60):
+        if url.endswith("/shorts"):
+            return {"title": "ShortsKanal - Shorts", "channel_id": "UCshorts",
+                    "entries": [{"id": "shrt0000001"}]}
+        return {}                                      # /videos-Tab existiert nicht
+
+    echt_flach = app._abo_flach
+    app._abo_flach = fake_flach
+    try:
+        url, ids, titel, info = app._abo_baseline("https://www.youtube.com/@S/videos")
+        assert url == "https://www.youtube.com/@S/shorts"
+        assert ids == ["shrt0000001"]
+        assert titel == "ShortsKanal"                  # Suffix „ - Shorts" weg
+        assert info.get("channel_id") == "UCshorts"
+        # Playlist-URL ohne /videos-Ende: KEIN Shorts-Umweg, leer bleibt leer
+        url2, ids2, _, _ = app._abo_baseline("https://www.youtube.com/playlist?list=PLx")
+        assert url2.endswith("list=PLx") and ids2 == []
+    finally:
+        app._abo_flach = echt_flach
+
+
+def test_abo_baseline_topic_uploads():
+    # Build 91 (Simulations-Fund): Kuenstler-Topic-Kanaele (auto-generiert,
+    # „Kate Bush - Topic") haben WEDER videos- noch shorts-Tab — erst die
+    # Uploads-Playlist UU<Kanal-Suffix> traegt die Songs. Namens-Praefix
+    # „Uploads from " gehoert nicht in den Abo-Namen.
+    def fake_flach(url, limit=60):
+        if "list=UUtopicsuffix" in url:
+            return {"title": "Uploads from X - Topic", "channel_id": "UCtopicsuffix",
+                    "entries": [{"id": "song0000001"}, {"id": "song0000002"}]}
+        return {}                                      # beide Tabs fehlen
+
+    echt_flach = app._abo_flach
+    app._abo_flach = fake_flach
+    try:
+        url, ids, titel, info = app._abo_baseline(
+            "https://www.youtube.com/channel/UCtopicsuffix/videos")
+        assert url == "https://www.youtube.com/playlist?list=UUtopicsuffix"
+        assert ids == ["song0000001", "song0000002"]
+        assert titel == "X - Topic"                    # „Uploads from " weg
+        assert info.get("channel_id") == "UCtopicsuffix"
+        # /@handle ohne Kanal-ID: kein UU-Ausweg ableitbar -> ehrlich leer
+        url2, ids2, _, _ = app._abo_baseline("https://www.youtube.com/@X/videos")
+        assert ids2 == []
+    finally:
+        app._abo_flach = echt_flach
+
+
+def test_abo_heilen():
+    # Build 91: Bestands-Abos aus der Build-88-Zeit tragen den blossen
+    # Kanal-Link + Reiter-IDs als Baseline (JBs KateBush-Abo). Heilen =
+    # URL normalisieren, Baseline NEU holen (ohne Downloads), Folgen-Cache
+    # verwerfen. Netz weg ⇒ alles bleibt unveraendert (nicht-destruktiv).
+    import json
+    import tempfile
+    d = tempfile.mkdtemp()
+    alt_ordner = app.ABO_INDEX_ORDNER
+    app.ABO_INDEX_ORDNER = d
+    echt_flach, echt_json = app._abo_flach, app._json_speichern
+    app._json_speichern = lambda *a, **k: None
+    abo = {"id": "aboHEIL", "url": "https://www.youtube.com/channel/UCkaputt",
+           "name": "Kanal", "qualitaet": "beste",
+           "bekannt": ["UCkaputt", "UCkaputt"], "feed": ""}
+    cache = os.path.join(d, "aboHEIL.json")
+    with open(cache, "w", encoding="utf-8") as f:
+        json.dump({"folgen": [{"id": "UCkaputt", "titel": "Kanal - Videos"}]}, f)
+    try:
+        app._abo_flach = lambda url, limit=60: {}          # Netz/Kanal weg
+        assert app._abo_heilen(abo) == (False, False)
+        assert abo["url"] == "https://www.youtube.com/channel/UCkaputt"
+        assert abo["bekannt"] == ["UCkaputt", "UCkaputt"]  # unveraendert
+        assert os.path.exists(cache)
+
+        app._abo_flach = lambda url, limit=60: {
+            "title": "Kanal", "channel_id": "UCkaputt",
+            "entries": [{"id": "vidA0000001"}, {"id": "vidB0000001"}]}
+        assert app._abo_heilen(abo) == (True, True)
+        assert abo["url"] == "https://www.youtube.com/channel/UCkaputt/videos"
+        assert abo["bekannt"] == ["vidA0000001", "vidB0000001"]
+        assert abo["feed"].endswith("channel_id=UCkaputt")
+        assert not os.path.exists(cache)                   # Reiter-Cache verworfen
+
+        assert app._abo_heilen(abo) == (True, False)       # schon sauber
+    finally:
+        app.ABO_INDEX_ORDNER = alt_ordner
+        app._abo_flach, app._json_speichern = echt_flach, echt_json
+
+
+def test_abos_pruefen_heilt_ohne_lawine():
+    # Build 91, Lawinen-Schutz: Die Heilung erneuert die Baseline — die
+    # aktuellen Videos des Kanals duerfen danach NICHT als „neu" in die
+    # Warteschlange rauschen. Kein einziger Download-Thread darf starten.
+    starts = []
+
+    class FakeThread:
+        def __init__(self, *a, **k):
+            starts.append(k)
+
+        def start(self):
+            pass
+
+    echt_thread, echt_rss = app.threading.Thread, app._abo_rss_ids
+    echt_flach, echt_json = app._abo_flach, app._json_speichern
+    alt_abos = app._abos[:]
+    app.threading.Thread = FakeThread
+    app._abo_rss_ids = lambda feed: None                   # kein Netz im Test
+    app._json_speichern = lambda *a, **k: None
+    app._abo_flach = lambda url, limit=60: {
+        "title": "Kanal", "channel_id": "UCheil",
+        "entries": [{"id": "vidN0000001"}, {"id": "vidN0000002"}]}
+    abo = {"id": "aboLAWINE", "url": "https://www.youtube.com/@Kanal",
+           "name": "Kanal", "qualitaet": "beste",
+           "bekannt": ["UCheil", "UCheil"], "feed": "", "neu": 0}
+    app._abos[:] = [abo]
+    try:
+        app.abos_pruefen()
+        assert starts == []                                # KEINE Download-Lawine
+        assert abo["url"] == "https://www.youtube.com/@Kanal/videos"
+        assert abo["bekannt"] == ["vidN0000001", "vidN0000002"]
+    finally:
+        app.threading.Thread, app._abo_rss_ids = echt_thread, echt_rss
+        app._abo_flach, app._json_speichern = echt_flach, echt_json
+        app._abos[:] = alt_abos
+
+
 def test_dubletten_score():
     # Dubletten-Heilung (JB 14.07.): bei mehreren Einträgen auf dieselbe Datei
     # gewinnt der echte Download vor dem Ordner-Import, benannte Qualität vor
