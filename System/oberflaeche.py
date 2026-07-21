@@ -719,6 +719,9 @@ html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 .pl-item{font-size:12px;color:#d7c7bd;padding:4px 7px;border-radius:6px;cursor:pointer;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;flex:none}
 .pl-item:hover{background:#241f1b}
+.pl-item.sel{background:var(--akzbg);box-shadow:inset 0 0 0 1px var(--akz)}
+.pl-item:focus{outline:1px solid var(--akz);outline-offset:-1px}
+.pl-item:focus-visible{outline:2px solid var(--akz)}
 .pl-item.akt{background:var(--akzbg);color:var(--akz2)}
 .pl-item.artaus{opacity:.35}                          /* per 🎶/🎬 weggefiltert */
 
@@ -4348,6 +4351,27 @@ function plQueueKlick(i){
 /* Player-Warteschlange: Einträge umsortieren (HTML5-Drag) + Titel aus der
    Bibliothek hineinziehen (JB 13.07.: „aus der Bibliothek in die Playlist schieben") */
 let plqVon=null;
+// Playlist-Bedienung (JB 22.07.): Einfachklick WÄHLT nur, Doppelklick/Enter spielt,
+// Entf löscht, ↑/↓ bewegen die Auswahl. plqSel = markierter Eintrag (Index).
+let plqSel=null;
+function plqFocus(i){                                  // nur den SICHTBAREN Eintrag fokussieren
+  document.querySelectorAll('.pl-queue .pl-item[data-i="'+i+'"]').forEach(el=>{if(el.offsetParent)el.focus();});}
+// Auswahl NUR per Klasse markieren, NICHT neu rendern: sonst würde der Einfachklick das
+// Element ersetzen und der Doppelklick (zwei Klicks auf DASSELBE Element) fiele aus (JB 22.07.).
+function plqMark(){document.querySelectorAll('.pl-queue .pl-item').forEach(el=>el.classList.toggle('sel',+el.dataset.i===plqSel));}
+function plqSelect(i){plqSel=i; plqMark(); plqFocus(i);}
+function plqMoveSel(d){
+  if(!playerState.queue.length)return;
+  plqSel = plqSel===null ? 0 : Math.max(0, Math.min(playerState.queue.length-1, plqSel+d));
+  plqMark(); plqFocus(plqSel);}
+function plqRemove(i){                                 // markierten Titel aus der Ad-hoc-Playlist nehmen
+  if(i===null||i<0||i>=playerState.queue.length)return;
+  const curKey=aktKey();                               // laufenden Titel über den Umbau retten
+  playerState.queue.splice(i,1);
+  if(!playerState.queue.length){plqSel=null; playerState.idx=-1;}
+  else{ playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));
+        plqSel=Math.min(i, playerState.queue.length-1); }
+  renderPlayerQueue(); if(plqSel!==null)plqFocus(plqSel);}
 function plqDragStart(e,i){plqVon=i; e.dataTransfer.effectAllowed='move';}
 function plqDragOver(e){e.preventDefault(); e.dataTransfer.dropEffect='move';}
 function plqEinfuegen(key,i){                          // Bibliotheks-Titel an Position i einreihen
@@ -4393,7 +4417,9 @@ function plMediaDrop(e){
   if(info)info.textContent='🎶 „'+((x.titel||'').slice(0,24))+'" eingereiht ('+playerState.queue.length+' Titel)';
 }
 function plqDrop(e,i){
-  e.preventDefault();
+  e.preventDefault(); e.stopPropagation();             // WICHTIG: sonst blubbert das Drop hoch zum
+  // Container-Handler plqZielDrop -> derselbe Titel wird ein 2. Mal ans Ende gehängt (JB-Bug 22.07.:
+  // „zwei reingezogen", nur im Layout mit kleiner Playlist unterm Video, wo man AUF einen Eintrag fallen lässt).
   const neu=e.dataTransfer.getData('ytdl/key');
   if(plqVon===null&&neu){plqEinfuegen(neu,i); return;} // von außen (Bibliothek) hereingezogen
   if(plqVon===null||plqVon===i){plqVon=null;return;}
@@ -4419,9 +4445,9 @@ function renderPlayerQueue(){
     const aus=!artPasst(x||{});
     // Abo-Folgen: die CD-Nummer (#12) vor den Titel — so ist die Reihenfolge sofort klar (JB 21.07.)
     const nr=x.abo_nr?`<span class="pl-nr" title="Folge ${x.abo_nr}">#${x.abo_nr}</span> `:'';
-    return `<div class="pl-item ${i===playerState.idx?'akt':''}${aus?' artaus':''}" draggable="true" `+
+    return `<div class="pl-item ${i===playerState.idx?'akt':''}${i===plqSel?' sel':''}${aus?' artaus':''}" draggable="true" tabindex="0" data-i="${i}" `+
       `ondragstart="plqDragStart(event,${i})" ondragover="plqDragOver(event)" ondrop="plqDrop(event,${i})" `+
-      `onclick="plQueueKlick(${i})" title="Klick = abspielen/pausieren · Ziehen = umsortieren">${i+1}. ${nr}${esc(x.titel||k)}</div>`;}).join('')
+      `onclick="plqSelect(${i})" ondblclick="plQueueKlick(${i})" title="Klick = auswählen · Doppelklick/Enter = abspielen · Entf = aus Playlist löschen · ↑/↓ = Auswahl · Ziehen = umsortieren">${i+1}. ${nr}${esc(x.titel||k)}</div>`;}).join('')
     ||'<div class="pl-leer">Leer — Titel aus der Bibliothek hierher ziehen.</div>';
   const q=document.getElementById('pl-queue'); if(q)q.innerHTML=html;
   const qw=document.getElementById('pl-queue-win'); if(qw)qw.innerHTML=html;
@@ -4628,19 +4654,33 @@ document.addEventListener('click',e=>{ if(!e.target.closest('.colmenuwrap')){
 /* Tastenkürzel (JB 21.07., YouTube-/Player-Standard). Greifen NUR, wenn nicht in
    einem Eingabefeld getippt wird. ? zeigt die Legende. */
 function tastenLegende(){
-  toast('⎵/K Play·Pause · J/L −/+10s · ←/→ −/+5s · ↑/↓ Lautstärke · N/P Titel · M stumm · F Vollbild · I Bild-in-Bild · S Untertitel');
+  toast('⎵/K Play·Pause · J/L −/+10s · ←/→ −/+5s · ↑/↓ Lautstärke · N/P Titel · 0–9 Sprung · Home/End Anfang/Ende · M stumm · R Loop · Shift+,/. Tempo · F Vollbild · I Bild-in-Bild · S Untertitel · Playlist: Klick wählt · Doppelklick/Enter spielt · Entf löscht · ↑/↓ Auswahl');
 }
 function _vol(d){plbVol(Math.max(0,Math.min(100,(plVol||0)+d)));}
+function _rate(d){const el=document.getElementById('pl-el'); if(!el)return;
+  el.playbackRate=Math.max(0.25,Math.min(4,Math.round((el.playbackRate+d)*100)/100));
+  toast('⏩ Tempo '+el.playbackRate+'×');}
 document.addEventListener('keydown',e=>{
   const tgt=e.target;
   if(tgt&&tgt.matches&&tgt.matches('input,textarea,select'))return;
   if(tgt&&tgt.isContentEditable)return;
+  // In der Player-Playlist steuern die Tasten die LISTE (JB 22.07.): Pfeile bewegen die
+  // Auswahl, Enter spielt, Entf löscht. Nur wenn der Fokus wirklich in der Liste sitzt —
+  // sonst gelten ↑/↓ weiter global als Lautstärke.
+  if(tgt&&tgt.closest&&tgt.closest('.pl-queue')){
+    if(e.key==='ArrowDown'){e.preventDefault(); plqMoveSel(1); return;}
+    if(e.key==='ArrowUp'){e.preventDefault(); plqMoveSel(-1); return;}
+    if(e.key==='Enter'){e.preventDefault(); if(plqSel!==null)plQueueKlick(plqSel); return;}
+    if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault(); plqRemove(plqSel!==null?plqSel:playerState.idx); return;}
+  }
   const el=document.getElementById('pl-el');
   const springen=s=>{if(el&&el.duration){el.currentTime=Math.max(0,Math.min(el.duration,el.currentTime+s));}};
   const playPause=()=>{if(el){if(el.paused)el.play(); else el.pause();}};
   if(e.ctrlKey&&e.key==='ArrowRight'){e.preventDefault();playerNext();return;}
   if(e.ctrlKey&&e.key==='ArrowLeft'){e.preventDefault();playerPrev();return;}
   if(e.ctrlKey||e.metaKey||e.altKey)return;            // keine sonstigen Strg/Cmd/Alt-Kombis kapern
+  if(/^(Digit|Numpad)[0-9]$/.test(e.code)&&el&&el.duration){   // 0–9 -> zu 0–90 % springen (YouTube-Standard)
+    e.preventDefault(); el.currentTime=el.duration*(+e.code.slice(-1)/10); return;}
   switch(e.code){
     case 'Space': case 'KeyK': if(el){e.preventDefault(); playPause();} break;
     case 'KeyJ': e.preventDefault(); springen(-10); break;
@@ -4655,6 +4695,11 @@ document.addEventListener('keydown',e=>{
     case 'KeyF': e.preventDefault(); plbFullscreen(); break;
     case 'KeyI': e.preventDefault(); plbPip(); break;
     case 'KeyS': e.preventDefault(); if(typeof subCycle==='function')subCycle(); break;
+    case 'Home': if(el){e.preventDefault(); el.currentTime=0;} break;
+    case 'End': if(el&&el.duration){e.preventDefault(); el.currentTime=el.duration;} break;
+    case 'KeyR': if(el){e.preventDefault(); el.loop=!el.loop; toast(el.loop?'🔁 Wiederholen an':'▶ Wiederholen aus');} break;
+    case 'Comma': if(e.shiftKey&&el){e.preventDefault(); _rate(-0.25);} break;   // Shift+, langsamer
+    case 'Period': if(e.shiftKey&&el){e.preventDefault(); _rate(0.25);} break;   // Shift+. schneller
     case 'MediaPlayPause': e.preventDefault(); playPause(); break;
     case 'MediaTrackNext': e.preventDefault(); playerNext(); break;
     case 'MediaTrackPrevious': e.preventDefault(); playerPrev(); break;
