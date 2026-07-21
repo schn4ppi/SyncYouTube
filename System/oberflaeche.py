@@ -827,7 +827,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 90</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 92</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1483,9 +1483,20 @@ function ensureView(view){
   const el=panelEl(p.id); if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});
   return p;
 }
+function _geoSig(){return JSON.stringify((L&&L.panels||[]).map(p=>[p.id,p.x,p.y,p.w,p.h]));}
 function saveLayout(){
   if(L&&L.mini)return;                                 // Mini ist transient — nie als Hauptlayout speichern
-  try{if(!miniAn){const m=_vpMasse(); if(m)L.vp=m;}}catch(e){}   // Bezugsgröße merken → Reload passt daran an
+  // Basis-Anker (Build 92, JB-Fund „alles ein wenig bewegt"): NUR eine ECHTE
+  // Geometrie-Änderung (Ziehen/Resize/Docken/Vorlage) wird zur neuen Wahrheit.
+  // Auto-Projektionen (Reload/Fenster-Resize) speichern sonst gerundete Pixel
+  // übers Original — jeder Zyklus driftet 1-2 px, über Tage wandert alles.
+  const sig=_geoSig();
+  if(_autoProj){_autoProj=false;}
+  else if(sig!==_lastSig&&!miniAn){
+    const m=_vpMasse();
+    if(m){L.basis={vp:m,panels:L.panels.map(p=>({id:p.id,x:p.x,y:p.y,w:p.w,h:p.h}))}; L.vp=m;}
+  }
+  _lastSig=sig;
   try{localStorage.setItem(LKEY,JSON.stringify(L));}catch(e){}
 }
 function layoutReset(){layoutMerken();L=defaultLayout();renderPanels();}
@@ -1532,7 +1543,7 @@ function renderPanels(){
    proportional mit — kein manuelles Layout-Neuwählen mehr. Alle Kanten skalieren
    gleich, Adjazenz bleibt (keine Lücken/Überlappungen). Eingebettete Command-Bar-
    Fenster regelt das CSS selbst. */
-let _vpRef=null, _resizeT=null;
+let _autoProj=false, _lastSig='', _resizeT=null;
 function _canvasH(){                                    // nutzbare Canvas-Höhe (Seite scrollt nicht)
   const c=document.getElementById('canvas');
   return Math.max(320, (c&&c.clientHeight?c.clientHeight:window.innerHeight-210) - 16);
@@ -1542,28 +1553,36 @@ function _vpMasse(){
   return {cw:Math.max(320, c.clientWidth-20), ch:Math.max(320, c.clientHeight-16)};
 }
 function canvasAnpassen(){
-  if(miniAn){ L=miniLayoutBauen(); renderPanels(); _vpRef=_vpMasse(); return; }
+  if(miniAn){ L=miniLayoutBauen(); renderPanels(); return; }
   const m=_vpMasse(); if(!m)return;
-  if(!_vpRef){_vpRef=m; return;}
-  const rx=m.cw/_vpRef.cw, ry=m.ch/_vpRef.ch;
-  if(Math.abs(rx-1)<0.008 && Math.abs(ry-1)<0.008){_vpRef=m; return;}   // kaum Änderung
-  LK.skaliere(L.panels, rx, ry, 220, 160);            // Mathe: layout_kern (Adjazenz bleibt)
-  _vpRef=m; renderPanels();
+  if(L.vp&&Math.abs(m.cw/L.vp.cw-1)<0.008&&Math.abs(m.ch/L.vp.ch-1)<0.008)return;   // kaum Änderung seit letzter Projektion
+  _autoProj=true; layoutProjizieren(); renderPanels();
 }
-/* Gespeichertes Layout beim LADEN an die aktuelle Fenstergröße anpassen
-   (JB 22.07.: „im YouTube-Modus verschwindet die Bibliothek ausserhalb des
-   Bildschirms — am Anfang"). Ursache: absolute Pixel aus der Größe beim
-   Speichern; der Resize-Handler oben greift erst bei echtem Resize. Hier: exakt
-   proportional aus dem gemerkten Bezug (L.vp) skalieren, plus Sicherheitsnetz,
-   damit auch Alt-Layouts OHNE Bezug nie aus dem Canvas ragen. */
-function layoutAnViewport(){
+/* Anzeige = Projektion der BASIS auf den aktuellen Viewport (Build 92).
+   Vorher skalierten Reload/Resize das Layout inkrementell und speicherten die
+   gerundeten Pixel sofort zurück — messbar 1-2 px Drift JE Zyklus (Extremfall:
+   Laden im 0-Viewport quetschte alles auf die 320er-Minima und zementierte das).
+   Jetzt bleibt die vom Nutzer gebaute Anordnung als L.basis unangetastet stehen;
+   jede Anpassung rechnet EINMAL von dieser Basis (Mathe: layout_kern) — Fenster
+   hin- und herziehen oder neu laden landet wieder EXAKT auf den alten Kanten. */
+function layoutProjizieren(){
   if(miniAn)return;
   const m=_vpMasse(); if(!m||!L||!L.panels||!L.panels.length)return;
-  // Bezug (gemerkte Speichergröße, sonst Bounding-Box) + uniforme Skalierung mit
-  // Minima: exakt die alte Formel, jetzt aus layout_kern (Adjazenz bleibt).
-  LK.passeInViewport(L.panels, (L.vp&&L.vp.cw>0&&L.vp.ch>0)?L.vp:null, m, 220, 160, 0.01);
+  if(!(L.basis&&L.basis.vp&&L.basis.vp.cw>0&&L.basis.vp.ch>0&&L.basis.panels&&L.basis.panels.length)){
+    let ref=(L.vp&&L.vp.cw>0&&L.vp.ch>0)?L.vp:null;    // Alt-Layout ohne Basis: einmalig verankern
+    if(!ref){
+      const maxR=Math.max.apply(null,L.panels.map(p=>p.x+p.w));
+      const maxB=Math.max.apply(null,L.panels.map(p=>p.y+p.h));
+      ref={cw:Math.max(320,maxR), ch:Math.max(320,maxB)};
+    }
+    L.basis={vp:ref, panels:L.panels.map(p=>({id:p.id,x:p.x,y:p.y,w:p.w,h:p.h}))};
+  }
+  const b=L.basis, kopie=b.panels.map(g=>({id:g.id,x:g.x,y:g.y,w:g.w,h:g.h}));
+  LK.skaliere(kopie, m.cw/b.vp.cw, m.ch/b.vp.ch, 220, 160);
+  L.panels.forEach(p=>{const g=kopie.find(x=>x.id===p.id); if(g){p.x=g.x; p.y=g.y; p.w=g.w; p.h=g.h;}});
   L.vp=m;
 }
+function layoutAnViewport(){_autoProj=true; layoutProjizieren();}
 window.addEventListener('resize',()=>{clearTimeout(_resizeT); _resizeT=setTimeout(canvasAnpassen,90);});
 
 /* ---- Ansicht-Verlauf: Mausrad links = zurück (Vergangenheit), rechts = vor (Gegenwart).
@@ -1763,7 +1782,8 @@ function miniToggle(){
     if(vor&&vor.panels){delete vor.mini; vor.panels=vor.panels.filter(p=>p.id!=='pmini'); L=vor;}
     else L=defaultLayout();
     miniVor=null; try{localStorage.removeItem(VORMINI);}catch(e){}
-    renderPanels(); saveLayout();
+    layoutAnViewport();                                // Fenster im Mini resized? Basis-Projektion statt roher Alt-Pixel
+    renderPanels();
     if(b){b.classList.remove('an'); b.textContent='🔳 Mini';}
   }
 }
@@ -5029,7 +5049,6 @@ themeIcon();
 layoutAnViewport();                              // gespeichertes Layout an die aktuelle Fenstergröße anpassen (JB 22.07.: „am Anfang ausserhalb des Bildschirms")
 renderPanels();
 layoutEntwirren();                               // alte Layouts mit Überlappungen einmalig bereinigen
-_vpRef=_vpMasse();                               // Bezugsmaß fürs proportionale Mitwachsen beim Resize
 L.panels.forEach(p=>merkeView(p.id,p.active));   // Start-Stationen in den Verlauf
 layoutSelectFuellen();
 einstellungenModalInit();                        // Einstellungs-Karte ins Modal umziehen
