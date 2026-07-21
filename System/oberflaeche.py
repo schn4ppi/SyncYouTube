@@ -51,7 +51,12 @@ html.theme-hacker{--akz:#37f000;--akz2:#8dff6a;--akzbg:#0f2410;--head:#37f000;--
 html.theme-neon{--akz:#ff3ad6;--akz2:#79f5ff;--akzbg:#251236;--head:#ff3ad6;--bg:#0a0812;--panel:#140f22;--panelln:#2c2047}
 html.theme-ozean{--akz:#2ba6ff;--akz2:#7ad4ff;--akzbg:#0e2740;--head:#3ec2ff;--bg:#060e18;--panel:#0b1a2b;--panelln:#153450}
 html.theme-hacker h1,html.theme-hacker .card h2,html.theme-hacker .modal-head b{font-family:Consolas,"Courier New",monospace}
-body{font-family:system-ui,Segoe UI,sans-serif;margin:0;background:var(--bg);color:#eee}
+/* Anti-Scroll (JB 22.07.): die SEITE selbst scrollt nie — Body ist eine Flex-Spalte,
+   die Command-Bar bleibt fix, der Canvas füllt den Rest; gescrollt wird nur INNEN
+   in den Fenstern (Bibliothek/Playlist/…). */
+html{height:100%}
+body{font-family:system-ui,Segoe UI,sans-serif;margin:0;background:var(--bg);color:#eee;
+  height:100vh;display:flex;flex-direction:column;overflow:hidden}
 .topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px 6px}
 h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;letter-spacing:.05em}
 .sub{color:#8a7d74;font-size:12px}
@@ -74,7 +79,7 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .tiprow b{color:#eee;font-weight:600}
 .tipsep{height:1px;background:#3a332e;margin:7px 0 6px}
 /* ---- Sticky Command-Bar (oben, hacker/monospace) — 50/50: links Eingabe+Player, rechts Downloads ---- */
-#cmdbar{position:sticky;top:0;z-index:400;background:var(--panel);border-bottom:1px solid var(--panelln);
+#cmdbar{flex:none;z-index:400;background:var(--panel);border-bottom:1px solid var(--panelln);
   padding:6px 12px;font-family:Consolas,"Courier New",monospace;box-shadow:0 2px 12px rgba(0,0,0,.4)}
 /* FESTE Command-Bar-Höhe (JB 21.07.: „muss fix sein, egal wie und wo") — kein
    Reiter, kein Modus, kein Inhalt ändert sie; die rechte Seite scrollt intern. */
@@ -192,7 +197,7 @@ html.light .dlrow:hover{background:#f3ede7}
 html.light .dltitel,html.light .cmd-count{color:#5a4f47}
 html.light .dlbar{background:#e6ddd3}
 /* Layout-Werkzeuge-Leiste NUR im ✏-Modus (sonst kein toter Raum, JB 21.07.) */
-#layoutbar{display:none;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 18px 8px;font-size:12px;color:#8a7d74}
+#layoutbar{display:none;flex:none;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 18px 8px;font-size:12px;color:#8a7d74}
 body.layoutedit #layoutbar{display:flex}
 #layoutbar select{max-width:230px}
 /* Mini-Player-Modus: der Player sitzt kompakt eingebettet in der Command-Bar
@@ -212,7 +217,7 @@ body.dragziel::after{content:"⬇ Link hier loslassen = Download";position:fixed
 .legrow b{color:var(--akz2);font-weight:600}
 html.light .legrow{color:#4a3f38}
 #layoutbar .btn{padding:5px 11px}
-#canvas{position:relative;width:100%;min-height:calc(100vh - 210px);padding:2px 10px 50px}
+#canvas{position:relative;width:100%;flex:1;min-height:0;overflow:hidden;padding:2px 10px 8px}
 
 /* ---- Panels (bewegliche Fenster) ---- */
 .panel{position:absolute;background:var(--panel);border:1px solid var(--panelln);border-radius:12px;display:flex;
@@ -802,7 +807,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 82</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 83</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1286,7 +1291,7 @@ function defaultLayout(){
   // Füllt den Bildschirm: Höhe aus dem Fenster statt fixer 660px (JB 14.07.:
   // „Vorlagen schlagen alte Größen vor"), Abstände = eingestellter Gap (Standard 0).
   const W=window.innerWidth, g=Math.max(0,fensterAbstand());
-  const bw=Math.max(320, W-16), H=Math.max(420, window.innerHeight-130);
+  const bw=Math.max(320, W-16), H=_canvasH();          // Panels füllen genau den Canvas (kein Seiten-Scroll)
   // Downloads (Hinzufügen/Warteschlange/Fertig/Log) leben jetzt fest eingebettet
   // in der Command-Bar (#dlbox) — der Canvas trägt nur noch Bibliothek + Player
   // (JB 21.07.). Bibliothek ist die Hauptfläche, Player als Spalte rechts.
@@ -1403,7 +1408,6 @@ function renderPanels(){
   const pb=document.getElementById('plq-btn'); if(pb)pb.classList.toggle('an',plqExtern);
   dlboxRender();                                       // Download-Views ins feste Fenster (normal) hosten
   renderPlayerQueue();
-  canvasHoehe();                                        // Canvas mind. so hoch wie das tiefste Fenster
   saveLayout();
 }
 /* Fenster-Resize (JB 22.07.): die Canvas-Fenster (Bibliothek/Player/…) wachsen
@@ -1411,17 +1415,13 @@ function renderPanels(){
    gleich, Adjazenz bleibt (keine Lücken/Überlappungen). Eingebettete Command-Bar-
    Fenster regelt das CSS selbst. */
 let _vpRef=null, _resizeT=null;
-function canvasHoehe(){
-  const c=document.getElementById('canvas'); if(!c)return;
-  const r=c.getBoundingClientRect();
-  const sicht=Math.max(320, Math.round(window.innerHeight - r.top - 8));
-  const tief=Math.max(0,...L.panels.map(p=>p.y+p.h));
-  c.style.minHeight=Math.max(sicht, tief+8)+'px';
+function _canvasH(){                                    // nutzbare Canvas-Höhe (Seite scrollt nicht)
+  const c=document.getElementById('canvas');
+  return Math.max(320, (c&&c.clientHeight?c.clientHeight:window.innerHeight-210) - 16);
 }
 function _vpMasse(){
   const c=document.getElementById('canvas'); if(!c)return null;
-  const r=c.getBoundingClientRect();
-  return {cw:Math.max(320, c.clientWidth-20), ch:Math.max(320, Math.round(window.innerHeight - r.top - 8))};
+  return {cw:Math.max(320, c.clientWidth-20), ch:Math.max(320, c.clientHeight-16)};
 }
 function canvasAnpassen(){
   if(miniAn){ L=miniLayoutBauen(); renderPanels(); _vpRef=_vpMasse(); return; }
@@ -1526,7 +1526,7 @@ function layoutAufraeumen(){
   const bw=Math.max(320,window.innerWidth-20), n=L.panels.length||1;
   const cols=Math.min(n, bw>1180?3:(bw>760?2:1)), rows=Math.ceil(n/cols), gap=Math.max(10,fensterAbstand());
   const cw=Math.floor((bw-(cols-1)*gap)/cols);
-  const ch=Math.max(240, Math.floor((window.innerHeight-96-(rows-1)*gap)/rows));
+  const ch=Math.max(200, Math.floor((_canvasH()-(rows-1)*gap)/rows));
   L.panels.forEach((p,i)=>{const c=i%cols, r=Math.floor(i/cols);
     p.x=10+c*(cw+gap); p.y=8+r*(ch+gap); p.w=cw; p.h=ch;});
   renderPanels();
@@ -1537,14 +1537,13 @@ function layoutVorlage(name){
   if(name==='youtube'){
     // Bildschirm füllend, Abstände = Gap (Standard 0) — keine alten Festmaße mehr
     const g=Math.max(0,fensterAbstand());
-    const vidW=Math.round(bw*0.60), sideW=bw-vidW-g, H=Math.max(560,window.innerHeight-130);
-    const H2=Math.max(560,window.innerHeight-130);
+    const vidW=Math.round(bw*0.60), sideW=bw-vidW-g, H2=_canvasH();
     L={z:40,panels:[
       {id:'p1',x:8,y:8,w:vidW,h:H2,views:['player'],active:'player',zi:14},
       {id:'p3',x:8+vidW+g,y:8,w:sideW-8,h:H2,views:['lib'],active:'lib',zi:15},
     ]};
   }else if(name==='tabs'){
-    L={z:20,panels:[{id:'p1',x:8,y:8,w:bw,h:Math.max(560,window.innerHeight-130),
+    L={z:20,panels:[{id:'p1',x:8,y:8,w:bw,h:_canvasH(),
       views:['lib','player'],active:'lib',zi:11}]};
   }else{ L=defaultLayout(); }
   renderPanels();
@@ -1825,7 +1824,7 @@ function freiesRechteck(px,py){
     }
   });
   if(b===Infinity){
-    const tiefstes=Math.max(window.innerHeight-140,...L.panels.map(o=>o.y+o.h));
+    const tiefstes=Math.max(_canvasH(),...L.panels.map(o=>o.y+o.h));
     b=Math.max(t+130,tiefstes);
   }
   return {x:l, y:t, w:r-l, h:b-t};
