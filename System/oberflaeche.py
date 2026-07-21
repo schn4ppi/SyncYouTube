@@ -247,6 +247,11 @@ html.light .panel-menu{background:#fff;border-color:#d9cfc4;color:#7a6e64}
 html.light .panelmenu{background:#fff;border-color:#e6ddd3;box-shadow:0 8px 26px rgba(120,90,60,.2)}
 html.light .panelmenu button{color:#4a3f38}html.light .panelmenu button:hover{background:#f3e7d6;color:#8a5a1e}
 .panel-body{flex:1;overflow:auto;padding:14px 16px;container-type:inline-size}
+/* Loch-Fix (Build 84): die Bibliotheks-Werkzeugleiste ist sticky top:0 — mit
+   Body-padding-top klebt sie UNTER dem Padding, gescrolltes Grid schaut im
+   14px-Streifen darüber durch. Nur beim aktiven Bibliotheks-View das Top-Padding
+   weg, dann sitzt die Leiste bündig am Kopf und deckt oben lückenlos ab. */
+.panel-body:has(#view-lib){padding-top:0}
 .panel-body .card{background:transparent;border:0;padding:0;margin:0 0 16px}
 .panel-body .card:last-child{margin-bottom:0}
 /* ✏-Layout-Modus (wie im Dashboard, JB 13.07.): Größen-Griffe an allen 8 Seiten/
@@ -387,7 +392,7 @@ details.einst summary:hover{color:var(--akz)}
 /* Kopfzeile (Suche/Sortierung/Playlist-Leiste) beim Scrollen sichtbar halten (JB 14.07.):
    die zwei .libbar-Leisten stecken in .libhead, das im Fenster-Scroll (.panel-body) oben
    klebt — nur die Titelliste (#libinhalt) scrollt darunter weg. */
-.libhead{position:sticky;top:0;z-index:30;background:var(--panel);padding-top:6px;margin-top:-6px}
+.libhead{position:sticky;top:0;z-index:30;background:var(--panel);padding-top:8px;margin-top:0}
 .libbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
 #libsuche{flex:1;min-width:130px}
 .libbar .spacer{flex:1}
@@ -807,7 +812,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 83</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 84</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
