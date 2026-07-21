@@ -815,7 +815,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 85</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 86</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -4364,14 +4364,53 @@ function plqMoveSel(d){
   if(!playerState.queue.length)return;
   plqSel = plqSel===null ? 0 : Math.max(0, Math.min(playerState.queue.length-1, plqSel+d));
   plqMark(); plqFocus(plqSel);}
-function plqRemove(i){                                 // markierten Titel aus der Ad-hoc-Playlist nehmen
+function plqRemove(i){                                 // Titel aus der Ad-hoc-Playlist nehmen — auch den LAUFENDEN
   if(i===null||i<0||i>=playerState.queue.length)return;
+  const warAktuell=(i===playerState.idx);             // wird der gerade laufende Titel entfernt?
   const curKey=aktKey();                               // laufenden Titel über den Umbau retten
   playerState.queue.splice(i,1);
-  if(!playerState.queue.length){plqSel=null; playerState.idx=-1;}
-  else{ playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));
-        plqSel=Math.min(i, playerState.queue.length-1); }
-  renderPlayerQueue(); if(plqSel!==null)plqFocus(plqSel);}
+  if(!playerState.queue.length){                       // Liste leer -> Wiedergabe endet
+    plqSel=null; playerState.idx=-1;
+    renderPlayerQueue(); renderPlayerMedia(); cmdNowRender(); return;
+  }
+  if(warAktuell){
+    // JB 22.07.: den laufenden Titel entfernen = er ist „beendet". Der nachrückende
+    // Titel übernimmt (wie ein Titel-Ende); war es der letzte, endet die Wiedergabe.
+    if(i<playerState.queue.length){                    // es gab einen nächsten -> der läuft weiter
+      playerState.idx=i; plqSel=i;
+      renderPlayerQueue(); renderPlayerMedia();
+    }else{                                             // war der letzte -> Wiedergabe endet (Media wird geleert)
+      playerState.idx=-1; plqSel=playerState.queue.length-1;
+      renderPlayerQueue(); renderPlayerMedia(); cmdNowRender();
+    }
+    return;
+  }
+  playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));   // anderer Titel raus -> laufender spielt ungestört weiter
+  plqSel=Math.min(i, playerState.queue.length-1);
+  renderPlayerQueue(); if(plqSel!==null)plqFocus(plqSel);
+}
+function plqVerschieben(i,d){                          // einen Titel im Rechtsklick-Menü hoch/runter schieben
+  const j=i+d; if(j<0||j>=playerState.queue.length)return;
+  const curKey=aktKey();
+  const [t]=playerState.queue.splice(i,1);
+  playerState.queue.splice(j,0,t);
+  playerState.idx=Math.max(0, playerState.queue.indexOf(curKey));   // laufender Titel behält seinen Platz
+  plqSel=j; renderPlayerQueue(); plqFocus(j);
+}
+function plItemKontext(ev,i){                          // Rechtsklick auf einen Playlist-Titel (JB 22.07.)
+  ev.preventDefault(); ev.stopPropagation();           // nicht zum Karten-Menü (#pl-card) durchblubbern
+  const k=playerState.queue[i]; if(k===undefined)return false;
+  const x=libFind(k)||{};
+  const eintraege=[];
+  eintraege.push([i===playerState.idx?'⏯ Pause / Weiter':'▶ Abspielen', ()=>plQueueKlick(i)]);
+  if(i>0)eintraege.push(['⏫ Nach oben', ()=>plqVerschieben(i,-1)]);
+  if(i<playerState.queue.length-1)eintraege.push(['⏬ Nach unten', ()=>plqVerschieben(i,1)]);
+  eintraege.push([i===playerState.idx?'✖ Entfernen (Titel endet)':'✖ Aus Playlist entfernen', ()=>plqRemove(i)]);
+  if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(k,'ordner')]);
+  if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
+  kontextMenuBauen(ev, eintraege);
+  return false;
+}
 function plqDragStart(e,i){plqVon=i; e.dataTransfer.effectAllowed='move';}
 function plqDragOver(e){e.preventDefault(); e.dataTransfer.dropEffect='move';}
 function plqEinfuegen(key,i){                          // Bibliotheks-Titel an Position i einreihen
@@ -4447,7 +4486,7 @@ function renderPlayerQueue(){
     const nr=x.abo_nr?`<span class="pl-nr" title="Folge ${x.abo_nr}">#${x.abo_nr}</span> `:'';
     return `<div class="pl-item ${i===playerState.idx?'akt':''}${i===plqSel?' sel':''}${aus?' artaus':''}" draggable="true" tabindex="0" data-i="${i}" `+
       `ondragstart="plqDragStart(event,${i})" ondragover="plqDragOver(event)" ondrop="plqDrop(event,${i})" `+
-      `onclick="plqSelect(${i})" ondblclick="plQueueKlick(${i})" title="Klick = auswählen · Doppelklick/Enter = abspielen · Entf = aus Playlist löschen · ↑/↓ = Auswahl · Ziehen = umsortieren">${i+1}. ${nr}${esc(x.titel||k)}</div>`;}).join('')
+      `onclick="plqSelect(${i})" ondblclick="plQueueKlick(${i})" oncontextmenu="return plItemKontext(event,${i})" title="Klick = auswählen · Doppelklick/Enter = abspielen · Rechtsklick = Menü · Entf = aus Playlist löschen · ↑/↓ = Auswahl · Ziehen = umsortieren">${i+1}. ${nr}${esc(x.titel||k)}</div>`;}).join('')
     ||'<div class="pl-leer">Leer — Titel aus der Bibliothek hierher ziehen.</div>';
   const q=document.getElementById('pl-queue'); if(q)q.innerHTML=html;
   const qw=document.getElementById('pl-queue-win'); if(qw)qw.innerHTML=html;
