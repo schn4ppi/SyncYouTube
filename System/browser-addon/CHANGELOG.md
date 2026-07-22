@@ -3,6 +3,12 @@
 > Diese Liste wird je Version auch als AMO-Versionsnotiz hinterlegt
 > (`amo_sign.py` liest den obersten passenden Eintrag beim Einreichen).
 
+## 1.0.8
+- Eigenes Symbol: die Erweiterung trägt jetzt dasselbe Emblem wie der
+  YouTube-Downloader selbst (Familien-Logo). Die S-Rille ist echt
+  ausgeschnitten und nimmt darum die Farbe der Firefox-Leiste an — hell
+  wie dunkel.
+
 ## 1.0.7
 - Schon in der Bibliothek: Knopf ist jetzt GELB; Klick darauf blitzt kurz rot
   („hast du schon") und lädt nicht doppelt — anderes Format per Rechtsklick.

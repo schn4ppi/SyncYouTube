@@ -1421,19 +1421,32 @@ def _datei_videoid(pfad, karten=None):
 
 
 _TAG_ID = "YTDL_ID"                                   # Tag-Name in allen Containern
+_TAG_ORIG = "YTDL_ORIGNAME"                           # ursprünglicher Dateiname (Undo, Build 113)
 
 
-def _id_tag_schreiben(pfad, vid):
-    """Video-Id als Tag IN die Datei (Bibliothek 2.0 Schicht 2, Sicherheitsnetz
-    fürs Kopieren auf andere Geräte): mutagen in-place, kein ffmpeg-Remux.
-    NUR Audio-Container (mp3=ID3-TXXX, m4a=Freeform, opus/ogg/flac=Vorbis):
-    Video-Dateien (mp4/webm/mkv) bekommen KEIN Tag — mutagen müsste große
-    mp4 oft komplett neu schreiben (GB-Kopien, Last-Budget) bzw. kann
-    webm/mkv gar nicht; dort tragen Fingerabdruck + DB. Gelesen wird mp4
-    trotzdem (falls anderswo getaggt).
+def _orig_tag(pfad, name=None):
+    """Ursprungs-Dateinamen IN der Datei vermerken bzw. lesen (JB: „sind diese
+    Dateien ebenfalls in der Datei zu vermerken?"). Nur das ERSTE Mal wird
+    geschrieben — der Original ist der Zustand vor unserem ersten Umbenennen.
+    Damit funktioniert ein Zurück auch für Dateien, die inzwischen woanders
+    liegen (das Protokoll auf Platte kennt nur unsere Pfade)."""
+    if name is None:
+        return _tag_lesen(pfad, _TAG_ORIG)
+    if _tag_lesen(pfad, _TAG_ORIG):
+        return True                                   # schon vermerkt: nie überschreiben
+    return _tag_schreiben(pfad, _TAG_ORIG, name)
+
+
+def _tag_schreiben(pfad, schluessel, wert):
+    """Einen eigenen Text-Tag IN die Datei schreiben (mutagen in-place, kein
+    ffmpeg-Remux). NUR Audio-Container (mp3=ID3-TXXX, m4a=Freeform,
+    opus/ogg/flac=Vorbis): Video-Dateien (mp4/webm/mkv) bekommen KEIN Tag —
+    mutagen müsste große mp4 oft komplett neu schreiben (GB-Kopien,
+    Last-Budget) bzw. kann webm/mkv gar nicht; dort tragen Fingerabdruck +
+    DB. Gelesen wird mp4 trotzdem (falls anderswo getaggt).
     WICHTIG: verändert den Dateianfang ⇒ Aufrufer muss das fp DANACH
     (neu) rechnen, nie davor speichern. True nur bei echtem Erfolg."""
-    if not vid or not _plausible_id(vid):
+    if not wert:
         return False
     ext = os.path.splitext(pfad)[1].lower()
     try:
@@ -1443,20 +1456,20 @@ def _id_tag_schreiben(pfad, vid):
                 tags = ID3(pfad)
             except ID3NoHeaderError:
                 tags = ID3()
-            tags.setall("TXXX:" + _TAG_ID, [TXXX(encoding=3, desc=_TAG_ID, text=[vid])])
+            tags.setall("TXXX:" + schluessel, [TXXX(encoding=3, desc=schluessel, text=[wert])])
             tags.save(pfad, v2_version=3)
             return True
         if ext == ".m4a":
             from mutagen.mp4 import MP4
             m = MP4(pfad)
-            m["----:com.ytdl:" + _TAG_ID] = [vid.encode("utf-8")]
+            m["----:com.ytdl:" + schluessel] = [wert.encode("utf-8")]
             m.save()
             return True
         if ext in (".opus", ".ogg", ".flac"):
             from mutagen import File as MFile
             m = MFile(pfad)
             if m is not None:
-                m[_TAG_ID] = [vid]
+                m[schluessel] = [wert]
                 m.save()
                 return True
     except Exception:                                # noqa: BLE001 — kaputte/fremde Datei: still lassen
@@ -1464,28 +1477,41 @@ def _id_tag_schreiben(pfad, vid):
     return False
 
 
-def _id_tag_lesen(pfad):
-    """Video-Id aus dem Datei-Tag ('' wenn keins) — erkennt auch Dateien,
-    die von einem ANDEREN PC stammen und die unsere DB nie gesehen hat."""
+def _tag_lesen(pfad, schluessel):
+    """Eigenen Text-Tag aus der Datei lesen ('' wenn keiner)."""
     ext = os.path.splitext(pfad)[1].lower()
     try:
         if ext == ".mp3":
             from mutagen.id3 import ID3
-            frames = ID3(pfad).getall("TXXX:" + _TAG_ID)
+            frames = ID3(pfad).getall("TXXX:" + schluessel)
             return str(frames[0].text[0]) if frames and frames[0].text else ""
         if ext in (".m4a", ".mp4", ".mov"):
             from mutagen.mp4 import MP4
             m = MP4(pfad)
-            werte = m.tags.get("----:com.ytdl:" + _TAG_ID) if m.tags else None
+            werte = m.tags.get("----:com.ytdl:" + schluessel) if m.tags else None
             return werte[0].decode("utf-8", "ignore") if werte else ""
         if ext in (".opus", ".ogg", ".flac"):
             from mutagen import File as MFile
             m = MFile(pfad)
-            werte = m.get(_TAG_ID) if m else None
+            werte = m.get(schluessel) if m else None
             return str(werte[0]) if werte else ""
     except Exception:                                # noqa: BLE001
         pass
     return ""
+
+
+def _id_tag_schreiben(pfad, vid):
+    """Video-Id als Tag IN die Datei (Bibliothek 2.0 Schicht 2, Sicherheitsnetz
+    fürs Kopieren auf andere Geräte)."""
+    if not vid or not _plausible_id(vid):
+        return False
+    return _tag_schreiben(pfad, _TAG_ID, vid)
+
+
+def _id_tag_lesen(pfad):
+    """Video-Id aus dem Datei-Tag ('' wenn keins) — erkennt auch Dateien,
+    die von einem ANDEREN PC stammen und die unsere DB nie gesehen hat."""
+    return _tag_lesen(pfad, _TAG_ID)
 
 
 def _in_papierkorb(pfad):
@@ -2457,12 +2483,102 @@ def technik_backfill():
         _technik_laeuft = False
 
 
-def _migrations_ziel(pfad):
-    """Neuer Pfad ohne [Id]-Klammern ('' wenn der Name keine trägt oder
-    nichts Sinnvolles übrig bliebe)."""
+# ---- Namens-Baukasten (Build 113, JB: „die Art der Beschreibung wählen und
+# schieben können"). Wahrheit sind die Tags/DB-Felder; der Dateiname ist nur
+# eine Projektion daraus — wie Picard-Naming-Scripts und beets-path-formats.
+NAME_BAUSTEINE = {                                    # id -> (Anzeige, Feld)
+    "nr":       ("Titelnummer (07)", "track_nr"),
+    "kuenstler": ("Künstler", "kuenstler"),
+    "titel":    ("Titel", "track"),
+    "album":    ("Album", "album"),
+    "jahr":     ("Jahr", "jahr"),
+    "zusatz":   ("Zusatz (Live/Remix)", "_zusatz"),
+    "id":       ("Video-Id [abc123]", "_id"),
+}
+NAME_STANDARD = ["kuenstler", "titel", "zusatz"]      # JB-Entscheid: Künstler - Titel (Live)
+# Klammer-Inhalte, die nur Format/Kanal beschreiben -> raus. „Live/Remix/
+# Acoustic/Cover/Instrumental/Remastered" beschreiben die AUFNAHME -> bleiben
+# (als Baustein „zusatz").
+_NAME_MUELL = re.compile(
+    r"(?i)[\(\[]\s*(?:official\s*)?(?:music\s*)?(?:video|audio|hd|hq|full\s*hd|4k|8k|uhd"
+    r"|lyrics?|lyric\s*video|visualiz\w*|mv|m/v|clip|videoclip|hq\s*audio|explicit|clean"
+    r"|official|offizielles?\s*\w*)\s*[\)\]]")
+_NAME_ZUSATZ = re.compile(
+    r"(?i)[\(\[]\s*((?:live|akustik|acoustic|unplugged|remix|rmx|cover|instrumental"
+    r"|karaoke|remaster\w*|demo|radio\s*edit|extended|edit)[^\)\]]*)\s*[\)\]]")
+
+
+def _name_teile(e, pfad=""):
+    """DB-Eintrag -> Bausteine für den Dateinamen (bereits gesäubert)."""
+    roh = e.get("titel") or _titel_aus_name(os.path.basename(pfad or e.get("name", "")))
+    roh = re.sub(r"\s*\[[\w-]{6,}\]", "", roh)        # [Video-Id] gehört nie in den Text
+    zusatz = " ".join(f"({m.group(1).strip()})" for m in _NAME_ZUSATZ.finditer(roh))
+    rest = _NAME_ZUSATZ.sub(" ", _NAME_MUELL.sub(" ", roh))
+    rest = re.sub(r"\s+", " ", rest).strip(" -–—|·,")
+    kuenstler = (e.get("kuenstler") or "").strip()
+    titel = (e.get("track") or "").strip()
+    if not (kuenstler and titel):                     # kein Auto-Tag: aus dem Titel spalten
+        for sep in (" - ", " – ", " — "):
+            if sep in rest:
+                links, rechts = rest.split(sep, 1)
+                kuenstler = kuenstler or links.strip()
+                titel = titel or rechts.strip()
+                break
+    nr = e.get("track_nr")
+    return {"nr": f"{int(nr):02d}" if str(nr or "").strip().isdigit() else "",
+            "kuenstler": kuenstler, "titel": titel or rest,
+            "album": (e.get("album") or "").strip(), "jahr": str(e.get("jahr") or "").strip(),
+            "zusatz": zusatz, "id": ""}
+
+
+def _dateiname_bauen(e, pfad="", schema=None):
+    """Bausteine in der gewählten Reihenfolge zu EINEM Dateinamen fügen.
+    Trenner nach Bedeutung: Künstler - Titel, Nummer davor, Zusatz/Album/Jahr
+    in Klammern hinten. Ohne verwertbare Teile: '' (Aufrufer lässt den Namen)."""
+    schema = schema or CFG.get("name_schema") or NAME_STANDARD
+    t = _name_teile(e, pfad)
+    if e.get("_vid"):
+        t["id"] = f"[{e['_vid']}]"
+    kopf, klammern = [], []
+    for baustein in schema:
+        wert = t.get(baustein, "")
+        if not wert:
+            continue
+        if baustein in ("zusatz", "album", "jahr", "id"):
+            klammern.append(wert if wert.startswith(("(", "[")) else f"({wert})")
+        else:
+            kopf.append(wert)
+    if not kopf:
+        return ""
+    # Die Titelnummer klebt ohne Gedankenstrich am Rest („07 Künstler - Titel"),
+    # alle anderen Kopf-Bausteine werden mit " - " verbunden.
+    if schema and schema[0] == "nr" and t.get("nr"):
+        text = kopf[0] + " " + " - ".join(kopf[1:]) if len(kopf) > 1 else kopf[0]
+    else:
+        text = " - ".join(kopf)
+    if klammern:
+        text += " " + " ".join(klammern)
+    return _dateiname_saeubern(text)
+
+
+def _dateiname_saeubern(text):
+    """Windows-sichere, hübsche Fassung (keine verbotenen Zeichen, kein
+    Punkt/Leerzeichen am Ende, nicht länger als 150 Zeichen)."""
+    text = re.sub(r'[<>:"/\\|?*]', "", text)
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    return text[:150].strip(" .")
+
+
+def _migrations_ziel(pfad, e=None, schema=None):
+    """Neuer Pfad nach dem Namens-Schema ('' wenn nichts zu tun ist).
+    Ohne DB-Eintrag: nur die [Id]-Klammern entfernen (Alt-Verhalten)."""
     ordner, name = os.path.split(pfad)
     stamm, ext = os.path.splitext(name)
-    neu = re.sub(r"\s*\[[\w-]{6,}\]", "", stamm).strip()
+    if e is None:
+        neu = re.sub(r"\s*\[[\w-]{6,}\]", "", stamm).strip()
+    else:
+        neu = _dateiname_bauen(e, pfad, schema)
+    neu = _dateiname_saeubern(neu or "")
     if not neu or neu == stamm:
         return ""
     return os.path.join(ordner, neu + ext)
@@ -2476,17 +2592,24 @@ def _vtt_geschwister(pfad):
                   + glob.glob(glob.escape(stamm) + ".vtt"))
 
 
-def migration_probelauf():
-    """Klammern-Migration Schritt 1 (schaut NUR, fasst nichts an): je Datei
-    der neue Name ohne [Id], die mitwandernden .vtt und der Sicherheits-
-    Status. Umbenannt wird ausschließlich in migration_anwenden — und das
-    erst nach JBs Blick auf diese Liste (Probelauf-Default, JB-Regel)."""
+PROTOKOLL_PFAD = os.path.join(SCRIPT_DIR, "migration_protokoll.json")
+
+
+def migration_probelauf(schema=None, keys=None):
+    """Umbenenn-Probelauf (schaut NUR, fasst nichts an): je Datei der neue
+    Name nach dem gewählten Schema, die mitwandernden .vtt und der
+    Sicherheits-Status. Umbenannt wird ausschließlich in migration_anwenden —
+    und das erst nach JBs Blick auf diese Liste (Probelauf-Default)."""
     plan, ziele = [], set()
     for k, e in list(_geladen.items()):
+        if keys and k not in keys:
+            continue
         p = e.get("pfad")
         if not (p and os.path.isfile(p)):
             continue
-        ziel = _migrations_ziel(p)
+        eintrag_daten = dict(e)
+        eintrag_daten["_vid"] = k.split("|")[0]
+        ziel = _migrations_ziel(p, eintrag_daten, schema)
         if not ziel:
             continue
         eintrag = {"key": k, "alt": p, "neu": ziel,
@@ -2494,22 +2617,22 @@ def migration_probelauf():
         if not (e.get("fp") or e.get("idtag")):
             eintrag["konflikt"] = "ohne Sicherheitsnetz (kein fp/Tag) — erst Backfill laufen lassen"
         elif os.path.exists(ziel) or os.path.normcase(ziel) in ziele:
-            eintrag["konflikt"] = "Zielname existiert schon (gleicher Titel, andere Id?)"
+            eintrag["konflikt"] = "Zielname existiert schon (gleicher Titel, andere Fassung?)"
         ziele.add(os.path.normcase(ziel))
         plan.append(eintrag)
     return plan
 
 
-def migration_anwenden(go=False):
-    """Klammern-Migration Schritt 2 — läuft NUR mit go=True (nach JBs Blick
-    auf den Probelauf). Additiv: nie überschreiben, Konflikte bleiben
-    unangetastet liegen, DB (pfad/name) wandert mit, .vtt-Geschwister
-    behalten ihren Stamm. Bricht etwas ab, bleiben Klammern einfach stehen —
-    die Erkennungs-Kette (Name/Pfad/fp/Tag) trägt beide Welten."""
+def migration_anwenden(go=False, schema=None, keys=None):
+    """Umbenennen Schritt 2 — läuft NUR mit go=True (nach JBs Blick auf den
+    Probelauf). Additiv: nie überschreiben, Konflikte bleiben unangetastet
+    liegen, DB (pfad/name) wandert mit, .vtt-Geschwister behalten ihren
+    Stamm. Bricht etwas ab, bleiben alte Namen einfach stehen — die
+    Erkennungs-Kette (Name/Pfad/fp/Tag) trägt beide Welten."""
     if not go:
         return {"ok": False, "fehler": "Probelauf-Default: ohne go wird nichts umbenannt."}
     umbenannt, uebersprungen, protokoll = 0, 0, []
-    for eintrag in migration_probelauf():
+    for eintrag in migration_probelauf(schema, keys):
         if eintrag["konflikt"]:
             uebersprungen += 1
             continue
@@ -2518,6 +2641,17 @@ def migration_anwenden(go=False):
             if os.path.exists(neu):
                 uebersprungen += 1
                 continue
+            e = _geladen.get(eintrag["key"])
+            # Ursprungsnamen IN die Datei (JB) — VOR dem Umbenennen, damit
+            # der Vermerk den echten Originalnamen trägt; danach fp erneuern,
+            # weil das Tag den Dateianfang verschiebt.
+            if e and not e.get("importiert") and _orig_tag(alt, os.path.basename(alt)):
+                if e.get("fp"):
+                    e["fp"] = _fp_von(alt)
+                try:
+                    e["groesse"] = os.path.getsize(alt)
+                except OSError:
+                    pass
             os.rename(alt, neu)
             protokoll.append([alt, neu])
             alt_stamm = os.path.splitext(alt)[0]
@@ -2527,7 +2661,6 @@ def migration_anwenden(go=False):
                 if not os.path.exists(zv):
                     os.rename(v, zv)
                     protokoll.append([v, zv])
-            e = _geladen.get(eintrag["key"])
             if e:
                 e["pfad"] = neu
                 e["name"] = os.path.basename(neu)
@@ -2538,17 +2671,67 @@ def migration_anwenden(go=False):
         # Rückroll-Protokoll AUF PLATTE (Lehre 23.07.: ein Zurück muss immer
         # trivial sein, nie rekonstruiert werden müssen) — additiv je Lauf.
         try:
-            log_pfad = os.path.join(SCRIPT_DIR, "migration_protokoll.json")
-            laeufe = _json_laden(log_pfad, [])
+            laeufe = _json_laden(PROTOKOLL_PFAD, [])
             laeufe.append({"zeit": time.strftime("%Y-%m-%d %H:%M:%S"),
                            "umbenannt": protokoll})
-            _json_speichern(log_pfad, laeufe)
+            _json_speichern(PROTOKOLL_PFAD, laeufe)
         except OSError:
             pass
         with _io_lock:
             _json_speichern(GELADEN_PFAD, _geladen)
-        _sag(f"Klammern-Migration: {umbenannt} Datei(en) umbenannt, {uebersprungen} übersprungen")
+        _sag(f"Umbenennen: {umbenannt} Datei(en) neu benannt, {uebersprungen} übersprungen")
     return {"ok": True, "umbenannt": umbenannt, "uebersprungen": uebersprungen}
+
+
+def migration_laeufe():
+    """Was wurde wann umbenannt? (Grundlage für „↩ Rückgängig")"""
+    return [{"zeit": lauf.get("zeit", ""), "anzahl": len(lauf.get("umbenannt") or [])}
+            for lauf in _json_laden(PROTOKOLL_PFAD, [])]
+
+
+def migration_rueckgaengig():
+    """Den LETZTEN Umbenenn-Lauf zurücknehmen (JB: „man sollte es auch wieder
+    rückgängig machen können"). Rückwärts durchs Protokoll; nur wo die Datei
+    noch am neuen Ort liegt UND der alte Name frei ist — sonst bleibt der
+    Eintrag stehen und wird gemeldet (nie überschreiben)."""
+    laeufe = _json_laden(PROTOKOLL_PFAD, [])
+    if not laeufe:
+        return {"ok": False, "fehler": "Es gibt keinen Umbenenn-Lauf zum Zurücknehmen."}
+    lauf = laeufe[-1]
+    zurueck, blockiert = 0, 0
+    pfad_zu_key = {os.path.normcase(os.path.abspath(e["pfad"])): k
+                   for k, e in _geladen.items() if e.get("pfad")}
+    for alt, neu in reversed(lauf.get("umbenannt") or []):
+        try:
+            if not os.path.isfile(neu) or os.path.exists(alt):
+                blockiert += 1
+                continue
+            os.rename(neu, alt)
+            k = pfad_zu_key.get(os.path.normcase(os.path.abspath(neu)))
+            e = _geladen.get(k) if k else None
+            if e:
+                e["pfad"] = alt
+                e["name"] = os.path.basename(alt)
+            zurueck += 1
+        except OSError:
+            blockiert += 1
+    if zurueck:
+        with _io_lock:
+            _json_speichern(GELADEN_PFAD, _geladen)
+    if not blockiert:                                # Lauf ist sauber zurückgenommen
+        laeufe.pop()
+    else:                                            # Rest vermerken statt Protokoll verlieren
+        lauf["umbenannt"] = [pp for pp in (lauf.get("umbenannt") or [])
+                             if os.path.isfile(pp[1])]
+        if not lauf["umbenannt"]:
+            laeufe.pop()
+    try:
+        _json_speichern(PROTOKOLL_PFAD, laeufe)
+    except OSError:
+        pass
+    _sag(f"Rückgängig: {zurueck} Datei(en) tragen wieder den alten Namen"
+         + (f", {blockiert} blockiert" if blockiert else ""))
+    return {"ok": True, "zurueck": zurueck, "blockiert": blockiert}
 
 
 # ---- Downloads-Ordner selbstheilend einsortieren (JB 14.07.): von Hand
@@ -2647,6 +2830,7 @@ def ordner_importieren():
         if p:
             bekannt.add(os.path.normcase(os.path.abspath(p)))
     neu = 0
+    frisch = []                                      # Keys dieses Laufs (Auto-Umbenennen)
     karten = _id_karten()
     for wurzel, _, dateien in os.walk(ziel_ordner()):
         for fn in dateien:
@@ -2681,11 +2865,17 @@ def ordner_importieren():
                 "qualitaet": "audio" if audio else "lokal",
                 "importiert": True, "ts": time.time(),
                 "fp": _datei_fp(pfad)}               # Content-Ausweis (Bibliothek 2.0)
+            frisch.append(key)
             neu += 1
     if neu:
         with _io_lock:
             _json_speichern(GELADEN_PFAD, _geladen)
         _sag(f"Ordner-Import: {neu} neue Datei(en) in die Bibliothek aufgenommen")
+        if CFG.get("auto_umbenennen"):               # optional (Build 113, Standard AUS)
+            r = migration_anwenden(go=True, keys=set(frisch))
+            if r.get("umbenannt"):
+                _sag(f"Auto-Umbenennen: {r['umbenannt']} importierte Datei(en) "
+                     "nach dem Namens-Schema benannt (↩ rückgängig im Namens-Fenster)")
     return neu
 
 
@@ -3395,13 +3585,18 @@ class Handler(BaseHTTPRequestHandler):
             if self.client_address[0] != "127.0.0.1":
                 return _antwort(self, 403, {"fehler": "nur lokal"})
             _antwort(self, 200, pfad_da((parse_qs(urlparse(self.path).query).get("pfad") or [""])[0]))
-        elif self.path.startswith("/api/migration_probelauf"):   # Klammern-Migration, NUR Auslese (Build 112)
+        elif self.path.startswith("/api/migration_probelauf"):   # Umbenennen, NUR Auslese (Build 112/113)
             if self.client_address[0] != "127.0.0.1":
                 return _antwort(self, 403, {"fehler": "nur lokal"})
-            plan = migration_probelauf()
-            _antwort(self, 200, {"eintraege": plan,
+            q = parse_qs(urlparse(self.path).query)
+            roh = (q.get("schema") or [""])[0]
+            schema = [b for b in roh.split(",") if b in NAME_BAUSTEINE] or None
+            plan = migration_probelauf(schema)
+            _antwort(self, 200, {"eintraege": plan[:400],
+                                 "gesamt": len(plan),
                                  "bereit": sum(1 for x in plan if not x["konflikt"]),
-                                 "konflikte": sum(1 for x in plan if x["konflikt"])})
+                                 "konflikte": sum(1 for x in plan if x["konflikt"]),
+                                 "laeufe": migration_laeufe()[-5:]})
         elif self.path.startswith("/api/entdecken"):    # 📻 Neues entdecken (Build 99)
             q = parse_qs(urlparse(self.path).query)
             _antwort(self, 200, entdecken((q.get("pl") or [""])[0],
@@ -3502,6 +3697,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._biblio(daten)
             elif self.path == "/api/biblio_enrich":
                 threading.Thread(target=biblio_enrich_alle, daemon=True).start()
+            elif self.path == "/api/umbenennen":      # Namens-Baukasten anwenden/zurück (Build 113)
+                if self.client_address[0] != "127.0.0.1":
+                    return _antwort(self, 403, {"fehler": "nur lokal"})
+                if daten.get("art") == "undo":
+                    _antwort(self, 200, migration_rueckgaengig())
+                else:
+                    schema = [b for b in (daten.get("schema") or []) if b in NAME_BAUSTEINE] or None
+                    _antwort(self, 200, migration_anwenden(go=bool(daten.get("go")), schema=schema,
+                                                           keys=daten.get("keys") or None))
             elif self.path == "/api/importieren":     # fremde Dateien im Ordner aufnehmen
                 n = ordner_importieren()
                 return _antwort(self, 200, {"neu": n})
@@ -3658,6 +3862,11 @@ class Handler(BaseHTTPRequestHandler):
                 CFG["geo_wireguard_ordner"] = str(daten["geo_wireguard_ordner"]).strip()
             if isinstance(daten.get("unterordner"), bool):
                 CFG["unterordner"] = daten["unterordner"]
+            if isinstance(daten.get("name_schema"), list):    # Namens-Baukasten (Build 113)
+                CFG["name_schema"] = [str(b) for b in daten["name_schema"]
+                                      if str(b) in NAME_BAUSTEINE][:len(NAME_BAUSTEINE)]
+            if isinstance(daten.get("auto_umbenennen"), bool):
+                CFG["auto_umbenennen"] = daten["auto_umbenennen"]
             if isinstance(daten.get("metadaten"), bool):
                 CFG["metadaten"] = daten["metadaten"]
             if isinstance(daten.get("fehler_ausblenden_min"), (int, float)):

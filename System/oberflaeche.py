@@ -883,7 +883,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 112</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 113</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1405,6 +1405,7 @@ function optionenToggle(ev){
       '<option value="0">aus</option><option value="15">15 min</option><option value="30">30 min</option>'+
       '<option value="60">60 min</option><option value="titel">nach diesem Titel</option></select>'+
       '<span id="sleepval" style="color:#8a7d74;font-size:11px;margin-left:6px"></span></span></div>'+
+    '<div class="optrow"><span>Dateinamen</span><button class="btn mini" onclick="namenFenster()" title="Bausteine wählen und schieben, Probelauf ansehen, anwenden oder zurücknehmen">🏷 Namens-Baukasten</button></div>'+
     '<div class="optrow"><span>Alle Einstellungen</span><button class="btn mini" onclick="einstellungenOeffnen()">⚙ Öffnen</button></div>'+
     '<div class="optrow"><span>📱 Fernsteuerung</span><button class="btn mini" id="fernbtn" onclick="fernToggle()">…</button></div>'+
     '<div id="ferninfo" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
@@ -5437,6 +5438,148 @@ async function plImport(input){
   }catch(e){document.getElementById('plinfo').textContent='Import fehlgeschlagen';}
 }
 
+/* ---- Namens-Baukasten (Build 113, JB: „die Art der Beschreibung wählen …
+   das sollte man anwählen und schieben können"). Die Tags in der Datei sind
+   die Wahrheit — der Dateiname ist nur eine Projektion daraus (wie Picard/
+   beets). Umbenannt wird NIE ohne Probelauf + Klick. ---- */
+const NAME_BAUSTEINE=[['nr','Titelnummer','07'],['kuenstler','Künstler','Prince'],
+  ['titel','Titel','Purple Rain'],['album','Album','Purple Rain'],['jahr','Jahr','1984'],
+  ['zusatz','Zusatz (Live/Remix)','(Live)'],['id','Video-Id','[uW1UIDYmYyI]']];
+let nameSchema=['kuenstler','titel','zusatz'], namePlan=null;
+async function namenFenster(){
+  const alt=document.getElementById('name-fly'); if(alt)alt.remove();
+  try{const r=await fetch('/api/status'); const d=await r.json();
+    if(d.config&&Array.isArray(d.config.name_schema)&&d.config.name_schema.length)
+      nameSchema=d.config.name_schema.slice();
+    window._nameAuto=!!(d.config&&d.config.auto_umbenennen);
+  }catch(e){}
+  const fly=document.createElement('div');
+  fly.className='abo-flyout'; fly.id='name-fly'; fly.tabIndex=-1; fly.style.height='auto'; fly.style.width='600px';
+  fly.innerHTML='<div class="abo-fly-titel">🏷 Dateinamen — Bausteine wählen und schieben'+
+    '<span class="spacer"></span><button class="ib" onclick="document.getElementById(\\'name-fly\\').remove()" title="Schließen (Esc)">✕</button></div>'+
+    '<div id="name-liste" style="margin:8px 4px"></div>'+
+    '<div style="margin:8px 4px;padding:8px;border:1px solid #2c2621;border-radius:8px;background:#141110">'+
+      '<div style="font-size:11px;color:#8a7d74;margin-bottom:3px">So heißen die Dateien dann:</div>'+
+      '<div id="name-vorschau" style="font-family:Consolas,monospace;font-size:13px;color:#e9ded3"></div></div>'+
+    '<label class="chk" style="margin:6px 4px;display:block"><input type="checkbox" id="name-auto" onchange="nameAutoSetzen(this.checked)"> '+
+      'Importierte Dateien automatisch so benennen (rückgängig jederzeit hier)</label>'+
+    '<div id="name-plan" style="margin:6px 4px;max-height:220px;overflow:auto;font-size:12px"></div>'+
+    '<div class="abo-staffel" style="margin-top:8px"><span id="name-stand" style="opacity:.7"></span><span class="spacer"></span>'+
+      '<button class="btn mini" onclick="nameProbelauf()" title="Zeigt alt → neu für die ganze Bibliothek — es wird NICHTS umbenannt">🔍 Probelauf</button>'+
+      '<button class="btn mini" id="name-go" disabled onclick="nameAnwenden()" title="Erst nach dem Probelauf: benennt die geprüften Dateien um">✔ Anwenden</button>'+
+      '<button class="btn mini" onclick="nameUndo()" title="Nimmt den letzten Umbenenn-Lauf zurück (Protokoll + Vermerk in der Datei)">↩ Rückgängig</button></div>';
+  document.body.appendChild(fly);
+  aboFlyoutPositionieren(fly,null);
+  fly.style.height='auto';
+  fly.addEventListener('keydown',e=>{if(e.key==='Escape'){fly.remove(); e.stopPropagation();}});
+  const chk=document.getElementById('name-auto'); if(chk)chk.checked=!!window._nameAuto;
+  nameListeMalen(); fly.focus();
+}
+function nameListeMalen(){
+  const box=document.getElementById('name-liste'); if(!box)return;
+  const drin=NAME_BAUSTEINE.filter(b=>nameSchema.includes(b[0]))
+    .sort((a,b)=>nameSchema.indexOf(a[0])-nameSchema.indexOf(b[0]));
+  const raus=NAME_BAUSTEINE.filter(b=>!nameSchema.includes(b[0]));
+  const zeile=(b,an,i)=>'<div class="name-zeile" draggable="'+(an?'true':'false')+'" data-id="'+b[0]+'" '+
+    'style="display:flex;align-items:center;gap:8px;padding:5px 7px;margin:3px 0;border:1px solid #2c2621;'+
+    'border-radius:7px;background:'+(an?'#1b1613':'transparent')+';cursor:'+(an?'grab':'default')+'">'+
+    '<input type="checkbox" '+(an?'checked':'')+' onchange="nameBausteinToggle(\\''+b[0]+'\\',this.checked)">'+
+    '<span style="flex:1">'+esc(b[1])+' <span style="color:#8a7d74">'+esc(b[2])+'</span></span>'+
+    (an?'<button class="ib" onclick="nameSchieben(\\''+b[0]+'\\',-1)" title="nach vorn">▲</button>'+
+        '<button class="ib" onclick="nameSchieben(\\''+b[0]+'\\',1)" title="nach hinten">▼</button>':'')+
+    '</div>';
+  box.innerHTML=(drin.length?'<div style="font-size:11px;color:#8a7d74">Reihenfolge — ziehen oder ▲▼:</div>':'')+
+    drin.map((b,i)=>zeile(b,true,i)).join('')+
+    (raus.length?'<div style="font-size:11px;color:#8a7d74;margin-top:6px">Nicht im Namen:</div>':'')+
+    raus.map(b=>zeile(b,false,-1)).join('');
+  box.querySelectorAll('.name-zeile[draggable="true"]').forEach(z=>{
+    z.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',z.dataset.id); z.style.opacity='.4';});
+    z.addEventListener('dragend',()=>{z.style.opacity='';});
+    z.addEventListener('dragover',e=>e.preventDefault());
+    z.addEventListener('drop',e=>{e.preventDefault();
+      const von=e.dataTransfer.getData('text/plain'), auf=z.dataset.id;
+      if(!von||von===auf)return;
+      nameSchema=nameSchema.filter(x=>x!==von);
+      nameSchema.splice(nameSchema.indexOf(auf),0,von);
+      nameSchemaSpeichern();});
+  });
+  nameVorschau();
+}
+function nameBausteinToggle(id,an){
+  nameSchema=an?nameSchema.concat([id]):nameSchema.filter(x=>x!==id);
+  nameSchemaSpeichern();
+}
+function nameSchieben(id,d){
+  const i=nameSchema.indexOf(id), j=i+d;
+  if(i<0||j<0||j>=nameSchema.length)return;
+  nameSchema.splice(j,0,nameSchema.splice(i,1)[0]);
+  nameSchemaSpeichern();
+}
+function nameVorschau(){
+  // Beispiel lokal bauen — dieselben Regeln wie im Server (Kopf mit " - ",
+  // Zusatz/Album/Jahr/Id in Klammern hinten, Nummer klebt vorn).
+  const bsp={nr:'07',kuenstler:'Prince',titel:'Purple Rain',album:'Purple Rain',jahr:'1984',
+             zusatz:'(Live)',id:'[uW1UIDYmYyI]'};
+  const kopf=[],kl=[];
+  nameSchema.forEach(b=>{const w=bsp[b]; if(!w)return;
+    if(b==='zusatz'||b==='album'||b==='jahr'||b==='id')kl.push(w.startsWith('(')||w.startsWith('[')?w:'('+w+')');
+    else kopf.push(w);});
+  let t=kopf.length?(nameSchema[0]==='nr'&&kopf.length>1?kopf[0]+' '+kopf.slice(1).join(' - '):kopf.join(' - ')):'';
+  if(kl.length)t+=' '+kl.join(' ');
+  const v=document.getElementById('name-vorschau');
+  if(v)v.textContent=(t||'(keine Bausteine gewählt — Namen bleiben, wie sie sind)')+(t?'.mp3':'');
+}
+async function nameSchemaSpeichern(){
+  nameListeMalen();
+  const go=document.getElementById('name-go'); if(go)go.disabled=true;   // Plan ist veraltet
+  namePlan=null;
+  const pl=document.getElementById('name-plan'); if(pl)pl.innerHTML='';
+  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name_schema:nameSchema})});}catch(e){}
+}
+async function nameAutoSetzen(an){
+  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({auto_umbenennen:!!an})});
+    toast(an?'Importe werden künftig automatisch benannt.':'Auto-Benennen aus.');}catch(e){}
+}
+async function nameProbelauf(){
+  const stand=document.getElementById('name-stand'); if(stand)stand.textContent='prüfe …';
+  try{
+    const r=await fetch('/api/migration_probelauf?schema='+encodeURIComponent(nameSchema.join(',')));
+    const d=await r.json(); namePlan=d;
+    const box=document.getElementById('name-plan');
+    box.innerHTML=d.eintraege.length?('<table style="width:100%;border-collapse:collapse">'+
+      d.eintraege.map(x=>'<tr><td style="padding:2px 4px;color:'+(x.konflikt?'#e0a030':'#8a7d74')+'">'+
+        (x.konflikt?'⚠':'✅')+'</td><td style="padding:2px 4px;color:#8a7d74">'+esc(x.alt.split(/[\\\\/]/).pop())+'</td>'+
+        '<td style="padding:2px 4px">→ '+esc(x.neu.split(/[\\\\/]/).pop())+'</td></tr>'+
+        (x.konflikt?'<tr><td></td><td colspan="2" style="padding:0 4px 4px;color:#e0a030;font-size:11px">'+esc(x.konflikt)+'</td></tr>':'')).join('')+
+      '</table>'):'<div style="color:#8a7d74;padding:6px">Alle Dateien heißen schon so — nichts zu tun.</div>';
+    if(stand)stand.textContent=d.bereit+' bereit, '+d.konflikte+' übersprungen'+(d.gesamt>d.eintraege.length?' (Liste zeigt die ersten '+d.eintraege.length+')':'');
+    const go=document.getElementById('name-go'); if(go)go.disabled=!d.bereit;
+  }catch(e){if(stand)stand.textContent='Probelauf fehlgeschlagen.';}
+}
+async function nameAnwenden(){
+  if(!namePlan||!namePlan.bereit)return;
+  if(!confirm('Jetzt '+namePlan.bereit+' Datei(en) umbenennen?\\n\\nDie Untertitel wandern mit, der alte Name wird IN der Datei vermerkt, und „↩ Rückgängig" macht alles zurück.'))return;
+  const stand=document.getElementById('name-stand'); if(stand)stand.textContent='benenne um …';
+  try{
+    const r=await fetch('/api/umbenennen',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({go:true,schema:nameSchema})});
+    const d=await r.json();
+    toast('✔ '+d.umbenannt+' umbenannt'+(d.uebersprungen?', '+d.uebersprungen+' übersprungen':''));
+    await nameProbelauf(); laden();
+  }catch(e){if(stand)stand.textContent='Umbenennen fehlgeschlagen.';}
+}
+async function nameUndo(){
+  if(!confirm('Den letzten Umbenenn-Lauf zurücknehmen?'))return;
+  try{
+    const r=await fetch('/api/umbenennen',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({art:'undo'})});
+    const d=await r.json();
+    toast(d.ok?('↩ '+d.zurueck+' Datei(en) zurückbenannt'+(d.blockiert?', '+d.blockiert+' blockiert':'')):(d.fehler||'nichts zurückzunehmen'));
+    await nameProbelauf(); laden();
+  }catch(e){toast('Rückgängig fehlgeschlagen.');}
+}
 async function plSyncConfig(){
   // Build 108 (JB): eigenes kleines Fenster statt prompt — Pfad vom letzten
   // Mal vorbelegt und 📁 öffnet den NATIVEN Windows-Ordnerdialog (über den

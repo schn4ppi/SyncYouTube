@@ -950,6 +950,72 @@ def test_technik_backfill_idtag():
         app._geladen = alt_geladen
 
 
+def test_dateiname_bauen_schema():
+    # Build 113 (JB): Bausteine wählbar UND in der Reihenfolge schiebbar.
+    e = {"titel": "Prince - Purple Rain (Official Music Video) [HD]",
+         "kuenstler": "Prince", "track": "Purple Rain", "album": "Purple Rain",
+         "jahr": "1984", "track_nr": 7}
+    bau = app._dateiname_bauen
+    assert bau(e, schema=["kuenstler", "titel"]) == "Prince - Purple Rain"
+    assert bau(e, schema=["titel", "kuenstler"]) == "Purple Rain - Prince"
+    assert bau(e, schema=["nr", "kuenstler", "titel"]) == "07 Prince - Purple Rain"
+    assert bau(e, schema=["kuenstler", "titel", "album", "jahr"]) == \
+        "Prince - Purple Rain (Purple Rain) (1984)"
+    # „Zusatz" trägt nur, was die AUFNAHME beschreibt — Werbe-Klammern fliegen raus.
+    live = {"titel": "Fleetwood Mac - Landslide (Live) (Official Video) [HD]"}
+    assert bau(live, schema=["kuenstler", "titel", "zusatz"]) == \
+        "Fleetwood Mac - Landslide (Live)"
+    # Video-Id nur, wenn ausdrücklich gewählt
+    mit_id = dict(e, _vid="uW1UIDYmYyI")
+    assert bau(mit_id, schema=["kuenstler", "titel", "id"]) == \
+        "Prince - Purple Rain [uW1UIDYmYyI]"
+    # Windows-verbotene Zeichen verschwinden, nichts bleibt am Ende hängen
+    boese = {"titel": "AC/DC - T.N.T. ?", "kuenstler": "AC/DC", "track": "T.N.T. ?"}
+    gebaut = bau(boese, schema=["kuenstler", "titel"])
+    assert not set(gebaut) & set('<>:"/\\|?*') and not gebaut.endswith((".", " "))
+
+
+def test_orig_tag_und_undo():
+    # Build 113: der ursprüngliche Name wird IN der Datei vermerkt (JB) und
+    # „↩ Rückgängig" nimmt den letzten Lauf zurück — auch die .vtt.
+    import tempfile
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "Prince - Purple Rain (Official Video) [vidorig0001].mp3")
+    v = os.path.join(d, "Prince - Purple Rain (Official Video) [vidorig0001].de.vtt")
+    for pf in (p, v):
+        with open(pf, "wb") as f:
+            f.write(b"\xff\xfbTON" * 300)
+    alt_json, alt_sag, alt_geladen = app._json_speichern, app._sag, app._geladen
+    alt_prot = app.PROTOKOLL_PFAD
+    app.PROTOKOLL_PFAD = os.path.join(d, "protokoll.json")
+    app._sag = lambda *a, **k: None
+    app._json_speichern = alt_json          # echtes Speichern nur für die Protokoll-Datei
+    gespeichert = {}
+
+    def faelschung(pfad, daten):
+        if pfad == app.PROTOKOLL_PFAD:
+            return alt_json(pfad, daten)
+        gespeichert["db"] = True
+    app._json_speichern = faelschung
+    app._geladen = {"vidorig0001|audio": {"pfad": p, "fp": "fpO", "titel": "Prince - Purple Rain (Official Video)",
+                                          "kuenstler": "Prince", "track": "Purple Rain"}}
+    try:
+        r = app.migration_anwenden(go=True, schema=["kuenstler", "titel"])
+        assert r["umbenannt"] == 1
+        neu = os.path.join(d, "Prince - Purple Rain.mp3")
+        assert os.path.isfile(neu) and os.path.isfile(os.path.join(d, "Prince - Purple Rain.de.vtt"))
+        assert app._orig_tag(neu) == os.path.basename(p)      # Original steht IN der Datei
+        assert app._geladen["vidorig0001|audio"]["pfad"] == neu
+        z = app.migration_rueckgaengig()
+        assert z == {"ok": True, "zurueck": 2, "blockiert": 0}
+        assert os.path.isfile(p) and os.path.isfile(v) and not os.path.exists(neu)
+        assert app._geladen["vidorig0001|audio"]["pfad"] == p
+        assert app.migration_rueckgaengig()["ok"] is False     # Protokoll ist leer
+    finally:
+        app._json_speichern, app._sag = alt_json, alt_sag
+        app._geladen, app.PROTOKOLL_PFAD = alt_geladen, alt_prot
+
+
 def test_migration_probelauf_und_anwenden():
     # Build 112 (Klammern-Projekt): Probelauf listet nur, Anwenden benennt
     # NUR Konfliktfreies um — additiv, .vtt wandert mit, DB zieht nach.
