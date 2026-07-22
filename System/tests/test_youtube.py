@@ -845,16 +845,16 @@ def test_datei_videoid_kette():
     with open(ohne, "wb") as f:
         f.write(b"INHALT-A" * 500)
     shutil.copy(ohne, kopie)
-    app._geladen["vidPfad0001|audio"] = {"pfad": ohne}
-    app._geladen["vidFpxx0001|audio"] = {"fp": app._datei_fp(kopie)}
+    alt_geladen = app._geladen
+    app._geladen = {"vidPfad0001|audio": {"pfad": ohne},
+                    "vidFpxx0001|audio": {"fp": app._datei_fp(kopie)}}
     try:
         assert app._datei_videoid(mit_id) == "abcdef12345"      # Name (Datei muss nicht existieren)
         assert app._datei_videoid(ohne) == "vidPfad0001"        # bekannter Pfad
         assert app._datei_videoid(kopie) == "vidFpxx0001"       # Fingerabdruck
         assert app._datei_videoid(os.path.join(d, "gibtsnicht.mp3")) == ""
     finally:
-        app._geladen.pop("vidPfad0001|audio", None)
-        app._geladen.pop("vidFpxx0001|audio", None)
+        app._geladen = alt_geladen
 
 
 def test_fp_von_cache():
@@ -883,19 +883,18 @@ def test_technik_backfill_fp():
     p = os.path.join(d, "Bestand [bestand0001].mp3")
     with open(p, "wb") as f:
         f.write(b"BESTAND" * 300)
-    alt_ziel, alt_json = app.ziel_ordner, app._json_speichern
+    alt_ziel, alt_json, alt_geladen = app.ziel_ordner, app._json_speichern, app._geladen
     app.ziel_ordner = lambda: d
     app._json_speichern = lambda *a, **k: None
-    app._geladen["bestand0001|audio"] = {"acodec": "mp3", "pfad": p}
-    app._geladen["wegdatei001|audio"] = {"acodec": "mp3"}        # keine Datei -> bleibt ohne fp
+    app._geladen = {"bestand0001|audio": {"acodec": "mp3", "pfad": p},
+                    "wegdatei001|audio": {"acodec": "mp3"}}     # keine Datei -> bleibt ohne fp
     try:
         app.technik_backfill()
         assert app._geladen["bestand0001|audio"].get("fp") == app._datei_fp(p)
         assert "fp" not in app._geladen["wegdatei001|audio"]
     finally:
         app.ziel_ordner, app._json_speichern = alt_ziel, alt_json
-        app._geladen.pop("bestand0001|audio", None)
-        app._geladen.pop("wegdatei001|audio", None)
+        app._geladen = alt_geladen
 
 
 def test_id_tag_rundlauf_und_kette():
@@ -930,13 +929,13 @@ def test_technik_backfill_idtag():
         with open(pf, "wb") as f:
             f.write(b"\xff\xfbBESTAND" * 300)
     fp_fremd = app._datei_fp(fremd)
-    alt_ziel, alt_json = app.ziel_ordner, app._json_speichern
+    alt_ziel, alt_json, alt_geladen = app.ziel_ordner, app._json_speichern, app._geladen
     app.ziel_ordner = lambda: d
     app._json_speichern = lambda *a, **k: None
-    app._geladen["eigenvid001|audio"] = {"acodec": "mp3", "pfad": eigen,
-                                         "fp": app._datei_fp(eigen)}
-    app._geladen["fremdvid001|audio"] = {"acodec": "mp3", "pfad": fremd,
-                                         "fp": fp_fremd, "importiert": True}
+    app._geladen = {"eigenvid001|audio": {"acodec": "mp3", "pfad": eigen,
+                                          "fp": app._datei_fp(eigen)},
+                    "fremdvid001|audio": {"acodec": "mp3", "pfad": fremd,
+                                          "fp": fp_fremd, "importiert": True}}
     try:
         app.technik_backfill()
         e = app._geladen["eigenvid001|audio"]
@@ -948,8 +947,55 @@ def test_technik_backfill_idtag():
         assert app._datei_fp(fremd) == fp_fremd        # … Datei unverändert
     finally:
         app.ziel_ordner, app._json_speichern = alt_ziel, alt_json
-        app._geladen.pop("eigenvid001|audio", None)
-        app._geladen.pop("fremdvid001|audio", None)
+        app._geladen = alt_geladen
+
+
+def test_migration_probelauf_und_anwenden():
+    # Build 112 (Klammern-Projekt): Probelauf listet nur, Anwenden benennt
+    # NUR Konfliktfreies um — additiv, .vtt wandert mit, DB zieht nach.
+    import tempfile
+    d = tempfile.mkdtemp()
+    a = os.path.join(d, "Song A [aaaavid0001].mp3")
+    av = os.path.join(d, "Song A [aaaavid0001].de.vtt")
+    b = os.path.join(d, "Song B [bbbbvid0001].mp3")          # ohne fp/Tag -> gesperrt
+    c = os.path.join(d, "Song C [ccccvid0001].mp3")          # Ziel existiert schon
+    czal = os.path.join(d, "Song C.mp3")
+    for pf in (a, av, b, c, czal):
+        with open(pf, "wb") as f:
+            f.write(b"\xff\xfbX" * 200)
+    # LEHRE aus dem 23.07.-Vorfall: _geladen KOMPLETT ersetzen, nie in JBs
+    # echte DB einfügen — migration_anwenden(go=True) hätte sonst (und HAT
+    # einmal!) die echte Bibliothek umbenannt. Rollback war nur dank
+    # fp/DB-Pfaden trivial; der Test läuft seitdem vollisoliert.
+    alt_json, alt_sag, alt_geladen = app._json_speichern, app._sag, app._geladen
+    app._json_speichern = lambda *ar, **k: None
+    app._sag = lambda *ar, **k: None
+    app._geladen = {
+        "aaaavid0001|audio": {"pfad": a, "fp": "fpA"},
+        "bbbbvid0001|audio": {"pfad": b},
+        "ccccvid0001|audio": {"pfad": c, "fp": "fpC"},
+    }
+    try:
+        plan = {x["key"]: x for x in app.migration_probelauf()}
+        assert plan["aaaavid0001|audio"]["konflikt"] == ""
+        assert plan["aaaavid0001|audio"]["neu"] == os.path.join(d, "Song A.mp3")
+        assert plan["aaaavid0001|audio"]["vtt"] == [av]
+        assert "Sicherheitsnetz" in plan["bbbbvid0001|audio"]["konflikt"]
+        assert "existiert" in plan["ccccvid0001|audio"]["konflikt"]
+        assert os.path.isfile(a)                              # Probelauf fasst NICHTS an
+        r0 = app.migration_anwenden()                         # ohne go: verweigert
+        assert r0.get("ok") is False and os.path.isfile(a)
+        r = app.migration_anwenden(go=True)
+        assert r == {"ok": True, "umbenannt": 1, "uebersprungen": 2}
+        assert os.path.isfile(os.path.join(d, "Song A.mp3"))
+        assert os.path.isfile(os.path.join(d, "Song A.de.vtt"))
+        assert not os.path.exists(a) and not os.path.exists(av)
+        assert os.path.isfile(b) and os.path.isfile(c)        # Konflikte unangetastet
+        e = app._geladen["aaaavid0001|audio"]
+        assert e["pfad"].endswith("Song A.mp3") and e["name"] == "Song A.mp3"
+    finally:
+        app._json_speichern, app._sag = alt_json, alt_sag
+        app._geladen = alt_geladen
 
 
 def test_pfad_da():

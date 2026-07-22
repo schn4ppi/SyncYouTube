@@ -2457,6 +2457,100 @@ def technik_backfill():
         _technik_laeuft = False
 
 
+def _migrations_ziel(pfad):
+    """Neuer Pfad ohne [Id]-Klammern ('' wenn der Name keine trägt oder
+    nichts Sinnvolles übrig bliebe)."""
+    ordner, name = os.path.split(pfad)
+    stamm, ext = os.path.splitext(name)
+    neu = re.sub(r"\s*\[[\w-]{6,}\]", "", stamm).strip()
+    if not neu or neu == stamm:
+        return ""
+    return os.path.join(ordner, neu + ext)
+
+
+def _vtt_geschwister(pfad):
+    """Untertitel NEBEN der Mediendatei, die deren Stamm teilen — sie müssen
+    bei einer Umbenennung MIT wandern (Stamm-Kopplung, sonst verwaisen sie)."""
+    stamm = os.path.splitext(pfad)[0]
+    return sorted(glob.glob(glob.escape(stamm) + ".*.vtt")
+                  + glob.glob(glob.escape(stamm) + ".vtt"))
+
+
+def migration_probelauf():
+    """Klammern-Migration Schritt 1 (schaut NUR, fasst nichts an): je Datei
+    der neue Name ohne [Id], die mitwandernden .vtt und der Sicherheits-
+    Status. Umbenannt wird ausschließlich in migration_anwenden — und das
+    erst nach JBs Blick auf diese Liste (Probelauf-Default, JB-Regel)."""
+    plan, ziele = [], set()
+    for k, e in list(_geladen.items()):
+        p = e.get("pfad")
+        if not (p and os.path.isfile(p)):
+            continue
+        ziel = _migrations_ziel(p)
+        if not ziel:
+            continue
+        eintrag = {"key": k, "alt": p, "neu": ziel,
+                   "vtt": _vtt_geschwister(p), "konflikt": ""}
+        if not (e.get("fp") or e.get("idtag")):
+            eintrag["konflikt"] = "ohne Sicherheitsnetz (kein fp/Tag) — erst Backfill laufen lassen"
+        elif os.path.exists(ziel) or os.path.normcase(ziel) in ziele:
+            eintrag["konflikt"] = "Zielname existiert schon (gleicher Titel, andere Id?)"
+        ziele.add(os.path.normcase(ziel))
+        plan.append(eintrag)
+    return plan
+
+
+def migration_anwenden(go=False):
+    """Klammern-Migration Schritt 2 — läuft NUR mit go=True (nach JBs Blick
+    auf den Probelauf). Additiv: nie überschreiben, Konflikte bleiben
+    unangetastet liegen, DB (pfad/name) wandert mit, .vtt-Geschwister
+    behalten ihren Stamm. Bricht etwas ab, bleiben Klammern einfach stehen —
+    die Erkennungs-Kette (Name/Pfad/fp/Tag) trägt beide Welten."""
+    if not go:
+        return {"ok": False, "fehler": "Probelauf-Default: ohne go wird nichts umbenannt."}
+    umbenannt, uebersprungen, protokoll = 0, 0, []
+    for eintrag in migration_probelauf():
+        if eintrag["konflikt"]:
+            uebersprungen += 1
+            continue
+        alt, neu = eintrag["alt"], eintrag["neu"]
+        try:
+            if os.path.exists(neu):
+                uebersprungen += 1
+                continue
+            os.rename(alt, neu)
+            protokoll.append([alt, neu])
+            alt_stamm = os.path.splitext(alt)[0]
+            neu_stamm = os.path.splitext(neu)[0]
+            for v in eintrag["vtt"]:
+                zv = neu_stamm + v[len(alt_stamm):]
+                if not os.path.exists(zv):
+                    os.rename(v, zv)
+                    protokoll.append([v, zv])
+            e = _geladen.get(eintrag["key"])
+            if e:
+                e["pfad"] = neu
+                e["name"] = os.path.basename(neu)
+            umbenannt += 1
+        except OSError:
+            uebersprungen += 1
+    if umbenannt:
+        # Rückroll-Protokoll AUF PLATTE (Lehre 23.07.: ein Zurück muss immer
+        # trivial sein, nie rekonstruiert werden müssen) — additiv je Lauf.
+        try:
+            log_pfad = os.path.join(SCRIPT_DIR, "migration_protokoll.json")
+            laeufe = _json_laden(log_pfad, [])
+            laeufe.append({"zeit": time.strftime("%Y-%m-%d %H:%M:%S"),
+                           "umbenannt": protokoll})
+            _json_speichern(log_pfad, laeufe)
+        except OSError:
+            pass
+        with _io_lock:
+            _json_speichern(GELADEN_PFAD, _geladen)
+        _sag(f"Klammern-Migration: {umbenannt} Datei(en) umbenannt, {uebersprungen} übersprungen")
+    return {"ok": True, "umbenannt": umbenannt, "uebersprungen": uebersprungen}
+
+
 # ---- Downloads-Ordner selbstheilend einsortieren (JB 14.07.): von Hand
 # verschobene Dateien wandern anhand ihrer Metadaten zurück in den richtigen
 # Kategorie-Ordner (MP3 / 4K+ / Video); was unklar bleibt, kommt nach
@@ -3301,6 +3395,13 @@ class Handler(BaseHTTPRequestHandler):
             if self.client_address[0] != "127.0.0.1":
                 return _antwort(self, 403, {"fehler": "nur lokal"})
             _antwort(self, 200, pfad_da((parse_qs(urlparse(self.path).query).get("pfad") or [""])[0]))
+        elif self.path.startswith("/api/migration_probelauf"):   # Klammern-Migration, NUR Auslese (Build 112)
+            if self.client_address[0] != "127.0.0.1":
+                return _antwort(self, 403, {"fehler": "nur lokal"})
+            plan = migration_probelauf()
+            _antwort(self, 200, {"eintraege": plan,
+                                 "bereit": sum(1 for x in plan if not x["konflikt"]),
+                                 "konflikte": sum(1 for x in plan if x["konflikt"])})
         elif self.path.startswith("/api/entdecken"):    # 📻 Neues entdecken (Build 99)
             q = parse_qs(urlparse(self.path).query)
             _antwort(self, 200, entdecken((q.get("pl") or [""])[0],
