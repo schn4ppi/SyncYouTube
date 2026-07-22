@@ -919,7 +919,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 118</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 119</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1452,7 +1452,32 @@ function imBlick(el,rand){
   el.style.maxWidth=(vw-l-rand)+'px';
   if(getComputedStyle(el).overflowY==='visible')el.style.overflowY='auto';
 }
-function alleImBlick(){document.querySelectorAll(SCHWEBEND).forEach(e=>imBlick(e));}
+function menuInsBild(m,rand){
+  // Build 119 (JB-Fund): aufklappende Menüs (Ansicht/Spalten) hängen als
+  // absolut positionierte Kinder AN ihrem Knopf — sitzt der weit rechts,
+  // ragen sie aus dem Fenster. Erst nach links ausrichten; reicht das nicht
+  // (Menü breiter als der Platz daneben), wird es freigestellt und vom
+  // Bildschirm-Wächter geklemmt. Gilt für alle .colmenu-Menüs.
+  if(!m||m.style.display==='none')return;
+  rand=rand||10;
+  m.style.position=''; m.style.left=''; m.style.right='';
+  m.style.top=''; m.style.maxWidth=''; m.style.maxHeight='';
+  let r=m.getBoundingClientRect();
+  if(r.right>window.innerWidth-rand){                 // nach links ausrichten
+    m.style.left='auto'; m.style.right='0';
+    r=m.getBoundingClientRect();
+  }
+  if(r.left<rand||r.right>window.innerWidth-rand||r.bottom>window.innerHeight-rand){
+    const merk=r;                                     // Startpunkt merken
+    m.style.position='fixed'; m.style.left=merk.left+'px'; m.style.top=merk.top+'px';
+    m.style.right='auto';
+    imBlick(m,rand);
+  }
+}
+function alleImBlick(){
+  document.querySelectorAll(SCHWEBEND).forEach(e=>imBlick(e));
+  document.querySelectorAll('.colmenu').forEach(m=>menuInsBild(m));
+}
 window.addEventListener('resize',alleImBlick);
 document.addEventListener('DOMContentLoaded',alleImBlick);
 
@@ -3892,7 +3917,8 @@ function pfeil(key){return libsort.key===key?(libsort.dir<0?' ▼':' ▲'):'';}
 
 function colMenuToggle(ev){ if(ev)ev.stopPropagation();
   const m=document.getElementById('libcolmenu'); const zu=m.style.display==='none';
-  m.style.display=zu?'block':'none'; if(zu)colMenuMalen();}
+  m.style.display=zu?'block':'none';
+  if(zu){colMenuMalen(); menuInsBild(m);}}             // Build 119: nie aus dem Fenster
 function colMenuMalen(){
   const m=document.getElementById('libcolmenu');
   m.innerHTML='<div class="colmenu-titel">Spalten — Häkchen = anzeigen, Pfeile = Reihenfolge.<br>Klick auf eine Spaltenüberschrift sortiert danach.</div>'+
@@ -4042,6 +4068,7 @@ function aktionsMenu(ev,eintraege){                    // generisches Klick-Men�
 function ansichtToggle(ev){ if(ev)ev.stopPropagation();
   const m=document.getElementById('libansicht'); const zu=m.style.display==='none';
   m.style.display=zu?'block':'none';
+  if(zu)menuInsBild(m);                                // Build 119: nie aus dem Fenster
   if(zu){const s=(e2)=>{if(!m.contains(e2.target)&&e2.target.id!=='libansichtbtn'&&!e2.target.closest('#libcolmenu')){
       ansichtZu(); document.removeEventListener('pointerdown',s,true);}};
     setTimeout(()=>document.addEventListener('pointerdown',s,true),0);}
