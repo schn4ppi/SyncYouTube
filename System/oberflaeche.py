@@ -882,7 +882,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 103</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 104</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -4863,8 +4863,12 @@ function posMerken(){
   const el=document.getElementById('pl-el'); const k=aktKey();
   if(!el||!k||!isFinite(el.duration)||!el.duration)return;
   const t=el.currentTime;
+  // Build 104 (JB-Fund „sehe den Strich nicht"): am ANFANG (<20 s) den Merker
+  // IN RUHE lassen — nach jedem Titelwechsel steht man zwangslaeufig bei 0,
+  // und der 5-s-Takt loeschte den Merker genau dann, bevor man ihn je sah.
+  // Geloescht wird nur noch am fast-Ende (durchgehoert = Merker sinnlos).
   if(t>20&&t<el.duration-20)_posMerk[k]={t:Math.floor(t),ts:Date.now()};
-  else delete _posMerk[k];
+  else if(t>=el.duration-20)delete _posMerk[k];
   const keys=Object.keys(_posMerk);
   if(keys.length>800)keys.sort((a,b)=>(_posMerk[a].ts||0)-(_posMerk[b].ts||0))
     .slice(0,keys.length-800).forEach(x=>delete _posMerk[x]);
