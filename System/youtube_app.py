@@ -581,7 +581,8 @@ def geladen_merken(item):
         "vcodec": item.get("vcodec", ""), "acodec": item.get("acodec", ""),
         "abr": item.get("abr", 0), "asr": item.get("asr", 0), "hoehe": item.get("hoehe", 0),
         "kapitel": item.get("kapitel") or alt.get("kapitel") or [],
-        "archiviert": alt.get("archiviert", False), "ts": time.time()}
+        "archiviert": alt.get("archiviert", False), "ts": time.time(),
+        "fp": _datei_fp(datei)}                      # Content-Ausweis (Bibliothek 2.0)
     with _io_lock:
         _json_speichern(GELADEN_PFAD, _geladen)
     if item.get("abo"):                              # Abo-Download -> in die Abo-Playlist
@@ -1317,6 +1318,24 @@ def fernsteuerung_info():
         "code": CFG.get("fernsteuerung_code") or "",
         "url": (f"http://{_lan_ip()}:{port}/m" if aktiv else ""),
     }
+
+
+def _datei_fp(pfad):
+    """Content-Fingerabdruck (Bibliothek 2.0, JBs „Magnet"-Idee): sha1 über
+    erste + letzte 64 KB + Dateigröße (OpenSubtitles-Stil, 2 schnelle Reads).
+    Erkennt eine Datei am INHALT — egal wie sie heißt oder wo sie liegt.
+    '' bei Fehler/fehlender Datei (Aufrufer behandeln leer als „unbekannt")."""
+    try:
+        groesse = os.path.getsize(pfad)
+        h = hashlib.sha1(str(groesse).encode())
+        with open(pfad, "rb") as f:
+            h.update(f.read(65536))
+            if groesse > 131072:
+                f.seek(-65536, os.SEEK_END)
+                h.update(f.read(65536))
+        return h.hexdigest()
+    except OSError:
+        return ""
 
 
 def _in_papierkorb(pfad):
@@ -2349,7 +2368,8 @@ def ordner_importieren():
                 "titel": _titel_aus_name(fn),
                 "url": (f"https://www.youtube.com/watch?v={vid}" if _plausible_id(vid) else ""),
                 "qualitaet": "audio" if audio else "lokal",
-                "importiert": True, "ts": time.time()}
+                "importiert": True, "ts": time.time(),
+                "fp": _datei_fp(pfad)}               # Content-Ausweis (Bibliothek 2.0)
             neu += 1
     if neu:
         with _io_lock:

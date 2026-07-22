@@ -535,6 +535,30 @@ def test_entdecken_bibliothek():
             app._geladen.pop(k, None)
 
 
+def test_datei_fp():
+    # Bibliothek 2.0, Etappe 1 (JB-Go): Content-Fingerabdruck (JBs „Magnet"-
+    # Idee) — sha1 ueber erste + letzte 64 KB + Groesse (OpenSubtitles-Stil).
+    # Erkennt eine Datei am INHALT: Umbenennen aendert nichts, Inhalt schon.
+    import tempfile
+    d = tempfile.mkdtemp()
+    p1 = os.path.join(d, "Song [abc123def45].mp3")
+    with open(p1, "wb") as f:
+        f.write(b"A" * 200000)                         # 200 KB
+    fp1 = app._datei_fp(p1)
+    assert fp1 and len(fp1) == 40                      # sha1-Hex
+    p2 = os.path.join(d, "Song ohne Klammern.mp3")     # UMBENANNT -> gleicher fp
+    os.rename(p1, p2)
+    assert app._datei_fp(p2) == fp1
+    with open(p2, "ab") as f:                          # Inhalt geaendert -> anderer fp
+        f.write(b"B")
+    assert app._datei_fp(p2) != fp1
+    klein = os.path.join(d, "mini.mp3")                # kleiner als 128 KB
+    with open(klein, "wb") as f:
+        f.write(b"x" * 1000)
+    assert len(app._datei_fp(klein)) == 40
+    assert app._datei_fp(os.path.join(d, "fehlt.mp3")) == ""   # weg -> leer, kein Crash
+
+
 def test_mb_pro_min():
     # Build 105 (JB: „wie viel lade ich ungefähr?"): Groessen-Schaetzung aus
     # den ECHTEN eigenen Downloads (Median MB/min je Qualitaet); zu wenig
