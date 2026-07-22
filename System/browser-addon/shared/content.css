@@ -22,3 +22,6 @@
 .ytdl-hoverbtn.ok { background: rgba(63, 122, 72, .95); opacity: 1; }
 
 .ytdl-hoverbtn.fehl { background: rgba(192, 73, 42, .95); opacity: 1; }
+
+/* v1.0.6 (JB): Video liegt schon in der Bibliothek -> Knopf dauerhaft gruen */
+.ytdl-hoverbtn.hab { background: rgba(63, 122, 72, .88); }

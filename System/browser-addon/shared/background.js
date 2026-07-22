@@ -58,13 +58,40 @@ api.contextMenus.onClicked.addListener((info) => {
   if (url) senden(url, q === "default" ? null : q);
 });
 
+// Schon-geladen-Abfrage mit Cache (v1.0.6, JB: Knopf wird gruen, wenn das
+// Video bereits in der Bibliothek liegt). 60-s-Cache je Video-Id; nach einem
+// erfolgreichen "add" wird die Id sofort als vorhanden gemerkt.
+const habCache = new Map();
+async function habVideo(id) {
+  if (!id) return false;
+  const c = habCache.get(id);
+  if (c && Date.now() - c.ts < 60000) return c.da;
+  let da = false;
+  try {
+    const r = await fetch("http://127.0.0.1:8776/api/addon_hab?id=" + encodeURIComponent(id));
+    da = !!(r.ok && (await r.json()).da);
+  } catch (e) { da = false; }
+  habCache.set(id, { da, ts: Date.now() });
+  return da;
+}
+
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.typ === "ping") {
     appLebt().then((ok) => sendResponse({ ok }));
     return true;                                   // Antwort kommt asynchron
   }
+  if (msg && msg.typ === "hab") {
+    habVideo(msg.id).then((da) => sendResponse({ da }));
+    return true;
+  }
   if (msg && msg.typ === "add" && istYoutube(msg.url)) {
-    senden(msg.url, msg.qualitaet || null).then(sendResponse);
+    senden(msg.url, msg.qualitaet || null).then((res) => {
+      if (res && res.ok && msg.url) {
+        const m = msg.url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
+        if (m) habCache.set(m[1], { da: true, ts: Date.now() });
+      }
+      sendResponse(res);
+    });
     return true;                                   // Antwort kommt asynchron -> Knopf zeigt ✓/✗
   }
 });

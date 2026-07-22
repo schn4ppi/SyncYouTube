@@ -83,6 +83,21 @@
     btn.style.left = Math.max(4, rect.left + 6) + "px";
     btn.style.top = Math.max(4, rect.top + 8) + "px";
     btn.classList.add("an");
+    // v1.0.6 (JB): grün, wenn das Video schon in der Bibliothek liegt
+    // (Antwort kommt aus dem Hintergrund-Cache — kein Dauerfeuer).
+    btn.classList.remove("hab");
+    btn.title = "Zur Download-Warteschlange hinzufügen";
+    const m = url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
+    if (m) {
+      try {
+        api.runtime.sendMessage({ typ: "hab", id: m[1] }).then((res) => {
+          if (res && res.da && curUrl === url) {
+            btn.classList.add("hab");
+            btn.title = "Schon in der Bibliothek — Klick lädt erneut (z. B. anderes Format)";
+          }
+        }, () => {});
+      } catch (e) { /* Hintergrund nicht erreichbar -> Knopf bleibt neutral */ }
+    }
   }
   function verstecken() { if (btn) btn.classList.remove("an"); curUrl = null; }
 
