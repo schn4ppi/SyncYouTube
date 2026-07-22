@@ -436,7 +436,17 @@ details.einst summary:hover{color:var(--akz)}
 .kbody{padding:9px 10px;display:flex;flex-direction:column;gap:6px;flex:1}
 .ktitel{font-size:13px;font-weight:600;line-height:1.32;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .kinfo{font-size:11.5px;color:#8a7d74;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:auto}
-.kakt{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+/* Build 116 (JB, „zu viele Knöpfe"): Kachel-Aktionen ruhen, bis die Maus
+   auf der Kachel ist (oder sie den Tastatur-Fokus hat / ausgewählt ist).
+   Gemessen: 78 Kacheln x 4 Knöpfe = 312 Knöpfe waren DAUERHAFT sichtbar —
+   das ist der Kern der Überladung, nicht die Leisten. So machen es
+   Spotify/Apple Music/YouTube Music auch. Der Platz bleibt reserviert
+   (visibility statt display), damit nichts springt. Auf Touch-Geräten,
+   die kein Hover kennen, bleiben sie sichtbar. */
+.kakt{display:flex;gap:4px;flex-wrap:wrap;align-items:center;
+  visibility:hidden;opacity:0;transition:opacity .12s}
+.kachel:hover .kakt,.kachel:focus-within .kakt,.kachel.sel .kakt{visibility:visible;opacity:1}
+@media (hover:none){.kakt{visibility:visible;opacity:1}}
 /* Icon-Knöpfe (Spotify/iTunes-Stil): klein, ruhig, sprechend */
 .ib{width:28px;height:26px;border-radius:7px;border:1px solid var(--panelln);background:#171310;color:#d7c7bd;
   cursor:pointer;font-size:13px;line-height:1;padding:0;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
@@ -897,7 +907,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 115</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 116</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
