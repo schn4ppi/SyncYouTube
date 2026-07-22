@@ -29,6 +29,7 @@
 !System/browser-addon/manifest.base.json
 !System/browser-addon/README.md
 !System/browser-addon/STORE.md
+!System/browser-addon/CHANGELOG.md
 !System/browser-addon/.gitignore
 !System/browser-addon/shared/*
 !System/browser-addon/shared/icons/*

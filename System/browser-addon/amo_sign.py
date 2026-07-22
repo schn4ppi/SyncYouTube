@@ -192,6 +192,11 @@ def hochladen(kanal):
     version = _api(f"/addons/addon/{GUID}/versions/", "POST", json_daten={"upload": uid})
     vid, vnum = version["id"], version["version"]
     print(f"  Version {vnum} angelegt (id {vid}).")
+    notes = changelog_notes(vnum)                     # Versionsnotiz aus CHANGELOG.md (v1.0.7)
+    if notes:
+        _api(f"/addons/addon/{GUID}/versions/{vid}/", "PATCH",
+             json_daten={"release_notes": {"de": notes}})
+        print("  Versionsnotiz aus CHANGELOG.md hinterlegt.")
     if kanal == "listed":
         print("Fertig: Version eingereicht — wartet jetzt auf Mozillas Prüfung "
               "(Status: python amo_sign.py --status).")
@@ -213,6 +218,42 @@ def hochladen(kanal):
             return
         print(f"  … Status: {datei.get('status', '?')}")
     sys.exit("Signierung nach 10 Minuten nicht fertig — später mit --status prüfen.")
+
+
+def changelog_notes(vnum):
+    """Versionsnotiz aus CHANGELOG.md ziehen: der Block unter »## <vnum>«
+    (JB v1.0.7: Beschreibung + Aenderungen je Version bei AMO hinterlegen)."""
+    pfad = os.path.join(HERE, "CHANGELOG.md")
+    try:
+        with open(pfad, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return ""
+    import re
+    # [^\n] statt „." im Header — mit DOTALL fraesse ein „.*" sonst die ganze
+    # Datei und der Block wuerde nie gefunden (Debug-Fund 23.07.).
+    m = re.search(rf"^## [^\n]*{re.escape(vnum)}[^\n]*\n(.*?)(?=^## |\Z)",
+                  text, re.M | re.S)
+    return m.group(1).strip()[:990] if m else ""
+
+
+def notes_nachtragen():
+    """Einmal-Aktion (JB v1.0.7): Versionsnotizen aus CHANGELOG.md fuer ALLE
+    schon eingereichten Versionen nachtraeglich bei AMO hinterlegen."""
+    daten = _api(f"/addons/addon/{GUID}/versions/?filter=all_with_unlisted")
+    for v in daten.get("results", []):
+        notes = changelog_notes(str(v.get("version")))
+        if not notes:
+            print(f"  {v.get('version')}: kein CHANGELOG-Eintrag — uebersprungen")
+            continue
+        if v.get("release_notes"):                    # schon hinterlegt -> nicht nochmal (429-Drossel!)
+            print(f"  {v.get('version')}: hat schon eine Notiz — uebersprungen")
+            continue
+        _api(f"/addons/addon/{GUID}/versions/{v['id']}/", "PATCH",
+             json_daten={"release_notes": {"de": notes}})
+        print(f"  {v.get('version')}: Versionsnotiz hinterlegt")
+        time.sleep(20)                                # AMO drosselt eng — Abstand halten
+    print("Fertig.")
 
 
 def status_zeigen():
@@ -246,6 +287,8 @@ def main():
     p.add_argument("--schluessel", action="store_true", help="API-Schlüssel im Keyring hinterlegen")
     p.add_argument("--status", action="store_true", help="Versionen + Status anzeigen")
     p.add_argument("--holen", action="store_true", help="neueste signierte .xpi nach dist/ laden")
+    p.add_argument("--notes", action="store_true",
+                   help="Versionsnotizen aus CHANGELOG.md fuer alle Versionen nachtragen")
     p.add_argument("--kanal", choices=["listed", "unlisted"], default="listed",
                    help="listed = öffentliche AMO-Seite (Mozilla prüft), "
                         "unlisted = selbst verteilt (auto-signiert, .xpi-Download)")
@@ -256,6 +299,8 @@ def main():
         status_zeigen()
     elif args.holen:
         xpi_holen()
+    elif args.notes:
+        notes_nachtragen()
     else:
         hochladen(args.kanal)
 

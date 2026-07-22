@@ -48,6 +48,13 @@
   function onClick(e) {
     e.stopPropagation(); e.preventDefault();
     if (!curUrl) return;
+    // v1.0.7 (JB): schon in der Bibliothek -> Klick blitzt kurz ROT („hast du
+    // schon") und laedt NICHT doppelt; anderes Format geht per Rechtsklick.
+    if (btn.classList.contains("hab")) {
+      btn.classList.add("nein");
+      setTimeout(() => btn.classList.remove("nein"), 600);
+      return;
+    }
     const url = curUrl;
     btn.textContent = "…";                             // ehrlich: erst nach Antwort ✓ oder ✗
     const fertig = (res) => {
@@ -93,7 +100,7 @@
         api.runtime.sendMessage({ typ: "hab", id: m[1] }).then((res) => {
           if (res && res.da && curUrl === url) {
             btn.classList.add("hab");
-            btn.title = "Schon in der Bibliothek — Klick lädt erneut (z. B. anderes Format)";
+            btn.title = "Schon in der Bibliothek — Rechtsklick lädt bewusst in anderem Format";
           }
         }, () => {});
       } catch (e) { /* Hintergrund nicht erreichbar -> Knopf bleibt neutral */ }
@@ -134,7 +141,9 @@
       resetIdle();
       return;
     }
-    // sonst nichts tun — der Idle-Timer blendet den Knopf aus
+    // v1.0.7 (JB): Maus hat das Video/Vorschaubild VERLASSEN -> Knopf SOFORT
+    // weg (vorher blieb er bis zum 1,5-s-Ruhe-Timer stehen).
+    verstecken();
   }
 
   document.addEventListener("mousemove", onMove, true);
