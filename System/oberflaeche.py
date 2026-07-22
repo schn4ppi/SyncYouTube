@@ -919,7 +919,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 117</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 118</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1160,11 +1160,22 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
       <div class="libbar">
         <input type="text" id="libsuche" placeholder="Suchen…" oninput="libMalen()"
                onkeydown="if(event.key==='Enter')transkriptSuche()">
-        <button class="tog" onclick="transkriptSuche()" title="Im gesprochenen Text / in den Untertiteln aller Videos suchen (Volltext)">🔎 Text</button>
         <select id="libsort" onchange="setSortSelect(this.value)" title="Sortieren nach"></select>
         <div class="colmenuwrap">
-          <button class="tog" id="libansichtbtn" onclick="ansichtToggle(event)" title="Filter, Spalten, Archiv, Auswahl, Dubletten …">⚙ Ansicht</button>
+          <button class="tog" id="libansichtbtn" onclick="ansichtToggle(event)" title="Darstellung, Filter, Spalten, Archiv, Auswahl, Dubletten …">⚙ Ansicht</button>
           <div class="colmenu" id="libansicht" style="display:none">
+            <!-- Build 118 (JB: „daneben steht Ansicht, ist das nicht auch eine Art
+                 Ansicht?"): die vier Darstellungs-Knöpfe wohnen jetzt HIER —
+                 eine Sache, ein Ort. Die Leiste bricht dadurch auch in schmalen
+                 Fenstern nicht mehr um (Anti-Scroll-Regel). -->
+            <div class="mzeile"><span>Darstellung</span>
+              <span style="display:flex;gap:3px">
+                <button class="viewbtn" id="vb-kompakt" onclick="libKompaktToggle()" title="Kompakt: mehr Kacheln, nur Bild + Titel">▪▪</button>
+                <button class="viewbtn an" id="vb-kachel" onclick="libAnsicht('kachel')" title="Kacheln">⊞</button>
+                <button class="viewbtn" id="vb-alben" onclick="libAnsicht('alben')" title="Alben — gruppiert nach Künstler/Album">▤</button>
+                <button class="viewbtn" id="vb-liste" onclick="libAnsicht('liste')" title="Liste">☰</button>
+              </span></div>
+            <div class="msep"></div>
             <div class="mzeile"><span>Filter</span>
               <select id="libfilter" onchange="libMalen()">
                 <option value="alle">Alle</option>
@@ -1184,19 +1195,17 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
           <div class="colmenu" id="libcolmenu" style="display:none"></div>
         </div>
         <span class="spacer"></span>
-        <button class="viewbtn" id="vb-kompakt" onclick="libKompaktToggle()" title="Kompakt: mehr Kacheln, nur Bild + Titel">▪▪</button>
-        <button class="viewbtn an" id="vb-kachel" onclick="libAnsicht('kachel')" title="Kacheln">⊞</button>
-        <button class="viewbtn" id="vb-alben" onclick="libAnsicht('alben')" title="Alben — gruppiert nach Künstler/Album (Tags per 🏷 Auto-Tagging)">▤</button>
-        <button class="viewbtn" id="vb-liste" onclick="libAnsicht('liste')" title="Liste">☰</button>
       </div>
       <div id="libbulk" class="libbulk" style="display:none"></div>
       <div class="libbar plbar">
+        <!-- Build 118 (JB): „Neue Playlist" steckt jetzt IM Auswahlfeld,
+             Öffnen/Schließen ist ein Pfeil, Abspielen ein reiner Play-Knopf —
+             aus vier Textknöpfen werden drei Symbole. -->
         <span style="font-size:12px;color:#8a7d74">Playlist:</span>
         <select id="plsel" onchange="plWahl()" title="Playlist wählen — Auswahl zeigt sie sofort in der Bibliothek"></select>
-        <button class="btn mini" onclick="plCreate()" title="Neue Playlist anlegen">＋ Neu</button>
-        <button class="btn mini" id="plviewbtn" onclick="plView()" title="Titel dieser Playlist unten in der Bibliothek anzeigen">📃 Öffnen</button>
-        <button class="btn mini" onclick="plPlaySel()" title="Gewählte Playlist abspielen — ohne gewählte Playlist wandert die ganze angezeigte Bibliothek in den Player">▶ Abspielen</button>
-        <button class="btn mini" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
+        <button class="ib" id="plviewbtn" onclick="plView()" title="Titel dieser Playlist unten in der Bibliothek anzeigen (nochmal = zurück zur ganzen Bibliothek)">📃</button>
+        <button class="ib" onclick="plPlaySel()" title="Gewählte Playlist abspielen — ohne gewählte Playlist wandert die ganze angezeigte Bibliothek in den Player">▶</button>
+        <button class="ib" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
         <input type="file" id="m3ufile" accept=".m3u,.m3u8" style="display:none" onchange="plImport(this)">
         <span class="spacer"></span>
         <button class="btn mini" onclick="entdeckerOeffnen()" title="✨ Neues entdecken: YouTube-Radios zu Titeln der oben gewählten Playlist — alles, was du schon hast, wird herausgefiltert">✨ Entdecken</button>
@@ -3917,7 +3926,33 @@ function libMalen(){
   bulkMalen();
   const el=document.getElementById('libinhalt'); if(!el)return;
   const arr=libGefiltert();
-  if(!arr.length){el.innerHTML='<div class="libleer">'+(libPlaylistView?'Diese Playlist ist noch leer — füge mit ＋ Titel hinzu.':libArchiv?'Archiv ist leer.':'Nichts gefunden — lade etwas herunter oder ändere den Filter.')+'</div>'; return;}
+  if(!arr.length){
+    // Build 118 (JB: „Warum ist Suchen nicht automatisch Text? Wenn man nichts
+    // findet, könnte es doch automatisch kommen"): steht ein Suchwort im Feld
+    // und die Bibliothek gibt nichts her, wird OHNE Zutun im gesprochenen Text
+    // weitergesucht — das Ergebnis erscheint direkt hier darunter.
+    const q=(document.getElementById('libsuche').value||'').trim();
+    if(q.length>1&&!libPlaylistView&&!libArchiv){
+      el.innerHTML='<div class="libleer">Nichts im Titel gefunden — ich schaue im gesprochenen Text …</div>';
+      clearTimeout(window._volltextTimer);
+      window._volltextTimer=setTimeout(async()=>{                 // erst wenn das Tippen ruht
+        if(((document.getElementById('libsuche')||{}).value||'').trim()!==q)return;
+        try{
+          const r=await fetch('/api/transkript_suche?q='+encodeURIComponent(q));
+          const d=await r.json(); const tr=d.items||d||[];
+          const box=document.getElementById('libinhalt'); if(!box)return;
+          box.innerHTML=tr.length
+            ?'<div class="libleer">Im Titel nichts — aber '+tr.length+' Titel sagen/singen „'+esc(q)+'":</div>'+
+             '<div style="padding:0 10px 10px">'+tr.slice(0,25).map(x=>
+               '<div class="mbtn" style="text-align:left" onclick="transkriptSuche()">🔎 '+esc(x.titel||'')+
+               ' <span style="color:#8a7d74">('+((x.treffer||[]).length)+'×'+
+               (x.quelle?' · '+esc(x.quelle):'')+')</span></div>').join('')+'</div>'
+            :'<div class="libleer">Nichts gefunden — weder im Titel noch im gesprochenen Text.</div>';
+        }catch(e){}
+      },600);
+      return;
+    }
+    el.innerHTML='<div class="libleer">'+(libPlaylistView?'Diese Playlist ist noch leer — füge mit ＋ Titel hinzu.':libArchiv?'Archiv ist leer.':'Nichts gefunden — lade etwas herunter oder ändere den Filter.')+'</div>'; return;}
   el.innerHTML = libModus==='kachel' ? kacheln(arr) : libModus==='alben' ? albenHTML(arr) : listeTab(arr);
 }
 
@@ -5461,14 +5496,19 @@ async function plLaden(){try{const r=await fetch('/api/playlists'); const d=awai
 function plMalen(){
   const sel=document.getElementById('plsel'); if(!sel)return;
   const cur=sel.value;
-  sel.innerHTML='<option value="">— keine —</option>'+plState.map(p=>`<option value="${p.id}">${esc(p.name)} (${p.items.length})</option>`).join('');
+  // Build 118 (JB): „Neue Playlist" steht als erster Eintrag IM Feld — dafür
+  // braucht es keinen eigenen Knopf mehr daneben.
+  sel.innerHTML='<option value="">— keine —</option><option value="__neu">＋ Neue Playlist…</option>'+
+    plState.map(p=>`<option value="${p.id}">${esc(p.name)} (${p.items.length})</option>`).join('');
   if(plState.find(p=>p.id===cur))sel.value=cur;
   if(libPlaylistView&&!plState.find(p=>p.id===libPlaylistView))libPlaylistView='';   // gelöschte Playlist? Ansicht schließen
   plViewRender();
 }
 // Playlist „öffnen": Bibliothek zeigt nur diese Playlist. Nochmal klicken schließt sie wieder.
 function plWahl(){                                    // Playlist WÄHLEN = sofort öffnen (JB 14.07.)
-  const id=document.getElementById('plsel').value;
+  const sel=document.getElementById('plsel');
+  if(sel.value==='__neu'){sel.value=''; plCreate(); return;}   // Build 118: Anlegen aus dem Feld
+  const id=sel.value;
   libPlaylistView=id||'';                              // „— keine —" = schließen, ohne Meckern
   plViewRender(); libMalen();
 }
@@ -5481,7 +5521,10 @@ function plViewSchliessen(){libPlaylistView=''; plViewRender(); libMalen();}
 function plViewRender(){
   const btn=document.getElementById('plviewbtn');
   const p=plState.find(x=>x.id===libPlaylistView);
-  if(btn){btn.classList.toggle('an',!!libPlaylistView); btn.textContent=libPlaylistView?'📃 Schließen':'📃 Öffnen';
+  // Build 118 (JB): geöffnete Playlist ⇒ Zurück-Pfeil, sonst das Listen-Symbol.
+  if(btn){btn.classList.toggle('an',!!libPlaylistView);
+    btn.textContent=libPlaylistView?'↩':'📃';
+    btn.title=libPlaylistView?'Zurück zur ganzen Bibliothek':'Titel dieser Playlist anzeigen';
     const sel=document.getElementById('plsel');
     btn.disabled=!libPlaylistView&&!(sel&&sel.value);   // nichts gewählt -> Knopf aus statt Alert
   }
