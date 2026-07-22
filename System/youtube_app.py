@@ -1569,13 +1569,20 @@ def kanal_info(url, limit=None):
     mix = _ist_mix(norm)
     deckel = _mix_limit(limit) if mix else 5000
     try:
-        norm, ids, titel, _ = _abo_baseline(norm, limit=deckel)
+        norm, ids, titel, info = _abo_baseline(norm, limit=deckel)
     except Exception:                                    # noqa: BLE001 — Nutzer sieht Text
-        ids, titel = [], ""
+        ids, titel, info = [], "", {}
     if not ids:
         return {"fehler": "Kanal/Playlist nicht erreichbar oder ohne Videos."}
+    # Dauer-Summe fuer die Groessen-Schaetzung (Build 105): fehlende Dauern
+    # werden mit dem Schnitt der vorhandenen hochgerechnet.
+    dauern = [e.get("duration") for e in (info.get("entries") or []) if e and e.get("duration")]
+    dauer_summe = 0
+    if dauern:
+        dauer_summe = int(sum(dauern) + (len(ids) - len(dauern)) * (sum(dauern) / len(dauern)))
     return {"ok": True, "name": titel or norm, "anzahl": len(ids),
-            "url": norm, "gedeckelt": (not mix) and len(ids) >= 5000, "mix": mix}
+            "url": norm, "gedeckelt": (not mix) and len(ids) >= 5000, "mix": mix,
+            "dauer_summe": dauer_summe}
 
 
 def entdecken(playlist_id, seeds=3, je_seed=25):
@@ -1615,6 +1622,24 @@ def entdecken(playlist_id, seeds=3, je_seed=25):
     liste = sorted(funde.values(), key=lambda f: (-f["score"], f["pos"]))
     return {"ok": True, "name": (pl or {}).get("name") or "", "seeds": len(seed_ids),
             "funde": liste}
+
+
+_MB_FALLBACK = {"audio": 1.5, "720p": 12, "1080p": 22, "1440p": 35, "2160p": 60,
+                "beste": 25, "lokal": 25}
+
+
+def _mb_pro_min(qualitaet):
+    """Erfahrungswert MB je Minute fuer eine Qualitaet — MEDIAN aus den echten
+    eigenen Downloads (Build 105, JB: „wie viel lade ich ungefaehr?");
+    unter 5 Datenpunkten greifen ehrliche Fallback-Werte."""
+    werte = sorted(
+        (e["groesse"] / 1e6) / (e["dauer"] / 60)
+        for e in _geladen.values()
+        if e.get("qualitaet") == qualitaet and e.get("groesse") and e.get("dauer")
+        and e["dauer"] >= 30 and not e.get("importiert"))
+    if len(werte) >= 5:
+        return round(werte[len(werte) // 2], 1)
+    return _MB_FALLBACK.get(qualitaet, _MB_FALLBACK["beste"])
 
 
 def addon_hab(vid):
@@ -2989,6 +3014,8 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/addon_hab"):    # Erweiterung: Video schon in der Bibliothek? (Build 98)
             vid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, addon_hab(vid))
+        elif self.path.startswith("/api/schaetzfaktoren"):   # MB/min je Qualitaet (Build 105)
+            _antwort(self, 200, {q: _mb_pro_min(q) for q in QUALITAETEN})
         elif self.path.startswith("/api/entdecken"):    # 📻 Neues entdecken (Build 99)
             q = parse_qs(urlparse(self.path).query)
             _antwort(self, 200, entdecken((q.get("pl") or [""])[0],

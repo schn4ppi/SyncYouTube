@@ -882,7 +882,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 104</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 105</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -2552,6 +2552,18 @@ async function cmdDownload(){
    /@name -> /videos, sonst kämen nur die Reiter), Anzahl zeigen, nach Rückfrage
    ALLE Videos in die Warteschlange (ganze_liste=true; schon Geladenes wird
    übersprungen). Funktioniert auch für reine Playlist-Links. */
+/* Größen-Schätzung (Build 105, JB: „wenn ich 5000 Songs lade und auf einmal
+   10 TB laden muss, habe ich ein Problem") — MB/min je Qualität kommen als
+   MEDIAN aus den ECHTEN eigenen Downloads (Fallback-Erfahrungswerte, wenn
+   zu wenig Daten). Ehrlich als „≈"-Schätzung beschriftet. */
+let _mbFaktoren=null;
+fetch('/api/schaetzfaktoren').then(r=>r.json()).then(d=>{_mbFaktoren=d;}).catch(()=>{});
+function groesseSchaetzen(dauerSek,qual){
+  if(!dauerSek||!_mbFaktoren||!_mbFaktoren[qual])return '';
+  const mb=dauerSek/60*_mbFaktoren[qual];
+  const txt=mb>=1024?((mb/1024).toFixed(1)+' GB'):(Math.round(mb)+' MB');
+  return '\\n≈ '+txt+' (Erfahrungswert deiner Bibliothek)';
+}
 async function ganzerKanal(btn){
   const inp=document.getElementById('cmd-url'); const url=(inp.value||'').trim();
   if(!url){toast('Erst einen Kanal- oder Playlist-Link oben einfügen.');return;}
@@ -2574,9 +2586,10 @@ async function ganzerKanal(btn){
   const q=document.getElementById('cmd-qual').value;
   const qtext=({beste:'Beste',audio:'MP3'}[q])||q;
   const n=d.anzahl+(d.gedeckelt?'+':'');
+  const gr=groesseSchaetzen(d.dauer_summe,q);
   const frage=d.mix
-    ?('„'+d.name+'"\\n\\nDie ersten '+d.anzahl+' Titel des Mixes (ab dem Startvideo) in Qualität '+qtext+' laden?\\nSchon geladene werden übersprungen.')
-    :('„'+d.name+'"\\n\\n'+n+' Videos gefunden.\\n\\nAlle in Qualität '+qtext+' laden?\\nSchon geladene werden übersprungen.');
+    ?('„'+d.name+'"\\n\\nDie ersten '+d.anzahl+' Titel des Mixes (ab dem Startvideo) in Qualität '+qtext+' laden?'+gr+'\\nSchon geladene werden übersprungen.')
+    :('„'+d.name+'"\\n\\n'+n+' Videos gefunden.\\n\\nAlle in Qualität '+qtext+' laden?'+gr+'\\nSchon geladene werden übersprungen.');
   if(!confirm(frage))return;
   await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true,limit:limit})});
@@ -3019,10 +3032,12 @@ function aboAuswahlLaden(id){
 }
 function aboAlleFehlenden(id){
   const o=aboOffen[id]; if(!o)return;
-  const fehlt=aboGefiltert(id).filter(x=>!x.geladen).map(x=>x.id);   // Sicht-bezogen wie die Staffel (Build 93)
+  const fehlt=aboGefiltert(id).filter(x=>!x.geladen);                // Sicht-bezogen wie die Staffel (Build 93)
   if(!fehlt.length){alert('Nichts offen — alles in dieser Sicht ist geladen.');return;}
-  if(!confirm(fehlt.length+' fehlende Folge(n) im Abo-Format in die Warteschlange legen?'))return;
-  aboFolgenHolen(id,fehlt);
+  const abo=aboState.find(a=>a.id===id)||{};
+  const gr=groesseSchaetzen(fehlt.reduce((s,x)=>s+(x.dauer||0),0),abo.qualitaet||'beste');
+  if(!confirm(fehlt.length+' fehlende Folge(n) im Abo-Format in die Warteschlange legen?'+gr))return;
+  aboFolgenHolen(id,fehlt.map(x=>x.id));
 }
 async function aboErneuern(id,ersetzen){
   const was=ersetzen?'Die alte Datei im anderen Format wandert NACH dem Erfolg in den Papierkorb.'
@@ -4001,9 +4016,13 @@ async function entdeckerHolen(btn,vid){
 }
 async function entdeckerAlle(){
   const fly=document.getElementById('ent-flyout'); if(!fly)return;
-  const vids=[...fly.querySelectorAll('.abo-f')].map(z=>z.dataset.vid);
+  const zeilen=[...fly.querySelectorAll('.abo-f')];
+  const vids=zeilen.map(z=>z.dataset.vid);
   if(!vids.length)return;
-  if(!confirm(vids.length+' neue Titel laden? Sie sammeln sich in der Playlist „'+entdeckerPlName()+'".'))return;
+  const dsum=zeilen.reduce((s,z)=>{const t=z.querySelector('.abo-fd'); if(!t)return s;
+    const teile=t.textContent.split(':').map(Number); return s+teile.reduce((a,b)=>a*60+b,0);},0);
+  const gr=groesseSchaetzen(dsum,(document.getElementById('cmd-qual')||{}).value||'beste');
+  if(!confirm(vids.length+' neue Titel laden? Sie sammeln sich in der Playlist „'+entdeckerPlName()+'".'+gr))return;
   const q=(document.getElementById('cmd-qual')||{}).value||'beste';
   await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({urls:vids.map(v=>'https://www.youtube.com/watch?v='+v).join('\\n'),qualitaet:q,ziel_playlist:entdeckerPlName()})});
@@ -4887,7 +4906,8 @@ function posMerkerMalen(){
     m=document.createElement('div'); m.id='plb-merker'; m.className='plb-merker';
     m.addEventListener('click',e=>{e.stopPropagation();
       const el2=document.getElementById('pl-el'), k2=aktKey();
-      if(el2&&k2&&_posMerk[k2]){el2.currentTime=_posMerk[k2].t; toast('↦ zurück zu '+zeit(_posMerk[k2].t));}});
+      // 3 s Anlauf vor der Marke (Build 105, JB: „dann ist man mehr im Moment")
+      if(el2&&k2&&_posMerk[k2]){el2.currentTime=Math.max(0,_posMerk[k2].t-3); toast('↦ zurück zu '+zeit(_posMerk[k2].t)+' (mit Anlauf)');}});
     wrap.appendChild(m);
   }
   const sr=seek.getBoundingClientRect(), wr=wrap.getBoundingClientRect();

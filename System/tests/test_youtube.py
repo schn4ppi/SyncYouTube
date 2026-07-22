@@ -509,6 +509,23 @@ def test_playlist_einreihen():
         app._geladen.pop("vidENT00001|audio", None)
 
 
+def test_mb_pro_min():
+    # Build 105 (JB: „wie viel lade ich ungefähr?"): Groessen-Schaetzung aus
+    # den ECHTEN eigenen Downloads (Median MB/min je Qualitaet); zu wenig
+    # Datenpunkte -> ehrliche Erfahrungs-Fallbacks.
+    for i, (g, d) in enumerate([(30e6, 180), (40e6, 240), (35e6, 200),
+                                (50e6, 300), (28e6, 170)]):
+        app._geladen[f"mbtest{i:05d}|audio"] = {"groesse": g, "dauer": d, "qualitaet": "audio"}
+    try:
+        f = app._mb_pro_min("audio")
+        assert 8 <= f <= 12                            # ~10 MB/min aus den Fixtures
+        assert app._mb_pro_min("2160p") == 60          # keine Daten -> Fallback
+        assert app._mb_pro_min("unbekannt") == 25      # unbekannte Qualitaet -> beste-Fallback
+    finally:
+        for i in range(5):
+            app._geladen.pop(f"mbtest{i:05d}|audio", None)
+
+
 def test_entdecken():
     # Build 99 (JB): „📻 Neues entdecken" — Radio-Mixe zu Playlist-Titeln
     # aufloesen, ALLES Bekannte (Bibliothek + Seeds) rausfiltern; Titel, die
