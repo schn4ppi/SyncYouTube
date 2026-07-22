@@ -1693,6 +1693,8 @@ def ordner_waehlen(start=""):
     if not _dialog_lock.acquire(blocking=False):
         return {"pfad": "", "fehler": "Es ist schon ein Ordner-Dialog offen."}
     try:
+        if start and not os.path.isdir(start):
+            start = ""                           # toter Merk-Pfad: Dialog neutral starten
         import tkinter as tk
         from tkinter import filedialog
         wurzel = tk.Tk()
@@ -1708,6 +1710,16 @@ def ordner_waehlen(start=""):
         return {"pfad": "", "fehler": "Ordner-Dialog nicht verfuegbar."}
     finally:
         _dialog_lock.release()
+
+
+def pfad_da(pfad=""):
+    """Existiert der Ordner GERADE? (Build 109, JB-Failsafe: ein gemerkter
+    Sync-Pfad auf abgezogener Platte wird im Fenster nur ausgegraut — und
+    von selbst wieder frei, sobald das Laufwerk zurueck ist.)"""
+    try:
+        return {"da": bool(pfad) and os.path.isdir(pfad)}
+    except (ValueError, OSError):                    # kaputte Pfadzeichen o. ae.
+        return {"da": False}
 
 
 _MB_FALLBACK = {"audio": 1.5, "720p": 12, "1080p": 22, "1440p": 35, "2160p": 60,
@@ -3108,6 +3120,10 @@ class Handler(BaseHTTPRequestHandler):
                 return _antwort(self, 403, {"fehler": "nur lokal"})
             start = (parse_qs(urlparse(self.path).query).get("start") or [""])[0]
             _antwort(self, 200, ordner_waehlen(start))
+        elif self.path.startswith("/api/pfad_da"):      # Sync-Fenster-Failsafe (Build 109)
+            if self.client_address[0] != "127.0.0.1":
+                return _antwort(self, 403, {"fehler": "nur lokal"})
+            _antwort(self, 200, pfad_da((parse_qs(urlparse(self.path).query).get("pfad") or [""])[0]))
         elif self.path.startswith("/api/entdecken"):    # 📻 Neues entdecken (Build 99)
             q = parse_qs(urlparse(self.path).query)
             _antwort(self, 200, entdecken((q.get("pl") or [""])[0],

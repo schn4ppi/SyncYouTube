@@ -345,6 +345,7 @@ textarea:focus,input:focus,select:focus{outline:none;border-color:var(--akz)}
 .zeile{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
 select,input[type=text]{background:#171310;border:1px solid #3a332e;border-radius:8px;color:#eee;
   padding:6px 10px;font:inherit;font-size:13px}
+.btn:disabled{opacity:.45;cursor:default}
 .btn{padding:7px 14px;border-radius:8px;border:1px solid #3a332e;background:#171310;color:#eee;
   font:inherit;font-size:13px;cursor:pointer}
 .btn:hover{border-color:var(--akz)}
@@ -882,7 +883,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 108</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 109</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -5440,6 +5441,11 @@ async function plSyncConfig(){
   // Build 108 (JB): eigenes kleines Fenster statt prompt — Pfad vom letzten
   // Mal vorbelegt und 📁 öffnet den NATIVEN Windows-Ordnerdialog (über den
   // lokalen Server; der Browser darf selbst keine Pfade wählen).
+  // Build 109 (JB-Failsafe): existiert der vorbelegte Pfad gerade NICHT
+  // (Platte ab, Stick raus), werden Feld + Speicher-Knöpfe nur ausgegraut —
+  // ein 2-s-Puls gibt alles von selbst frei, sobald der Ordner wieder da ist.
+  // Tippen ändert den Merker NICHT (gemerkt wird erst beim Speichern):
+  // Abbrechen + neu öffnen bringt die Vorbelegung zurück.
   const id=document.getElementById('plsel').value;
   if(!id){alert('Bitte zuerst eine Playlist wählen.');return;}
   const p=plState.find(x=>x.id===id);
@@ -5452,6 +5458,7 @@ async function plSyncConfig(){
     '<div style="display:flex;gap:6px;margin:8px 4px 4px">'+
       '<input type="text" id="sync-pfad" style="flex:1" placeholder="z. B. E:\\\\Musik — USB-Stick oder Handy-Ordner" value="'+esc(p.sync_ordner||letzter)+'">'+
       '<button class="btn mini" onclick="syncOrdnerWaehlen(this)" title="Nativen Windows-Ordnerdialog öffnen (erscheint auf deinem Bildschirm)">📁 wählen</button></div>'+
+    '<div id="sync-tot" style="display:none;margin:6px 4px 0;color:#e0a030;font-size:.85em">⏳ Ordner gerade nicht erreichbar — Platte/Stick anschließen, das Fenster merkt es von selbst.</div>'+
     '<div class="abo-staffel" style="margin-top:8px"><span style="opacity:.7">Spiegeln löscht im Ziel nur Dateien, die die App selbst kopiert hat.</span><span class="spacer"></span>'+
       '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',false)" title="Nur kopieren — es wird nie etwas gelöscht">Nur kopieren</button>'+
       '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',true)" title="Exakt spiegeln — Entferntes verschwindet auch im Ziel (nur App-eigene Kopien)">Exakt spiegeln</button></div>';
@@ -5460,6 +5467,32 @@ async function plSyncConfig(){
   fly.style.height='auto';
   fly.addEventListener('keydown',e=>{if(e.key==='Escape'){fly.remove(); e.stopPropagation();}});
   fly.focus();
+  syncPfadWachen(fly);
+}
+function syncPfadWachen(fly){
+  // Build 109 (JB-Failsafe): Feld + Speicher-Knöpfe an der Wirklichkeit
+  // ausrichten — toter Pfad grau + gesperrt, lebendiger frei. Der 2-s-Puls
+  // räumt sich selbst auf, sobald das Fenster geschlossen ist. Leeres Feld
+  // bleibt frei (leer speichern = Sync abschalten, wie bisher).
+  const pruefen=async()=>{
+    const f=document.getElementById('sync-fly');
+    if(!f){clearInterval(takt);return;}
+    const inp=document.getElementById('sync-pfad'); if(!inp)return;
+    const wert=(inp.value||'').trim();
+    let da=true;
+    if(wert){
+      try{const r=await fetch('/api/pfad_da?pfad='+encodeURIComponent(wert)); da=!!(await r.json()).da;}
+      catch(e){da=true;}                    // Server kurz weg: nicht fälschlich sperren
+    }
+    const tot=!!wert&&!da;
+    inp.style.opacity=tot?'.5':'';
+    f.querySelectorAll('.abo-staffel .btn').forEach(b=>{b.disabled=tot;});
+    const hin=document.getElementById('sync-tot'); if(hin)hin.style.display=tot?'':'none';
+  };
+  const takt=setInterval(pruefen,2000);
+  const inp=document.getElementById('sync-pfad');
+  if(inp)inp.addEventListener('input',()=>{clearTimeout(inp._t); inp._t=setTimeout(pruefen,300);});
+  pruefen();
 }
 async function syncOrdnerWaehlen(btn){
   const inp=document.getElementById('sync-pfad'); if(!inp)return;
@@ -5467,7 +5500,7 @@ async function syncOrdnerWaehlen(btn){
   try{
     const r=await fetch('/api/ordner_waehlen?start='+encodeURIComponent(inp.value||''));
     const d=await r.json();
-    if(d.pfad)inp.value=d.pfad;
+    if(d.pfad){inp.value=d.pfad; inp.dispatchEvent(new Event('input'));}
     else if(d.fehler)toast(d.fehler);
   }catch(e){toast('Ordner-Dialog nicht erreichbar.');}
   if(btn){btn.disabled=false; btn.textContent='📁 wählen';}

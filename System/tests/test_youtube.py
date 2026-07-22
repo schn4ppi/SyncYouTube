@@ -831,6 +831,18 @@ def test_ist_untertitel_fehler():
     assert app._ist_untertitel_fehler("") is False
 
 
+def test_pfad_da():
+    # Build 109 (JB-Failsafe): das Sync-Fenster graut tote Pfade nur aus und
+    # fragt live nach — die Antwort muss die Wirklichkeit JETZT spiegeln.
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        assert app.pfad_da(d)["da"] is True
+    assert app.pfad_da(d)["da"] is False            # nach dem with wieder weg
+    assert app.pfad_da("")["da"] is False
+    assert app.pfad_da(r"C:\gibt\es\nicht\xyz123")["da"] is False
+    assert app.pfad_da("kein\x00pfad")["da"] is False   # kaputte Zeichen crashen nicht
+
+
 # ---------------------------------------------------------------- Runner (ohne pytest)
 
 if __name__ == "__main__":
