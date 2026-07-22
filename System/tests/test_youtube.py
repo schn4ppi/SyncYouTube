@@ -434,6 +434,59 @@ def test_abo_create_normalisiert_kanal_url():
         app._abos[:] = [a for a in app._abos if a.get("name") != "TestKanal"]
 
 
+def test_mix_erkennen_und_limit():
+    # Build 98 (JB): YouTube-Mixe (Radio, list=RD…) sind endlos + nicht-
+    # deterministisch (JB mass 1877 vs 563 Titel fuer denselben Mix) —
+    # die Anzahl ist ab jetzt WAEHLBAR (1..500, Default 50), nie „alle".
+    assert app._ist_mix("https://www.youtube.com/watch?v=a&list=RDa") is True
+    assert app._ist_mix("https://www.youtube.com/watch?v=a&list=RDCLAK5uy_x") is True
+    assert app._ist_mix("https://www.youtube.com/watch?v=a&list=PLnormal") is False
+    assert app._ist_mix("https://www.youtube.com/playlist?list=PL1") is False
+    assert app._mix_limit(None) == 50                  # Default wie bisher
+    assert app._mix_limit(25) == 25
+    assert app._mix_limit("100") == 100
+    assert app._mix_limit(0) == 50                     # Unsinn -> Default
+    assert app._mix_limit(9999) == 500                 # Deckel gegen Endlos-Radio
+    assert app._mix_limit("quatsch") == 50
+
+
+def test_kanal_info_mix_mit_limit():
+    # Build 98: kanal_info loest Mixe nur bis zum Wunsch-Limit auf (schnell,
+    # keine 20-s-Sanduhr fuer 1800 Titel) und meldet mix:true fuers Frontend.
+    rufe = []
+
+    def fake_flach(url, limit=60):
+        rufe.append(limit)
+        return {"title": "Mix - Test", "id": "RDabc",
+                "entries": [{"id": f"v{i:010d}"} for i in range(min(limit, 25))]}
+
+    echt = app._abo_flach
+    app._abo_flach = fake_flach
+    try:
+        d = app.kanal_info("https://www.youtube.com/watch?v=abc&list=RDabc", limit=25)
+        assert d.get("ok") and d.get("mix") is True and d["anzahl"] == 25
+        assert rufe == [25]
+        d2 = app.kanal_info("https://www.youtube.com/playlist?list=PL1")
+        assert d2.get("mix") is False and rufe[-1] == 5000   # Nicht-Mix wie bisher
+    finally:
+        app._abo_flach = echt
+
+
+def test_addon_hab():
+    # Build 98 (JB): das Addon fragt, ob ein Video schon in der Bibliothek
+    # ist (Hover-Knopf wird gruen). Reine Key-Suche, kein Netz.
+    app._geladen["vidHAB00001|audio"] = {"name": "t.mp3"}
+    app._geladen["vidHAB00001|beste"] = {"name": "t.mp4"}
+    try:
+        d = app.addon_hab("vidHAB00001")
+        assert d["da"] is True and sorted(d["formate"]) == ["audio", "beste"]
+        assert app.addon_hab("gibtsnich123") == {"da": False, "formate": []}
+        assert app.addon_hab("") == {"da": False, "formate": []}
+    finally:
+        app._geladen.pop("vidHAB00001|audio", None)
+        app._geladen.pop("vidHAB00001|beste", None)
+
+
 def test_abo_baseline_shorts_fallback():
     # Build 91 (Simulations-Fund): Shorts-only-Kanaele (@YouTubeShorts) haben
     # KEINEN /videos-Tab — yt-dlp liefert 404/leer. Dann den /shorts-Tab

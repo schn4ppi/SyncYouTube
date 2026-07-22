@@ -451,10 +451,11 @@ def _ist_untertitel_fehler(exc):
                                 or "unable to download" in t)
 
 
-def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None):
+def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=None):
     """URL prüfen und in Queue-Einträge verwandeln (Playlist/Mix -> Einzelvideos).
     ganze_liste=True erzwingt die komplette Liste/den Mix auch bei einem
     watch?v=…&list=…-Link (JB-/Kumpel-Wunsch: „YouTube-Mixe runterladen").
+    limit: Wunsch-Anzahl fuer Mixe (Build 98, JB: einstellbar; 1..500).
     abo: Abo-Id — fertige Downloads landen dann in der Abo-Playlist;
     ersetzt: alte Bibliotheks-Keys, die NACH dem Erfolg in den Papierkorb gehen.
     Läuft im Hintergrund-Thread, damit die Oberfläche nie blockiert."""
@@ -467,11 +468,10 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None):
     platzhalter["status"] = "prueft"
     Q.speichern()
     opts = _ydl_basis_opts()
-    # Mixe (list=RD…/RDMM…) sind endlos — auf 50 Titel deckeln, damit nicht
-    # tausende Einträge entstehen; echte Playlists laufen unbegrenzt.
-    mix = bool(re.search(r"[?&]list=(RD|UL|RDMM|RDCLAK)", url))
-    if ganze_liste and mix:
-        opts["playlistend"] = 50
+    # Mixe (list=RD…) sind endlos — Wunsch-Anzahl (Build 98, Default 50),
+    # damit nicht tausende Einträge entstehen; echte Playlists laufen unbegrenzt.
+    if ganze_liste and _ist_mix(url):
+        opts["playlistend"] = _mix_limit(limit)
     opts.update({"extract_flat": "in_playlist", "skip_download": True,
                  "noplaylist": (not ganze_liste) and ist_einzelvideo(url)})
     try:
@@ -1530,21 +1530,52 @@ def _abo_baseline(url, limit=60):
     return url, ids, titel, info
 
 
-def kanal_info(url):
+def _ist_mix(url):
+    """YouTube-Mix/Radio? (list=RD…/RDMM/RDCLAK — dynamisch, endlos, an ein
+    Start-Video gebunden; UL = alter Uploads-Mix)."""
+    return bool(re.search(r"[?&]list=(RD|UL)", url or ""))
+
+
+def _mix_limit(wunsch):
+    """Wunsch-Anzahl fuer einen Mix: 1..500, sonst Default 50 (Build 98, JB:
+    einstellbar; „alle" gibt es bei Mixen bewusst NICHT — sie sind endlos und
+    nicht-deterministisch, JB mass 1877 vs 563 fuer denselben Mix)."""
+    try:
+        n = int(wunsch)
+    except (TypeError, ValueError):
+        return 50
+    return 50 if n <= 0 else min(n, 500)
+
+
+def kanal_info(url, limit=None):
     """Kanal/Playlist ohne Download aufloesen: Name + Videozahl fuer die
     Rueckfrage vor „ganzen Kanal laden". Kanal-Links werden auf /videos
-    normalisiert; bis 5000 Videos (wie der Backkatalog-Deckel)."""
+    normalisiert; bis 5000 Videos (wie der Backkatalog-Deckel). Mixe werden
+    nur bis zum Wunsch-Limit aufgeloest (schnell statt Endlos-Sanduhr) und
+    als mix:true gemeldet."""
     norm = _kanal_url((url or "").strip())
     if not norm.lower().startswith(("http://", "https://")):
         return {"fehler": "Bitte einen Kanal- oder Playlist-Link einfuegen."}
+    mix = _ist_mix(norm)
+    deckel = _mix_limit(limit) if mix else 5000
     try:
-        norm, ids, titel, _ = _abo_baseline(norm, limit=5000)
+        norm, ids, titel, _ = _abo_baseline(norm, limit=deckel)
     except Exception:                                    # noqa: BLE001 — Nutzer sieht Text
         ids, titel = [], ""
     if not ids:
         return {"fehler": "Kanal/Playlist nicht erreichbar oder ohne Videos."}
     return {"ok": True, "name": titel or norm, "anzahl": len(ids),
-            "url": norm, "gedeckelt": len(ids) >= 5000}
+            "url": norm, "gedeckelt": (not mix) and len(ids) >= 5000, "mix": mix}
+
+
+def addon_hab(vid):
+    """Fuer die Browser-Erweiterung (Build 98, JB): Ist das Video schon in
+    der Bibliothek? Reine Key-Suche ueber _geladen (<id>|<qualitaet>)."""
+    vid = str(vid or "").strip()
+    if not vid:
+        return {"da": False, "formate": []}
+    formate = sorted({k.split("|", 1)[1] for k in _geladen if k.split("|", 1)[0] == vid})
+    return {"da": bool(formate), "formate": formate}
 
 
 def _abo_feed_url(info):
@@ -2887,8 +2918,12 @@ class Handler(BaseHTTPRequestHandler):
             with _io_lock:
                 _antwort(self, 200, {"items": _abos})
         elif self.path.startswith("/api/kanal_info"):   # ganzen Kanal aufloesen (Name + Videozahl)
-            url = (parse_qs(urlparse(self.path).query).get("url") or [""])[0]
-            _antwort(self, 200, kanal_info(url))
+            q = parse_qs(urlparse(self.path).query)
+            url = (q.get("url") or [""])[0]
+            _antwort(self, 200, kanal_info(url, limit=(q.get("limit") or [None])[0]))
+        elif self.path.startswith("/api/addon_hab"):    # Erweiterung: Video schon in der Bibliothek? (Build 98)
+            vid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            _antwort(self, 200, addon_hab(vid))
         elif self.path.startswith("/api/playlist_export"):
             pid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             pl = next((p for p in _playlists if p.get("id") == pid), None)
@@ -3015,11 +3050,13 @@ class Handler(BaseHTTPRequestHandler):
     def _add(self, daten):
         qualitaet = daten.get("qualitaet") or CFG["standard_qualitaet"]
         ganze_liste = bool(daten.get("ganze_liste"))
+        limit = daten.get("limit")                    # Mix-Wunsch-Anzahl (Build 98)
         urls = [u.strip() for u in (daten.get("urls") or "").splitlines() if u.strip()]
         for url in urls:
             if not url.lower().startswith(("http://", "https://")):
                 continue
-            threading.Thread(target=aufloesen, args=(url, qualitaet, ganze_liste), daemon=True).start()
+            threading.Thread(target=aufloesen, args=(url, qualitaet, ganze_liste),
+                             kwargs={"limit": limit}, daemon=True).start()
 
     def _action(self, daten):
         art = daten.get("art")

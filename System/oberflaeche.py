@@ -856,7 +856,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 97</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 98</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -2528,21 +2528,34 @@ async function cmdDownload(){
 async function ganzerKanal(btn){
   const inp=document.getElementById('cmd-url'); const url=(inp.value||'').trim();
   if(!url){toast('Erst einen Kanal- oder Playlist-Link oben einfügen.');return;}
+  // Mix/Radio (Build 98, JB): ERST die Wunsch-Anzahl fragen, DANN nur so viele
+  // aufloesen — Mixe sind endlos + nicht-deterministisch (JB mass 1877 vs 563),
+  // die Voll-Aufloesung war eine 20-s-Sanduhr fuer eine falsche Zahl.
+  const mix=/[?&]list=(RD|UL)/.test(url);
+  let limit=null;
+  if(mix){
+    const w=prompt('YouTube-Mix (Radio) erkannt — der ist endlos.\\n\\nWie viele Titel ab dem Startvideo laden? (1–500)','50');
+    if(w===null)return;
+    limit=Math.max(1,Math.min(500,parseInt(w,10)||50));
+  }
   if(btn){btn.disabled=true; btn.dataset.alt=btn.textContent; btn.textContent='⏳';}
-  toast('🔎 Kanal wird aufgelöst…');
+  toast(mix?('🔎 Mix wird aufgelöst (erste '+limit+' Titel)…'):'🔎 Kanal wird aufgelöst…');
   let d=null;
-  try{const r=await fetch('/api/kanal_info?url='+encodeURIComponent(url)); d=await r.json();}catch(e){}
+  try{const r=await fetch('/api/kanal_info?url='+encodeURIComponent(url)+(mix?('&limit='+limit):'')); d=await r.json();}catch(e){}
   if(btn){btn.disabled=false; btn.textContent=btn.dataset.alt||'📺';}
   if(!d||!d.ok){toast((d&&d.fehler)||'Kanal/Playlist nicht gefunden.'); return;}
   const q=document.getElementById('cmd-qual').value;
   const qtext=({beste:'Beste',audio:'MP3'}[q])||q;
   const n=d.anzahl+(d.gedeckelt?'+':'');
-  if(!confirm('„'+d.name+'"\\n\\n'+n+' Videos gefunden.\\n\\nAlle in Qualität '+qtext+' laden?\\nSchon geladene werden übersprungen.'))return;
+  const frage=d.mix
+    ?('„'+d.name+'"\\n\\nDie ersten '+d.anzahl+' Titel des Mixes (ab dem Startvideo) in Qualität '+qtext+' laden?\\nSchon geladene werden übersprungen.')
+    :('„'+d.name+'"\\n\\n'+n+' Videos gefunden.\\n\\nAlle in Qualität '+qtext+' laden?\\nSchon geladene werden übersprungen.');
+  if(!confirm(frage))return;
   await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true})});
+    body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true,limit:limit})});
   inp.value=''; cmdClipVerstecken(); laden();
   try{dlboxTab('queue');}catch(e){}
-  toast('📺 „'+d.name+'": '+n+' Videos werden geladen.');
+  toast('📺 „'+d.name+'": '+(d.mix?d.anzahl:n)+' Videos werden geladen.');
 }
 async function appBeenden(){
   if(!confirm('SyncYouTube komplett beenden?\\n\\nLaufende Downloads werden pausiert (setzen beim naechsten Start fort). Auch der Hintergrund-Dienst wird geschlossen.'))return;
