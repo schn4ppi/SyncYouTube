@@ -492,6 +492,13 @@ html.light .abo-flyout .abo-f{border-bottom-color:rgba(0,0,0,.055)}
 .abo-fly-titel .spacer{flex:1}
 .abo-staffel{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:4px 0 6px;font-size:12px;color:#8a7d74}
 .abo-staffel .btn.mini{padding:2px 8px}
+/* Auswahl-Leiste (Build 103, JB: „wo lad ich die Markierten runter?") —
+   erscheint UNTEN im Backkatalog-Fenster, sobald etwas markiert ist
+   (gleiches Muster wie die Sammel-Leiste der Bibliothek). */
+.abo-selbar{display:flex;gap:8px;align-items:center;margin-top:6px;padding:7px 10px;
+  background:var(--akzbg);border:1px solid var(--akz);border-radius:9px;
+  font-size:12.5px;color:var(--akz2);flex:none}
+.abo-selbar b{color:#e9ded3}
 .abo-band{position:fixed;z-index:901;border:1px solid var(--akz);background:rgba(201,149,43,.14);
   border-radius:3px;pointer-events:none}
 /* ✂-Schneide-Leiste (Build 101, JB): zwei ZIEHBARE Griffe statt Eingabefelder;
@@ -875,7 +882,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 102</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 103</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -2912,7 +2919,11 @@ function aboFolgenMalen(id){
         title="Reihenfolge der Mengen-Knöpfe umschalten">${o.richtung==='neu'?'⏭ neueste zuerst':'⏮ älteste zuerst'}</button>
     </div>
     <div class="abo-fliste" onpointerdown="aboBandStart(event,'${id}')">${zeilen||'<div class="leer">nichts gefunden</div>'}</div>
-    ${liste.length>o.zeige?`<button class="btn mini" style="margin-top:4px" onclick="aboOffen['${id}'].zeige+=600;aboFolgenMalen('${id}')">… mehr anzeigen (${liste.length-o.zeige} weitere)</button>`:''}`;
+    ${liste.length>o.zeige?`<button class="btn mini" style="margin-top:4px" onclick="aboOffen['${id}'].zeige+=600;aboFolgenMalen('${id}')">… mehr anzeigen (${liste.length-o.zeige} weitere)</button>`:''}
+    ${o.sel.size?`<div class="abo-selbar">🎯 <b>${o.sel.size}</b> markiert
+      <span class="spacer"></span>
+      <button class="btn mini" onclick="aboAuswahlLaden('${id}')" title="Die markierten Folgen im Abo-Format in die Warteschlange">⬇ ${o.sel.size} laden</button>
+      <button class="btn mini" onclick="aboOffen['${id}'].sel.clear();aboFolgenMalen('${id}')" title="Auswahl aufheben (Esc)">✕</button></div>`:''}`;
 }
 function aboFolgeKlick(ev,id,vid){
   // Windows-Semantik (Build 93, JB-Entscheid): Klick = NUR diese, Strg+Klick =
