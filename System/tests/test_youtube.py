@@ -487,6 +487,28 @@ def test_addon_hab():
         app._geladen.pop("vidHAB00001|beste", None)
 
 
+def test_playlist_einreihen():
+    # Build 100 (JB): Entdecker-Downloads sammeln sich automatisch in einer
+    # benannten Playlist („✨ Entdeckt 23.07.") — anlegen falls neu, nie doppelt.
+    still = lambda *a, **k: None                       # noqa: E731
+    echt_pl, echt_json = app._playlists_speichern, app._json_speichern
+    app._playlists_speichern, app._json_speichern = still, still
+    app._geladen["vidENT00001|audio"] = {"name": "e.mp3"}
+    try:
+        app._playlist_einreihen("✨ Entdeckt 23.07.", "vidENT00001|audio")
+        pl = next(p for p in app._playlists if p.get("name") == "✨ Entdeckt 23.07.")
+        assert pl["items"] == ["vidENT00001|audio"]
+        app._playlist_einreihen("✨ Entdeckt 23.07.", "vidENT00001|audio")
+        assert pl["items"] == ["vidENT00001|audio"]    # nicht doppelt
+        app._playlist_einreihen("", "vidENT00001|audio")           # kein Name -> no-op
+        app._playlist_einreihen("✨ Entdeckt 23.07.", "fremd|audio")  # nicht geladen -> no-op
+        assert pl["items"] == ["vidENT00001|audio"]
+    finally:
+        app._playlists_speichern, app._json_speichern = echt_pl, echt_json
+        app._playlists[:] = [p for p in app._playlists if p.get("name") != "✨ Entdeckt 23.07."]
+        app._geladen.pop("vidENT00001|audio", None)
+
+
 def test_entdecken():
     # Build 99 (JB): „📻 Neues entdecken" — Radio-Mixe zu Playlist-Titeln
     # aufloesen, ALLES Bekannte (Bibliothek + Seeds) rausfiltern; Titel, die

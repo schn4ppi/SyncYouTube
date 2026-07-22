@@ -453,7 +453,7 @@ def _ist_untertitel_fehler(exc):
                                 or "unable to download" in t)
 
 
-def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=None):
+def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=None, ziel_playlist=""):
     """URL prüfen und in Queue-Einträge verwandeln (Playlist/Mix -> Einzelvideos).
     ganze_liste=True erzwingt die komplette Liste/den Mix auch bei einem
     watch?v=…&list=…-Link (JB-/Kumpel-Wunsch: „YouTube-Mixe runterladen").
@@ -512,15 +512,21 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
                 neu = Q.neu(v_url, e.get("title"), qualitaet, e.get("duration"))
                 if abo:
                     neu["abo"] = abo
+                if ziel_playlist:
+                    neu["ziel_pl"] = ziel_playlist
                 fund = schon_geladen(v_url, qualitaet)
                 if fund:
                     _als_uebersprungen(neu, fund)
                     if abo:                          # war schon da -> trotzdem in die Abo-Playlist
                         _abo_playlist_zuordnen(abo, _geladen_key(v_url, qualitaet))
+                    if ziel_playlist:                # dito fuer die Entdeckt-Playlist (Build 100)
+                        _playlist_einreihen(ziel_playlist, _geladen_key(v_url, qualitaet))
         else:
             platzhalter["titel"] = info.get("title") or url
             platzhalter["dauer"] = info.get("duration")
             platzhalter["url"] = info.get("webpage_url") or url
+            if ziel_playlist:
+                platzhalter["ziel_pl"] = ziel_playlist
             if _schon_da(platzhalter["url"], qualitaet, ausser=platzhalter["id"]):
                 Q.items.remove(platzhalter)
             else:
@@ -580,6 +586,8 @@ def geladen_merken(item):
         _json_speichern(GELADEN_PFAD, _geladen)
     if item.get("abo"):                              # Abo-Download -> in die Abo-Playlist
         _abo_playlist_zuordnen(item["abo"], key)
+    if item.get("ziel_pl"):                          # Entdecker-Download -> „✨ Entdeckt …" (Build 100)
+        _playlist_einreihen(item["ziel_pl"], key)
     for altkey in (item.get("abo_ersetzt") or []):   # Format-Erneuern: Altes ERST NACH Erfolg weg
         if altkey != key and altkey in _geladen:
             with _io_lock:
@@ -1663,6 +1671,22 @@ def _abo_regel_ok(abo, e):
         if ud and ud < ab:
             return False
     return True
+
+
+def _playlist_einreihen(name, key):
+    """Key in eine Playlist mit diesem NAMEN einreihen — anlegen, falls es
+    sie noch nicht gibt; nie doppelt (Build 100: die ✨-Entdecker-Downloads
+    sammeln sich in „✨ Entdeckt <Datum>", Discover-Weekly-Muster)."""
+    if not name or key not in _geladen:
+        return
+    with _io_lock:
+        pl = next((p for p in _playlists if p.get("name") == name), None)
+        if pl is None:
+            pl = {"id": uuid.uuid4().hex[:8], "name": name, "items": [], "ts": time.time()}
+            _playlists.append(pl)
+        if key not in pl["items"]:
+            pl["items"].append(key)
+    _playlists_speichern()
 
 
 def _abo_playlist_zuordnen(abo_id, key):
@@ -3097,12 +3121,13 @@ class Handler(BaseHTTPRequestHandler):
         qualitaet = daten.get("qualitaet") or CFG["standard_qualitaet"]
         ganze_liste = bool(daten.get("ganze_liste"))
         limit = daten.get("limit")                    # Mix-Wunsch-Anzahl (Build 98)
+        ziel_pl = str(daten.get("ziel_playlist") or "")[:80]   # Entdeckt-Sammlung (Build 100)
         urls = [u.strip() for u in (daten.get("urls") or "").splitlines() if u.strip()]
         for url in urls:
             if not url.lower().startswith(("http://", "https://")):
                 continue
             threading.Thread(target=aufloesen, args=(url, qualitaet, ganze_liste),
-                             kwargs={"limit": limit}, daemon=True).start()
+                             kwargs={"limit": limit, "ziel_playlist": ziel_pl}, daemon=True).start()
 
     def _action(self, daten):
         art = daten.get("art")

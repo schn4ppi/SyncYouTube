@@ -856,7 +856,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 99</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 100</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1137,6 +1137,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
         <input type="file" id="m3ufile" accept=".m3u,.m3u8" style="display:none" onchange="plImport(this)">
         <span class="spacer"></span>
         <button class="btn mini" onclick="radioStart()" title="Endlos-Radio: personalisierter Zufalls-Mix, der nie aufhört (Blacklist ausgenommen)">📻 Radio</button>
+        <button class="btn mini" onclick="entdeckerOeffnen()" title="✨ Neues entdecken: YouTube-Radios zu Titeln der oben gewählten Playlist — alles, was du schon hast, wird herausgefiltert">✨ Entdecken</button>
         <button class="btn mini" onclick="mixeMenu(event)" title="Meistgespielt · Zuletzt · Gefilterte · Smart-Playlists">▶ Mixe</button>
         <span id="plinfo" style="font-size:12px;color:#9ec49a"></span>
       </div>
@@ -3862,14 +3863,28 @@ async function entdeckerLaden(){
     '<button class="ib" title="In die Warteschlange laden" onclick="entdeckerHolen(this,\\''+f.id+'\\')">⬇</button>'+
     '</div>').join('');
   box.innerHTML='<div class="abo-staffel">'+d.funde.length+' neue Titel aus '+d.seeds+' Radios — nichts davon ist in deiner Bibliothek.'+
-    '<span class="spacer"></span><button class="btn mini" onclick="entdeckerAlle()" title="Alle Funde in der Qualität oben laden">⬇ Alle ('+d.funde.length+')</button></div>'+
+    '<span class="spacer"></span>'+
+    '<button class="btn mini" onclick="entdeckerDurchhoeren()" title="Alle Funde als temporäre YouTube-Playlist öffnen und am Stück durchhören (max. 50)">▶ Auf YouTube durchhören</button>'+
+    '<button class="btn mini" onclick="entdeckerAlle()" title="Alle Funde laden — sie sammeln sich in der Playlist „✨ Entdeckt (Datum)"">⬇ Alle ('+d.funde.length+')</button></div>'+
     '<div class="abo-fliste">'+zeilen+'</div>';
   fly.dataset.qual=q;
+}
+function entdeckerPlName(){
+  const d=new Date();
+  return '✨ Entdeckt '+String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'.';
+}
+function entdeckerDurchhoeren(){
+  // Build 100 (JB): alle Funde als TEMPORAERE YouTube-Playlist am Stück hören —
+  // der watch_videos-Trick baut daraus eine echte list=TL…-Playlist (max 50).
+  const fly=document.getElementById('ent-flyout'); if(!fly)return;
+  const vids=[...fly.querySelectorAll('.abo-f')].map(z=>z.dataset.vid).slice(0,50);
+  if(!vids.length)return;
+  window.open('https://www.youtube.com/watch_videos?video_ids='+vids.join(','),'_blank','noreferrer');
 }
 async function entdeckerHolen(btn,vid){
   const q=(document.getElementById('cmd-qual')||{}).value||'beste';
   await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls:'https://www.youtube.com/watch?v='+vid,qualitaet:q})});
+    body:JSON.stringify({urls:'https://www.youtube.com/watch?v='+vid,qualitaet:q,ziel_playlist:entdeckerPlName()})});
   if(btn){btn.textContent='✓'; btn.disabled=true;}
   const z=btn&&btn.closest('.abo-f'); if(z)z.style.opacity=.45;
   laden();
@@ -3878,11 +3893,11 @@ async function entdeckerAlle(){
   const fly=document.getElementById('ent-flyout'); if(!fly)return;
   const vids=[...fly.querySelectorAll('.abo-f')].map(z=>z.dataset.vid);
   if(!vids.length)return;
-  if(!confirm(vids.length+' neue Titel in die Warteschlange legen?'))return;
+  if(!confirm(vids.length+' neue Titel laden? Sie sammeln sich in der Playlist „'+entdeckerPlName()+'".'))return;
   const q=(document.getElementById('cmd-qual')||{}).value||'beste';
   await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls:vids.map(v=>'https://www.youtube.com/watch?v='+v).join('\\n'),qualitaet:q})});
-  toast('📻 '+vids.length+' Titel eingereiht.'); entdeckerZu(); laden();
+    body:JSON.stringify({urls:vids.map(v=>'https://www.youtube.com/watch?v='+v).join('\\n'),qualitaet:q,ziel_playlist:entdeckerPlName()})});
+  toast('📻 '+vids.length+' Titel eingereiht → „'+entdeckerPlName()+'"'); entdeckerZu(); laden();
   try{dlboxTab('queue');}catch(e){}
 }
 function mixeMenu(ev){
