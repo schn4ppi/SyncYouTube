@@ -856,7 +856,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 98</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 99</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -3806,12 +3806,85 @@ function ansichtToggle(ev){ if(ev)ev.stopPropagation();
 }
 function ansichtZu(){const m=document.getElementById('libansicht'); if(m)m.style.display='none';}
 function plWerkzeuge(ev){aktionsMenu(ev,[
+  ['📻 Neues entdecken', entdeckerOeffnen],
   ['✎ Umbenennen', plRename],
   ['🗑 Löschen', plDelete],
   ['⇄ Sync einrichten…', plSyncConfig],
   ['⇄ Jetzt synchronisieren', ()=>plSyncNow()],
   ['⤓ Als .m3u exportieren', plExport],
   ['⤒ .m3u importieren…', ()=>document.getElementById('m3ufile').click()]]);}
+
+/* ---- 📻 Neues entdecken (Build 99, JB): Radio-Mixe zu Titeln der gewählten
+   Playlist, alles Bekannte gefiltert — nur NEUE Songs, mit Anhören + Laden.
+   Fenster im Backkatalog-Stil, rechts unter der Download-Box angedockt. ---- */
+async function entdeckerOeffnen(){
+  const sel=document.getElementById('plsel');
+  const pid=sel&&sel.value; const pl=plState.find(p=>p.id===pid);
+  if(!pl){toast('Erst oben eine Playlist wählen.');return;}
+  entdeckerZu();
+  const fly=document.createElement('div');
+  fly.className='abo-flyout'; fly.id='ent-flyout'; fly.tabIndex=-1;
+  fly.innerHTML='<div class="abo-fly-titel">📻 Neues entdecken: '+esc(pl.name||'')+
+    '<span class="spacer"></span><button class="ib" title="Neu würfeln (andere Zufalls-Titel als Radio-Start)" onclick="entdeckerLaden()">🔄</button>'+
+    '<button class="ib" title="Schließen (Esc)" onclick="entdeckerZu()">✕</button></div>'+
+    '<div id="ent-inhalt" class="abo-folgen"><div class="leer">📡 Radios zu deinen Titeln werden aufgelöst…</div></div>';
+  document.body.appendChild(fly);
+  aboFlyoutPositionieren(fly,null);
+  fly.addEventListener('keydown',e=>{if(e.key==='Escape'){entdeckerZu(); e.stopPropagation();}});
+  setTimeout(()=>document.addEventListener('pointerdown',entdeckerAussen,true),0);
+  fly.focus(); fly.dataset.pl=pid;
+  entdeckerLaden();
+}
+function entdeckerZu(){
+  const f=document.getElementById('ent-flyout'); if(f)f.remove();
+  document.removeEventListener('pointerdown',entdeckerAussen,true);
+}
+function entdeckerAussen(e){
+  const f=document.getElementById('ent-flyout'); if(!f)return;
+  if(f.contains(e.target)||e.target.closest('.itemmenu'))return;
+  entdeckerZu();
+}
+async function entdeckerLaden(){
+  const fly=document.getElementById('ent-flyout'); if(!fly)return;
+  const box=document.getElementById('ent-inhalt');
+  box.innerHTML='<div class="leer">📡 Radios zu deinen Titeln werden aufgelöst… (ein paar Sekunden)</div>';
+  let d=null;
+  try{const r=await fetch('/api/entdecken?pl='+encodeURIComponent(fly.dataset.pl)+'&seeds=3&je=25'); d=await r.json();}catch(e){}
+  if(!d||!d.ok){box.innerHTML='<div class="leer">'+esc((d&&d.fehler)||'Entdecken fehlgeschlagen — später erneut.')+'</div>'; return;}
+  if(!d.funde.length){box.innerHTML='<div class="leer">Nichts Neues gefunden — 🔄 würfelt andere Radio-Startpunkte.</div>'; return;}
+  const q=document.getElementById('cmd-qual').value;
+  const zeilen=d.funde.map(f=>
+    '<div class="abo-f" data-vid="'+f.id+'">'+
+    (f.score>1?'<span class="abo-nr" title="Kam in '+f.score+' der '+d.seeds+' Radios vor — starkes Signal">'+f.score+'×</span>':'<span class="abo-nr"></span>')+
+    '<span class="abo-ft">'+esc(f.titel)+(f.kanal?' <span style="opacity:.55">· '+esc(f.kanal)+'</span>':'')+'</span>'+
+    (f.dauer?'<span class="abo-fd">'+zeit(f.dauer)+'</span>':'')+
+    '<button class="ib" title="Auf YouTube anhören" onclick="window.open(\\'https://www.youtube.com/watch?v='+f.id+'\\',\\'_blank\\',\\'noreferrer\\')">▶</button>'+
+    '<button class="ib" title="In die Warteschlange laden" onclick="entdeckerHolen(this,\\''+f.id+'\\')">⬇</button>'+
+    '</div>').join('');
+  box.innerHTML='<div class="abo-staffel">'+d.funde.length+' neue Titel aus '+d.seeds+' Radios — nichts davon ist in deiner Bibliothek.'+
+    '<span class="spacer"></span><button class="btn mini" onclick="entdeckerAlle()" title="Alle Funde in der Qualität oben laden">⬇ Alle ('+d.funde.length+')</button></div>'+
+    '<div class="abo-fliste">'+zeilen+'</div>';
+  fly.dataset.qual=q;
+}
+async function entdeckerHolen(btn,vid){
+  const q=(document.getElementById('cmd-qual')||{}).value||'beste';
+  await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({urls:'https://www.youtube.com/watch?v='+vid,qualitaet:q})});
+  if(btn){btn.textContent='✓'; btn.disabled=true;}
+  const z=btn&&btn.closest('.abo-f'); if(z)z.style.opacity=.45;
+  laden();
+}
+async function entdeckerAlle(){
+  const fly=document.getElementById('ent-flyout'); if(!fly)return;
+  const vids=[...fly.querySelectorAll('.abo-f')].map(z=>z.dataset.vid);
+  if(!vids.length)return;
+  if(!confirm(vids.length+' neue Titel in die Warteschlange legen?'))return;
+  const q=(document.getElementById('cmd-qual')||{}).value||'beste';
+  await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({urls:vids.map(v=>'https://www.youtube.com/watch?v='+v).join('\\n'),qualitaet:q})});
+  toast('📻 '+vids.length+' Titel eingereiht.'); entdeckerZu(); laden();
+  try{dlboxTab('queue');}catch(e){}
+}
 function mixeMenu(ev){
   const r=ev.currentTarget.getBoundingClientRect();    // Rect merken, der Knopf-Kontext geht im Menü verloren
   aktionsMenu(ev,[

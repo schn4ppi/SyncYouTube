@@ -487,6 +487,49 @@ def test_addon_hab():
         app._geladen.pop("vidHAB00001|beste", None)
 
 
+def test_entdecken():
+    # Build 99 (JB): „📻 Neues entdecken" — Radio-Mixe zu Playlist-Titeln
+    # aufloesen, ALLES Bekannte (Bibliothek + Seeds) rausfiltern; Titel, die
+    # in MEHREREN Seed-Mixen auftauchen, zuerst (staerkstes Signal).
+    rufe = []
+
+    def fake_flach(url, limit=60):
+        rufe.append(url)
+        sid = url.split("v=")[1].split("&")[0]
+        gemeinsam = {"id": "neuBEIDE001", "title": "Ueberall", "duration": 200}
+        if sid == "seedA000001":
+            return {"entries": [gemeinsam,
+                                {"id": "seedA000001", "title": "der Seed selbst"},
+                                {"id": "altGELADEN1", "title": "kenn ich schon"},
+                                {"id": "neuNURA0001", "title": "Nur in A", "duration": 100}]}
+        return {"entries": [gemeinsam,
+                            {"id": "neuNURB0001", "title": "Nur in B", "duration": 150}]}
+
+    echt_flach = app._abo_flach
+    app._abo_flach = fake_flach
+    app._playlists.append({"id": "plENT", "name": "Entdecker-Test",
+                           "items": ["seedA000001|audio", "seedB000001|audio"]})
+    app._geladen["seedA000001|audio"] = {"name": "a.mp3"}
+    app._geladen["seedB000001|audio"] = {"name": "b.mp3"}
+    app._geladen["altGELADEN1|beste"] = {"name": "alt.mp4"}
+    try:
+        d = app.entdecken("plENT", seeds=2, je_seed=25)
+        assert d.get("ok") and d["seeds"] == 2 and len(rufe) == 2
+        ids = [f["id"] for f in d["funde"]]
+        assert ids[0] == "neuBEIDE001"                 # Score 2 zuerst
+        assert d["funde"][0]["score"] == 2
+        assert set(ids) == {"neuBEIDE001", "neuNURA0001", "neuNURB0001"}
+        assert "altGELADEN1" not in ids                # Bibliothek gefiltert
+        assert "seedA000001" not in ids                # Seeds gefiltert
+        leer = app.entdecken("gibtsnicht")
+        assert leer.get("fehler")
+    finally:
+        app._abo_flach = echt_flach
+        app._playlists[:] = [p for p in app._playlists if p.get("id") != "plENT"]
+        for k in ("seedA000001|audio", "seedB000001|audio", "altGELADEN1|beste"):
+            app._geladen.pop(k, None)
+
+
 def test_abo_baseline_shorts_fallback():
     # Build 91 (Simulations-Fund): Shorts-only-Kanaele (@YouTubeShorts) haben
     # KEINEN /videos-Tab — yt-dlp liefert 404/leer. Dann den /shorts-Tab

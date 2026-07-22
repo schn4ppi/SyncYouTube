@@ -20,6 +20,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import random
 import re
 import shutil
 import socket
@@ -30,6 +31,7 @@ import time
 import uuid
 import webbrowser
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -1568,6 +1570,45 @@ def kanal_info(url, limit=None):
             "url": norm, "gedeckelt": (not mix) and len(ids) >= 5000, "mix": mix}
 
 
+def entdecken(playlist_id, seeds=3, je_seed=25):
+    """📻 Neues entdecken (Build 99, JB): Radio-Mixe zu zufaelligen Titeln
+    einer eigenen Playlist aufloesen und NUR Unbekanntes zurueckgeben —
+    YouTube kann Bekanntes nicht ausblenden, wir schon (die Bibliothek ist
+    der Filter). Titel aus MEHREREN Seed-Mixen zuerst (staerkstes Signal);
+    die Seeds laufen parallel, damit die Wartezeit kurz bleibt."""
+    pl = next((p for p in _playlists if p.get("id") == playlist_id), None)
+    vids = sorted({k.split("|", 1)[0] for k in (pl or {}).get("items") or []})
+    if not vids:
+        return {"fehler": "Playlist leer oder nicht gefunden."}
+    try:
+        n_seeds = max(1, min(int(seeds), 5))
+        n_je = max(5, min(int(je_seed), 100))
+    except (TypeError, ValueError):
+        n_seeds, n_je = 3, 25
+    seed_ids = random.sample(vids, min(n_seeds, len(vids)))
+    bekannt = {k.split("|", 1)[0] for k in _geladen}
+
+    def _ein_seed(sid):
+        return _abo_flach(f"https://www.youtube.com/watch?v={sid}&list=RD{sid}",
+                          limit=n_je)
+
+    funde = {}
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        for info in ex.map(_ein_seed, seed_ids):
+            for pos, e in enumerate((info or {}).get("entries") or []):
+                vid = (e or {}).get("id")
+                if not vid or vid in bekannt or vid in seed_ids:
+                    continue
+                f = funde.setdefault(vid, {"id": vid, "titel": e.get("title") or "",
+                                           "dauer": e.get("duration"),
+                                           "kanal": e.get("channel") or e.get("uploader") or "",
+                                           "score": 0, "pos": pos})
+                f["score"] += 1
+    liste = sorted(funde.values(), key=lambda f: (-f["score"], f["pos"]))
+    return {"ok": True, "name": (pl or {}).get("name") or "", "seeds": len(seed_ids),
+            "funde": liste}
+
+
 def addon_hab(vid):
     """Fuer die Browser-Erweiterung (Build 98, JB): Ist das Video schon in
     der Bibliothek? Reine Key-Suche ueber _geladen (<id>|<qualitaet>)."""
@@ -2924,6 +2965,11 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/addon_hab"):    # Erweiterung: Video schon in der Bibliothek? (Build 98)
             vid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, addon_hab(vid))
+        elif self.path.startswith("/api/entdecken"):    # 📻 Neues entdecken (Build 99)
+            q = parse_qs(urlparse(self.path).query)
+            _antwort(self, 200, entdecken((q.get("pl") or [""])[0],
+                                          seeds=(q.get("seeds") or [3])[0],
+                                          je_seed=(q.get("je") or [25])[0]))
         elif self.path.startswith("/api/playlist_export"):
             pid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             pl = next((p for p in _playlists if p.get("id") == pid), None)
