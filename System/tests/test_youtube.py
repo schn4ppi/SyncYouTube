@@ -509,6 +509,32 @@ def test_playlist_einreihen():
         app._geladen.pop("vidENT00001|audio", None)
 
 
+def test_entdecken_bibliothek():
+    # Build 106 (JB): ✨ ohne gewählte Playlist = die GANZE Bibliothek als
+    # Quelle. Seeds gewichtet nach plays (was JB wirklich hört), max 1 Seed
+    # je Künstler (Vielfalt); Import-Dateien ohne echte YouTube-Id fallen raus.
+    def fake_flach(url, limit=60):
+        return {"entries": [{"id": "neuFund0001", "title": "Neu", "duration": 100}]}
+
+    echt = app._abo_flach
+    app._abo_flach = fake_flach
+    app._geladen["vielGSPLT01|audio"] = {"name": "a.mp3", "plays": 50, "kuenstler": "Kate Bush"}
+    app._geladen["vielGSPLT02|audio"] = {"name": "b.mp3", "plays": 40, "kuenstler": "Kate Bush"}
+    app._geladen["andereBand1|audio"] = {"name": "c.mp3", "plays": 30, "kuenstler": "Survivor"}
+    app._geladen["lokal-abcdef12345|lokal"] = {"name": "fremd.mp4", "importiert": True}
+    try:
+        d = app.entdecken("", seeds=2, je_seed=5)      # leer = Bibliothek
+        assert d.get("ok") and d["seeds"] == 2
+        assert [f["id"] for f in d["funde"]] == ["neuFund0001"]
+        # Künstler-Dedupe: die 2 Seeds dürfen nicht beide Kate Bush sein
+        assert d.get("quelle") == "bibliothek"
+    finally:
+        app._abo_flach = echt
+        for k in ("vielGSPLT01|audio", "vielGSPLT02|audio", "andereBand1|audio",
+                  "lokal-abcdef12345|lokal"):
+            app._geladen.pop(k, None)
+
+
 def test_mb_pro_min():
     # Build 105 (JB: „wie viel lade ich ungefähr?"): Groessen-Schaetzung aus
     # den ECHTEN eigenen Downloads (Median MB/min je Qualitaet); zu wenig

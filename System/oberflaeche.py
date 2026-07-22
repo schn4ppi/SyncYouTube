@@ -882,7 +882,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 105</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 106</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -3944,13 +3944,14 @@ function plWerkzeuge(ev){aktionsMenu(ev,[
    Playlist, alles Bekannte gefiltert — nur NEUE Songs, mit Anhören + Laden.
    Fenster im Backkatalog-Stil, rechts unter der Download-Box angedockt. ---- */
 async function entdeckerOeffnen(){
+  // Build 106 (JB): ohne gewählte Playlist nimmt der Entdecker die GANZE
+  // Bibliothek als Quelle (Seeds gewichtet nach dem, was du wirklich hörst).
   const sel=document.getElementById('plsel');
   const pid=sel&&sel.value; const pl=plState.find(p=>p.id===pid);
-  if(!pl){toast('Erst oben eine Playlist wählen.');return;}
   entdeckerZu();
   const fly=document.createElement('div');
   fly.className='abo-flyout'; fly.id='ent-flyout'; fly.tabIndex=-1;
-  fly.innerHTML='<div class="abo-fly-titel">📻 Neues entdecken: '+esc(pl.name||'')+
+  fly.innerHTML='<div class="abo-fly-titel">📻 Neues entdecken: '+esc(pl?(pl.name||''):'deine Bibliothek')+
     '<span class="spacer"></span><button class="ib" title="Neu würfeln (andere Zufalls-Titel als Radio-Start)" onclick="entdeckerLaden()">🔄</button>'+
     '<button class="ib" title="Schließen (Esc)" onclick="entdeckerZu()">✕</button></div>'+
     '<div id="ent-inhalt" class="abo-folgen"><div class="leer">📡 Radios zu deinen Titeln werden aufgelöst…</div></div>';
@@ -3958,7 +3959,7 @@ async function entdeckerOeffnen(){
   aboFlyoutPositionieren(fly,null);
   fly.addEventListener('keydown',e=>{if(e.key==='Escape'){entdeckerZu(); e.stopPropagation();}});
   setTimeout(()=>document.addEventListener('pointerdown',entdeckerAussen,true),0);
-  fly.focus(); fly.dataset.pl=pid;
+  fly.focus(); fly.dataset.pl=pl?pid:'';
   entdeckerLaden();
 }
 function entdeckerZu(){
@@ -3979,6 +3980,7 @@ async function entdeckerLaden(){
   if(!d||!d.ok){box.innerHTML='<div class="leer">'+esc((d&&d.fehler)||'Entdecken fehlgeschlagen — später erneut.')+'</div>'; return;}
   if(!d.funde.length){box.innerHTML='<div class="leer">Nichts Neues gefunden — 🔄 würfelt andere Radio-Startpunkte.</div>'; return;}
   const q=document.getElementById('cmd-qual').value;
+  const quelleText=d.quelle==='bibliothek'?' (Radio-Start: deine meistgehörten Titel, je Künstler einer)':'';
   const zeilen=d.funde.map(f=>
     '<div class="abo-f" data-vid="'+f.id+'">'+
     (f.score>1?'<span class="abo-nr" title="Kam in '+f.score+' der '+d.seeds+' Radios vor — starkes Signal">'+f.score+'×</span>':'<span class="abo-nr"></span>')+
@@ -3987,7 +3989,7 @@ async function entdeckerLaden(){
     '<button class="ib" title="Auf YouTube anhören" onclick="window.open(\\'https://www.youtube.com/watch?v='+f.id+'\\',\\'_blank\\',\\'noreferrer\\')">▶</button>'+
     '<button class="ib" title="In die Warteschlange laden" onclick="entdeckerHolen(this,\\''+f.id+'\\')">⬇</button>'+
     '</div>').join('');
-  box.innerHTML='<div class="abo-staffel">'+d.funde.length+' neue Titel aus '+d.seeds+' Radios — nichts davon ist in deiner Bibliothek.'+
+  box.innerHTML='<div class="abo-staffel" title="'+esc(quelleText.trim())+'">'+d.funde.length+' neue Titel aus '+d.seeds+' Radios — nichts davon ist in deiner Bibliothek.'+
     '<span class="spacer"></span>'+
     '<button class="btn mini" onclick="entdeckerDurchhoeren()" title="Alle Funde als temporäre YouTube-Playlist öffnen und am Stück durchhören (max. 50)">▶ Auf YouTube durchhören</button>'+
     '<button class="btn mini" onclick="entdeckerAlle()" title="Alle Funde laden — sie sammeln sich in der Playlist „✨ Entdeckt (Datum)"">⬇ Alle ('+d.funde.length+')</button></div>'+

@@ -1586,21 +1586,46 @@ def kanal_info(url, limit=None):
 
 
 def entdecken(playlist_id, seeds=3, je_seed=25):
-    """📻 Neues entdecken (Build 99, JB): Radio-Mixe zu zufaelligen Titeln
-    einer eigenen Playlist aufloesen und NUR Unbekanntes zurueckgeben —
-    YouTube kann Bekanntes nicht ausblenden, wir schon (die Bibliothek ist
-    der Filter). Titel aus MEHREREN Seed-Mixen zuerst (staerkstes Signal);
-    die Seeds laufen parallel, damit die Wartezeit kurz bleibt."""
-    pl = next((p for p in _playlists if p.get("id") == playlist_id), None)
-    vids = sorted({k.split("|", 1)[0] for k in (pl or {}).get("items") or []})
-    if not vids:
-        return {"fehler": "Playlist leer oder nicht gefunden."}
+    """📻 Neues entdecken (Build 99/106, JB): Radio-Mixe zu Titeln einer
+    Playlist — oder OHNE Playlist zur GANZEN Bibliothek — aufloesen und NUR
+    Unbekanntes zurueckgeben (die Bibliothek ist der Filter, YouTube kann
+    Bekanntes nicht ausblenden). Bibliotheks-Seeds sind GEWICHTET: bevorzugt
+    oft Gespieltes (plays), hoechstens EIN Seed je Kuenstler (Vielfalt);
+    Import-Dateien ohne echte YouTube-Id fallen raus. Titel aus MEHREREN
+    Seed-Mixen zuerst; die Seeds laufen parallel."""
     try:
         n_seeds = max(1, min(int(seeds), 5))
         n_je = max(5, min(int(je_seed), 100))
     except (TypeError, ValueError):
         n_seeds, n_je = 3, 25
-    seed_ids = random.sample(vids, min(n_seeds, len(vids)))
+    quelle = "playlist"
+    pl = next((p for p in _playlists if p.get("id") == playlist_id), None)
+    if pl and pl.get("items"):
+        vids = sorted({k.split("|", 1)[0] for k in pl["items"]})
+        seed_ids = random.sample(vids, min(n_seeds, len(vids)))
+        name = pl.get("name") or ""
+    elif playlist_id:
+        return {"fehler": "Playlist leer oder nicht gefunden."}
+    else:
+        quelle, name = "bibliothek", "deine Bibliothek"
+        # Kandidaten: echte YouTube-Downloads, nach Hoer-Haeufigkeit sortiert
+        kand = sorted(
+            ((k.split("|", 1)[0], e) for k, e in _geladen.items()
+             if _plausible_id(k.split("|", 1)[0]) and not e.get("importiert")),
+            key=lambda p: (-(p[1].get("plays") or 0), -(p[1].get("ts") or 0)))
+        seed_ids, kuenstler = [], set()
+        pool = kand[:40]
+        random.shuffle(pool)
+        for vid, e in pool:                            # max 1 Seed je Kuenstler
+            wer = (e.get("kuenstler") or e.get("uploader") or vid).lower()
+            if vid in seed_ids or wer in kuenstler:
+                continue
+            seed_ids.append(vid)
+            kuenstler.add(wer)
+            if len(seed_ids) >= n_seeds:
+                break
+        if not seed_ids:
+            return {"fehler": "Keine YouTube-Titel in der Bibliothek gefunden."}
     bekannt = {k.split("|", 1)[0] for k in _geladen}
 
     def _ein_seed(sid):
@@ -1620,8 +1645,8 @@ def entdecken(playlist_id, seeds=3, je_seed=25):
                                            "score": 0, "pos": pos})
                 f["score"] += 1
     liste = sorted(funde.values(), key=lambda f: (-f["score"], f["pos"]))
-    return {"ok": True, "name": (pl or {}).get("name") or "", "seeds": len(seed_ids),
-            "funde": liste}
+    return {"ok": True, "name": name, "seeds": len(seed_ids),
+            "quelle": quelle, "funde": liste}
 
 
 _MB_FALLBACK = {"audio": 1.5, "720p": 12, "1080p": 22, "1440p": 35, "2160p": 60,
