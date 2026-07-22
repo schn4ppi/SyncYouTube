@@ -494,6 +494,19 @@ html.light .abo-flyout .abo-f{border-bottom-color:rgba(0,0,0,.055)}
 .abo-staffel .btn.mini{padding:2px 8px}
 .abo-band{position:fixed;z-index:901;border:1px solid var(--akz);background:rgba(201,149,43,.14);
   border-radius:3px;pointer-events:none}
+/* ✂-Schneide-Leiste (Build 101, JB): zwei ZIEHBARE Griffe statt Eingabefelder;
+   Ziehen springt den Player live an die Stelle, die Wiedergabe endet an B. */
+.schnitt-spur{position:relative;height:30px;background:var(--panelln);border-radius:8px;
+  margin:10px 4px 4px;cursor:pointer;user-select:none;touch-action:none}
+.schnitt-bereich{position:absolute;top:0;bottom:0;background:rgba(201,149,43,.30);
+  border:1px solid var(--akz);border-radius:8px;pointer-events:none}
+.schnitt-griff{position:absolute;top:-4px;width:18px;height:38px;margin-left:-9px;
+  background:var(--akz);border-radius:9px;cursor:ew-resize;box-shadow:0 2px 8px rgba(0,0,0,.4);
+  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#1c1814}
+.schnitt-griff:hover{transform:scaleY(1.06)}
+.schnitt-zeiten{display:flex;justify-content:space-between;font-size:12px;color:var(--akz2);
+  padding:2px 6px 0}
+html.light .schnitt-spur{background:#e3d8cc}
 html.light .abo-flyout{background:#faf5ec;border-color:#e3d8cc;box-shadow:0 14px 42px rgba(90,70,40,.25)}
 .abo-ft{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .abo-fd{color:#8a7d74;font-size:11px;flex:none}
@@ -856,7 +869,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 100</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 101</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -3535,21 +3548,101 @@ function sleepLabel(){const l=document.getElementById('sleepval'); if(!l)return;
   l.textContent=sleepTitelende?'· nach diesem Titel':(sleepEndeZeit?('· noch '+Math.max(1,Math.round((sleepEndeZeit-Date.now())/60000))+' min'):'');}
 
 /* ---- Ausschnitt/Clip: vorne + hinten schneiden -> ein Video (ffmpeg, ohne Längenlimit) ---- */
+/* ✂-Schneide-Leiste (Build 101, JB: „zwei Regler ziehen können") — ersetzt die
+   alten mm:ss-Eingabefelder. Griff ziehen springt den Player LIVE an die
+   Stelle (B-Griff kurz davor, damit man das Ende hört); läuft die Wiedergabe
+   in die B-Marke, pausiert sie. ✂ speichert wie bisher nicht-destruktiv
+   als NEUEN Bibliothekseintrag (das Original bleibt). */
+let schnitt=null;                                      // {id,a,b,dauer}
 async function clipDialog(id){
   if(!id){alert('Kein Titel gewählt.');return;}
+  if(aktKey()!==id){playerPlay([id]); await new Promise(r=>setTimeout(r,500));}
   const el=document.getElementById('pl-el');
-  const vorschlagEnde=(el&&aktKey()===id&&el.currentTime>0)?zeit(el.currentTime):'';
-  const start=prompt('Ausschnitt VON (mm:ss, leer = Anfang):','');
-  if(start===null)return;
-  const ende=prompt('Ausschnitt BIS (mm:ss, leer = Ende):',vorschlagEnde);
-  if(ende===null)return;
+  if(!el||!isFinite(el.duration)||!el.duration){toast('Titel lädt noch — gleich nochmal ✂ drücken.');return;}
+  schnittZu();
+  const dauer=el.duration;
+  schnitt={id, a:0, b:(el.currentTime>1&&el.currentTime<dauer-1)?el.currentTime:dauer, dauer};
+  const fly=document.createElement('div');
+  fly.className='abo-flyout'; fly.id='schnitt-fly'; fly.tabIndex=-1; fly.style.height='auto';
+  fly.innerHTML='<div class="abo-fly-titel">✂ Ausschnitt wählen<span class="spacer"></span>'+
+    '<button class="ib" title="Schließen (Esc)" onclick="schnittZu()">✕</button></div>'+
+    '<div class="schnitt-spur" id="schnitt-spur">'+
+      '<div class="schnitt-bereich" id="schnitt-bereich"></div>'+
+      '<div class="schnitt-griff" id="schnitt-a" title="Anfang ziehen — der Player springt mit">A</div>'+
+      '<div class="schnitt-griff" id="schnitt-b" title="Ende ziehen — der Player springt kurz davor">B</div></div>'+
+    '<div class="schnitt-zeiten"><span id="schnitt-za"></span><span id="schnitt-zl"></span><span id="schnitt-zb"></span></div>'+
+    '<div class="abo-staffel" style="margin-top:8px"><span style="opacity:.7">Wiedergabe endet an B.</span><span class="spacer"></span>'+
+      '<button class="btn mini" onclick="schnittVorhoeren()" title="Den gewählten Bereich von A an abspielen">▶ Bereich</button>'+
+      '<button class="btn mini" onclick="schnittSpeichern(this)" title="Bereich als NEUEN Titel speichern — das Original bleibt unangetastet">✂ Ausschnitt speichern</button></div>';
+  document.body.appendChild(fly);
+  const m=document.querySelector('.pl-media'), r0=m?m.getBoundingClientRect():null;
+  const w=Math.min(560, window.innerWidth-24);
+  fly.style.width=w+'px';
+  fly.style.left=Math.max(12,Math.min((r0?r0.left+(r0.width-w)/2:12), window.innerWidth-12-w))+'px';
+  fly.style.top=Math.max(12,(r0?Math.min(r0.bottom-140, window.innerHeight-160):window.innerHeight/2))+'px';
+  fly.addEventListener('keydown',e=>{if(e.key==='Escape'){schnittZu(); e.stopPropagation();}});
+  ['schnitt-a','schnitt-b'].forEach(g=>document.getElementById(g).addEventListener('pointerdown',schnittDrag));
+  el.addEventListener('timeupdate',schnittTick);
+  fly.focus();
+  schnittMalen();
+}
+function schnittZu(){
+  const f=document.getElementById('schnitt-fly'); if(f)f.remove();
+  const el=document.getElementById('pl-el'); if(el)el.removeEventListener('timeupdate',schnittTick);
+  schnitt=null;
+}
+function schnittTick(){
+  const el=document.getElementById('pl-el');
+  if(!schnitt||!el)return;
+  if(aktKey()!==schnitt.id){schnittZu();return;}       // Titel gewechselt -> Leiste weg
+  if(el.currentTime>=schnitt.b&&!el.paused)el.pause(); // „…und beendet" (JB)
+}
+function schnittMalen(){
+  if(!schnitt)return;
+  const spur=document.getElementById('schnitt-spur'); if(!spur)return;
+  const w=spur.clientWidth, pa=schnitt.a/schnitt.dauer*w, pb=schnitt.b/schnitt.dauer*w;
+  const ber=document.getElementById('schnitt-bereich');
+  ber.style.left=pa+'px'; ber.style.width=Math.max(2,pb-pa)+'px';
+  document.getElementById('schnitt-a').style.left=pa+'px';
+  document.getElementById('schnitt-b').style.left=pb+'px';
+  document.getElementById('schnitt-za').textContent='A '+zeit(schnitt.a);
+  document.getElementById('schnitt-zb').textContent='B '+zeit(schnitt.b);
+  document.getElementById('schnitt-zl').textContent='Länge '+zeit(Math.max(0,schnitt.b-schnitt.a));
+}
+function schnittDrag(ev){
+  if(!schnitt)return;
+  ev.preventDefault(); ev.stopPropagation();
+  const griffA=ev.currentTarget.id==='schnitt-a';
+  const spur=document.getElementById('schnitt-spur');
+  const el=document.getElementById('pl-el');
+  function mv(e){
+    const r=spur.getBoundingClientRect();
+    const t=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width))*schnitt.dauer;
+    if(griffA)schnitt.a=Math.min(t,schnitt.b-1);
+    else schnitt.b=Math.max(t,schnitt.a+1);
+    if(el){el.currentTime=griffA?schnitt.a:Math.max(schnitt.a,schnitt.b-1.5);}   // live mithören
+    schnittMalen();
+  }
+  function up(){document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up);}
+  document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);
+  mv(ev);
+}
+function schnittVorhoeren(){
+  const el=document.getElementById('pl-el');
+  if(!schnitt||!el)return;
+  el.currentTime=schnitt.a; el.play();
+}
+async function schnittSpeichern(btn){
+  if(!schnitt)return;
+  const daten={id:schnitt.id, start:schnitt.a>0.5?zeit(schnitt.a):'', ende:schnitt.b<schnitt.dauer-0.5?zeit(schnitt.b):''};
+  if(btn){btn.disabled=true; btn.textContent='⏳ …';}
   const info=document.getElementById('plinfo'); if(info)info.textContent='✂ Ausschnitt wird erstellt …';
   try{
-    const r=await fetch('/api/clip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,start,ende})});
+    const r=await fetch('/api/clip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(daten)});
     const d=await r.json();
-    if(d.fehler){if(info)info.textContent=''; alert('Ausschnitt: '+d.fehler);}
-    else{if(info)info.textContent='✂ Ausschnitt erstellt: '+d.name; libLaden();}
-  }catch(e){alert('Ausschnitt fehlgeschlagen (App erreichbar?).');}
+    if(d.fehler){if(info)info.textContent=''; alert('Ausschnitt: '+d.fehler); if(btn){btn.disabled=false;btn.textContent='✂ Ausschnitt speichern';}}
+    else{if(info)info.textContent='✂ Ausschnitt erstellt: '+d.name; toast('✂ '+d.name); libLaden(); schnittZu();}
+  }catch(e){alert('Ausschnitt fehlgeschlagen (App erreichbar?).'); if(btn){btn.disabled=false;btn.textContent='✂ Ausschnitt speichern';}}
 }
 
 function ext(n){const m=(n||'').match(/\\.([a-z0-9]+)$/i); return m?m[1].toUpperCase():'–';}
