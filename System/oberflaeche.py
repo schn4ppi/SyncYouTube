@@ -882,7 +882,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 107</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 108</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -5437,16 +5437,48 @@ async function plImport(input){
 }
 
 async function plSyncConfig(){
+  // Build 108 (JB): eigenes kleines Fenster statt prompt — Pfad vom letzten
+  // Mal vorbelegt und 📁 öffnet den NATIVEN Windows-Ordnerdialog (über den
+  // lokalen Server; der Browser darf selbst keine Pfade wählen).
   const id=document.getElementById('plsel').value;
   if(!id){alert('Bitte zuerst eine Playlist wählen.');return;}
   const p=plState.find(x=>x.id===id);
-  const ordner=prompt('Zielordner / Gerät für die Synchronisation\\n(z.B. E:\\\\Musik, ein USB-Stick oder ein Handy-Ordner):', p.sync_ordner||'');
-  if(ordner===null)return;
-  const spiegeln=confirm('Exakt spiegeln?\\n\\nOK = SPIEGELN: aus der Playlist entfernte Titel werden im Zielordner GELÖSCHT '+
-    '(nur Dateien, die diese App dorthin kopiert hat — fremde Dateien bleiben unberührt).\\n\\n'+
-    'Abbrechen = nur KOPIEREN (es wird nie etwas gelöscht).');
-  await plApi({art:'sync_config',id,sync_ordner:ordner.trim(),sync_modus:spiegeln?'spiegeln':'kopieren'});
-  if(ordner.trim())plSyncNow(id);
+  let letzter=''; try{letzter=localStorage.getItem('ytdl_sync_letzter')||'';}catch(e){}
+  const alt=document.getElementById('sync-fly'); if(alt)alt.remove();
+  const fly=document.createElement('div');
+  fly.className='abo-flyout'; fly.id='sync-fly'; fly.tabIndex=-1; fly.style.height='auto';
+  fly.innerHTML='<div class="abo-fly-titel">⇄ Sync einrichten: '+esc(p.name||'')+
+    '<span class="spacer"></span><button class="ib" onclick="document.getElementById(\\'sync-fly\\').remove()" title="Schließen (Esc)">✕</button></div>'+
+    '<div style="display:flex;gap:6px;margin:8px 4px 4px">'+
+      '<input type="text" id="sync-pfad" style="flex:1" placeholder="z. B. E:\\\\Musik — USB-Stick oder Handy-Ordner" value="'+esc(p.sync_ordner||letzter)+'">'+
+      '<button class="btn mini" onclick="syncOrdnerWaehlen(this)" title="Nativen Windows-Ordnerdialog öffnen (erscheint auf deinem Bildschirm)">📁 wählen</button></div>'+
+    '<div class="abo-staffel" style="margin-top:8px"><span style="opacity:.7">Spiegeln löscht im Ziel nur Dateien, die die App selbst kopiert hat.</span><span class="spacer"></span>'+
+      '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',false)" title="Nur kopieren — es wird nie etwas gelöscht">Nur kopieren</button>'+
+      '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',true)" title="Exakt spiegeln — Entferntes verschwindet auch im Ziel (nur App-eigene Kopien)">Exakt spiegeln</button></div>';
+  document.body.appendChild(fly);
+  aboFlyoutPositionieren(fly,null);
+  fly.style.height='auto';
+  fly.addEventListener('keydown',e=>{if(e.key==='Escape'){fly.remove(); e.stopPropagation();}});
+  fly.focus();
+}
+async function syncOrdnerWaehlen(btn){
+  const inp=document.getElementById('sync-pfad'); if(!inp)return;
+  if(btn){btn.disabled=true; btn.textContent='⏳ …';}
+  try{
+    const r=await fetch('/api/ordner_waehlen?start='+encodeURIComponent(inp.value||''));
+    const d=await r.json();
+    if(d.pfad)inp.value=d.pfad;
+    else if(d.fehler)toast(d.fehler);
+  }catch(e){toast('Ordner-Dialog nicht erreichbar.');}
+  if(btn){btn.disabled=false; btn.textContent='📁 wählen';}
+}
+async function syncSpeichern(id,spiegeln){
+  const inp=document.getElementById('sync-pfad');
+  const ordner=(inp&&inp.value||'').trim();
+  try{if(ordner)localStorage.setItem('ytdl_sync_letzter',ordner);}catch(e){}
+  await plApi({art:'sync_config',id,sync_ordner:ordner,sync_modus:spiegeln?'spiegeln':'kopieren'});
+  const f=document.getElementById('sync-fly'); if(f)f.remove();
+  if(ordner){toast('⇄ Sync: '+(spiegeln?'spiegeln':'kopieren')+' → '+ordner); plSyncNow(id);}
 }
 async function plSyncNow(id){
   id=(typeof id==='string')?id:document.getElementById('plsel').value;

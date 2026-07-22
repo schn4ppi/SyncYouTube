@@ -1681,6 +1681,35 @@ def entdecken(playlist_id, seeds=3, je_seed=25):
             "quelle": quelle, "funde": liste}
 
 
+_dialog_lock = threading.Lock()
+
+
+def ordner_waehlen(start=""):
+    """Nativen Windows-Ordnerdialog auf DIESEM PC oeffnen (Build 108, JB:
+    „man sollte im Fenster einen Ordner waehlen koennen") — der Browser darf
+    aus Sicherheitsgruenden keine Pfade liefern, der lokale Server schon.
+    Nur ein Dialog gleichzeitig; topmost, damit er nicht hinter dem Browser
+    verschwindet."""
+    if not _dialog_lock.acquire(blocking=False):
+        return {"pfad": "", "fehler": "Es ist schon ein Ordner-Dialog offen."}
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        wurzel = tk.Tk()
+        wurzel.withdraw()
+        wurzel.attributes("-topmost", True)
+        try:
+            pfad = filedialog.askdirectory(title="Zielordner wählen",
+                                           initialdir=(start or None)) or ""
+        finally:
+            wurzel.destroy()
+        return {"pfad": pfad.replace("/", os.sep)}
+    except Exception:                                # noqa: BLE001 — Dialog-Umgebung fehlt
+        return {"pfad": "", "fehler": "Ordner-Dialog nicht verfuegbar."}
+    finally:
+        _dialog_lock.release()
+
+
 _MB_FALLBACK = {"audio": 1.5, "720p": 12, "1080p": 22, "1440p": 35, "2160p": 60,
                 "beste": 25, "lokal": 25}
 
@@ -3074,6 +3103,11 @@ class Handler(BaseHTTPRequestHandler):
             _antwort(self, 200, addon_hab(vid))
         elif self.path.startswith("/api/schaetzfaktoren"):   # MB/min je Qualitaet (Build 105)
             _antwort(self, 200, {q: _mb_pro_min(q) for q in QUALITAETEN})
+        elif self.path.startswith("/api/ordner_waehlen"):    # nativer Ordnerdialog (Build 108)
+            if self.client_address[0] != "127.0.0.1":        # nur vom eigenen PC (WLAN-Fernsteuerung nicht)
+                return _antwort(self, 403, {"fehler": "nur lokal"})
+            start = (parse_qs(urlparse(self.path).query).get("start") or [""])[0]
+            _antwort(self, 200, ordner_waehlen(start))
         elif self.path.startswith("/api/entdecken"):    # 📻 Neues entdecken (Build 99)
             q = parse_qs(urlparse(self.path).query)
             _antwort(self, 200, entdecken((q.get("pl") or [""])[0],
