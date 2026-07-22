@@ -611,8 +611,22 @@ html.light .kap:hover{color:#8a5a1e}html.light .pl-kapitel{border-color:#ece3d9}
 .kar-akt{color:var(--akz2);font-size:23px;font-weight:700;text-align:center;max-width:94%;line-height:1.3}
 /* Karaoke-Mitleuchten (nur LRCLIB): schon gesungene Wörter hell/akzentuiert,
    kommende gedimmt — der Fortschritt „läuft" durch die Zeile (JB 21.07.). */
-.kar-akt.lrc .kw{color:rgba(255,255,255,.38);transition:color .15s,text-shadow .15s}
-.kar-akt.lrc .kw.sung{color:var(--akz2);text-shadow:0 0 10px var(--akz)}
+/* Build 115 (JB): echte Karaoke-Maschine — die Farbe LÄUFT durch das Wort
+   (Wischer von links nach rechts), statt Wörter hart umzuschalten. Technik:
+   Farbverlauf als Text-Füllung, Kante über --p (0…1) gesteuert. --p wird je
+   Bild neu gesetzt, darum hier KEINE transition (die würde nachhinken). */
+.kar-akt.lrc .kw{
+  --p:0;
+  background-image:linear-gradient(90deg,var(--akz2) 0%,var(--akz2) calc(var(--p)*100%),
+                   rgba(255,255,255,.38) calc(var(--p)*100%),rgba(255,255,255,.38) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  -webkit-text-fill-color:transparent;
+  text-shadow:none}                                  /* Rand würde die Füllung überdecken */
+.kar-akt.lrc .kw.aktiv{filter:drop-shadow(0 0 9px var(--akz))}   /* Wort, das gerade dran ist */
+.kar-akt.lrc{text-shadow:none}
+html.light .kar-akt.lrc .kw{
+  background-image:linear-gradient(90deg,var(--akz2) 0%,var(--akz2) calc(var(--p)*100%),
+                   rgba(0,0,0,.35) calc(var(--p)*100%),rgba(0,0,0,.35) 100%)}
 /* Schwarzer Buchstaben-Rand: Untertitel/Karaoke auf JEDER Fläche lesbar (JB-Wunsch) */
 .subtxt,.kar-akt,.kar-neben{
   text-shadow:-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000,
@@ -883,7 +897,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 114</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 115</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -4545,6 +4559,8 @@ function subModusSetzen(mode){
   try{localStorage.setItem('ytdl_submode',subMode);}catch(e){}
   if(subMode!=='aus'&&!subCues)subNachladen();         // fehlen welche -> still holen, KEIN Popup
   subAnzeigen();
+  const el=document.getElementById('pl-el');           // Wischer sofort mitnehmen (Build 115)
+  if(subMode==='karaoke'&&el&&!el.paused)karLauf(el);
 }
 function subCycle(){
   const i=SUBMODES.findIndex(x=>x[0]===subMode);
@@ -4578,6 +4594,20 @@ async function subNachladen(){
 function karWorte(text){                                // Zeile in Wort-Spans zerlegen (fürs Mitleuchten)
   return (text||'').split(/(\\s+)/).map(w=>/\\S/.test(w)?'<span class="kw">'+esc(w)+'</span>':esc(w)).join('');
 }
+let karRAF=0;
+function karLauf(el){
+  // Build 115: der Wischer braucht den Bildtakt — 'timeupdate' feuert nur
+  // ~4x/s (sichtbares Stufen). Läuft NUR während Karaoke-Wiedergabe und
+  // stellt sich bei Pause/Moduswechsel selbst ab (Last-Budget).
+  if(!window.requestAnimationFrame)return;
+  cancelAnimationFrame(karRAF);
+  const schritt=()=>{
+    if(!el||el.paused||subMode!=='karaoke'){karRAF=0; return;}
+    subTick(el);
+    karRAF=requestAnimationFrame(schritt);
+  };
+  karRAF=requestAnimationFrame(schritt);
+}
 function subTick(el){
   if(!subCues||subMode==='aus')return;
   const t=el.currentTime;
@@ -4608,10 +4638,28 @@ function subTick(el){
   // Wort-Mitleuchten INNERHALB der aktiven LRCLIB-Zeile — jeder Tick, per Zeit
   // interpoliert (LRCLIB liefert Zeilen-, kein Wort-Timing -> gleichmäßig gefüllt).
   if(subMode==='karaoke'&&istLrc&&i>=0&&ov){
+    // Build 115 (JB, „wie bei einer echten Karaoke-Maschine"): der Wischer
+    // läuft KONTINUIERLICH durch die Zeile. Die Zeit wird nicht gleichmäßig
+    // auf die Wörter verteilt, sondern nach WORTLÄNGE gewichtet — lange
+    // Wörter brauchen länger, das trifft den Silben-Rhythmus deutlich besser
+    // (echte Silben-Zeiten liefert die Textquelle leider nicht mit).
     const c=subCues[i], dauer=(c.ende-c.start)||1;
     const p=Math.max(0,Math.min(1,(t-c.start)/dauer));
-    const kw=ov.querySelectorAll('.kar-akt .kw'), bis=Math.round(p*kw.length);
-    kw.forEach((s,n)=>s.classList.toggle('sung',n<bis));
+    const kw=ov.querySelectorAll('.kar-akt .kw');
+    if(kw.length){
+      if(!ov._karGewicht||ov._karFuer!==i){          // Gewichte je Zeile einmal rechnen
+        let summe=0; const g=[];
+        kw.forEach(s=>{const l=Math.max(1,(s.textContent||'').trim().length); g.push(l); summe+=l;});
+        ov._karGewicht=g.map(l=>l/summe); ov._karFuer=i;
+      }
+      let vorher=0;
+      ov._karGewicht.forEach((anteil,n)=>{
+        const lokal=Math.max(0,Math.min(1,(p-vorher)/(anteil||1)));
+        kw[n].style.setProperty('--p',lokal);
+        kw[n].classList.toggle('aktiv',lokal>0&&lokal<1);
+        vorher+=anteil;
+      });
+    }
   }
 }
 
@@ -5014,6 +5062,7 @@ function renderPlayerMedia(){
     el.addEventListener('ended',()=>{ if(xfNext)xfUebernehmen(); else playerAdvance(); });
     el.addEventListener('play',cmdNowRender); el.addEventListener('pause',cmdNowRender);
     el.addEventListener('timeupdate',()=>subTick(el));   // Untertitel/Karaoke mitlaufen lassen
+    el.addEventListener('play',()=>karLauf(el));         // Karaoke-Wischer im Bildtakt (Build 115)
     if(istAudio)el.addEventListener('timeupdate',()=>uebergangTick(el));   // Gapless/Crossfade/Automix
     try{el.volume=plVol/100;}catch(e){}                   // gemerkte Lautstärke anwenden
     // Klick IRGENDWO in die Player-Fläche = Pause/Play (unsere Leiste ausgenommen)
