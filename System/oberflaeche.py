@@ -919,7 +919,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 119</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 120</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -2745,7 +2745,14 @@ function cmdNowRender(){
   // Build 117 (JB-Go): dieselben Transport-Knöpfe standen doppelt da — hier
   // UND im Player. Ist der Player offen, führt er; die Kopfleiste behält nur
   // Titel, Zeitleiste, Lautstärke und Radio (die hat der Player nicht).
-  document.body.classList.toggle('hat-player', !!document.getElementById('pl-el'));
+  // Build 120 (JB-Fund): NICHT auf das Audio-Element prüfen — das entsteht
+  // beim Abspielen auch ohne sichtbaren Player, dann verschwanden hier alle
+  // Knöpfe, obwohl es keinen Ersatz gab. Es zählt nur die wirklich SICHTBARE
+  // Player-Fläche.
+  const pmedia=document.getElementById('pl-media');
+  const playerSichtbar=!!(pmedia&&pmedia.getBoundingClientRect().height>40
+                          &&getComputedStyle(pmedia).display!=='none');
+  document.body.classList.toggle('hat-player', playerSichtbar);
   const k=playerState.queue[playerState.idx], x=k?libFind(k):null;
   el.classList.toggle('spielt', !!x);                  // Rahmen glimmt, wenn etwas läuft
   const sig=[k||'',x?x.titel:''].join('|');            // Play/Pause & Toggles zieht transportRender nach
