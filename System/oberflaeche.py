@@ -507,6 +507,12 @@ html.light .abo-flyout .abo-f{border-bottom-color:rgba(0,0,0,.055)}
 .schnitt-zeiten{display:flex;justify-content:space-between;font-size:12px;color:var(--akz2);
   padding:2px 6px 0}
 html.light .schnitt-spur{background:#e3d8cc}
+/* Wiedergabe-Merker (Build 102, JB): gelber Strich = „hier war ich zuletzt";
+   Klick springt hin — der Titel startet aber IMMER normal bei 0. */
+.pl-barseek{position:relative}
+.plb-merker{position:absolute;top:50%;width:3px;height:16px;transform:translate(-50%,-50%);
+  background:var(--akz);border-radius:2px;cursor:pointer;z-index:3;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.plb-merker:hover{transform:translate(-50%,-50%) scaleY(1.3)}
 html.light .abo-flyout{background:#faf5ec;border-color:#e3d8cc;box-shadow:0 14px 42px rgba(90,70,40,.25)}
 .abo-ft{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .abo-fd{color:#8a7d74;font-size:11px;flex:none}
@@ -869,7 +875,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 101</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 102</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -4836,10 +4842,49 @@ function plbPip(){                                     // natives Bild-in-Bild (
                     :'Bild-in-Bild nicht möglich.');
   }
 }
+/* ---- Wiedergabe-Merker (Build 102, JB): je Titel die letzte Stelle merken.
+   Gelber Strich auf der Leiste zeigt sie, KLICK springt hin — standardmäßig
+   wirkt der Merker NICHT (jeder Titel startet normal bei 0). Anfang (<20 s)
+   und fast-Ende löschen den Merker; Deckel 800 Einträge (älteste fliegen). */
+let _posMerk={}; try{_posMerk=JSON.parse(localStorage.getItem('ytdl_pos_v1'))||{};}catch(e){}
+let _posMerkTs=0;
+function posMerken(){
+  const el=document.getElementById('pl-el'); const k=aktKey();
+  if(!el||!k||!isFinite(el.duration)||!el.duration)return;
+  const t=el.currentTime;
+  if(t>20&&t<el.duration-20)_posMerk[k]={t:Math.floor(t),ts:Date.now()};
+  else delete _posMerk[k];
+  const keys=Object.keys(_posMerk);
+  if(keys.length>800)keys.sort((a,b)=>(_posMerk[a].ts||0)-(_posMerk[b].ts||0))
+    .slice(0,keys.length-800).forEach(x=>delete _posMerk[x]);
+  try{localStorage.setItem('ytdl_pos_v1',JSON.stringify(_posMerk));}catch(e){}
+}
+window.addEventListener('beforeunload',posMerken);
+function posMerkerMalen(){
+  const seek=document.getElementById('plb-seek'); const wrap=seek&&seek.parentElement;
+  if(!wrap)return;
+  let m=document.getElementById('plb-merker');
+  const el=document.getElementById('pl-el'); const k=aktKey();
+  const eintrag=k&&_posMerk[k];
+  const nah=el&&eintrag&&Math.abs(el.currentTime-eintrag.t)<3;   // Playhead klebt drauf -> ausblenden
+  if(!eintrag||!el||!isFinite(el.duration)||!el.duration||nah){if(m)m.remove();return;}
+  if(!m){
+    m=document.createElement('div'); m.id='plb-merker'; m.className='plb-merker';
+    m.addEventListener('click',e=>{e.stopPropagation();
+      const el2=document.getElementById('pl-el'), k2=aktKey();
+      if(el2&&k2&&_posMerk[k2]){el2.currentTime=_posMerk[k2].t; toast('↦ zurück zu '+zeit(_posMerk[k2].t));}});
+    wrap.appendChild(m);
+  }
+  const sr=seek.getBoundingClientRect(), wr=wrap.getBoundingClientRect();
+  m.style.left=(sr.left-wr.left+sr.width*(eintrag.t/el.duration))+'px';
+  m.title='Zuletzt warst du hier: '+zeit(eintrag.t)+' — Klick springt hin';
+}
 function plbTick(){                                    // Position/Zeit der Leiste nachführen
   const el=document.getElementById('pl-el'), s=document.getElementById('plb-seek'),
         t0=document.getElementById('plb-t0'), t1=document.getElementById('plb-t1');
   if(!s||!t0||!t1)return;
+  if(Date.now()-_posMerkTs>5000){_posMerkTs=Date.now(); posMerken();}   // Merker-Takt (Build 102)
+  posMerkerMalen();
   if(!el||!el.duration){s.value=0;t0.textContent='0:00';t1.textContent='0:00';return;}
   if(!plbSeekAktiv){s.value=Math.round(el.currentTime/el.duration*1000);t0.textContent=zeit(el.currentTime);}
   t1.textContent=zeit(el.duration);
