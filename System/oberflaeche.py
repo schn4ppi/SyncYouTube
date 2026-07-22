@@ -883,7 +883,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 113</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 114</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1371,7 +1371,46 @@ function popoverBei(m,r){
   let top=r.bottom+6; if(top+h>vh-8) top=r.top-h-6;     // nach oben klappen
   top=Math.max(8, Math.min(top, vh-h-8));
   m.style.left=left+'px'; m.style.top=top+'px';
+  imBlick(m);
 }
+
+/* ---- Bildschirm-Wächter (Build 114, JB: „Ansicht geht aus dem Bildschirm
+   raus, das darf NIE passieren — weder mobil, noch Desktop, noch Browser").
+   Wurzel-Lösung statt Einzelfall-Flicken: jedes schwebende Element wird
+   geklemmt (Position + Höchstmaße) UND bei jeder späteren Inhalts-Änderung
+   erneut geprüft — genau da riss es vorher (Listen, die nachgeladen werden,
+   wuchsen über die berechnete Höhe hinaus). Zu viel Inhalt scrollt IM
+   Element, statt aus dem Bild zu laufen (Anti-Scroll-Regel: die Seite
+   scrollt nie, nur der Inhalt). ---- */
+const SCHWEBEND='.abo-flyout,.panelmenu,.itemmenu,.colmenu,.popover,.modal-box';
+function imBlick(el,rand){
+  // Kern der Garantie: die HÖCHSTMASSE werden an die POSITION gekoppelt
+  // (maxHeight = Platz unter dem Element, maxWidth = Platz rechts davon).
+  // Damit kann später nachgeladener Inhalt gar nicht mehr aus dem Bild
+  // wachsen — er scrollt innen. Bewusst OHNE ResizeObserver/rAF: die feuern
+  // nicht in jeder Umgebung (live nachgemessen: in eingebetteten Ansichten
+  // ohne eigene Bildfolge kommt KEINE Meldung an, Build 114).
+  if(!el||!el.isConnected)return;
+  rand=rand||10;
+  const vw=window.innerWidth, vh=window.innerHeight;
+  const r=el.getBoundingClientRect();
+  let l=parseFloat(el.style.left); if(isNaN(l))l=r.left;
+  let t=parseFloat(el.style.top);  if(isNaN(t))t=r.top;
+  // Was der Inhalt gerne hätte; passt es unterhalb nicht, erst nach oben
+  // rutschen (Platz schaffen) und dann erst deckeln.
+  const wunschH=Math.max(el.scrollHeight, r.height), wunschB=Math.max(el.scrollWidth, r.width);
+  if(t+wunschH>vh-rand) t=Math.max(rand, vh-rand-wunschH);
+  if(l+wunschB>vw-rand) l=Math.max(rand, vw-rand-wunschB);
+  t=Math.max(rand, Math.min(t, vh-rand-1));
+  l=Math.max(rand, Math.min(l, vw-rand-1));
+  el.style.top=t+'px'; el.style.left=l+'px';
+  el.style.maxHeight=(vh-t-rand)+'px';
+  el.style.maxWidth=(vw-l-rand)+'px';
+  if(getComputedStyle(el).overflowY==='visible')el.style.overflowY='auto';
+}
+function alleImBlick(){document.querySelectorAll(SCHWEBEND).forEach(e=>imBlick(e));}
+window.addEventListener('resize',alleImBlick);
+document.addEventListener('DOMContentLoaded',alleImBlick);
 
 /* ---- Optionen-Zahnrad (sammelt allgemeine Einstellungen) ---- */
 function optionenToggle(ev){
@@ -2841,6 +2880,7 @@ function aboFlyoutPositionieren(fly,anker){
   if(h<MINH){y=Math.max(R, vh-R-MINH); h=vh-R-y;}      // zu eng? hochziehen statt quetschen
   x=Math.max(R, Math.min(x, vw-R-w));
   fly.style.left=x+'px'; fly.style.top=y+'px'; fly.style.width=w+'px'; fly.style.height=h+'px';
+  imBlick(fly,R);                                      // Sicherheitsnetz (Build 114)
 }
 function aboFlyoutZu(){
   const fly=document.getElementById('abo-flyout');
@@ -5470,7 +5510,8 @@ async function namenFenster(){
       '<button class="btn mini" onclick="nameUndo()" title="Nimmt den letzten Umbenenn-Lauf zurück (Protokoll + Vermerk in der Datei)">↩ Rückgängig</button></div>';
   document.body.appendChild(fly);
   aboFlyoutPositionieren(fly,null);
-  fly.style.height='auto';
+  fly.style.height='auto';                             // wächst mit dem Inhalt …
+  imBlick(fly);                                        // … aber NIE aus dem Bild (Build 114)
   fly.addEventListener('keydown',e=>{if(e.key==='Escape'){fly.remove(); e.stopPropagation();}});
   const chk=document.getElementById('name-auto'); if(chk)chk.checked=!!window._nameAuto;
   nameListeMalen(); fly.focus();
@@ -5607,7 +5648,8 @@ async function plSyncConfig(){
       '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',true)" title="Exakt spiegeln — Entferntes verschwindet auch im Ziel (nur App-eigene Kopien)">Exakt spiegeln</button></div>';
   document.body.appendChild(fly);
   aboFlyoutPositionieren(fly,null);
-  fly.style.height='auto';
+  fly.style.height='auto';                             // wächst mit dem Inhalt …
+  imBlick(fly);                                        // … aber NIE aus dem Bild (Build 114)
   fly.addEventListener('keydown',e=>{if(e.key==='Escape'){fly.remove(); e.stopPropagation();}});
   fly.focus();
   syncPfadWachen(fly);
