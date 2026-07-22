@@ -1000,7 +1000,9 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legrow">Einzeltitel zu Ende = automatisch der <b>nächste Titel der Bibliothek</b> (bei 🔀 ein zufälliger; Playlists stoppen wie gehabt am Ende)</div>
       <div class="legrow"><b>Rechtsklick in den Player</b> = alles Weitere: Visualizer-Liste, Geschwindigkeit, Untertitel-Sprachen, Equalizer, Playlist, VLC …</div>
       <div class="legsec">📚 Bibliothek</div>
-      <div class="legrow"><b>▶</b> abspielen · <b>＋</b> zu Playlist (Liste wählen) · <b>📁</b> im Ordner zeigen · <b>⋯</b> mehr · <b>⊞/▤/☰</b> Kacheln/Alben/Liste · <b>⚙ Ansicht</b> Filter &amp; Werkzeuge</div>
+      <div class="legrow">Auf einer Kachel erscheinen beim <b>Überfahren</b>: <b>▶</b> abspielen · <b>＋</b> zu Playlist · <b>📁</b> im Ordner zeigen · <b>⋯</b> mehr (auf Touch stehen sie fest da)</div>
+      <div class="legrow"><b>⚙ Ansicht</b> bündelt alles zur Darstellung: <b>▪▪/⊞/▤/☰</b> Kompakt/Kacheln/Alben/Liste, Filter, Spalten, Archiv, Mehrfach-Auswahl, Dubletten, Auto-Tagging, Ordner-Import</div>
+      <div class="legrow"><b>Suchen</b> durchsucht Titel/Künstler/Kanal — findet es nichts, sucht es von selbst im <b>gesprochenen Text</b> (Untertitel/Songtexte) weiter und zeigt die Treffer darunter</div>
       <div class="legrow"><b>📃 Öffnen</b> zeigt eine Playlist (Ziehen = Reihenfolge) · <b>🎛 Mixer</b> Endlos-Radio/Meistgespielt/Zuletzt/Smart · <b>🔎 Text</b> durchsucht die Untertitel/Transkripte ALLER Videos (Klick auf einen Treffer springt an die Stelle)</div>
       <div class="legsec">⬇ Downloads &amp; Abos</div>
       <div class="legrow">Oben rechts das feste <b>Download-Fenster</b>: <b>Downloads</b> (was gerade lädt/wartet, Klick = Pause, <b>✖</b> = abbrechen — Dateien bleiben) · <b>Fertig</b> · <b>Log</b> (Übersicht + Ereignisse). Laden: Link/Playlist oben einfügen + <b>⬇ Download</b>. <b>📡</b> öffnet die <b>Abos</b> (Kanäle/Playlists abonnieren, Backkatalog nachladen, Format &amp; Regeln je Abo).</div>
