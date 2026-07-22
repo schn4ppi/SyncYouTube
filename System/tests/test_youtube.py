@@ -898,6 +898,60 @@ def test_technik_backfill_fp():
         app._geladen.pop("wegdatei001|audio", None)
 
 
+def test_id_tag_rundlauf_und_kette():
+    # Build 111 (Bibliothek 2.0 Schicht 2): Video-Id als Tag IN der mp3.
+    # Schreiben -> Lesen liefert die Id zurück; das fp ÄNDERT sich durchs Tag
+    # (deshalb gilt: erst Tag, dann fp speichern); die Kette erkennt eine
+    # getaggte Datei auch OHNE jeden DB-Eintrag (Kumpel-Kopie-Szenario).
+    import tempfile
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "Vom Kumpel kopiert.mp3")
+    with open(p, "wb") as f:
+        f.write(b"\xff\xfbAUDIO" * 400)
+    fp_vorher = app._datei_fp(p)
+    assert app._id_tag_schreiben(p, "tagvid00001") is True
+    assert app._id_tag_lesen(p) == "tagvid00001"
+    assert app._datei_fp(p) != fp_vorher              # Tag verschiebt den Inhalt
+    assert app._datei_videoid(p) == "tagvid00001"     # Stufe 4, ganz ohne DB
+    # Grenzen: Video-Container werden NIE beschrieben (GB-Rewrite-Gefahr),
+    # leere Id auch nicht.
+    assert app._id_tag_schreiben(os.path.join(d, "film.mp4"), "tagvid00001") is False
+    assert app._id_tag_schreiben(p, "") is False
+
+
+def test_technik_backfill_idtag():
+    # Build 111: der Backfill taggt EIGENE Bestands-Downloads (und erneuert
+    # danach fp+Größe); importierte Fremd-Dateien bleiben unangetastet.
+    import tempfile
+    d = tempfile.mkdtemp()
+    eigen = os.path.join(d, "Eigener Download [eigenvid001].mp3")
+    fremd = os.path.join(d, "JBs CD-Rip.mp3")
+    for pf in (eigen, fremd):
+        with open(pf, "wb") as f:
+            f.write(b"\xff\xfbBESTAND" * 300)
+    fp_fremd = app._datei_fp(fremd)
+    alt_ziel, alt_json = app.ziel_ordner, app._json_speichern
+    app.ziel_ordner = lambda: d
+    app._json_speichern = lambda *a, **k: None
+    app._geladen["eigenvid001|audio"] = {"acodec": "mp3", "pfad": eigen,
+                                         "fp": app._datei_fp(eigen)}
+    app._geladen["fremdvid001|audio"] = {"acodec": "mp3", "pfad": fremd,
+                                         "fp": fp_fremd, "importiert": True}
+    try:
+        app.technik_backfill()
+        e = app._geladen["eigenvid001|audio"]
+        assert e.get("idtag") is True
+        assert app._id_tag_lesen(eigen) == "eigenvid001"
+        assert e.get("fp") == app._datei_fp(eigen)     # fp NACH dem Tag erneuert
+        f2 = app._geladen["fremdvid001|audio"]
+        assert f2.get("idtag") is False                # nur markiert …
+        assert app._datei_fp(fremd) == fp_fremd        # … Datei unverändert
+    finally:
+        app.ziel_ordner, app._json_speichern = alt_ziel, alt_json
+        app._geladen.pop("eigenvid001|audio", None)
+        app._geladen.pop("fremdvid001|audio", None)
+
+
 def test_pfad_da():
     # Build 109 (JB-Failsafe): das Sync-Fenster graut tote Pfade nur aus und
     # fragt live nach — die Antwort muss die Wirklichkeit JETZT spiegeln.

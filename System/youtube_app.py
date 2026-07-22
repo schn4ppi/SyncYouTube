@@ -572,6 +572,13 @@ def geladen_merken(item):
         return
     key = _geladen_key(item["url"], item["qualitaet"])
     alt = _geladen.get(key, {})
+    # Id-Tag VOR dem Fingerabdruck (Tag verschiebt den Dateianfang — sonst
+    # stimmt das gespeicherte fp nicht mehr mit der Datei überein).
+    idtag = _id_tag_schreiben(datei, key.split("|")[0])
+    try:
+        groesse = os.path.getsize(datei)             # Tag hat die Datei vergrößert
+    except OSError:
+        pass
     _geladen[key] = {
         "name": os.path.basename(datei), "groesse": groesse, "pfad": datei,
         "kategorie": item.get("kategorie", ""), "titel": item.get("titel", ""),
@@ -582,6 +589,7 @@ def geladen_merken(item):
         "abr": item.get("abr", 0), "asr": item.get("asr", 0), "hoehe": item.get("hoehe", 0),
         "kapitel": item.get("kapitel") or alt.get("kapitel") or [],
         "archiviert": alt.get("archiviert", False), "ts": time.time(),
+        "idtag": idtag,
         "fp": _datei_fp(datei)}                      # Content-Ausweis (Bibliothek 2.0)
     with _io_lock:
         _json_speichern(GELADEN_PFAD, _geladen)
@@ -978,8 +986,16 @@ def _tags_in_datei(key, e):
                        creationflags=subprocess.CREATE_NO_WINDOW)
         if os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
             os.replace(tmp, pfad)
+            # ffmpeg hat die Datei NEU geschrieben: Id-Tag sichern (könnte im
+            # Remux verloren gehen) und DANACH den Fingerabdruck erneuern —
+            # sonst zeigt das gespeicherte fp auf einen Inhalt, den es nicht
+            # mehr gibt (Bibliothek 2.0).
+            if e.get("idtag"):
+                e["idtag"] = _id_tag_schreiben(pfad, key.split("|")[0])
             with _io_lock:
                 e["groesse"] = os.path.getsize(pfad)  # Größe in der DB nachziehen (Dubletten-Check!)
+                if e.get("fp"):
+                    e["fp"] = _fp_von(pfad)
                 _json_speichern(GELADEN_PFAD, _geladen)
     except (OSError, subprocess.SubprocessError):
         pass
@@ -1398,7 +1414,77 @@ def _datei_videoid(pfad, karten=None):
     if fps:
         fp = _fp_von(pfad)
         if fp:
-            return fps.get(fp, "")
+            vid = fps.get(fp, "")
+            if vid:
+                return vid
+    return _id_tag_lesen(pfad)                        # Stufe 4: Id-Tag IN der Datei
+
+
+_TAG_ID = "YTDL_ID"                                   # Tag-Name in allen Containern
+
+
+def _id_tag_schreiben(pfad, vid):
+    """Video-Id als Tag IN die Datei (Bibliothek 2.0 Schicht 2, Sicherheitsnetz
+    fürs Kopieren auf andere Geräte): mutagen in-place, kein ffmpeg-Remux.
+    NUR Audio-Container (mp3=ID3-TXXX, m4a=Freeform, opus/ogg/flac=Vorbis):
+    Video-Dateien (mp4/webm/mkv) bekommen KEIN Tag — mutagen müsste große
+    mp4 oft komplett neu schreiben (GB-Kopien, Last-Budget) bzw. kann
+    webm/mkv gar nicht; dort tragen Fingerabdruck + DB. Gelesen wird mp4
+    trotzdem (falls anderswo getaggt).
+    WICHTIG: verändert den Dateianfang ⇒ Aufrufer muss das fp DANACH
+    (neu) rechnen, nie davor speichern. True nur bei echtem Erfolg."""
+    if not vid or not _plausible_id(vid):
+        return False
+    ext = os.path.splitext(pfad)[1].lower()
+    try:
+        if ext == ".mp3":
+            from mutagen.id3 import ID3, ID3NoHeaderError, TXXX
+            try:
+                tags = ID3(pfad)
+            except ID3NoHeaderError:
+                tags = ID3()
+            tags.setall("TXXX:" + _TAG_ID, [TXXX(encoding=3, desc=_TAG_ID, text=[vid])])
+            tags.save(pfad, v2_version=3)
+            return True
+        if ext == ".m4a":
+            from mutagen.mp4 import MP4
+            m = MP4(pfad)
+            m["----:com.ytdl:" + _TAG_ID] = [vid.encode("utf-8")]
+            m.save()
+            return True
+        if ext in (".opus", ".ogg", ".flac"):
+            from mutagen import File as MFile
+            m = MFile(pfad)
+            if m is not None:
+                m[_TAG_ID] = [vid]
+                m.save()
+                return True
+    except Exception:                                # noqa: BLE001 — kaputte/fremde Datei: still lassen
+        pass
+    return False
+
+
+def _id_tag_lesen(pfad):
+    """Video-Id aus dem Datei-Tag ('' wenn keins) — erkennt auch Dateien,
+    die von einem ANDEREN PC stammen und die unsere DB nie gesehen hat."""
+    ext = os.path.splitext(pfad)[1].lower()
+    try:
+        if ext == ".mp3":
+            from mutagen.id3 import ID3
+            frames = ID3(pfad).getall("TXXX:" + _TAG_ID)
+            return str(frames[0].text[0]) if frames and frames[0].text else ""
+        if ext in (".m4a", ".mp4", ".mov"):
+            from mutagen.mp4 import MP4
+            m = MP4(pfad)
+            werte = m.tags.get("----:com.ytdl:" + _TAG_ID) if m.tags else None
+            return werte[0].decode("utf-8", "ignore") if werte else ""
+        if ext in (".opus", ".ogg", ".flac"):
+            from mutagen import File as MFile
+            m = MFile(pfad)
+            werte = m.get(_TAG_ID) if m else None
+            return str(werte[0]) if werte else ""
+    except Exception:                                # noqa: BLE001
+        pass
     return ""
 
 
@@ -2332,7 +2418,7 @@ def technik_backfill():
         idx = _datei_index()
         geaendert = False
         for k, e in list(_geladen.items()):
-            if e.get("acodec") and e.get("fp"):
+            if e.get("acodec") and e.get("fp") and e.get("idtag") is not None:
                 continue
             vid = k.split("|")[0]
             pfad = (e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad"))
@@ -2346,6 +2432,19 @@ def technik_backfill():
                               "abr": t.get("abr", 0), "asr": t.get("asr", 0),
                               "hoehe": t.get("height", 0) or e.get("hoehe", 0)})
                     geaendert = True
+            if e.get("idtag") is None:
+                # Id-Tag nur in EIGENE Downloads (nie in importierte Fremd-
+                # Dateien schreiben) — und VOR dem fp, weil das Tag den
+                # Dateianfang verschiebt. idtag=False heißt: versucht/gelassen,
+                # nicht jede Runde neu anfassen.
+                if e.get("importiert"):
+                    e["idtag"] = False
+                else:
+                    e["idtag"] = (_id_tag_lesen(pfad) == vid) or _id_tag_schreiben(pfad, vid)
+                    if e["idtag"]:
+                        e["groesse"] = os.path.getsize(pfad)
+                        e["fp"] = _fp_von(pfad)      # Tag hat den Inhalt verschoben
+                geaendert = True
             if not e.get("fp"):
                 fp = _fp_von(pfad)
                 if fp:
