@@ -1167,8 +1167,12 @@ def transkript_suche(q, limit=40):
     q = (q or "").strip().lower()
     if len(q) < 2:
         return []
-    treffer_titel = []
+    meta_liste, cue_liste = [], []
     for key, e in list(_geladen.items()):
+        # Build 107 (JB-Fund „nvidia"): TITEL/Künstler/Kanal zählen MIT — im
+        # NVIDIA-Video wird „nvidia" nie GESAGT; Meta-Treffer stehen vorn.
+        meta_hit = q in " ".join(str(e.get(f) or "") for f in
+                                 ("titel", "name", "kuenstler", "uploader")).lower()
         cues, quelle = [], ""
         f, _ = untertitel_datei(key)
         if f:
@@ -1181,12 +1185,16 @@ def transkript_suche(q, limit=40):
                 rein.append({"zeit": round(sek, 1), "text": txt})
                 if len(rein) >= 8:                    # pro Titel höchstens 8 Fundstellen
                     break
-        if rein:
-            treffer_titel.append({"key": key, "titel": e.get("titel") or key,
-                                  "quelle": quelle, "treffer": rein})
-        if len(treffer_titel) >= limit:
+        if meta_hit:
+            rein.insert(0, {"zeit": 0, "text": "🏷 im Titel/Künstler/Kanal gefunden"})
+            meta_liste.append({"key": key, "titel": e.get("titel") or key,
+                               "quelle": quelle or "Titel", "treffer": rein})
+        elif rein:
+            cue_liste.append({"key": key, "titel": e.get("titel") or key,
+                              "quelle": quelle, "treffer": rein})
+        if len(meta_liste) + len(cue_liste) >= limit:
             break
-    return treffer_titel
+    return (meta_liste + cue_liste)[:limit]
 
 
 def untertitel_nachladen(key):
@@ -1608,21 +1616,26 @@ def entdecken(playlist_id, seeds=3, je_seed=25):
         return {"fehler": "Playlist leer oder nicht gefunden."}
     else:
         quelle, name = "bibliothek", "deine Bibliothek"
-        # Kandidaten: echte YouTube-Downloads, nach Hoer-Haeufigkeit sortiert
-        kand = sorted(
-            ((k.split("|", 1)[0], e) for k, e in _geladen.items()
-             if _plausible_id(k.split("|", 1)[0]) and not e.get("importiert")),
-            key=lambda p: (-(p[1].get("plays") or 0), -(p[1].get("ts") or 0)))
+        kand = [(k.split("|", 1)[0], e) for k, e in _geladen.items()
+                if _plausible_id(k.split("|", 1)[0]) and not e.get("importiert")]
+        if not kand:
+            return {"fehler": "Keine YouTube-Titel in der Bibliothek gefunden."}
+        # DREI Toepfe (Build 107, JB: „was ich oft hoere muss nichts aussagen —
+        # manchmal will ich was, das zu den NEU Hinzugefuegten passt"):
+        # Seed 1 aus Meistgehoert, Seed 2 aus den Neuesten, Seed 3 Zufall.
+        toepfe = [sorted(kand, key=lambda p: -(p[1].get("plays") or 0))[:15],
+                  sorted(kand, key=lambda p: -(p[1].get("ts") or 0))[:15],
+                  kand]
         seed_ids, kuenstler = [], set()
-        pool = kand[:40]
-        random.shuffle(pool)
-        for vid, e in pool:                            # max 1 Seed je Kuenstler
-            wer = (e.get("kuenstler") or e.get("uploader") or vid).lower()
-            if vid in seed_ids or wer in kuenstler:
-                continue
-            seed_ids.append(vid)
-            kuenstler.add(wer)
-            if len(seed_ids) >= n_seeds:
+        for i in range(n_seeds):
+            topf = list(toepfe[i % len(toepfe)])
+            random.shuffle(topf)
+            for vid, e in topf:                        # max 1 Seed je Kuenstler
+                wer = (e.get("kuenstler") or e.get("uploader") or vid).lower()
+                if vid in seed_ids or wer in kuenstler:
+                    continue
+                seed_ids.append(vid)
+                kuenstler.add(wer)
                 break
         if not seed_ids:
             return {"fehler": "Keine YouTube-Titel in der Bibliothek gefunden."}
