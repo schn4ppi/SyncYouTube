@@ -617,8 +617,11 @@ def _plausible_id(vid):
 
 def _datei_index():
     """videoid -> Pfad aus EINEM Ordner-Durchlauf (inkl. Unterordner). So braucht
-    die Bibliothek nicht pro Eintrag zu suchen (erkennt auch verschobene Dateien)."""
+    die Bibliothek nicht pro Eintrag zu suchen (erkennt auch verschobene Dateien).
+    Namenlose Dateien (ohne [Id]) löst die zentrale Kette auf — die Karten
+    entstehen erst, wenn wirklich eine solche Datei auftaucht (Alltagskosten 0)."""
     idx = {}
+    karten = None
     for root, _, files in os.walk(ziel_ordner()):
         for f in files:
             # NUR Mediendateien: die .vtt-Untertitel/.jpg-Cover NEBEN dem Video
@@ -626,9 +629,15 @@ def _datei_index():
             # Untertitel-Datei aus und das Bild bleibt schwarz (JB-Fund 14.07.).
             if not f.lower().endswith(AUDIO_EXT + VIDEO_EXT):
                 continue
+            pfad = os.path.join(root, f)
             m = re.search(r"\[([\w-]{6,})\]", f)
-            if m:
-                idx.setdefault(m.group(1), []).append(os.path.join(root, f))
+            vid = m.group(1) if m else ""
+            if not vid:
+                if karten is None:
+                    karten = _id_karten()
+                vid = _datei_videoid(pfad, karten)
+            if vid:
+                idx.setdefault(vid, []).append(pfad)
     return idx
 
 
@@ -1336,6 +1345,61 @@ def _datei_fp(pfad):
         return h.hexdigest()
     except OSError:
         return ""
+
+
+_fp_cache = {}
+
+
+def _fp_von(pfad):
+    """_datei_fp mit (Größe, mtime)-Gedächtnis: unveränderte Dateien werden
+    nie doppelt gelesen — so bleibt die Erkennungs-Kette alltagsschnell."""
+    try:
+        st = os.stat(pfad)
+    except OSError:
+        return ""
+    schluessel = os.path.normcase(os.path.abspath(pfad))
+    alt = _fp_cache.get(schluessel)
+    if alt and alt[0] == st.st_size and alt[1] == int(st.st_mtime):
+        return alt[2]
+    fp = _datei_fp(pfad)
+    if fp:
+        _fp_cache[schluessel] = (st.st_size, int(st.st_mtime), fp)
+    return fp
+
+
+def _id_karten():
+    """Nachschlage-Karten aus der geladen-DB: bekannter Pfad -> Video-Id und
+    Fingerabdruck -> Video-Id (Stufen 2+3 der Erkennungs-Kette). Bewusst OHNE
+    _plausible_id-Filter: auch 'lokal-…'-Import-Ids gehören hinein, damit
+    verschobene Importe wiedererkannt werden statt Duplikat-Zeilen zu erzeugen."""
+    pfade, fps = {}, {}
+    for k, e in list(_geladen.items()):
+        vid = k.split("|")[0]
+        p = e.get("pfad")
+        if p:
+            pfade[os.path.normcase(os.path.abspath(p))] = vid
+        if e.get("fp"):
+            fps[e["fp"]] = vid
+    return pfade, fps
+
+
+def _datei_videoid(pfad, karten=None):
+    """DIE zentrale Auflösung Datei -> Video-Id (Bibliothek 2.0, Klammern-
+    Projekt): [Id] im Namen -> bekannter Pfad in der DB -> Content-
+    Fingerabdruck. '' wenn unbekannt. Nur über diese Kette nachschlagen —
+    dann funktioniert alles auch, wenn Dateinamen keine [Id] mehr tragen."""
+    m = re.search(r"\[([\w-]{6,})\]", os.path.basename(pfad))
+    if m:
+        return m.group(1)
+    pfade, fps = karten if karten is not None else _id_karten()
+    vid = pfade.get(os.path.normcase(os.path.abspath(pfad)))
+    if vid:
+        return vid
+    if fps:
+        fp = _fp_von(pfad)
+        if fp:
+            return fps.get(fp, "")
+    return ""
 
 
 def _in_papierkorb(pfad):
@@ -2256,8 +2320,10 @@ def metadaten_backfill():
 
 
 def technik_backfill():
-    """Codec/Qualität für vorhandene Dateien nachtragen, die es noch nicht haben
-    (per ffprobe, lokal, offline). Läuft einmal im Hintergrund beim Start."""
+    """Codec/Qualität + Content-Fingerabdruck für vorhandene Dateien nachtragen,
+    die es noch nicht haben (ffprobe bzw. 2 schnelle Reads, lokal, offline).
+    Läuft einmal im Hintergrund beim Start; danach trägt jeder Eintrag sein fp
+    dauerhaft (Bibliothek 2.0: Wiedererkennen ohne [Id] im Namen)."""
     global _technik_laeuft
     if _technik_laeuft:
         return
@@ -2266,17 +2332,25 @@ def technik_backfill():
         idx = _datei_index()
         geaendert = False
         for k, e in list(_geladen.items()):
-            if e.get("acodec"):
+            if e.get("acodec") and e.get("fp"):
                 continue
             vid = k.split("|")[0]
             pfad = (e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad"))
                     else _datei_aus(idx.get(vid), k.partition("|")[2]))
-            t = _technik(pfad) if pfad else {}
-            if t:
-                e.update({"vcodec": t.get("vcodec", ""), "acodec": t.get("acodec", ""),
-                          "abr": t.get("abr", 0), "asr": t.get("asr", 0),
-                          "hoehe": t.get("height", 0) or e.get("hoehe", 0)})
-                geaendert = True
+            if not pfad:
+                continue
+            if not e.get("acodec"):
+                t = _technik(pfad)
+                if t:
+                    e.update({"vcodec": t.get("vcodec", ""), "acodec": t.get("acodec", ""),
+                              "abr": t.get("abr", 0), "asr": t.get("asr", 0),
+                              "hoehe": t.get("height", 0) or e.get("hoehe", 0)})
+                    geaendert = True
+            if not e.get("fp"):
+                fp = _fp_von(pfad)
+                if fp:
+                    e["fp"] = fp
+                    geaendert = True
         if geaendert:
             with _io_lock:
                 _json_speichern(GELADEN_PFAD, _geladen)
@@ -2295,18 +2369,17 @@ VIDEO_EXT = (".mp4", ".mkv", ".webm", ".mov", ".avi")
 _einsortier_laeuft = False
 
 
-def _soll_kategorie(pfad):
+def _soll_kategorie(pfad, karten=None):
     """Kategorie einer Datei im Downloads-Ordner: Audio-Endung -> MP3;
-    Video -> Höhe aus der geladen-DB (Video-ID im Namen) oder per ffprobe;
-    '' = keine Mediendatei (nicht anfassen), None = Mediendatei, aber unklar."""
+    Video -> Höhe aus der geladen-DB (Video-Id über die zentrale Kette) oder
+    per ffprobe; '' = keine Mediendatei (nicht anfassen), None = unklar."""
     ext = os.path.splitext(pfad)[1].lower()
     if ext in AUDIO_EXT:
         return "MP3"
     if ext not in VIDEO_EXT:
         return ""
-    m = re.search(r"\[([\w-]{6,})\]", os.path.basename(pfad))
-    if m:
-        vid = m.group(1)
+    vid = _datei_videoid(pfad, karten)
+    if vid:
         for k, e in _geladen.items():
             if k.split("|")[0] == vid and e.get("hoehe"):
                 return _kategorie("", e.get("hoehe"))
@@ -2327,6 +2400,7 @@ def downloads_einsortieren():
     try:
         basis = os.path.abspath(ziel_ordner())
         tabu = [os.path.abspath(p["sync_ordner"]) for p in _playlists if p.get("sync_ordner")]
+        karten = _id_karten()                        # einmal bauen, je Datei nachschlagen
         for wurzel, dirs, dateien in os.walk(basis):
             w = os.path.abspath(wurzel)
             if any(w == t or w.startswith(t + os.sep) for t in tabu):
@@ -2334,7 +2408,7 @@ def downloads_einsortieren():
                 continue
             for fn in dateien:
                 pfad = os.path.join(wurzel, fn)
-                kat = _soll_kategorie(pfad)
+                kat = _soll_kategorie(pfad, karten)
                 if kat == "":
                     continue                          # keine Mediendatei -> in Ruhe lassen
                 ziel_dir = _ordner_fuer(kat) if kat else os.path.join(basis, SONSTIGES)
@@ -2380,6 +2454,7 @@ def ordner_importieren():
         if p:
             bekannt.add(os.path.normcase(os.path.abspath(p)))
     neu = 0
+    karten = _id_karten()
     for wurzel, _, dateien in os.walk(ziel_ordner()):
         for fn in dateien:
             if not fn.lower().endswith(AUDIO_EXT + VIDEO_EXT):
@@ -2387,8 +2462,10 @@ def ordner_importieren():
             pfad = os.path.join(wurzel, fn)
             if os.path.normcase(os.path.abspath(pfad)) in bekannt:
                 continue
-            m = re.search(r"\[([\w-]{6,})\]", fn)
-            vid = m.group(1) if m else ("lokal-" + hashlib.md5(
+            # Zentrale Kette: erkennt auch namenlose Kopien bekannter Dateien
+            # am Fingerabdruck -> Dubletten-Schutz unten greift, statt dass
+            # eine verschobene Datei eine zweite "lokal-…"-Zeile erzeugt.
+            vid = _datei_videoid(pfad, karten) or ("lokal-" + hashlib.md5(
                 os.path.abspath(pfad).encode("utf-8")).hexdigest()[:11])
             audio = fn.lower().endswith(AUDIO_EXT)
             key = f"{vid}|{'audio' if audio else 'lokal'}"
@@ -2502,15 +2579,16 @@ def untertitel_aufraeumen():
     Zugehörigkeit die Video-ID im Namen; Altbestand neben Videos per Stamm."""
     ziel = untertitel_ordner()
     vids, stems, legacy = set(), set(), []
+    karten = _id_karten()
     for wurzel, _, dateien in os.walk(ziel_ordner()):
         istziel = os.path.normcase(wurzel) == os.path.normcase(ziel)
         for d in dateien:
             p = os.path.join(wurzel, d)
             if d.lower().endswith(AUDIO_EXT + VIDEO_EXT):
                 stems.add(os.path.splitext(p)[0].lower())
-                m = re.search(r"\[([\w-]{6,})\]", d)
-                if m:
-                    vids.add(m.group(1))
+                vid = _datei_videoid(p, karten)      # zentrale Kette statt nur [Id]-Name
+                if vid:
+                    vids.add(vid)
             elif d.lower().endswith(".vtt") and not istziel:
                 legacy.append(p)                      # noch nicht einsortiert
     vids |= {k.split("|")[0] for k in _geladen}       # auch verschobene, aber bekannte Videos

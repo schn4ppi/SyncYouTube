@@ -11,6 +11,7 @@ Zwei Wege, es auszuführen:
 """
 import os
 import sys
+import time
 
 # Modul-Ordner (YouTube/) auf den Pfad, damit geo/vpn/youtube_app importierbar sind.
 MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -829,6 +830,72 @@ def test_ist_untertitel_fehler():
     assert app._ist_untertitel_fehler("HTTP Error 429: Too Many Requests") is False
     assert app._ist_untertitel_fehler("Requested format is not available") is False
     assert app._ist_untertitel_fehler("") is False
+
+
+def test_datei_videoid_kette():
+    # Bibliothek 2.0 (Build 110): DIE zentrale Auflösung Datei -> Video-Id.
+    # Stufe 1 Name, Stufe 2 bekannter DB-Pfad, Stufe 3 Content-Fingerabdruck —
+    # Grundlage dafür, dass Dateinamen ihre [Id]-Klammern verlieren dürfen.
+    import shutil
+    import tempfile
+    d = tempfile.mkdtemp()
+    mit_id = os.path.join(d, "Song [abcdef12345].mp3")
+    ohne = os.path.join(d, "Sauberer Name.mp3")
+    kopie = os.path.join(d, "Verschoben und umbenannt.mp3")
+    with open(ohne, "wb") as f:
+        f.write(b"INHALT-A" * 500)
+    shutil.copy(ohne, kopie)
+    app._geladen["vidPfad0001|audio"] = {"pfad": ohne}
+    app._geladen["vidFpxx0001|audio"] = {"fp": app._datei_fp(kopie)}
+    try:
+        assert app._datei_videoid(mit_id) == "abcdef12345"      # Name (Datei muss nicht existieren)
+        assert app._datei_videoid(ohne) == "vidPfad0001"        # bekannter Pfad
+        assert app._datei_videoid(kopie) == "vidFpxx0001"       # Fingerabdruck
+        assert app._datei_videoid(os.path.join(d, "gibtsnicht.mp3")) == ""
+    finally:
+        app._geladen.pop("vidPfad0001|audio", None)
+        app._geladen.pop("vidFpxx0001|audio", None)
+
+
+def test_fp_von_cache():
+    # Build 110: Cache liefert stabil, erkennt aber Inhalts-Änderungen (mtime).
+    import tempfile
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "x.mp3")
+    with open(p, "wb") as f:
+        f.write(b"ALT" * 100)
+    fp1 = app._fp_von(p)
+    assert fp1 and app._fp_von(p) == fp1              # zweiter Aufruf: aus dem Cache
+    with open(p, "wb") as f:
+        f.write(b"NEU-INHALT" * 100)
+    t = time.time() + 5
+    os.utime(p, (t, t))                               # mtime sicher verschieben
+    fp2 = app._fp_von(p)
+    assert fp2 and fp2 != fp1
+
+
+def test_technik_backfill_fp():
+    # Build 110: der Start-Backfill trägt fp für Bestands-Einträge nach — auch
+    # wenn acodec längst da ist (kein ffprobe-Aufruf nötig); Einträge ohne
+    # Datei bleiben unangetastet, nichts crasht.
+    import tempfile
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "Bestand [bestand0001].mp3")
+    with open(p, "wb") as f:
+        f.write(b"BESTAND" * 300)
+    alt_ziel, alt_json = app.ziel_ordner, app._json_speichern
+    app.ziel_ordner = lambda: d
+    app._json_speichern = lambda *a, **k: None
+    app._geladen["bestand0001|audio"] = {"acodec": "mp3", "pfad": p}
+    app._geladen["wegdatei001|audio"] = {"acodec": "mp3"}        # keine Datei -> bleibt ohne fp
+    try:
+        app.technik_backfill()
+        assert app._geladen["bestand0001|audio"].get("fp") == app._datei_fp(p)
+        assert "fp" not in app._geladen["wegdatei001|audio"]
+    finally:
+        app.ziel_ordner, app._json_speichern = alt_ziel, alt_json
+        app._geladen.pop("bestand0001|audio", None)
+        app._geladen.pop("wegdatei001|audio", None)
 
 
 def test_pfad_da():
