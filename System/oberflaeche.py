@@ -139,6 +139,10 @@ html.light .cmd-logo .sg{stroke:#f3ede2}
   border:1px solid #2e2823;border-radius:12px;padding:7px 14px;background:rgba(255,255,255,.022)}
 .cmd-now.spielt{border-color:rgba(214,95,95,.45);box-shadow:0 0 0 1px rgba(214,95,95,.12),0 4px 16px rgba(0,0,0,.25)}
 .cmd-now.dropziel{outline:2px dashed var(--akz);outline-offset:2px}
+/* Build 117: Player offen ⇒ Kopfleiste zeigt keine doppelten Transport-
+   Knöpfe mehr (8 Stück waren identisch). Radio bleibt — das gibt es dort
+   sonst nirgends; Zeitleiste und Lautstärke ebenso. */
+body.hat-player .cmd-now .mp-btn:not(.mp-radio){display:none}
 html.light .cmd-now{border-color:#e3d8cc;background:rgba(0,0,0,.02)}
 .cmd-nowtitel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:12.5px;color:#d7c7bd;font-weight:500}
 .cmd-nolabel{color:#6a5c52}
@@ -443,10 +447,18 @@ details.einst summary:hover{color:var(--akz)}
    Spotify/Apple Music/YouTube Music auch. Der Platz bleibt reserviert
    (visibility statt display), damit nichts springt. Auf Touch-Geräten,
    die kein Hover kennen, bleiben sie sichtbar. */
+/* Build 117 (JB-Fund): die Knöpfe verstecken, aber ihren Platz behalten,
+   bringt NICHTS — es blieb ein leerer Block stehen. Jetzt liegen sie als
+   Overlay ÜBER dem unteren Kachelrand (kein Platz im Fluss) und erscheinen
+   beim Überfahren; die Kachel wird dadurch spürbar kompakter. */
+.kachel{position:relative}
 .kakt{display:flex;gap:4px;flex-wrap:wrap;align-items:center;
+  position:absolute;left:0;right:0;bottom:0;padding:8px 10px;margin:0;
+  background:linear-gradient(to top,rgba(0,0,0,.94),rgba(0,0,0,.8) 62%,rgba(0,0,0,0));
   visibility:hidden;opacity:0;transition:opacity .12s}
 .kachel:hover .kakt,.kachel:focus-within .kakt,.kachel.sel .kakt{visibility:visible;opacity:1}
-@media (hover:none){.kakt{visibility:visible;opacity:1}}
+/* Touch kennt kein Überfahren: dort stehen sie wieder normal im Fluss. */
+@media (hover:none){.kakt{position:static;background:none;padding:0;visibility:visible;opacity:1}}
 /* Icon-Knöpfe (Spotify/iTunes-Stil): klein, ruhig, sprechend */
 .ib{width:28px;height:26px;border-radius:7px;border:1px solid var(--panelln);background:#171310;color:#d7c7bd;
   cursor:pointer;font-size:13px;line-height:1;padding:0;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
@@ -907,7 +919,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 116</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 117</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -989,7 +1001,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="legrow"><b>Rechtsklick in den Player</b> = alles Weitere: Visualizer-Liste, Geschwindigkeit, Untertitel-Sprachen, Equalizer, Playlist, VLC …</div>
       <div class="legsec">📚 Bibliothek</div>
       <div class="legrow"><b>▶</b> abspielen · <b>＋</b> zu Playlist (Liste wählen) · <b>📁</b> im Ordner zeigen · <b>⋯</b> mehr · <b>⊞/▤/☰</b> Kacheln/Alben/Liste · <b>⚙ Ansicht</b> Filter &amp; Werkzeuge</div>
-      <div class="legrow"><b>📃 Öffnen</b> zeigt eine Playlist (Ziehen = Reihenfolge) · <b>📻</b> Endlos-Radio · <b>▶ Mixe</b> Meistgespielt/Zuletzt/Smart · <b>🔎 Text</b> durchsucht die Untertitel/Transkripte ALLER Videos (Klick auf einen Treffer springt an die Stelle)</div>
+      <div class="legrow"><b>📃 Öffnen</b> zeigt eine Playlist (Ziehen = Reihenfolge) · <b>🎛 Mixer</b> Endlos-Radio/Meistgespielt/Zuletzt/Smart · <b>🔎 Text</b> durchsucht die Untertitel/Transkripte ALLER Videos (Klick auf einen Treffer springt an die Stelle)</div>
       <div class="legsec">⬇ Downloads &amp; Abos</div>
       <div class="legrow">Oben rechts das feste <b>Download-Fenster</b>: <b>Downloads</b> (was gerade lädt/wartet, Klick = Pause, <b>✖</b> = abbrechen — Dateien bleiben) · <b>Fertig</b> · <b>Log</b> (Übersicht + Ereignisse). Laden: Link/Playlist oben einfügen + <b>⬇ Download</b>. <b>📡</b> öffnet die <b>Abos</b> (Kanäle/Playlists abonnieren, Backkatalog nachladen, Format &amp; Regeln je Abo).</div>
       <div class="legsec">⌨ Tasten (wenn nicht in einem Eingabefeld)</div>
@@ -1187,9 +1199,8 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
         <button class="btn mini" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
         <input type="file" id="m3ufile" accept=".m3u,.m3u8" style="display:none" onchange="plImport(this)">
         <span class="spacer"></span>
-        <button class="btn mini" onclick="radioStart()" title="Endlos-Radio: personalisierter Zufalls-Mix, der nie aufhört (Blacklist ausgenommen)">📻 Radio</button>
         <button class="btn mini" onclick="entdeckerOeffnen()" title="✨ Neues entdecken: YouTube-Radios zu Titeln der oben gewählten Playlist — alles, was du schon hast, wird herausgefiltert">✨ Entdecken</button>
-        <button class="btn mini" onclick="mixeMenu(event)" title="Meistgespielt · Zuletzt · Gefilterte · Smart-Playlists">▶ Mixe</button>
+        <button class="btn mini" onclick="mixeMenu(event)" title="Alles zum Zusammenstellen: 📻 Endlos-Radio · Meistgespielt · Zuletzt · Gefilterte · Smart-Playlists">🎛 Mixer</button>
         <span id="plinfo" style="font-size:12px;color:#9ec49a"></span>
       </div>
       </div>
@@ -2695,6 +2706,10 @@ function dlKlick(id,status){                           // Download anhalten / fo
 let cmdNowSig='', cmdSeekAktiv=false;
 function cmdNowRender(){
   const el=document.getElementById('cmd-now'); if(!el)return;
+  // Build 117 (JB-Go): dieselben Transport-Knöpfe standen doppelt da — hier
+  // UND im Player. Ist der Player offen, führt er; die Kopfleiste behält nur
+  // Titel, Zeitleiste, Lautstärke und Radio (die hat der Player nicht).
+  document.body.classList.toggle('hat-player', !!document.getElementById('pl-el'));
   const k=playerState.queue[playerState.idx], x=k?libFind(k):null;
   el.classList.toggle('spielt', !!x);                  // Rahmen glimmt, wenn etwas läuft
   const sig=[k||'',x?x.titel:''].join('|');            // Play/Pause & Toggles zieht transportRender nach
@@ -4099,7 +4114,11 @@ async function entdeckerAlle(){
 }
 function mixeMenu(ev){
   const r=ev.currentTarget.getBoundingClientRect();    // Rect merken, der Knopf-Kontext geht im Menü verloren
+  // Build 117 (JB): Radio lag doppelt (Kopfleiste UND Bibliotheks-Leiste).
+  // Es ist eine Mix-Art wie die anderen ⇒ es gehört hierher; oben bleibt der
+  // 📻-Knopf am Transport, hier ist der Weg über den Mixer.
   aktionsMenu(ev,[
+    ['📻 Endlos-Radio', radioStart],
     ['★ Meistgespielt', playMostPlayed],
     ['🕘 Zuletzt gespielt', playLetzte],
     ['▶ Gefilterte abspielen', playGefilterte],
