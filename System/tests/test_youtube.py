@@ -1580,3 +1580,45 @@ def test_rahmenauswahl_in_der_bibliothek():
     assert "libBandLief" in quelle[k:k + 400],         "kachelClick schluckt den nachlaufenden Klick nicht"
     # Die Elemente brauchen eine Kennung, damit der Rahmen sie treffen kann.
     assert 'data-id="${x.id}"' in quelle, "Kacheln/Zeilen tragen keine data-id"
+
+
+def test_tag_kandidat_zweiter_versuch_ohne_klammern():
+    # JB: "wieso sind mehrere titel noch nicht korrekt benannt?"
+    # Zwei Gruende. Der zweite: der Muell-Filter kennt nur BEKANNTE Zusaetze
+    # (official, lyrics, live ...). Alles andere bleibt stehen und laesst die
+    # MusicBrainz-Suche ins Leere laufen - z.B. "(Traduzione Italiana)" oder
+    # "(from The Wildlife Concert)" aus JBs Bibliothek.
+    # Loesung: ein ZWEITER Versuch ohne jegliche Klammer-Zusaetze. Fuer die
+    # Suche ist ein Klammerzusatz fast nie Teil des echten Titels - und wenn
+    # doch, findet MusicBrainz ihn auch ohne.
+    blank = app._titel_blank
+    assert blank("Tears in Heaven - Live 1992 (Traduzione Italiana)")         == "Tears in Heaven - Live 1992"
+    # Grenze, bewusst so: Zusaetze nach einem BINDESTRICH bleiben stehen.
+    # Sehr viele echte Titel tragen Bindestriche ("Ich will - Rammstein",
+    # "Sgt. Pepper's - Reprise"); sie abzuschneiden wuerde mehr kaputt machen
+    # als heilen. Klammern dagegen sind fast immer Beiwerk.
+    assert blank("Take Me Home, Country Roads (from The Wildlife Concert)") \
+        == "Take Me Home, Country Roads"
+    assert blank("Rocky Mountain High [Remastered 2015]") == "Rocky Mountain High"
+    # Ein sauberer Titel bleibt unangetastet.
+    assert blank("The Boxer") == "The Boxer"
+    # Und es bleibt IMMER etwas uebrig - ein leerer Suchbegriff waere nutzlos.
+    assert blank("(nur Klammern)") == "(nur Klammern)"
+    assert blank("") == ""
+
+
+def test_autotag_laeuft_nach_dem_download():
+    # JB: "auto tagging sollte standartmaessig direkt nach dem download
+    # passieren." Bisher musste man es im Ansicht-Menue von Hand anstossen -
+    # deshalb trugen frisch geladene Titel noch den rohen YouTube-Namen.
+    # Es haengt sich an das BESTEHENDE Fertig-Ereignis (Last-Budget-Regel:
+    # kein neuer Dauerprozess, kein neuer Zeitplan).
+    import inspect
+    quelle = inspect.getsource(app)
+    assert "autotag_nach_download" in quelle, "Kein Auto-Tagging nach dem Download"
+    i = quelle.index("def autotag_nach_download")
+    block = quelle[i:i + 1400]
+    # Nur Musik, und nur wenn noch nichts getaggt ist - sonst waeren es
+    # sinnlose Anfragen an MusicBrainz bei jedem Video.
+    assert "_ist_musik" in block, "Auch Videos wuerden getaggt"
+    assert "album" in block, "Schon getaggte Titel wuerden erneut abgefragt"

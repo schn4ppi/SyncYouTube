@@ -190,6 +190,8 @@ html.light .cmd-logo .sg{stroke:#f3ede2}
   border:1px solid #2e2823;border-radius:12px;padding:7px 14px;background:rgba(255,255,255,.022)}
 .cmd-now.spielt{border-color:rgba(214,95,95,.45);box-shadow:0 0 0 1px rgba(214,95,95,.12),0 4px 16px rgba(0,0,0,.25)}
 .cmd-now.dropziel{outline:2px dashed var(--akz);outline-offset:2px}
+/* Build 136: dieselbe Rueckmeldung fuer die ganze Player-Karte. */
+#pl-card.dropziel{outline:2px dashed var(--akz);outline-offset:-3px;border-radius:12px}
 /* Build 124 (JB-Fund, gemessen: die Knopfreihe braucht 449 px und hat bei
    975 px Fensterbreite nur 297 → sie quoll über den Rahmen). Jetzt räumt die
    Steuerzentrale gestaffelt auf, statt überzulaufen. Reihenfolge: zuerst das
@@ -881,8 +883,13 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
       height:auto bliebe wirkungslos.
    body:not(.mini):not(.embed) grenzt Mini-Player und Einbett-Modus aus, die
    ihre eigenen, bewusst anderen Höhenketten haben (Build 97/121). */
+   Build 136 (JB-Bild): Das Bild sitzt jetzt OBEN statt in der Mitte —
+   `margin:0 auto` statt `margin:auto` (kein vertikales Auto mehr) und
+   align-self:flex-start. Vorher stand über dem Video derselbe Leerraum wie
+   darunter, und die Playlist rutschte ans untere Ende der Karte; jetzt
+   folgt sie direkt unter dem Bild. */
 body:not(.mini):not(.embed) #view-player .card .pl-media{
-  flex:0 1 auto;height:auto;width:100%;max-height:100%;margin:auto;align-self:center}
+  flex:0 1 auto;height:auto;width:100%;max-height:100%;margin:0 auto;align-self:flex-start}
 body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
   height:100%;flex:1;align-self:stretch}
 .pl-viz{position:absolute;inset:0;width:100%;height:100%;z-index:0;display:none}
@@ -1124,7 +1131,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 135</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 136</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -1407,7 +1414,13 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
   </div>
 
   <div id="view-player">
-    <div class="card" id="pl-card" oncontextmenu="return playerKontext(event)">
+    <!-- Build 136 (JB): Die GANZE Player-Karte nimmt gezogene Titel an — auf
+         dem Bild, über dem Bild und auf der freien Fläche darunter. Vorher
+         war nur das Bild selbst Fallziel; wer knapp danebenzielte, verlor
+         den Zug ins Leere. Das Ziel ist so groß wie die Fläche, die man
+         meint. -->
+    <div class="card" id="pl-card" oncontextmenu="return playerKontext(event)"
+         ondragover="plMediaOver(event)" ondragleave="plKarteLeave(event)" ondrop="plMediaDrop(event)">
       <div class="pl-media" id="pl-media" ondragover="plMediaOver(event)" ondrop="plMediaDrop(event)" title="Titel aus der Bibliothek hierher ziehen = abspielen / einreihen (Ad-hoc-Playlist, nichts wird gespeichert)"><div class="pl-leer">Kein Titel gewählt — in der Bibliothek auf ▶ klicken.</div></div>
       <div class="pl-side">
         <div class="pl-titel" id="pl-titel"></div>
@@ -4009,10 +4022,16 @@ function browserZeichen(){
   // fast geschlossener, kräftiger Bogen (der Schweif) mit Flammenzunge —
   // und der Kern in der Mitte ist die Erdkugel, die die Statusfarbe trägt.
   if(art==='firefox')
+    // JB-Vorlage: Der Fuchs windet sich um die blaue ERDKUGEL — und genau
+    // die trägt die Statusfarbe. Der Schweif ist ein kräftiger Bogen, der
+    // oben rechts in der Flammenspitze ausläuft; die Kugel füllt die Mitte
+    // deutlich größer als bei den anderen Zeichen, weil sie beim Firefox-
+    // Logo das beherrschende Element ist.
     return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
-      '<path class="apiring" d="M14.8 3.9a9 9 0 1 1-6.4 1.1" stroke-width="2.6" stroke-linecap="round"/>'+
-      '<path d="M13.2 2.2 19 4.4l-4.6 2.5z" fill="currentColor" opacity=".75"/>'+
-      kern+'</svg>';
+      '<circle class="apikern" cx="11.6" cy="12.4" r="6.4"/>'+
+      '<path class="apiring" d="M17.2 5.6a9 9 0 1 0 2.4 4.9" stroke-width="2.8" stroke-linecap="round"/>'+
+      '<path d="M15.4 2.6 21.4 4.9l-2.2 5.2-1.6-3.6z" fill="currentColor" opacity=".8"/>'+
+      '</svg>';
   // Chrome: drei Segmente mit Fugen (statt eines glatten Rings) — das ist
   // das, was man auf kleiner Fläche als Chrome liest. Der Kern sitzt dort,
   // wo sonst das Blau steckt: genau die Stelle, die JB benannt hat.
@@ -4026,12 +4045,16 @@ function browserZeichen(){
   if(art==='edge')
     return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
       '<path class="apiring" d="M20 15a9 9 0 1 0-8 5.9" stroke-width="2.2" stroke-linecap="round"/>'+kern+'</svg>';
-  // Safari: der Kompass samt Nadel.
+  // Safari: JB stellte frei, ob die blaue Scheibe oder die Nadel den Status
+  // trägt. Die NADEL — die blaue Scheibe wäre bei 16 px eine große Farbfläche,
+  // die den ganzen Kopfbereich einfärbt; ein rot leuchtender Kreis dieser
+  // Größe sähe nach Alarm aus, obwohl nur die Verbindung fehlt. Die Nadel ist
+  // klein, liegt in der Mitte und ist beim echten Logo ohnehin das rote Teil.
   if(art==='safari')
     return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
-      '<circle class="apiring" cx="12" cy="12" r="9" stroke-width="1.6"/>'+
-      '<path class="apiring" d="M16.5 7.5 13.6 13.6 7.5 16.5 10.4 10.4z" stroke-width="1.3" stroke-linejoin="round"/>'+
-      kern+'</svg>';
+      '<circle class="apiring" cx="12" cy="12" r="9" stroke-width="1.8"/>'+
+      '<path class="apikern" d="M16.8 7.2 13.9 13.9 7.2 16.8 10.1 10.1z"/>'+
+      '</svg>';
   return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
     '<circle class="apiring" cx="12" cy="12" r="9" stroke-width="1.6"/>'+kern+'</svg>';
 }
@@ -6012,7 +6035,15 @@ function plqEinfuegen(key,i){                          // Bibliotheks-Titel an P
    wird gespeichert; speichern geht weiter über ＋ Playlist). */
 function plMediaOver(e){
   const t=e.dataTransfer?[...e.dataTransfer.types]:[];
-  if(t.includes('ytdl/key'))e.preventDefault();
+  if(!t.includes('ytdl/key'))return;
+  e.preventDefault();
+  // Sichtbare Rückmeldung an der KARTE, damit man vor dem Loslassen sieht,
+  // dass die ganze Fläche annimmt — nicht nur das Bild.
+  const c=document.getElementById('pl-card'); if(c)c.classList.add('dropziel');
+}
+function plKarteLeave(e){
+  const c=document.getElementById('pl-card');
+  if(c&&!c.contains(e.relatedTarget))c.classList.remove('dropziel');
 }
 /* Command-Bar-Mini-Player als Drop-Ziel (JB 21.07.: „Video auf den Play-Knopf
    oben links ziehen = in die Playlist"). Reiht ein — spielt sofort, wenn nichts läuft. */
@@ -6032,6 +6063,7 @@ function cmdNowDrop(e){
 }
 function plMediaDrop(e){
   e.preventDefault(); e.stopPropagation();
+  const c=document.getElementById('pl-card'); if(c)c.classList.remove('dropziel');
   const key=e.dataTransfer.getData('ytdl/key'); if(!key)return;
   const x=libFind(key); if(!x||!x.vorhanden)return;
   if(playerState.idx<0||!playerState.queue.length){playerPlay([key]);return;}

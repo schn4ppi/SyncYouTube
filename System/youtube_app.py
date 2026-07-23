@@ -959,6 +959,47 @@ def _tag_kandidat(e):
     return ku.strip(), t.strip(" -–—|")
 
 
+def autotag_nach_download(item):
+    """Frisch geladene Musik gleich benennen (Build 136, JB-Wunsch).
+
+    JB: „Auto-Tagging sollte standardmäßig direkt nach dem Download
+    passieren." Vorher musste man es im Ansicht-Menü von Hand anstoßen —
+    deshalb trug frisch Geladenes noch den rohen YouTube-Namen.
+
+    Bewusst zurückhaltend: NUR Musik (bei Videos gibt es bei MusicBrainz
+    nichts zu holen) und nur, wenn noch kein Album eingetragen ist. Es hängt
+    sich an das bestehende Fertig-Ereignis, startet also keinen neuen
+    Dauerprozess und keinen neuen Zeitplan (Last-Budget-Regel). Läuft im
+    Hintergrund, damit der nächste Download nicht auf MusicBrainz wartet.
+    """
+    try:
+        key = _geladen_key(item.get("url") or "", item.get("qualitaet") or "")
+        e = _geladen.get(key)
+        if not e or not _ist_musik(e) or e.get("album"):
+            return
+        threading.Thread(target=autotag_lauf, args=([key],), daemon=True).start()
+    except Exception:                                 # noqa: BLE001 — nie den Download stören
+        pass
+
+
+def _titel_blank(t):
+    """Titel für einen ZWEITEN Suchversuch von allen Klammer-Zusätzen befreien.
+
+    Build 136 (JB-Frage „wieso sind mehrere Titel noch nicht korrekt
+    benannt?"): _TITEL_MUELL kennt nur BEKANNTE Zusätze (official, lyrics,
+    live …). Alles andere bleibt stehen und lässt die MusicBrainz-Suche ins
+    Leere laufen — in JBs Bibliothek etwa „(Traduzione Italiana)" oder
+    „(from The Wildlife Concert)". Für die Suche ist ein Klammerzusatz fast
+    nie Teil des echten Titels; und wenn doch, findet MusicBrainz ihn auch
+    ohne. Bleibt nichts übrig, wird der Originaltitel behalten — ein leerer
+    Suchbegriff wäre nutzlos.
+    """
+    roh = (t or "").strip()
+    ohne = re.sub(r"[\(\[][^\)\]]*[\)\]]", " ", roh)
+    ohne = re.sub(r"\s+", " ", ohne).strip(" -–—|,")
+    return ohne or roh
+
+
 def _mb_get(url, timeout=10):
     """GET mit MusicBrainz-Pflicht-User-Agent; bei Drossel (503) EIN Retry nach Pause."""
     import urllib.request
@@ -1116,6 +1157,13 @@ def autotag_lauf(keys=None):
             ku, ti = _tag_kandidat(e)
             fund = _mb_suche(ku, ti)
             time.sleep(1.5)                          # MusicBrainz-Regel: max 1 Anfrage/Sekunde (+Puffer)
+            if not fund:
+                # Build 136: zweiter Versuch ohne Klammer-Zusätze — die sind
+                # der häufigste Grund, warum ein Titel nicht gefunden wird.
+                blank = _titel_blank(ti)
+                if blank != ti:
+                    fund = _mb_suche(ku, blank)
+                    time.sleep(1.5)
             if not fund:
                 continue
             with _io_lock:
@@ -3496,6 +3544,7 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
             untertitel_einsortieren()                 # mitgeladene .vtt in den Untertitel-Ordner
         except Exception:                             # noqa: BLE001
             pass
+        autotag_nach_download(item)                   # Build 136 (JB): direkt benennen
     except AbbruchError:
         item["status"] = "pausiert"
         item["phase"] = ""
