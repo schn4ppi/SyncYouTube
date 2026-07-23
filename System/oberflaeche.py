@@ -947,6 +947,10 @@ body.embed #view-player .card:not(.pl-horizontal) .pl-side .pl-queue{flex:1;max-
 .pl-leer{color:#6a5c52;font-size:13px;text-align:center;padding:24px}
 .pl-titel{font-weight:600;font-size:14px;margin:10px 0 6px;flex:none}
 .pl-ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;flex:none}
+/* Build 144d: der Lieblings-Knopf zeigt seinen Zustand über die FARBE, nicht
+   über einen zweiten Knopf daneben — leer heisst „noch nicht drin". */
+.pl-lieb{min-width:30px;font-weight:700}
+.pl-lieb.an{background:var(--akz);border-color:var(--akz);color:#1b1512}
 /* Steuerleiste AUF dem Video/Cover (YouTube-Stil, JB 13.07.): Spulleiste oben,
    Transport links, Werkzeuge rechts; blendet bei Maus-Ruhe aus (.baridle). */
 .pl-bar{position:absolute;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;gap:1px;
@@ -1440,6 +1444,11 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
       <div class="pl-side">
         <div class="pl-titel" id="pl-titel"></div>
         <div class="pl-ctrl">
+          <!-- Build 144d (JB Punkt 3): „Spotify-artiges ＋ im Player oben für
+               eine Lieblingssongs-Playlist." Steht bewusst direkt unter dem
+               Titel — wie bei Spotify, wo das Zeichen beim laufenden Stück
+               sitzt und nicht in einem Menü. -->
+          <button class="btn mini pl-lieb" id="pl-lieb" style="display:none" onclick="lieblingToggle()">＋</button>
           <!-- Steuerung lebt AUF dem Video (Leiste unten, YouTube-Stil) + im
                Rechtsklick-Menü — hier bleibt nur, was die Anordnung betrifft. -->
           <button class="btn mini" onclick="playerLayoutToggle()" title="Anordnung wechseln: Video oben ↔ Video links (Playlist rechts)">⇆ Layout</button>
@@ -5930,6 +5939,7 @@ function renderPlayerMedia(){
   else{ media.classList.remove('viz-an'); }             // Video: kein Visualizer-Overlay
   document.getElementById('pl-titel').textContent=x.titel;
   document.getElementById('pl-pos').textContent=(playerState.idx+1)+' / '+playerState.queue.length;
+  lieblingMalen();                                     // ＋/✓ folgt dem laufenden Titel (Build 144d)
   renderPlayerQueue();
   playerLayoutSet();
   cmdNowRender();
@@ -6361,6 +6371,47 @@ function plqZielDrop(e){
   if(key&&plqVon===null)plqEinfuegen(key, playerState.queue.length);
   plqVon=null;
 }
+/* ---- Build 144d, JB Punkt 3: „Spotify-artiges ＋ im Player oben für eine
+   Lieblingssongs-Playlist."
+   Bewusst KEINE neue Datenstruktur: die Lieblingssongs sind eine ganz normale
+   Playlist und damit sofort abspielbar, exportierbar (.m3u), synchronisierbar
+   aufs Handy und im Playlist-Menü sichtbar. Eine eigene „Favoriten"-Liste
+   neben den Playlists waere ein zweiter Mechanismus fuer dieselbe Sache.
+   Sie entsteht beim ERSTEN Klick — JB soll sie nicht vorher anlegen muessen,
+   sonst waere der Knopf beim ersten Mal eine Sackgasse. */
+const LIEBLINGS_NAME='♥ Lieblingssongs';
+function lieblingsPlaylist(){return (plState||[]).find(p=>p.name===LIEBLINGS_NAME);}
+function istLiebling(k){const p=lieblingsPlaylist(); return !!(p&&k&&(p.items||[]).includes(k));}
+function lieblingMalen(){
+  const b=document.getElementById('pl-lieb'); if(!b)return;
+  const k=aktKey(), drin=istLiebling(k);
+  b.style.display=k?'':'none';                         // ohne laufenden Titel gibt es nichts zu merken
+  b.textContent=drin?'✓':'＋';
+  b.classList.toggle('an',drin);
+  b.title=drin?'Aus „'+LIEBLINGS_NAME+'" wieder herausnehmen'
+              :'Zu „'+LIEBLINGS_NAME+'" hinzufügen (die Playlist entsteht beim ersten Mal von selbst)';
+}
+async function lieblingToggle(){
+  const k=aktKey(); if(!k){toast('Es läuft gerade nichts.');return;}
+  let p=lieblingsPlaylist();
+  if(!p){
+    await plApi({art:'create',name:LIEBLINGS_NAME});
+    p=lieblingsPlaylist();
+    if(!p){toast('Konnte die Lieblings-Playlist nicht anlegen.');return;}
+  }
+  if((p.items||[]).includes(k)){
+    // Zweiter Klick nimmt wieder heraus (Spotify-Verhalten). Ueber 'ersetzen',
+    // weil das die Liste exakt setzt — und weil ein Titel hier genau einmal
+    // drin ist: gemocht oder nicht, ein Zwischending gibt es nicht.
+    await plApi({art:'ersetzen',id:p.id,items:(p.items||[]).filter(x=>x!==k)});
+    toast('♥ aus den Lieblingssongs genommen.');
+  }else{
+    await plApi({art:'add',id:p.id,key:k});
+    toast('♥ zu den Lieblingssongs.');
+  }
+  lieblingMalen();
+}
+
 /* ---- Build 144, JB Punkt 2: „Playlist speichern/aktualisieren, wenn man
    Titel in eine gerade laufende Playlist zieht" — „ganz dezent irgendwo".
    Bis hierher war die Warteschlange immer fluechtig: man zog einen Titel
@@ -6490,6 +6541,10 @@ function plMalen(){
   if(plState.find(p=>p.id===cur))sel.value=cur;
   if(libPlaylistView&&!plState.find(p=>p.id===libPlaylistView))libPlaylistView='';   // gelöschte Playlist? Ansicht schließen
   plViewRender();
+  // Build 144d: Die Playlists kommen erst per Netz-Abruf — bis dahin weiss der
+  // ＋-Knopf nicht, ob der laufende Titel schon ein Liebling ist. Sobald sie da
+  // sind, wird er nachgezogen (und ebenso nach jeder Playlist-Aenderung).
+  if(typeof lieblingMalen==='function')lieblingMalen();
 }
 // Playlist „öffnen": Bibliothek zeigt nur diese Playlist. Nochmal klicken schließt sie wieder.
 function plWahl(){                                    // Playlist WÄHLEN = sofort öffnen (JB 14.07.)

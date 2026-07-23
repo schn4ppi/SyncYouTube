@@ -1658,6 +1658,32 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_lieblingssongs_knopf_im_player():
+    # JB Punkt 3: "Spotify-artiges + im Player oben fuer eine
+    # Lieblingssongs-Playlist."
+    quelle = _oberflaeche_html()
+    assert "pl-lieb" in quelle, "Kein Lieblings-Knopf im Player"
+    assert "lieblingToggle" in quelle, "Der Knopf tut nichts"
+    t = quelle[quelle.index("function lieblingToggle"):]
+    t = t[:_funktionsende(quelle, quelle.index("function lieblingToggle"))
+          - quelle.index("function lieblingToggle")].replace('"', "'")
+    # Die Playlist entsteht beim ERSTEN Klick - JB soll sie nicht erst von
+    # Hand anlegen muessen, sonst ist der Knopf beim ersten Mal eine Sackgasse.
+    assert "'create'" in t, "Die Lieblings-Playlist wird nicht selbst angelegt"
+    # Zweiter Klick nimmt wieder heraus (Spotify-Verhalten), und zwar ueber
+    # 'ersetzen': 'remove' traefe zwar auch, aber 'ersetzen' setzt die Liste
+    # exakt und ist derselbe Weg wie ueberall sonst.
+    assert "'ersetzen'" in t, "Der Knopf kann nur hinzufuegen, nicht wieder herausnehmen"
+    # Der Knopf ZEIGT den Zustand des laufenden Titels (gefuellt/leer).
+    i = quelle.index("function lieblingMalen")
+    m = quelle[i:_funktionsende(quelle, i)]
+    assert "istLiebling" in m, "Der Knopf zeigt nicht, ob der Titel schon drin ist"
+    # Und er wird beim Titelwechsel nachgezogen, sonst zeigt er den Vorgaenger.
+    r = quelle.index("function renderPlayerMedia")
+    assert "lieblingMalen" in quelle[r:_funktionsende(quelle, r)], (
+        "Beim Titelwechsel bleibt der Knopf auf dem alten Stand stehen")
+
+
 def test_rahmen_darf_oberhalb_der_playlist_beginnen():
     # JB nach der Probe mit der echten Maus (23.07.): "wie in bibliothek soll
     # der fenster ziehen modus in player/playlist schon ein/zwei reihen
