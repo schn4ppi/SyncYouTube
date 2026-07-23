@@ -1090,3 +1090,119 @@ if __name__ == "__main__":
             print(f"  FAIL  {t.__name__}: {e}")
     print(f"\n{ok}/{len(tests)} Tests bestanden.")
     sys.exit(0 if ok == len(tests) else 1)
+
+
+# ---------------------------------------------------------------- Oberflaechen-Waechter (Build 125)
+
+def _oberflaeche_html():
+    """Der HTML-Rumpf der Oberflaeche (ohne <style>/<script>) als Baum-Parser-Futter."""
+    import oberflaeche
+    return oberflaeche.HTML
+
+
+def _kaefig_klassen(quelle):
+    """Klassen/Ids, die im CSS Containment setzen.
+
+    `container-type` und `contain:` erzeugen Layout-Containment. Das macht das
+    Element zum Stapel-Kontext UND zum Bezugsrahmen fuer absolut/fixed
+    positionierte Kinder — ein Menue darin kann per z-index NIE hoeher steigen
+    als sein Kaefig (live gemessen 23.07.: Ansicht-Menue mit z-index 6100 lag
+    unter einem Panel mit z-index 14).
+    """
+    import re
+    css = re.search(r"<style>(.*?)</style>", quelle, re.S)
+    assert css, "Kein <style>-Block gefunden"
+    raus = set()
+    for regel in re.finditer(r"([^{}]+)\{([^{}]*)\}", css.group(1)):
+        sel, koerper = regel.group(1), regel.group(2)
+        if "container-type" in koerper or re.search(r"\bcontain\s*:", koerper):
+            for s in sel.split(","):
+                for name in re.findall(r"[.#]([A-Za-z0-9_-]+)", s):
+                    raus.add(name)
+    return raus
+
+
+def _baum_verstoesse(quelle, schwebend, kaefige):
+    """Findet schwebende Flaechen, die im HTML unter einem Kaefig haengen."""
+    from html.parser import HTMLParser
+
+    leer = {"br", "img", "input", "meta", "link", "hr", "source", "path", "circle", "rect"}
+
+    class P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stapel = []
+            self.treffer = []
+
+        def handle_starttag(self, tag, attrs):
+            d = dict(attrs)
+            namen = set(d.get("class", "").split())
+            if d.get("id"):
+                namen.add(d["id"])
+            if namen & schwebend:
+                kaefig = [k for eb in self.stapel for k in (eb & kaefige)]
+                if kaefig:
+                    self.treffer.append((sorted(namen & schwebend)[0], kaefig[-1]))
+            if tag not in leer:
+                self.stapel.append(namen)
+
+        def handle_endtag(self, tag):
+            if tag not in leer and self.stapel:
+                self.stapel.pop()
+
+    p = P()
+    p.feed(quelle)
+    return p.treffer
+
+
+def test_schwebende_flaechen_nicht_im_kaefig():
+    # JB-Fund (mehrere Runden): „Ansicht-Menue liegt hinter den Panels".
+    # Wurzel: das Menue haengt statisch in .libbar, und .libbar traegt
+    # container-type:inline-size (seit Build 122, fuer die schmalen Leisten).
+    # Regel ab jetzt: schwebende Flaechen gehoeren an den <body> — nie in ein
+    # Element mit Containment. Dieser Waechter gilt automatisch fuer JEDE
+    # kuenftige Flaeche und jeden kuenftigen Kaefig.
+    quelle = _oberflaeche_html()
+    schwebend = {"abo-flyout", "panelmenu", "itemmenu", "colmenu", "popover", "modal-box"}
+    kaefige = _kaefig_klassen(quelle)
+    assert "libbar" in kaefige, "Erwartet: .libbar traegt Containment (sonst Test veraltet)"
+    verstoesse = _baum_verstoesse(quelle, schwebend, kaefige)
+    assert not verstoesse, (
+        "Schwebende Flaeche sitzt im Containment-Kaefig (z-index wirkt dort nicht): "
+        + ", ".join(f"{f} in .{k}" for f, k in verstoesse)
+    )
+
+
+def test_kopfleiste_symbolspalte_bleibt_senkrecht():
+    # JB-Bild: Abo/Tag-Nacht/Hilfe/Einstellungen sind eine SENKRECHTE Leiste.
+    # Gemessen bei 476 px: eine @media-Regel drehte sie auf flex-direction:row
+    # (4 Knoepfe nebeneinander, 121 px statt 28 px breit).
+    import re
+    quelle = _oberflaeche_html()
+    css = re.search(r"<style>(.*?)</style>", quelle, re.S).group(1)
+    for regel in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+        sel, koerper = regel.group(1), regel.group(2)
+        if re.search(r"\.cmd-side\b", sel) and re.search(r"flex-direction\s*:\s*row", koerper):
+            raise AssertionError(f"Symbol-Spalte wird waagerecht gedreht: {sel.strip()}")
+
+
+def test_kopfleiste_player_hat_mindestmass():
+    # JB-Fund: „Statistik-Spalte ueberlappt den Player". Gemessen bei 360 px:
+    # Statistik (126) + Symbole (121) sind flex:0 0 auto und geben nie nach,
+    # also schrumpfte NUR der Player — auf 69 px, sein Inhalt lief 135 px
+    # heraus, mitten unter die Statistik. Der Player braucht ein Mindestmass,
+    # damit bei Platzmangel etwas ANDERES ausweicht.
+    import re
+    quelle = _oberflaeche_html()
+    css = re.search(r"<style>(.*?)</style>", quelle, re.S).group(1)
+    masse = [
+        int(m2.group(1))
+        for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css)
+        if re.search(r"[.#]cmd-now\b", m.group(1))
+        for m2 in re.finditer(r"min-width\s*:\s*(\d+)px", m.group(2))
+    ]
+    assert masse and max(masse) >= 200, (
+        "#cmd-now braucht ein echtes Mindestmass (>=200px). Gefunden: "
+        + (str(masse) if masse else "keins")
+        + " — min-width:0 erlaubt das Schrumpfen bis zum Ueberlauf."
+    )

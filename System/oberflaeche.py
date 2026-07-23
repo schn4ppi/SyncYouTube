@@ -160,7 +160,13 @@ html.light .cmd-logo .sg{stroke:#f3ede2}
 .cmd-row2{align-items:stretch;gap:10px}
 /* Command-Bar-Player als eigene, wertige Karte (JB 21.07.): Rahmen, dezenter
    Hintergrund, runde Ecken; läuft etwas, glimmt der Rahmen in Programm-Rot. */
-.cmd-now{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:6px;font-size:12px;color:#9a8d84;
+/* Build 125 (JB-Fund „Statistik überlappt den Player", gemessen bei 360 px):
+   Statistik und Symbol-Spalte sind flex:none und geben NIE nach — also
+   schrumpfte allein der Player, auf 69 px, und sein Inhalt lief 135 px
+   heraus, mitten unter die Statistik. Der Player ist der KERN und bekommt
+   deshalb ein Mindestmaß; ausweichen muss jetzt etwas anderes (siehe die
+   Ausweich-Ordnung bei .cmd-stat weiter unten). */
+.cmd-now{flex:1;min-width:220px;display:flex;flex-direction:column;justify-content:center;gap:6px;font-size:12px;color:#9a8d84;
   border:1px solid #2e2823;border-radius:12px;padding:7px 14px;background:rgba(255,255,255,.022)}
 .cmd-now.spielt{border-color:rgba(214,95,95,.45);box-shadow:0 0 0 1px rgba(214,95,95,.12),0 4px 16px rgba(0,0,0,.25)}
 .cmd-now.dropziel{outline:2px dashed var(--akz);outline-offset:2px}
@@ -234,8 +240,28 @@ html.light .cmd-nowtitel{color:#4a3f37}
   background:var(--akzbg);border:1px solid var(--akz);border-radius:7px;padding:4px 9px;display:flex}
 .clipurl{color:#d7c7bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 @media(max-width:660px){.cmd-main{flex-direction:column;height:auto}
-  .cmd-right{border-left:0;border-top:1px solid var(--panelln);padding-left:0;padding-top:6px;max-height:96px}
-  .cmd-side,.cmd-stat{flex-direction:row;align-items:center}}
+  .cmd-right{border-left:0;border-top:1px solid var(--panelln);padding-left:0;padding-top:6px;max-height:96px}}
+/* ---- AUSWEICH-ORDNUNG der Kopfleiste (Build 125) ----------------------
+   Die Kopfleiste hat über mehrere Runden immer denselben Fehler gezeigt,
+   weil eine Regel fehlte: WAS weicht bei Platzmangel WOHIN aus? Ohne diese
+   Rangfolge gibt immer das nach, was zufällig `flex:1` trägt — hier der
+   Player. Die Ordnung lautet ab jetzt, vom Nachgiebigsten zum Festesten:
+
+   1. Der ZÄHLER weicht zuerst (reine Information). Er ist danach im
+      ⚙-Menü als Zeile „Geladen" abzulesen — dort steht er IMMER, nicht
+      nur wenn er hier fehlt (JB-Regel: ausgeblendet ≠ unerreichbar; eine
+      Zeile, die immer da ist, kann auch nie durch eine Breiten-Regel
+      verlorengehen).
+   2. WARNUNG (⚠ bin-Ordner) und API-Punkt bleiben. Ein Statuszeichen darf
+      nie still verschwinden — sonst hält JB einen Fehler für Normalbetrieb.
+   3. Der PLAYER bleibt ganz (min-width:220px, siehe oben) — er ist der
+      Kern der Steuerzentrale.
+   4. Die SYMBOL-SPALTE bleibt senkrecht und 28 px schmal. Sie war früher
+      bei ≤660 px auf flex-direction:row gedreht; gemessen bei 476 px lag
+      sie dann 121 px breit nebeneinander (JB-Bild) und fraß genau den
+      Platz, der dem Player fehlte. Senkrecht ist ihre schmalste Form —
+      die Drehung war ein Eigentor. */
+@media(max-width:430px){ .cmd-stat #counter{display:none} }
 html.light #cmdbar{background:#fff;border-color:#e6ddd3}
 html.light .cmd-url,html.light .cmd-qual{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 html.light .dlrow:hover{background:#f3ede7}
@@ -739,10 +765,24 @@ html.light #buildmark{color:#a89a8e}
 
 /* ---- Spalten-Menü ---- */
 .colmenuwrap{position:relative}
-/* Build 124 (JB-Fund „Ansicht ist wieder im Hintergrund"): Ebene 300 lag
-   UNTER den schwebenden Panels (6000) — aufgeklappte Menüs verschwanden
-   dahinter. Sie gehören über alles, was sie überdecken könnten. */
-.colmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:6100;background:#211b16;border:1px solid #3a332e;
+/* Build 125 (JB-Wunsch): „⚙ Ansicht" rechtsbündig. margin-left:auto schiebt
+   den Knopf ans rechte Ende SEINER Zeile — auch wenn die Leiste umbricht. */
+.libbar .colmenuwrap{margin-left:auto}
+/* Build 125 — WURZEL des Dauerfehlers „Ansicht liegt hinter den Panels":
+   Build 124 hatte die Ebene auf 6100 gehoben, und der Treffer-Test schlug
+   TROTZDEM fehl. Gemessen am 23.07.: Das Menü hing als Kind in .libbar, und
+   .libbar trägt seit Build 122 `container-type:inline-size` für die schmalen
+   Leisten. Containment macht das Element zum eigenen Stapel-Kontext — ein
+   z-index darin wird NUR gegen Geschwister im selben Kasten verglichen, und
+   der ganze Kasten steckt im Bibliotheks-Panel mit z-index 14. Gegen ein
+   Panel mit z-index 35 oder 62 hilft deshalb keine noch so hohe Zahl; sogar
+   `position:fixed` wäre in den Kasten eingesperrt gewesen.
+   Lösung ist nicht eine größere Zahl, sondern der richtige Ort: die Menüs
+   hängen jetzt beim Öffnen am <body> (menuAnBody) und werden per
+   popoverBei() an ihrem Knopf ausgerichtet — genau wie .panelmenu und
+   .itemmenu es längst tun. Der Wächter-Test test_schwebende_flaechen_
+   nicht_im_kaefig hält die Regel für alle künftigen Flächen fest. */
+.colmenu{position:fixed;z-index:6100;background:#211b16;border:1px solid #3a332e;
   border-radius:10px;padding:9px 10px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .colmenu-titel{font-size:11px;color:#8a7d74;margin-bottom:7px;line-height:1.4}
 .colrow{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:13px}
@@ -963,7 +1003,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 124</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 125</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1207,45 +1247,14 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
         <input type="text" id="libsuche" placeholder="Suchen…" oninput="libMalen()"
                onkeydown="if(event.key==='Enter')transkriptSuche()">
         <select id="libsort" onchange="setSortSelect(this.value)" title="Sortieren nach"></select>
+        <!-- Build 125 (JB-Wunsch): „⚙ Ansicht" sitzt rechtsbündig — über
+             margin-left:auto (siehe CSS), nicht über einen Abstandhalter.
+             Die Leiste darf umbrechen (flex-wrap); ein Abstandhalter wirkt
+             dann nur in SEINER Zeile und ließe den Knopf in der nächsten
+             Zeile wieder links stehen (live gemessen: 118 px Lücke). -->
         <div class="colmenuwrap">
           <button class="tog" id="libansichtbtn" onclick="ansichtToggle(event)" title="Darstellung, Filter, Spalten, Archiv, Auswahl, Dubletten …">⚙ Ansicht</button>
-          <div class="colmenu" id="libansicht" style="display:none">
-            <!-- Build 118 (JB: „daneben steht Ansicht, ist das nicht auch eine Art
-                 Ansicht?"): die vier Darstellungs-Knöpfe wohnen jetzt HIER —
-                 eine Sache, ein Ort. Die Leiste bricht dadurch auch in schmalen
-                 Fenstern nicht mehr um (Anti-Scroll-Regel). -->
-            <div class="mzeile"><span>Darstellung</span>
-              <span style="display:flex;gap:3px">
-                <button class="viewbtn" id="vb-kompakt" onclick="libKompaktToggle()" title="Kompakt: mehr Kacheln, nur Bild + Titel">▪▪</button>
-                <button class="viewbtn an" id="vb-kachel" onclick="libAnsicht('kachel')" title="Kacheln">⊞</button>
-                <button class="viewbtn" id="vb-alben" onclick="libAnsicht('alben')" title="Alben — gruppiert nach Künstler/Album">▤</button>
-                <button class="viewbtn" id="vb-liste" onclick="libAnsicht('liste')" title="Liste">☰</button>
-              </span></div>
-            <div class="msep"></div>
-            <div class="mzeile"><span>Filter</span>
-              <select id="libfilter" onchange="libMalen()">
-                <option value="alle">Alle</option>
-                <option value="vorhanden">Nur vorhandene</option>
-                <option value="verschoben">Nur verschobene/gelöschte</option>
-              </select></div>
-            <!-- Build 124 (JB): Ausgegraute (verschobene/gelöschte Dateien) sind
-                 standardmäßig AUS dem Blick — wer sie sucht, hakt hier ab. -->
-            <label class="chk" style="padding:4px 6px"><input type="checkbox" id="libhidegray" checked onchange="libMalen()"> Ausgegraute ausblenden</label>
-            <div class="msep"></div>
-            <button class="mbtn" onclick="colMenuToggle(event)">⚙ Spalten wählen…</button>
-            <button class="mbtn" id="libenrich" onclick="libEnrich(this)">↻ Fehlende Infos nachladen</button>
-            <button class="mbtn" id="libarchivbtn" onclick="libArchivToggle()">🗄 Archiv anzeigen</button>
-            <button class="mbtn" id="libselbtn" onclick="libSelectToggle()">☑ Mehrfach-Auswahl</button>
-            <button class="mbtn" onclick="dublettenPopover(event);ansichtZu()">⧉ Dubletten finden…</button>
-            <button class="mbtn" onclick="autotagAlle();ansichtZu()">🏷 Auto-Tagging (MusicBrainz)…</button>
-            <!-- Build 122 (JB: „sollte selbstständig passieren"): der
-                 Ordner-Blick läuft jetzt von allein, sobald die Bibliothek
-                 angesehen wird (gedrosselt, im Hintergrund). Kein Menüpunkt
-                 mehr nötig. -->
-          </div>
-          <div class="colmenu" id="libcolmenu" style="display:none"></div>
         </div>
-        <span class="spacer"></span>
       </div>
       <div id="libbulk" class="libbulk" style="display:none"></div>
       <div class="libbar plbar">
@@ -1502,6 +1511,16 @@ function imBlick(el,rand){
   el.style.maxWidth=(vw-l-rand)+'px';
   if(getComputedStyle(el).overflowY==='visible')el.style.overflowY='auto';
 }
+function menuAnBody(m,knopf){
+  // Build 125: Eine schwebende Fläche gehört an den <body>. Bleibt sie im
+  // Baum ihres Knopfes hängen, genügt EIN Vorfahre mit Containment oder
+  // transform/filter, und sie sitzt in einem fremden Stapel-Kontext fest —
+  // dann hilft kein z-index mehr (live gemessen: 6100 lag unter 14).
+  // Der Knopf wird gemerkt, damit Resize sie wieder an ihm ausrichten kann.
+  if(m.parentNode!==document.body)document.body.appendChild(m);
+  if(knopf)m._anker=knopf;
+  if(m._anker&&m._anker.isConnected)popoverBei(m, m._anker.getBoundingClientRect());
+}
 function menuInsBild(m,rand){
   // Build 119 (JB-Fund): aufklappende Menüs (Ansicht/Spalten) hängen als
   // absolut positionierte Kinder AN ihrem Knopf — sitzt der weit rechts,
@@ -1526,7 +1545,9 @@ function menuInsBild(m,rand){
 }
 function alleImBlick(){
   document.querySelectorAll(SCHWEBEND).forEach(e=>imBlick(e));
-  document.querySelectorAll('.colmenu').forEach(m=>menuInsBild(m));
+  document.querySelectorAll('.colmenu').forEach(m=>{
+    if(m.style.display!=='none')menuAnBody(m);         // Build 125: wieder an den Knopf
+  });
 }
 window.addEventListener('resize',alleImBlick);
 document.addEventListener('DOMContentLoaded',alleImBlick);
@@ -1564,6 +1585,11 @@ function optionenToggle(ev){
       '<option value="60">60 min</option><option value="titel">nach diesem Titel</option></select>'+
       '<span id="sleepval" style="color:#8a7d74;font-size:11px;margin-left:6px"></span></span></div>'+
     '<div class="optrow"><span>Dateinamen</span><button class="btn mini" onclick="namenFenster()" title="Bausteine wählen und schieben, Probelauf ansehen, anwenden oder zurücknehmen">🏷 Namens-Baukasten</button></div>'+
+    // Build 125: Der Zähler weicht in schmalen Fenstern aus der Kopfleiste
+    // (Ausweich-Ordnung). Damit „ausgeblendet ≠ unerreichbar" nicht an einer
+    // Breiten-Regel hängt, steht er hier IMMER — bei jeder Fenstergröße.
+    '<div class="optrow"><span>Geladen</span><span style="color:var(--akz2);font-weight:700">'+
+      (document.getElementById('counter_num')||{textContent:'0'}).textContent+'</span></div>'+
     '<div class="optrow"><span>Alle Einstellungen</span><button class="btn mini" onclick="einstellungenOeffnen()">⚙ Öffnen</button></div>'+
     '<div class="optrow"><span>📱 Fernsteuerung</span><button class="btn mini" id="fernbtn" onclick="fernToggle()">…</button></div>'+
     '<div id="ferninfo" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
@@ -3975,7 +4001,14 @@ function pfeil(key){return libsort.key===key?(libsort.dir<0?' ▼':' ▲'):'';}
 function colMenuToggle(ev){ if(ev)ev.stopPropagation();
   const m=document.getElementById('libcolmenu'); const zu=m.style.display==='none';
   m.style.display=zu?'block':'none';
-  if(zu){colMenuMalen(); menuInsBild(m);}}             // Build 119: nie aus dem Fenster
+  // Build 125: erst zeichnen (sonst misst popoverBei eine leere Box), dann
+  // an den <body> hängen und am Knopf ausrichten.
+  // Build 125: Das Spalten-Menü löst das Ansicht-Menü ab, statt sich darüber
+  // zu legen (gemessen: beide offen überlappten sich). Genauso machen es die
+  // Nachbar-Einträge „Dubletten" und „Auto-Tagging" mit ansichtZu().
+  // Anker bleibt der ⚙-Knopf — der ist immer sichtbar, der Menüeintrag nicht.
+  if(zu){ansichtZu(); colMenuMalen();
+    menuAnBody(m, document.getElementById('libansichtbtn'));}}
 function colMenuMalen(){
   const m=document.getElementById('libcolmenu');
   m.innerHTML='<div class="colmenu-titel">Spalten — Häkchen = anzeigen, Pfeile = Reihenfolge.<br>Klick auf eine Spaltenüberschrift sortiert danach.</div>'+
@@ -4125,7 +4158,7 @@ function aktionsMenu(ev,eintraege){                    // generisches Klick-Men�
 function ansichtToggle(ev){ if(ev)ev.stopPropagation();
   const m=document.getElementById('libansicht'); const zu=m.style.display==='none';
   m.style.display=zu?'block':'none';
-  if(zu)menuInsBild(m);                                // Build 119: nie aus dem Fenster
+  if(zu)menuAnBody(m, document.getElementById('libansichtbtn'));   // Build 125: frei am <body>
   if(zu){const s=(e2)=>{if(!m.contains(e2.target)&&e2.target.id!=='libansichtbtn'&&!e2.target.closest('#libcolmenu')){
       ansichtZu(); document.removeEventListener('pointerdown',s,true);}};
     setTimeout(()=>document.addEventListener('pointerdown',s,true),0);}
@@ -5945,8 +5978,12 @@ async function biblioNeuladen(id){
 document.getElementById('urls').addEventListener('keydown',e=>{
   if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();hinzufuegen();}});
 // Klick außerhalb schließt das Spalten-Menü
-document.addEventListener('click',e=>{ if(!e.target.closest('.colmenuwrap')){
-  const m=document.getElementById('libcolmenu'); if(m)m.style.display='none';}});
+// Build 125: Das Menü hängt jetzt am <body>, liegt also NICHT mehr in
+// .colmenuwrap — ohne die #libcolmenu-Prüfung hätte ein Klick auf einen
+// eigenen Menüeintrag das Menü sofort zugeklappt.
+document.addEventListener('click',e=>{
+  if(e.target.closest('.colmenuwrap')||e.target.closest('#libcolmenu'))return;
+  const m=document.getElementById('libcolmenu'); if(m)m.style.display='none';});
 /* Tastenkürzel (JB 21.07., YouTube-/Player-Standard). Greifen NUR, wenn nicht in
    einem Eingabefeld getippt wird. ? zeigt die Legende. */
 function tastenLegende(){
@@ -6027,6 +6064,51 @@ plLaden();
 aboLaden();
 setInterval(laden,1000);
 </script>
+
+<!-- ===== Schwebende Flaechen (Build 125) =====================================
+     Diese Menues standen frueher in .libbar. Seit Build 122 traegt .libbar
+     container-type fuer die schmalen Leisten - und Containment sperrt jede
+     absolut/fixed positionierte Flaeche darin ein: gemessen lag das Menue mit
+     z-index 6100 UNTER einem Panel mit z-index 14. Sie wohnen deshalb hier,
+     direkt unter <body>, und werden von popoverBei() an ihrem Knopf
+     ausgerichtet. Der Waechter-Test test_schwebende_flaechen_nicht_im_kaefig
+     haelt das fest - auch fuer jede kuenftige Flaeche und jeden Kaefig. -->
+      <div class="colmenu" id="libansicht" style="display:none">
+        <!-- Build 118 (JB: „daneben steht Ansicht, ist das nicht auch eine Art
+             Ansicht?"): die vier Darstellungs-Knöpfe wohnen jetzt HIER —
+             eine Sache, ein Ort. Die Leiste bricht dadurch auch in schmalen
+             Fenstern nicht mehr um (Anti-Scroll-Regel). -->
+        <div class="mzeile"><span>Darstellung</span>
+          <span style="display:flex;gap:3px">
+            <button class="viewbtn" id="vb-kompakt" onclick="libKompaktToggle()" title="Kompakt: mehr Kacheln, nur Bild + Titel">▪▪</button>
+            <button class="viewbtn an" id="vb-kachel" onclick="libAnsicht('kachel')" title="Kacheln">⊞</button>
+            <button class="viewbtn" id="vb-alben" onclick="libAnsicht('alben')" title="Alben — gruppiert nach Künstler/Album">▤</button>
+            <button class="viewbtn" id="vb-liste" onclick="libAnsicht('liste')" title="Liste">☰</button>
+          </span></div>
+        <div class="msep"></div>
+        <div class="mzeile"><span>Filter</span>
+          <select id="libfilter" onchange="libMalen()">
+            <option value="alle">Alle</option>
+            <option value="vorhanden">Nur vorhandene</option>
+            <option value="verschoben">Nur verschobene/gelöschte</option>
+          </select></div>
+        <!-- Build 124 (JB): Ausgegraute (verschobene/gelöschte Dateien) sind
+             standardmäßig AUS dem Blick — wer sie sucht, hakt hier ab. -->
+        <label class="chk" style="padding:4px 6px"><input type="checkbox" id="libhidegray" checked onchange="libMalen()"> Ausgegraute ausblenden</label>
+        <div class="msep"></div>
+        <button class="mbtn" onclick="colMenuToggle(event)">⚙ Spalten wählen…</button>
+        <button class="mbtn" id="libenrich" onclick="libEnrich(this)">↻ Fehlende Infos nachladen</button>
+        <button class="mbtn" id="libarchivbtn" onclick="libArchivToggle()">🗄 Archiv anzeigen</button>
+        <button class="mbtn" id="libselbtn" onclick="libSelectToggle()">☑ Mehrfach-Auswahl</button>
+        <button class="mbtn" onclick="dublettenPopover(event);ansichtZu()">⧉ Dubletten finden…</button>
+        <button class="mbtn" onclick="autotagAlle();ansichtZu()">🏷 Auto-Tagging (MusicBrainz)…</button>
+        <!-- Build 122 (JB: „sollte selbstständig passieren"): der
+             Ordner-Blick läuft jetzt von allein, sobald die Bibliothek
+             angesehen wird (gedrosselt, im Hintergrund). Kein Menüpunkt
+             mehr nötig. -->
+      </div>
+      <div class="colmenu" id="libcolmenu" style="display:none"></div>
+
 </body>
 </html>
 """
