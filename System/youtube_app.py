@@ -788,9 +788,13 @@ def bibliothek_liste():
     # Die ECHTE Kanal-Nummer aus dem Abo-Backkatalog hat Vorrang — sie zählt
     # über den ganzen Kanal, nicht nur über das, was hier liegt.
     nummer, gesamt = _kanal_nummern(out)
+    # Build 144h (JB Punkt 5): „nur Lieder" braucht eine Einstufung, die den
+    # KANAL mitliest — deshalb über die ganze Liste, nicht je Eintrag.
+    grade = _musik_grade([(x["id"], x) for x in out])
     for x in out:
         x["kanal_nr"] = x.get("abo_nr") or nummer.get(x["id"], 0)
         x["kanal_von"] = gesamt.get(x["id"], 0)
+        x["musik"] = grade.get(x["id"], "nein")
     out.sort(key=lambda x: x["ts"] or 0, reverse=True)
     return out
 
@@ -1189,6 +1193,113 @@ def _ist_musik(e):
     stamm = re.sub(r"\.[a-z0-9]{2,4}$", "", e.get("name") or "")
     teile = re.split(r"\s+[-–—]\s+", stamm, maxsplit=1)
     return len(teile) == 2 and 2 <= len(teile[0].strip()) <= 40 and len(teile[1].strip()) >= 2
+
+
+# Build 144h (JB Punkt 5): „der Video- und Song-Modus soll wirklich Lieder
+# nehmen, nicht nur Videos und MP3."
+# Wörter, die ein Werk als NICHT-Lied ausweisen. Bewusst kurz und auf das
+# beschränkt, was in JBs Bibliothek und bei YouTube üblich ist — eine lange
+# Wortliste wäre Pflegearbeit und träfe irgendwann echte Liedtitel.
+_KEIN_LIED = re.compile(
+    r"(?i)\b(?:trailer|teaser|gameplay|let'?s\s*play|walkthrough|review|tutorial"
+    r"|podcast|interview|documentary|dokumentation|short\s*film|kurzfilm"
+    r"|full\s*(?:movie|album|episode)|folge\s*\d+|stream\s*highlights?)\b")
+# Länger als das ist kein einzelnes Lied mehr, sondern Mitschnitt, Hörbuch,
+# Podcast oder ein ganzes Album am Stück. 20 Minuten ist großzügig gewählt —
+# das längste Stück in JBs Bibliothek liegt weit darunter (gemessen: genau
+# ein Titel über 20 min, und der ist keiner).
+_LIED_MAXDAUER = 1200
+
+
+def _musik_grad(e):
+    """Wie sicher ist es ein LIED? „belegt" / „wahrscheinlich" / „nein".
+
+    Warum drei Stufen statt ja/nein: An JBs 86 Titeln gemessen haben nur 11
+    einen MusicBrainz-Treffer (kuenstler+track) und 3 einen VEVO-/„- Topic"-
+    Kanal. Ein Filter, der nur Belegtes zeigt, wäre fast leer; einer, der jede
+    Vermutung mitnimmt, holt Animationsfilme und Gaming-Clips herein. Also
+    beides trennen und die Oberfläche sagen lassen, worauf sie sich stützt.
+
+    Ausdrücklich NICHT mehr: „Audiodatei = Musik". Das war eine Setzung, keine
+    Messung — Comedy, Podcasts und Hörbücher liegen genauso als MP3 vor
+    (in JBs Bibliothek z. B. ein Gaming-Clip und ein Louis-C.K.-Mitschnitt).
+    """
+    kuenstler = (e.get("kuenstler") or "").strip()
+    track = (e.get("track") or "").strip()
+    up = (e.get("uploader") or "").strip().lower()
+    if (kuenstler and track) or up.endswith(("- topic", "vevo")):
+        return "belegt"                      # Beleg schlägt jede Heuristik
+    name = e.get("name") or ""
+    if _KEIN_LIED.search(name) or _KEIN_LIED.search(e.get("titel_orig") or ""):
+        return "nein"
+    if (e.get("dauer") or 0) > _LIED_MAXDAUER:
+        return "nein"
+    # Abwägung, an JBs Bibliothek gemessen und danach korrigiert: Ein Filter
+    # ist eine ANSICHT, er schreibt nichts. Ein Titel zu viel ist ein
+    # Schönheitsfehler — ein fehlendes Lied fällt auf und ärgert. Die erste,
+    # strengere Fassung verlangte auch von Audiodateien das Muster
+    # „Künstler - Titel" und verlor damit drei echte Lieder (Elmer Bernstein,
+    # Mateus Asato, Shania Twain). Also: eine Audiodatei ohne Ausschlussgrund
+    # zählt als wahrscheinlich; bei Videos braucht es weiter ein Indiz.
+    n = (e.get("name") or "").lower()
+    if e.get("kategorie") == "MP3" or n.endswith((".mp3", ".m4a", ".opus", ".ogg", ".flac")):
+        return "wahrscheinlich"
+    if _ist_musik_muster(e):
+        return "wahrscheinlich"
+    return "nein"
+
+
+def _musik_grade(eintraege):
+    """Einstufung für eine ganze Liste — mit dem Kanal als zusätzlichem Beleg.
+
+    Nötig, weil `_musik_grad` je Eintrag urteilt und dabei genau die Lieder
+    verliert, deren Dateiname keinen Künstler trägt. An JBs Bibliothek
+    gemessen fielen so acht echte Lieder heraus („The Boxer", „Rocky Mountain
+    High", „Sunshine on My Shoulders" …) — sie stehen als reiner Titel da.
+
+    Der Kanal weiß es aber: Trägt von demselben Uploader mindestens EIN Titel
+    einen Beleg (MusicBrainz-Treffer, VEVO-/„- Topic"-Kanal) ODER das Muster
+    „Künstler - Titel", dann ist das ein Musik-Kanal, und seine übrigen Titel
+    sind wahrscheinlich Lieder. Genau das rettet „The Boxer" über „Simon &
+    Garfunkel - I Am A Rock" und „Rocky Mountain High" über „John Denver -
+    Leaving on a Jet Plane".
+
+    Der Auslöser ist bewusst NICHT „hat irgendeinen wahrscheinlichen Titel":
+    dann würde eine einzige MP3 einen Gaming-Kanal zum Musik-Kanal machen
+    (gemessen an „Asmongold Clips", dessen MP3 kein Künstler-Muster trägt).
+    """
+    grade = {}
+    musik_kanaele = set()
+    for k, e in eintraege.items() if isinstance(eintraege, dict) else eintraege:
+        g = _musik_grad(e)
+        grade[k] = g
+        up = (e.get("uploader") or "").strip().lower()
+        if up and (g == "belegt" or (g != "nein" and _ist_musik_muster(e))):
+            musik_kanaele.add(up)
+    if musik_kanaele:
+        paare = eintraege.items() if isinstance(eintraege, dict) else eintraege
+        for k, e in paare:
+            if grade.get(k) != "nein":
+                continue
+            up = (e.get("uploader") or "").strip().lower()
+            if up not in musik_kanaele:
+                continue
+            # Ausschlussgründe bleiben Ausschlussgründe — ein Trailer auf
+            # einem Musik-Kanal ist trotzdem kein Lied.
+            if _KEIN_LIED.search(e.get("name") or "") or _KEIN_LIED.search(e.get("titel_orig") or ""):
+                continue
+            if (e.get("dauer") or 0) > _LIED_MAXDAUER:
+                continue
+            grade[k] = "wahrscheinlich"
+    return grade
+
+
+def _ist_musik_muster(e):
+    """Nur das Namensmuster „Künstler - Titel" (ohne Format-Annahme)."""
+    stamm = re.sub(r"\.[a-z0-9]{2,4}$", "", e.get("name") or "")
+    teile = re.split(r"\s+[-–—]\s+", stamm, maxsplit=1)
+    return (len(teile) == 2 and 2 <= len(teile[0].strip()) <= 40
+            and len(teile[1].strip()) >= 2)
 
 
 def _tags_in_datei(key, e):

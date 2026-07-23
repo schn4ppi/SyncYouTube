@@ -1658,6 +1658,55 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_musik_grad_trennt_beleg_von_vermutung():
+    # JB Punkt 5: der Filter soll "wirklich Lieder nehmen, nicht nur Videos
+    # und MP3". Gemessen an JBs 86 Titeln waren die Belege duenn: nur 11 haben
+    # kuenstler+track aus dem Auto-Tagging, 3 einen VEVO-/"- Topic"-Kanal.
+    # Deshalb DREI Stufen statt ja/nein - und die Oberflaeche darf sagen,
+    # worauf die Einordnung beruht.
+    grad = app._musik_grad
+    # 1) Belegt: MusicBrainz-Treffer (kuenstler UND track) - unabhaengig vom Format.
+    assert grad({"name": "x.mp4", "kuenstler": "Toto", "track": "Africa"}) == "belegt"
+    # ... oder ein Kanal, den YouTube selbst fuer Musik anlegt.
+    assert grad({"name": "x.mp4", "uploader": "TotoVEVO"}) == "belegt"
+    assert grad({"name": "x.mp4", "uploader": "Toto - Topic"}) == "belegt"
+    # 2) Wahrscheinlich: Muster "Kuenstler - Titel" in Lied-Laenge.
+    assert grad({"name": "Toto - Africa.mp3", "dauer": 295}) == "wahrscheinlich"
+    # 3) Nein - und genau diese drei Faelle waren in JBs Bibliothek falsch:
+    #    ein Animationsfilm mit Bindestrich im Namen ...
+    assert grad({"name": "Big Buck Bunny 60fps 4K - Official Blender Foundation "
+                         "Short Film.mp4", "dauer": 635}) == "nein"
+    #    ... ein Video mit Ausschluss-Wort, auch als Audiodatei ...
+    assert grad({"name": "Grim Dawn Top Tips Tutorial.mp3", "dauer": 400}) == "nein"
+    #    ... und alles Lange: Podcasts, Hoerbuecher, Mitschnitte.
+    assert grad({"name": "Irgendwer - Irgendwas.mp3", "dauer": 3600}) == "nein"
+    # Ein belegter Titel bleibt auch lang belegt (Live-Set, Suite).
+    assert grad({"name": "x.mp3", "kuenstler": "A", "track": "B", "dauer": 3600}) == "belegt"
+    # Bewusste Abwaegung (an JBs Bibliothek gemessen und danach KORRIGIERT):
+    # Eine Audiodatei ohne Ausschlussgrund zaehlt als wahrscheinlich, auch
+    # ohne "Kuenstler - Titel"-Muster. Die strengere erste Fassung verlor drei
+    # ECHTE Lieder (Elmer Bernstein, Mateus Asato, Shania Twain). Ein Filter
+    # ist eine Ansicht - ein Titel zu viel ist billiger als ein fehlendes Lied.
+    assert grad({"name": "Bridge Over Troubled Water.mp3", "dauer": 290}) == "wahrscheinlich"
+
+
+def test_nur_lieder_ist_eine_zweite_achse():
+    # JBs eigene Bauform (23.07.): "wenn ich von Video zu MP3 wechsle, auch
+    # die Option zu only Lieder ... ein extra Knopf." Das Format sagt, in
+    # welcher FORM etwas vorliegt; dieser Schalter, ob es ein LIED ist.
+    # Beides zusammen ergibt seine Kombinationen von selbst.
+    quelle = _oberflaeche_html()
+    assert "libnurlieder" in quelle, "Kein Schalter fuer 'nur Lieder'"
+    i = quelle.index("function libGefiltert")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "nurLieder()" in block, "Der Schalter wirkt nicht auf die Bibliothek"
+    # Und er darf nicht ins Leere filtern: youtube_app.py laedt nicht heiss
+    # nach, bis zum App-Neustart fehlt das Feld `musik` in der API-Antwort.
+    # Ohne diese Sicherung haette die Bibliothek LEER ausgesehen.
+    assert "libdaten.some" in block.replace(" ", ""), (
+        "Ohne Einstufung filtert der Schalter alles weg statt nichts")
+
+
 def test_kanal_nummer_ist_keine_tracknummer():
     # JB Punkt 4: "Videonummer je Kanal als eigenes Feld." Mit ausdruecklicher
     # Warnung: NICHT als Track-Nummer - die heisst "Position innerhalb eines

@@ -4566,6 +4566,20 @@ function sortVal(x,key){
   if(key==='titel')return (x.titel||'').toLowerCase();
   const d=COLDEF[key]; return d?d.s(x):0;
 }
+/* Build 144h (JB Punkt 5): „der Video- und Song-Modus soll wirklich Lieder
+   nehmen, nicht nur Videos und MP3." Der Schalter lebt in der Ansicht, nicht
+   in der Datei — die drei Ablage-Kategorien (MP3/Video/4K+) bleiben unberührt.
+   Die Einstufung kommt aus dem Backend (`musik`: belegt/wahrscheinlich/nein)
+   und liest den Kanal mit, damit auch „The Boxer" als Lied gilt. */
+function nurLieder(){
+  let v=false; try{v=localStorage.getItem('ytdl_nur_lieder')==='1';}catch(e){}
+  return v;
+}
+function nurLiederSetzen(an){
+  try{localStorage.setItem('ytdl_nur_lieder',an?'1':'0');}catch(e){}
+  libMalen();
+  toast(an?'♪ Nur Lieder — Musikvideos zählen mit.':'Alle Titel.');
+}
 function libGefiltert(){
   const q=(document.getElementById('libsuche').value||'').toLowerCase().trim();
   // Playlist-Ansicht: nur die Titel dieser Playlist, in Playlist-Reihenfolge (keine Sortierung).
@@ -4578,6 +4592,14 @@ function libGefiltert(){
   const f=document.getElementById('libfilter').value;
   const hide=document.getElementById('libhidegray').checked;
   let arr=libdaten.filter(x=>!!x.archiviert===libArchiv).filter(artPasst);   // 🎶/🎬-Schalter
+  // Build 144h (JB Punkt 5): zweite Achse, quer zum Format. „Alles/MP3/Video/
+  // 4K+" sagt, in welcher FORM etwas vorliegt — dieser Schalter sagt, ob es
+  // ein LIED ist. Beides zusammen ergibt JBs Kombinationen von selbst.
+  // Fällt der Filter ins Leere, wenn die Einstufung fehlt? Genau das wäre
+  // passiert, solange die App noch nicht neu gestartet ist (youtube_app.py
+  // lädt nicht heiß nach): die Bibliothek hätte leer ausgesehen und JB hätte
+  // einen Fehler vermutet. Ohne Einstufung filtert der Schalter deshalb NICHT.
+  if(nurLieder()&&libdaten.some(x=>x.musik))arr=arr.filter(x=>x.musik&&x.musik!=='nein');
   if(f==='vorhanden')arr=arr.filter(x=>x.vorhanden);
   else if(f==='verschoben')arr=arr.filter(x=>!x.vorhanden);
   if(hide&&!libArchiv)arr=arr.filter(x=>x.vorhanden);
@@ -4800,6 +4822,7 @@ function aktionsMenu(ev,eintraege){                    // generisches Klick-Men�
 function ansichtToggle(ev){ if(ev)ev.stopPropagation();
   const m=document.getElementById('libansicht'); const zu=m.style.display==='none';
   m.style.display=zu?'block':'none';
+  const nl=m.querySelector('#libnurlieder'); if(nl)nl.checked=nurLieder();   // Build 144h
   if(zu)menuAnBody(m, document.getElementById('libansichtbtn'));   // Build 125: frei am <body>
   if(zu){const s=(e2)=>{if(!m.contains(e2.target)&&e2.target.id!=='libansichtbtn'&&!e2.target.closest('#libcolmenu')){
       ansichtZu(); document.removeEventListener('pointerdown',s,true);}};
@@ -7161,6 +7184,14 @@ setInterval(laden,1000);
             <button class="viewbtn" id="vb-liste" onclick="libAnsicht('liste')" title="Liste">☰</button>
           </span></div>
         <div class="msep"></div>
+        <!-- Build 144h (JB Punkt 5, seine eigene Bauform): „wenn ich von Video
+             zu MP3 wechsle, auch die Option zu only Lieder … ein extra Knopf."
+             Zwei Achsen statt vier vermischter Reiter — das Format sagt, in
+             welcher FORM etwas vorliegt, dieser Schalter, ob es ein LIED ist. -->
+        <div class="mzeile"><span>Inhalt</span>
+          <label class="chk" style="padding:4px 6px"><input type="checkbox" id="libnurlieder"
+            onchange="nurLiederSetzen(this.checked)"
+            title="Zeigt nur Lieder — Musikvideos zählen mit, Trailer, Gaming-Clips, Podcasts und Hörbücher nicht"> ♪ nur Lieder</label></div>
         <div class="mzeile"><span>Filter</span>
           <select id="libfilter" onchange="libMalen()">
             <option value="alle">Alle</option>
