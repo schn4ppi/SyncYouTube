@@ -1449,3 +1449,48 @@ def test_tooltips_sind_standardmaessig_verborgen():
             "Ein .tip haengt unter keinem Element, das von der Versteck-Regel "
             f"getroffen wird. Versteckt wird unter: {sorted(verstecker)}; "
             f"vorhanden sind: {sorted(eltern_klassen)}")
+
+
+def test_vollbild_overlay_hat_das_wichtigste():
+    # JB Punkt 3: Vollbild-Overlay wie Netflix/Disney - "nur das Wichtigste:
+    # Play/Pause, +/-10 s, Zeitleiste, Untertitel, naechster Titel, Beenden".
+    # Der Grund, warum diese Knoepfe NUR im Vollbild noetig sind: Zufall/Vor/
+    # Zurueck wohnen seit Build 121 oben in der Steuerzentrale - die ist im
+    # Vollbild aber nicht sichtbar. Ohne sie kaeme man dort nicht weiter.
+    import re
+    quelle = _oberflaeche_html()
+    css = re.search(r"<style>(.*?)</style>", quelle, re.S).group(1)
+
+    # Die Zusatz-Knoepfe existieren und sind als „nur im Vollbild" markiert.
+    for kennung in ("plb-back10", "plb-fwd10", "plb-next", "plb-exitfs"):
+        assert kennung in quelle, f"Vollbild-Knopf {kennung} fehlt"
+
+    # Ausserhalb des Vollbilds verborgen, im Vollbild sichtbar.
+    assert re.search(r"\.nur-vollbild\{[^}]*display\s*:\s*none", css), \
+        "Die Vollbild-Knoepfe waeren auch ausserhalb des Vollbilds sichtbar"
+    assert re.search(r":fullscreen[^{]*\.nur-vollbild\{[^}]*display\s*:", css), \
+        "Im Vollbild werden die Zusatz-Knoepfe nicht eingeblendet"
+    # Und im Vollbild raeumt es die Nebensachen weg (JB: nur das Wichtigste).
+    assert re.search(r":fullscreen[^{]*\.weg-im-vollbild\{[^}]*display\s*:\s*none", css), \
+        "Im Vollbild bleibt alles stehen - das ist kein Netflix-Muster"
+
+
+def test_player_bild_springt_nicht():
+    # JB ausdruecklich: "16:9 FEST - echtes Mass je Video = Nogo, das Bild
+    # darf nicht springen." Das Bildfeld haengt deshalb an einem festen
+    # Seitenverhaeltnis (Standard 16:9) und NICHT an den Maszen des Videos;
+    # object-fit:contain legt das Bild mit Balken hinein, statt den Rahmen
+    # zu verformen.
+    import re
+    quelle = _oberflaeche_html()
+    css = re.search(r"<style>(.*?)</style>", quelle, re.S).group(1)
+    regeln = [m.group(2) for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css)
+              if re.search(r"\.pl-media\s+video\b", m.group(1))]
+    zusammen = " ".join(regeln)
+    assert "aspect-ratio" in zusammen, \
+        "Das Bildfeld hat kein festes Seitenverhaeltnis - es springt je Video"
+    assert "object-fit:contain" in zusammen.replace(" ", ""), \
+        "Ohne object-fit:contain wuerde das Bild verzerrt statt eingepasst"
+    # Andere Verhaeltnisse als Option (JB: "zusaetzlich als Layout-Option").
+    assert re.search(r"seitenverhaeltnis|--pl-ar", css + quelle), \
+        "Es gibt keine Umschaltung auf ein anderes Seitenverhaeltnis"

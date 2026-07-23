@@ -814,7 +814,19 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
   container-type:size;container-name:plcard}
 .pl-media{flex:1;background:#0e0c0a;border-radius:10px;min-height:72px;display:flex;flex-direction:column;
   align-items:center;justify-content:center;overflow:hidden;gap:8px;padding:8px}
-.pl-media video{width:100%;height:100%;max-height:none;border-radius:8px;background:#000;object-fit:contain}
+/* Build 130 (JB ausdrücklich): „16:9 FEST — echtes Maß je Video = Nogo, das
+   Bild darf nicht springen." Das Bildfeld hängt deshalb an einem festen
+   Seitenverhältnis und NICHT an den Maßen des jeweiligen Videos; ein 4:3-Clip
+   bekommt seitliche Balken (object-fit:contain), statt den Rahmen zu
+   verformen und beim Titelwechsel alles verrutschen zu lassen.
+   Das Verhältnis steckt in --pl-ar und ist umschaltbar (Layout-Option);
+   16/9 ist der Standard. max-height hält das Bild im verfügbaren Raum,
+   margin:auto zentriert es darin. */
+.pl-media video{width:100%;height:auto;aspect-ratio:var(--pl-ar,16/9);max-height:100%;margin:auto;
+  border-radius:8px;background:#000;object-fit:contain}
+/* „Natürlich" gibt das feste Maß bewusst auf — für den seltenen Fall, dass
+   jemand ein Hochkant-Video formatfüllend sehen will. */
+.pl-media.ar-frei video{aspect-ratio:auto;height:100%}
 .pl-media audio{width:100%;flex:none;position:relative;z-index:2}
 /* Visualizer: Canvas als animierter Hintergrund hinter dem Cover, Audio-Leiste oben drüber */
 .pl-media{position:relative;container-type:inline-size;container-name:plmedia}
@@ -874,6 +886,22 @@ body.embed #view-player .card:not(.pl-horizontal) .pl-side .pl-queue{flex:1;max-
   padding:4px 10px 7px;background:linear-gradient(transparent,rgba(0,0,0,.82));transition:opacity .25s}
 .pl-media.baridle .pl-bar{opacity:0;pointer-events:none}
 .pl-media.baridle{cursor:none}
+/* ---- Vollbild-Overlay (Build 130, JB Punkt 3) -----------------------------
+   Netflix-/Disney-Muster: die Leiste erscheint bei Mausbewegung und geht nach
+   ~3 s wieder weg (das macht schon .baridle). Neu ist, WAS im Vollbild steht.
+   Grund: Zufall/Vor/Zurück/Wiederholen wohnen seit Build 121 oben in der
+   Steuerzentrale — die ist im Vollbild aber nicht sichtbar. Ohne eigene
+   Knöpfe käme man dort also nicht zum nächsten Titel und nicht zurück.
+   Deshalb blendet das Vollbild genau das Wichtigste EIN (±10 s, nächster
+   Titel, Beenden) und die Nebensachen AUS (Clip, Tempo, Bild-in-Bild).
+   Nichts davon geht verloren: die Tastenkürzel gelten im Vollbild weiter
+   (S Untertitel, Shift+,/. Tempo, ↑/↓ Lautstärke), und beim Verlassen ist
+   die volle Leiste sofort wieder da. */
+.nur-vollbild{display:none}
+.pl-media:fullscreen .nur-vollbild{display:inline-flex;align-items:center;justify-content:center}
+.pl-media:fullscreen .weg-im-vollbild{display:none}
+.pl-media:fullscreen .pl-bar{padding-bottom:14px}      /* Daumenbreite zum Bildrand */
+.pl-media:fullscreen video{border-radius:0}
 .pl-barseek{display:flex;align-items:center;gap:8px}
 .pl-barseek input{flex:1;height:12px;accent-color:var(--akz);cursor:pointer;margin:0;min-width:40px}
 .pl-barrow{display:flex;align-items:center;gap:6px}
@@ -1010,7 +1038,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 129</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 130</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -1597,6 +1625,12 @@ function optionenToggle(ev){
       '<input type="range" min="0" max="12" value="'+crossfadeSek+'" style="width:100%;margin-top:4px" oninput="setCrossfade(this.value)"></div>'+
     '<div class="optrow"><span>Lautstärke angleichen</span><label class="chk"><input type="checkbox" id="opt_norm" '+
       (normAn?'checked':'')+' onchange="normSetzen(this.checked)"> Titel gleich laut</label></div>'+
+    // Build 130 (JB): 16:9 ist FEST der Standard, damit das Bild beim
+    // Titelwechsel nicht springt. Die anderen Verhältnisse stehen als
+    // Layout-Option daneben — „Natürlich" heisst ausdrücklich, dass es
+    // wieder springen darf.
+    '<div class="optrow"><span>Seitenverhältnis</span><select id="opt_ar" onchange="seitenverhaeltnisSetzen(this.value)">'+
+      PL_AR.map(a=>'<option value="'+a[0]+'">'+a[1]+'</option>').join('')+'</select></div>'+
     '<div class="optrow"><span>Canvas-Hintergrund</span><label class="chk"><input type="checkbox" id="opt_canvas" '+
       (canvasAn?'checked':'')+' onchange="setCanvas(this.checked)"> animiertes Cover</label></div>'+
     '<div class="optrow"><span>Sleep-Timer</span><span><select id="opt_sleep" onchange="sleepSetzen(this.value)">'+
@@ -1617,6 +1651,8 @@ function optionenToggle(ev){
     '<div id="ferninfo" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
   document.body.appendChild(m);
   const sel=m.querySelector('#opt_fehler'); if(sel)sel.value=fmin;
+  const ar=m.querySelector('#opt_ar');
+  if(ar){try{ar.value=localStorage.getItem('ytdl_ar')||'16/9';}catch(e){ar.value='16/9';}}
   const sk=m.querySelector('#opt_skin'); if(sk)sk.value=aktuellerSkin();
   const slp=m.querySelector('#opt_sleep'); if(slp)slp.value=sleepTitelende?'titel':'0'; sleepLabel();
   const ub=m.querySelector('#opt_ueb'); if(ub)ub.value=uebergang;
@@ -5257,19 +5293,51 @@ function plBarHTML(istVideo){
     // Play/Pause bleibt (der eine Griff, den man im Video erwartet — und ein
     // Klick ins Bild tut dasselbe); Zufall/Vor/Zurück/Wiederholen/Cover-Stil
     // stehen oben in der Steuerzentrale, die nie verschwindet.
+    // Build 130: ±10 s und „nächster Titel" gibt es NUR im Vollbild — dort
+    // fehlt die Steuerzentrale oben, die das sonst übernimmt.
+    `<button class="mp-btn nur-vollbild" id="plb-back10" onclick="plbSpringen(-10)" title="10 Sekunden zurück (Taste J)">⏪</button>`+
     `<button class="mp-btn" data-tr="pp" onclick="plTogglePlay()">${ico('play')}</button>`+
+    `<button class="mp-btn nur-vollbild" id="plb-fwd10" onclick="plbSpringen(10)" title="10 Sekunden vor (Taste L)">⏩</button>`+
+    `<button class="mp-btn nur-vollbild" id="plb-next" onclick="playerNext()" title="Nächster Titel (Taste N)">⏭</button>`+
     `<span class="pl-bspacer"></span>`+
     `<button class="pl-bsp bo3" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
-    `<button class="pl-bsp bo3" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
-    `<button class="pl-bsp bo3" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
+    `<button class="pl-bsp bo3 weg-im-vollbild" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
+    `<button class="pl-bsp bo3 weg-im-vollbild" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
     `<span class="pl-bvolwrap bo2">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
     // YouTube-Öffnen und Link-Kopieren beziehen sich auf den TITEL, nicht auf
     // die Darstellung ⇒ sie stehen oben in der Steuerzentrale (Build 121).
-    (istVideo?`<button class="pl-bsp bo2" onclick="plbPip()" title="Bild-in-Bild: Video schwebt über allen Fenstern (Taste I)">⧉</button>`:'')+
-    (istVideo?`<button class="pl-bsp" onclick="plbFullscreen()" title="Vollbild (Taste F)">⛶</button>`:'')+
+    (istVideo?`<button class="pl-bsp bo2 weg-im-vollbild" onclick="plbPip()" title="Bild-in-Bild: Video schwebt über allen Fenstern (Taste I)">⧉</button>`:'')+
+    (istVideo?`<button class="pl-bsp weg-im-vollbild" onclick="plbFullscreen()" title="Vollbild (Taste F)">⛶</button>`:'')+
+    // Im Vollbild wird aus „Vollbild" ein deutliches „Beenden" (JB: Beenden
+    // gehört zum Wichtigsten) — sonst sucht man im randlosen Bild den Ausweg.
+    (istVideo?`<button class="pl-bsp nur-vollbild" id="plb-exitfs" onclick="plbFullscreen()" title="Vollbild beenden (Taste F oder Esc)">✕</button>`:'')+
    `</div></div>`;
 }
 function plTogglePlay(){const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}}
+function plbSpringen(s){                               // Build 130: ±10 s im Vollbild-Overlay
+  const el=document.getElementById('pl-el');
+  if(el&&el.duration)el.currentTime=Math.max(0,Math.min(el.duration,el.currentTime+s));
+}
+/* Seitenverhältnis des Bildfelds (Build 130). JB will 16:9 FEST, damit das
+   Bild beim Titelwechsel nicht springt; die anderen Werte sind die
+   Layout-Option daneben. Gemerkt wird lokal — es ist eine Ansichts-Sache,
+   keine Programm-Einstellung. */
+const PL_AR=[['16/9','16:9 (Standard)'],['4/3','4:3'],['21/9','21:9 Kino'],['frei','Natürlich (springt)']];
+function seitenverhaeltnisSetzen(v){
+  const m=document.getElementById('pl-media');
+  try{localStorage.setItem('ytdl_ar',v);}catch(e){}
+  if(!m)return;
+  m.classList.toggle('ar-frei',v==='frei');
+  m.style.setProperty('--pl-ar', v==='frei'?'auto':v);
+  const name=(PL_AR.find(a=>a[0]===v)||[])[1]||v;
+  toast('🖵 Seitenverhältnis: '+name);
+}
+function seitenverhaeltnisAnwenden(){                  // beim Aufbau des Players
+  let v='16/9'; try{v=localStorage.getItem('ytdl_ar')||'16/9';}catch(e){}
+  const m=document.getElementById('pl-media'); if(!m)return;
+  m.classList.toggle('ar-frei',v==='frei');
+  m.style.setProperty('--pl-ar', v==='frei'?'auto':v);
+}
 function plbSeekDrag(v){const el=document.getElementById('pl-el'), t=document.getElementById('plb-t0');
   if(el&&el.duration&&t)t.textContent=zeit(v/1000*el.duration);}
 function plbSeekEnd(v){const el=document.getElementById('pl-el');
@@ -5358,7 +5426,7 @@ function plBarIdleInit(media,el){                      // Leiste ruht die Maus -
   clearTimeout(plbIdleTimer);
   media.classList.remove('baridle');
   const wecken=()=>{media.classList.remove('baridle'); clearTimeout(plbIdleTimer);
-    plbIdleTimer=setTimeout(()=>{if(!el.paused)media.classList.add('baridle');},2600);};
+    plbIdleTimer=setTimeout(()=>{if(!el.paused)media.classList.add('baridle');},3000);};  // JB: „weg nach ~3 s"
   media.onpointermove=wecken;
   media.onpointerleave=()=>{if(!el.paused)media.classList.add('baridle');};
   el.addEventListener('pause',()=>media.classList.remove('baridle'));
@@ -5403,6 +5471,7 @@ function renderPlayerMedia(){
       if(el.paused)el.play(); else el.pause();
     };
     plBarIdleInit(media,el);                              // Leiste blendet bei Maus-Ruhe aus (YouTube-Stil)
+    seitenverhaeltnisAnwenden();                          // Build 130: 16:9 fest (JB)
   }
   if(el && istAudio){ vizVerbinde(el); vizFarbeAktualisieren(); vizModeRender(); vizStart(); }
   else{ media.classList.remove('viz-an'); }             // Video: kein Visualizer-Overlay
