@@ -61,8 +61,20 @@ body{font-family:system-ui,Segoe UI,sans-serif;margin:0;background:var(--bg);col
 h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;letter-spacing:.05em}
 .sub{color:#8a7d74;font-size:12px}
 .apistat{display:flex;align-items:center;gap:6px;font-size:12px;color:#8a7d74;margin-top:4px}
-.apidot{width:9px;height:9px;border-radius:50%;background:#6fcf7f;display:inline-block;flex:none}
-.apidot.bad{background:#e08a6a}
+/* Build 133 (JB): Der Status-Punkt trägt jetzt das Zeichen des Browsers, in
+   dem die Oberfläche läuft — Firefox die Erdkugel, Chrome den Ring, Edge den
+   Bogen, Safari den Kompass. Der Kern in der Mitte ist der eigentliche
+   Status: grün = App erreichbar, rot = getrennt. So sagt EIN Zeichen beides,
+   statt dass ein nackter Punkt nur die halbe Geschichte erzählt.
+   Die Formen sind bewusst eigene, vereinfachte Andeutungen — keine
+   Marken-Dateien, nur so viel Umriss, dass man den Browser wiedererkennt. */
+.apidot{width:16px;height:16px;display:inline-flex;flex:none;align-items:center;justify-content:center}
+.apidot svg{width:16px;height:16px;display:block}
+.apikern{fill:#6fcf7f}                                 /* Status: verbunden */
+.apidot.bad .apikern{fill:#e08a6a}                     /* Status: getrennt */
+.apiring{fill:none;stroke:currentColor;opacity:.75}
+.apidot{color:#8a7d74}
+html.light .apidot{color:#a89a8e}
 .tools{display:flex;align-items:center;gap:8px;padding-top:6px;flex:none}
 .iconbtn{width:34px;height:34px;border-radius:9px;border:1px solid #3a332e;background:#171310;color:#eee;
   font-size:16px;cursor:pointer;line-height:1}
@@ -1104,7 +1116,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 132</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 133</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -2704,7 +2716,12 @@ function malen(){
 
 function apiStatus(ok){
   const d=document.getElementById('apidot');
-  if(d){d.className='apidot'+(ok?'':' bad'); d.title=ok?'API verbunden · 127.0.0.1:8776':'API getrennt — läuft die App?';}
+  if(d){
+    d.className='apidot'+(ok?'':' bad');
+    if(!d.firstChild)d.innerHTML=browserZeichen();      // einmal zeichnen, dann nur umfärben
+    d.title=(ok?'API verbunden · 127.0.0.1:8776':'API getrennt — läuft die App?')
+            +' · Browser: '+browserName();
+  }
   const t=document.getElementById('apitext'); if(t)t.textContent=ok?'API verbunden · 127.0.0.1:8776':'API getrennt — läuft die App?';
 }
 
@@ -3847,6 +3864,53 @@ const ICONS={
   back:'M11 12 19 6.5v11L11 12zm-8 0 8-5.5v11L3 12z',
   fwd:'M13 12 5 17.5v-11L13 12zm8 0-8 5.5v-11L21 12z'};
 function ico(n){return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+ICONS[n]+'"/></svg>';}
+
+/* ---- Browser-Zeichen für den Status-Punkt (Build 133, JB-Wunsch) ----------
+   Reihenfolge der Prüfung ist wichtig: Edge und Chrome tragen beide „Chrome"
+   im User-Agent, Safari steht auch in Chromes Kennung. Deshalb wird von der
+   spezifischsten Kennung zur allgemeinsten geprüft — sonst wäre jeder
+   Browser ein Chrome. */
+function browserArt(){
+  const ua=navigator.userAgent||'';
+  if(/Firefox\\//.test(ua))                    return 'firefox';
+  if(/Edg\\//.test(ua))                        return 'edge';
+  if(/OPR\\//.test(ua))                        return 'opera';
+  if(/Chrome\\//.test(ua))                     return 'chrome';
+  if(/Safari\\//.test(ua))                     return 'safari';
+  return 'sonst';
+}
+function browserName(){
+  return {firefox:'Firefox',edge:'Edge',opera:'Opera',chrome:'Chrome',
+          safari:'Safari',sonst:'unbekannt'}[browserArt()];
+}
+function browserZeichen(){
+  const art=browserArt();
+  const kern='<circle class="apikern" cx="12" cy="12" r="4.6"/>';
+  // Firefox: die Erdkugel mit angedeuteten Meridianen (JB: „die Erde").
+  if(art==='firefox')
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
+      '<circle class="apiring" cx="12" cy="12" r="9" stroke-width="1.6"/>'+
+      '<ellipse class="apiring" cx="12" cy="12" rx="4" ry="9" stroke-width="1.1"/>'+
+      '<path class="apiring" d="M3.6 9h16.8M3.6 15h16.8" stroke-width="1.1"/>'+kern+'</svg>';
+  // Chrome: der Ring aus drei Segmenten, der Kern sitzt dort, wo sonst das
+  // Blau steckt — genau die Stelle, die JB benannt hat.
+  if(art==='chrome'||art==='opera')
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
+      '<circle class="apiring" cx="12" cy="12" r="9" stroke-width="2.4"/>'+
+      '<path class="apiring" d="M12 3v6M20 17l-5-3M4 17l5-3" stroke-width="1.4"/>'+kern+'</svg>';
+  // Edge: der offene Bogen.
+  if(art==='edge')
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
+      '<path class="apiring" d="M20 15a9 9 0 1 0-8 5.9" stroke-width="2.2" stroke-linecap="round"/>'+kern+'</svg>';
+  // Safari: der Kompass samt Nadel.
+  if(art==='safari')
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
+      '<circle class="apiring" cx="12" cy="12" r="9" stroke-width="1.6"/>'+
+      '<path class="apiring" d="M16.5 7.5 13.6 13.6 7.5 16.5 10.4 10.4z" stroke-width="1.3" stroke-linejoin="round"/>'+
+      kern+'</svg>';
+  return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
+    '<circle class="apiring" cx="12" cy="12" r="9" stroke-width="1.6"/>'+kern+'</svg>';
+}
 let playShuffle=false, playRepeat='aus';               // 'aus' | 'alle' | 'eins'
 try{
   playShuffle=localStorage.getItem('ytdl_shuffle')==='1';
