@@ -1622,3 +1622,31 @@ def test_autotag_laeuft_nach_dem_download():
     # sinnlose Anfragen an MusicBrainz bei jedem Video.
     assert "_ist_musik" in block, "Auch Videos wuerden getaggt"
     assert "album" in block, "Schon getaggte Titel wuerden erneut abgefragt"
+
+
+def test_warteschlange_heilt_tote_auftraege():
+    # JB Punkt 6: "Warteschlange gegen tote Auftraege selbst heilen."
+    # Zwei Loecher gab es:
+    #  1. Beim Start wurde nur "laeuft" wieder eingereiht - ein Eintrag, der
+    #     beim Absturz gerade AUFGELOEST wurde ("prueft"), blieb fuer immer
+    #     liegen: Q.naechster() greift nur "wartend" auf, also ruehrte ihn
+    #     nie wieder jemand an.
+    #  2. Zur Laufzeit konnte ein Auftrag im Zustand "prueft" haengen, wenn
+    #     der Aufloese-Thread starb.
+    # Geheilt wird NICHT-DESTRUKTIV: der Eintrag wird wieder eingereiht, die
+    # .part-Datei bleibt liegen und der Download setzt fort.
+    import inspect
+    quelle = inspect.getsource(app)
+    assert "def queue_heilen" in quelle, "Keine Selbstheilung der Warteschlange"
+    i = quelle.index("def queue_heilen")
+    block = quelle[i:i + 1500]
+    assert '"prueft"' in block, "Haengende 'prueft'-Auftraege werden nicht geheilt"
+    assert '"wartend"' in block, "Der Auftrag wird nicht wieder eingereiht"
+    # Nichts wird geloescht - Selbstheilung ist nicht-destruktiv (harte Regel).
+    assert "remove" not in block and "del " not in block, \
+        "Die Heilung entfernt Eintraege - das waere destruktiv"
+
+    # Und der Start raeumt beide Zustaende ab.
+    start = quelle[quelle.index("class Warteschlange"):]
+    start = start[:start.index("def speichern")]
+    assert '"prueft"' in start, "Beim Start bleibt 'prueft' liegen"

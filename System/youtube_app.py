@@ -188,8 +188,12 @@ class Warteschlange:
         self.abbrueche = set()      # ids, deren laufender Download stoppen soll
         daten = _json_laden(QUEUE_PFAD, {"items": []})
         for it in daten.get("items", []):
-            # Nach Neustart: was lief, wird wieder eingereiht -> Resume via .part
-            if it.get("status") == "laeuft":
+            # Nach Neustart: was lief, wird wieder eingereiht -> Resume via .part.
+            # Build 137: „prueft" gehört genauso dazu. Ein Eintrag, der beim
+            # Beenden gerade AUFGELÖST wurde, blieb sonst für immer liegen —
+            # Q.naechster() greift nur „wartend" auf, also rührte ihn nie
+            # wieder jemand an. Das war einer von JBs toten Aufträgen.
+            if it.get("status") in ("laeuft", "prueft"):
                 it["status"] = "wartend"
             it.setdefault("naechster_versuch", 0)
             self.items.append(it)
@@ -3598,6 +3602,43 @@ def worker_schleife():
 _fehler_seit = {}   # item-id -> Zeitpunkt, seit dem der Eintrag „fehler" ist
 
 
+_prueft_seit = {}   # item-id -> Zeitpunkt, seit dem der Eintrag „prueft"
+
+
+def queue_heilen():
+    """Hängende Aufträge selbst wieder flottmachen (Build 137, JB Punkt 6).
+
+    Ein Eintrag steht auf „prueft", solange yt-dlp die Adresse auflöst. Stirbt
+    dieser Hintergrund-Thread — Netzabbruch, Ausnahme in einer Fremdbibliothek,
+    hängende Verbindung —, bleibt der Eintrag für immer stehen: aufgegriffen
+    wird nur „wartend". Für JB sieht das aus wie ein Download, der ewig
+    „prüft" und nie loslegt.
+
+    Nach 5 Minuten ohne Fortschritt wird er deshalb WIEDER EINGEREIHT. Das ist
+    bewusst nicht-destruktiv (harte Regel): nichts wird gelöscht, die
+    .part-Datei bleibt liegen, der Download setzt fort. Läuft im bestehenden
+    Ticker mit — kein neuer Dauerprozess, kein neuer Zeitplan.
+    """
+    jetzt = time.time()
+    with Q.lock:
+        offen = {it["id"] for it in Q.items if it.get("status") == "prueft"}
+        for tot in [k for k in _prueft_seit if k not in offen]:
+            _prueft_seit.pop(tot, None)               # nicht mehr „prueft" -> vergessen
+        for it in Q.items:
+            if it.get("status") != "prueft":
+                continue
+            seit = _prueft_seit.setdefault(it["id"], jetzt)
+            if jetzt - seit < 300:                    # 5 Minuten Geduld
+                continue
+            it["status"] = "wartend"
+            it["naechster_versuch"] = 0
+            it["fehler"] = ""
+            _prueft_seit.pop(it["id"], None)
+            _sag(f"Warteschlange geheilt: „{(it.get('titel') or it.get('url') or '')[:60]}" + "“ "
+                 "hing beim Auflösen und wurde wieder eingereiht.")
+    Q.speichern()
+
+
 def _fehler_aufraeumen():
     """Fehler-Einträge, die seit `fehler_ausblenden_min` Minuten in der Queue
     stehen, automatisch entfernen (JB-Wunsch: nicht ewig den Fehler lesen)."""
@@ -3630,6 +3671,7 @@ def ticker_schleife():
         if any(it["status"] == "laeuft" for it in Q.items):
             Q.speichern()
         _fehler_aufraeumen()
+        queue_heilen()                                # Build 137: hängende Aufträge (JB Punkt 6)
 
 
 # ---------------------------------------------------------------- HTTP-Server

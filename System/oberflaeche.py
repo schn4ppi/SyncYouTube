@@ -1131,7 +1131,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 136</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 137</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -1429,6 +1429,13 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
                Rechtsklick-Menü — hier bleibt nur, was die Anordnung betrifft. -->
           <button class="btn mini" onclick="playerLayoutToggle()" title="Anordnung wechseln: Video oben ↔ Video links (Playlist rechts)">⇆ Layout</button>
           <button class="btn mini" id="plq-btn" onclick="plqFenster()" title="Player-Playlist als eigenes Fenster herauslösen / wieder eingliedern — als Fenster ist sie andockbar wie jeder Tab">🎶 Playlist</button>
+          <!-- Build 137 (JB Punkt 4): „⋯-Werkzeuge auch im eingebauten
+               Player (gibt es bisher nur im herausgelösten Playlist-Fenster)".
+               Genau dieselbe Liste wie dort — wer die Playlist NICHT
+               herauslöst, kam sonst nur über den Rechtsklick daran, und den
+               muss man erst einmal erraten. -->
+          <button class="btn mini" id="pl-werkbtn" onclick="plWerkzeugeImPlayer(event)"
+                  title="Werkzeuge: Warteschlange sortieren, Duplikate entfernen, als Playlist speichern · Playlist umbenennen, Sync, .m3u">⋯ Werkzeuge</button>
           <span class="muted2" id="pl-pos"></span>
           <span class="muted2 pl-hint" style="font-size:11px">· Rechtsklick = alle Optionen</span>
         </div>
@@ -5984,6 +5991,25 @@ function queueWerkzeugListe(){                          // gemeinsame Liste [Lab
 function plqWerkzeuge(ev){                              // ⋯-Knopf im Playlist-Fenster
   ev.stopPropagation();
   kontextMenuBauen(ev, queueWerkzeugListe().map(o=>[o[0], o[2]]));
+}
+function plWerkzeugeImPlayer(ev){
+  /* Build 137 (JB Punkt 4): derselbe Werkzeugkasten im EINGEBAUTEN Player.
+     Zwei Gruppen, die sonst an zwei verschiedenen Orten wohnen und leicht zu
+     verwechseln sind — deshalb hier mit Überschriften getrennt:
+       · was die WARTESCHLANGE betrifft (was gerade läuft),
+       · was die gewählte PLAYLIST betrifft (was gespeichert ist).
+     Kein neuer Code für die Aktionen: es sind exakt dieselben Funktionen wie
+     im herausgelösten Fenster, damit beide Wege nie auseinanderlaufen. */
+  ev.stopPropagation();
+  const eintraege=[['— Warteschlange —', ()=>{}]];
+  queueWerkzeugListe().forEach(o=>eintraege.push([o[0], o[2]]));
+  eintraege.push(['— Playlist —', ()=>{}]);
+  eintraege.push(['📻 Neues entdecken', entdeckerOeffnen]);
+  eintraege.push(['✎ Umbenennen', plRename]);
+  eintraege.push(['⇄ Sync einrichten…', plSyncConfig]);
+  eintraege.push(['⤓ Als .m3u exportieren', plExport]);
+  eintraege.push(['⤒ .m3u importieren…', ()=>document.getElementById('m3ufile').click()]);
+  aktionsMenu(ev, eintraege);
 }
 /* Eigenschaften-Popup (JB 22.07., foobar „Properties"): alle Metadaten eines
    Titels auf einen Blick — Codec/Bitrate/Auflösung/Größe/Pfad-Herkunft/Tags. */
