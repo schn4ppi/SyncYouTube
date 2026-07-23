@@ -963,6 +963,40 @@ def _tag_kandidat(e):
     return ku.strip(), t.strip(" -–—|")
 
 
+def titel_abgleich():
+    """Anzeige-Titel an bereits umbenannte Dateien angleichen (Build 141).
+
+    JB: „Was ist jetzt mit z. B. Rocky Mountain High in der Bibliothek, ich
+    seh immer noch nicht die geordneten Titel." Der Fix aus Build 140 greift
+    nur beim NÄCHSTEN Umbenennen — was längst umbenannt auf der Platte liegt,
+    trug in der Datenbank weiter den alten YouTube-Titel.
+
+    Dieser Abgleich zieht das einmalig nach. Nicht-destruktiv: der
+    ursprüngliche Titel wird in `titel_orig` gesichert (Grundlage für Suche
+    und Auto-Tagging), und angefasst wird nur, wo der Dateiname wirklich
+    etwas anderes sagt als die Anzeige. Läuft einmal beim Start, nicht
+    periodisch (Last-Budget).
+    """
+    geaendert = 0
+    with _io_lock:
+        for e in _geladen.values():
+            name = e.get("name") or ""
+            if not name:
+                continue
+            aus_name = _titel_aus_name(name)
+            if not aus_name or aus_name == (e.get("titel") or ""):
+                continue
+            if not e.get("titel_orig"):
+                e["titel_orig"] = e.get("titel") or ""
+            e["titel"] = aus_name
+            geaendert += 1
+        if geaendert:
+            _json_speichern(GELADEN_PFAD, _geladen)
+    if geaendert:
+        _sag(f"Bibliothek: {geaendert} Titel an die Dateinamen angeglichen.")
+    return geaendert
+
+
 def autotag_nach_download(item):
     """Frisch geladene Musik gleich benennen (Build 136, JB-Wunsch).
 
@@ -4383,6 +4417,7 @@ def main():
     _worker_start(max(1, min(3, int(CFG.get("parallel", 1)))))
     threading.Thread(target=ticker_schleife, daemon=True).start()
     threading.Thread(target=technik_backfill, daemon=True).start()   # Codecs für Alt-Dateien
+    threading.Thread(target=titel_abgleich, daemon=True).start()     # Build 141: Anzeige folgt dem Dateinamen
     threading.Thread(target=_abos_hintergrund, daemon=True).start()  # Abos auf neue Videos prüfen
     threading.Thread(target=_einsortieren_hintergrund, daemon=True).start()  # verschobene Dateien zurücksortieren
     update.cleanup_old_exe()                                          # Reste früherer Selbst-Updates

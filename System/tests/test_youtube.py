@@ -1806,3 +1806,35 @@ def test_musikvideos_gelten_als_musik():
     assert not ist({"name": "Why WoW Classic Will Be PERFECT.mp4",
                     "kategorie": "Video", "uploader": "Asmongold TV"})
     assert not ist({"name": "urlaub2019.mp4", "kategorie": "Video"})
+
+
+def test_mehrere_titel_in_den_player_ziehen():
+    # JB: "wenn ich vier markiert habe und die alle in den player ziehe, dann
+    # ist nur eins davon in der playlist."
+    # Wurzel: plMediaDrop/cmdNowDrop lasen nur EINEN Key aus dem Zug. Die
+    # Mehrfachauswahl reiste nicht mit - anders als beim Wurf auf die
+    # Playlist-Auswahl, wo plZiehKeys() das laengst richtig macht. Beide
+    # Wege muessen dieselbe Funktion benutzen, sonst laufen sie auseinander.
+    quelle = _oberflaeche_html()
+    for fn in ("plMediaDrop", "cmdNowDrop"):
+        i = quelle.index("function " + fn)
+        block = quelle[i:i + 900]
+        assert "plZiehKeys" in block, f"{fn} nimmt die Mehrfachauswahl nicht mit"
+        assert "getData('ytdl/key')" not in block, \
+            f"{fn} liest weiterhin nur einen einzelnen Key"
+
+
+def test_titel_abgleich_holt_umbenannte_nach():
+    # JB: "Was ist jetzt mit z.B. Rocky Mountain High in der Bibliothek, ich
+    # seh immer noch nicht die geordneten titel."
+    # Der Fix aus Build 140 greift nur beim NAECHSTEN Umbenennen. Was schon
+    # umbenannt auf der Platte liegt, trug in der DB weiter den alten Titel.
+    # Der Abgleich zieht das einmalig nach - nicht-destruktiv, der
+    # Original-Titel wird gesichert.
+    import inspect
+    quelle = inspect.getsource(app)
+    assert "def titel_abgleich" in quelle, "Kein Abgleich fuer bereits umbenannte Dateien"
+    i = quelle.index("def titel_abgleich")
+    block = quelle[i:i + 1200]
+    assert "titel_orig" in block, "Der urspruengliche Titel wird nicht gesichert"
+    assert "_titel_aus_name" in block, "Der Titel wird nicht aus dem Dateinamen gebildet"

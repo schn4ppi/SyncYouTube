@@ -1134,7 +1134,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 140</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 141</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -6178,19 +6178,26 @@ function cmdNowOver(e){
 function cmdNowLeave(){const n=document.getElementById('cmd-now'); if(n)n.classList.remove('dropziel');}
 function cmdNowDrop(e){
   e.preventDefault(); const n=document.getElementById('cmd-now'); if(n)n.classList.remove('dropziel');
-  const key=e.dataTransfer.getData('ytdl/key'); if(!key)return;
-  const x=libFind(key); if(!x||!x.vorhanden)return;
-  if(playerState.idx<0||!playerState.queue.length){playerPlay([key]);}
-  else{ if(!playerState.queue.includes(key))playerState.queue.push(key); renderPlayerQueue(); cmdNowRender(); }
+  // Build 141: wie plMediaDrop — die ganze Auswahl reist mit.
+  const keys=plZiehKeys(e).filter(k=>{const y=libFind(k); return y&&y.vorhanden;});
+  if(!keys.length)return;
+  const x=libFind(keys[0]);
+  if(playerState.idx<0||!playerState.queue.length){playerPlay(keys);}
+  else{ keys.forEach(k=>playerState.queue.push(k)); renderPlayerQueue(); cmdNowRender(); }
   plInfo('🎶 „'+((x.titel||'').slice(0,24))+'" eingereiht ('+playerState.queue.length+' Titel)');
 }
 function plMediaDrop(e){
   e.preventDefault(); e.stopPropagation();
   const c=document.getElementById('pl-card'); if(c)c.classList.remove('dropziel');
-  const key=e.dataTransfer.getData('ytdl/key'); if(!key)return;
-  const x=libFind(key); if(!x||!x.vorhanden)return;
-  if(playerState.idx<0||!playerState.queue.length){playerPlay([key]);return;}
-  if(!playerState.queue.includes(key))playerState.queue.push(key);
+  // Build 141 (JB: „wenn ich vier markiert habe und die alle in den player
+  // ziehe, dann ist nur eins davon in der playlist"). Hier wurde nur EIN Key
+  // gelesen; plZiehKeys() nimmt die ganze Auswahl mit — dieselbe Funktion,
+  // die der Wurf auf die Playlist-Auswahl längst benutzt.
+  const keys=plZiehKeys(e).filter(k=>{const y=libFind(k); return y&&y.vorhanden;});
+  if(!keys.length)return;
+  const x=libFind(keys[0]);
+  if(playerState.idx<0||!playerState.queue.length){playerPlay(keys);return;}
+  keys.forEach(k=>playerState.queue.push(k));          // doppelt ist erlaubt (JB, Build 138)
   renderPlayerQueue(); cmdNowRender();
   plInfo('🎶 „'+((x.titel||'').slice(0,24))+'" eingereiht ('+playerState.queue.length+' Titel)');
 }
