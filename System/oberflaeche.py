@@ -113,7 +113,10 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
   #libsort{display:none}                                   /* Sortieren steckt im Ansicht-Menü */
 }
 @container (max-width: 340px){
-  .plbar .btn:not(#plwerkbtn){display:none}                /* Entdecken/Mixer -> ⋯ */
+  /* Build 124 (JB: „Mixer und Entdecken verschwinden gleichzeitig, wo finde
+     ich die dann?"): sie verschwinden nur aus der LEISTE — plWerkzeuge()
+     hängt sie dann oben ins ⋯-Menü. Nichts ist unerreichbar. */
+  .plbar .btn:not(#plwerkbtn){display:none}
 }
 /* Höhe kommt aus der linken Steuerspalte (cmd-main align-items:stretch) — so ist
    die Command-Bar in Voll- UND Mini-Modus EXAKT gleich hoch, nichts springt (JB 21.07.). */
@@ -161,6 +164,19 @@ html.light .cmd-logo .sg{stroke:#f3ede2}
   border:1px solid #2e2823;border-radius:12px;padding:7px 14px;background:rgba(255,255,255,.022)}
 .cmd-now.spielt{border-color:rgba(214,95,95,.45);box-shadow:0 0 0 1px rgba(214,95,95,.12),0 4px 16px rgba(0,0,0,.25)}
 .cmd-now.dropziel{outline:2px dashed var(--akz);outline-offset:2px}
+/* Build 124 (JB-Fund, gemessen: die Knopfreihe braucht 449 px und hat bei
+   975 px Fensterbreite nur 297 → sie quoll über den Rahmen). Jetzt räumt die
+   Steuerzentrale gestaffelt auf, statt überzulaufen. Reihenfolge: zuerst das
+   Seltene (Cover-Stil, Link, YouTube), dann die Lautstärke (liegt auch im
+   Player), zuletzt bleibt der Kern: Zufall · Zurück · Play · Vor ·
+   Wiederholen · Radio. ALLES Ausgeblendete bleibt per Rechtsklick in den
+   Player erreichbar (Kontextmenü) — nichts verschwindet ersatzlos. */
+.cmd-now{container-type:inline-size}
+.cmd-now .mp-row{flex-wrap:nowrap;min-width:0;overflow:hidden}
+@container (max-width: 430px){ .cmd-now .mp-art,.cmd-now .mp-btn[title^="YouTube-Link"]{display:none} }
+@container (max-width: 380px){ .cmd-now .mp-yt{display:none} }
+@container (max-width: 330px){ .cmd-now .mp-vol{display:none} }
+@container (max-width: 260px){ .cmd-now .mp-radio{display:none} }
 /* Build 121 (JB-Entscheid): Die Leiste oben ist die STEUERZENTRALE und
    behält IMMER alles — sie ist der Ort, an dem JB sich wohlfühlt (Spotify-
    Muster: eine Steuerung, immer dieselbe Stelle, verschwindet nie). Die
@@ -723,7 +739,10 @@ html.light #buildmark{color:#a89a8e}
 
 /* ---- Spalten-Menü ---- */
 .colmenuwrap{position:relative}
-.colmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:300;background:#211b16;border:1px solid #3a332e;
+/* Build 124 (JB-Fund „Ansicht ist wieder im Hintergrund"): Ebene 300 lag
+   UNTER den schwebenden Panels (6000) — aufgeklappte Menüs verschwanden
+   dahinter. Sie gehören über alles, was sie überdecken könnten. */
+.colmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:6100;background:#211b16;border:1px solid #3a332e;
   border-radius:10px;padding:9px 10px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .colmenu-titel{font-size:11px;color:#8a7d74;margin-bottom:7px;line-height:1.4}
 .colrow{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:13px}
@@ -944,7 +963,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 122</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 124</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1209,7 +1228,9 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
                 <option value="vorhanden">Nur vorhandene</option>
                 <option value="verschoben">Nur verschobene/gelöschte</option>
               </select></div>
-            <label class="chk" style="padding:4px 6px"><input type="checkbox" id="libhidegray" onchange="libMalen()"> Ausgegraute ausblenden</label>
+            <!-- Build 124 (JB): Ausgegraute (verschobene/gelöschte Dateien) sind
+                 standardmäßig AUS dem Blick — wer sie sucht, hakt hier ab. -->
+            <label class="chk" style="padding:4px 6px"><input type="checkbox" id="libhidegray" checked onchange="libMalen()"> Ausgegraute ausblenden</label>
             <div class="msep"></div>
             <button class="mbtn" onclick="colMenuToggle(event)">⚙ Spalten wählen…</button>
             <button class="mbtn" id="libenrich" onclick="libEnrich(this)">↻ Fehlende Infos nachladen</button>
@@ -4110,14 +4131,22 @@ function ansichtToggle(ev){ if(ev)ev.stopPropagation();
     setTimeout(()=>document.addEventListener('pointerdown',s,true),0);}
 }
 function ansichtZu(){const m=document.getElementById('libansicht'); if(m)m.style.display='none';}
-function plWerkzeuge(ev){aktionsMenu(ev,[
+function plWerkzeuge(ev){
+  // Build 124 (JB): Was die schmale Leiste ausblendet, taucht HIER oben auf —
+  // ausgeblendet heißt nie unerreichbar. Sichtbar in der Leiste? Dann nicht
+  // doppelt anbieten.
+  const versteckt=el=>{const e=document.querySelector(el);
+    return !e||getComputedStyle(e).display==='none'||e.getBoundingClientRect().width<2;};
+  const extra=[];
+  if(versteckt('.plbar .btn[onclick*="mixeMenu"]'))extra.push(['🎛 Mixer…', mixeMenu]);
+  aktionsMenu(ev,extra.concat([
   ['📻 Neues entdecken', entdeckerOeffnen],
   ['✎ Umbenennen', plRename],
   ['🗑 Löschen', plDelete],
   ['⇄ Sync einrichten…', plSyncConfig],
   ['⇄ Jetzt synchronisieren', ()=>plSyncNow()],
   ['⤓ Als .m3u exportieren', plExport],
-  ['⤒ .m3u importieren…', ()=>document.getElementById('m3ufile').click()]]);}
+  ['⤒ .m3u importieren…', ()=>document.getElementById('m3ufile').click()]]));}
 
 /* ---- 📻 Neues entdecken (Build 99, JB): Radio-Mixe zu Titeln der gewählten
    Playlist, alles Bekannte gefiltert — nur NEUE Songs, mit Anhören + Laden.
