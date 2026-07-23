@@ -1838,3 +1838,44 @@ def test_titel_abgleich_holt_umbenannte_nach():
     block = quelle[i:i + 1200]
     assert "titel_orig" in block, "Der urspruengliche Titel wird nicht gesichert"
     assert "_titel_aus_name" in block, "Der Titel wird nicht aus dem Dateinamen gebildet"
+
+
+def test_zieh_anfasser_zeigt_die_anzahl():
+    # JB: "wenn ich die dateien ziehe und ich mehrere angewaehlt habe ... dann
+    # sehe ich nur den ersten track ... da sollte dann stattdessen so etwas
+    # wie: 8 ausgewaehlte tracks stehen."
+    # Windows stapelt die Symbole und legt ein Zaehler-Abzeichen darauf,
+    # macOS ebenso mit rotem Abzeichen - gemeinsam ist beiden: die ANZAHL
+    # steht dran. Genau das fehlte; der Anfasser zeigte immer nur den Titel,
+    # den man zufaellig gegriffen hatte.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function ziehTooltip")
+    block = quelle[i:i + 900]
+    assert "libAuswahl" in block, "Der Anfasser kennt die Auswahl nicht"
+    assert "ausgewählt" in block or "ausgewaehlt" in block, \
+        "Der Anfasser nennt die Anzahl nicht"
+
+
+def test_klick_ins_leere_hebt_die_auswahl_auf():
+    # JB: "wenn ich linksklick woanders hinsetze, dann hebt sich meine
+    # auswahl nicht auf." Im Explorer raeumt ein Klick auf freie Flaeche die
+    # Auswahl ab - hier blieb sie samt Bulk-Leiste stehen.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function libBandStart")
+    block = quelle[i:i + 2600]
+    assert "libAuswahl.clear()" in block, \
+        "Ein Klick auf freie Flaeche raeumt die Auswahl nicht ab"
+
+
+def test_bulk_playlist_fragt_welche():
+    # JB: "Wenn ich + Playlist anklicke, dann sollte die option kommen zu
+    # welcher playlist ich die hinzufuegen soll."
+    # Vorher verlangte es eine oben vorgewaehlte Liste und brach sonst mit
+    # einer Meldung ab - man musste also erst woanders etwas einstellen.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function bulkPlaylist")
+    block = quelle[i:i + 900]
+    assert "plOptionen" in block or "kmListe" in block, \
+        "bulkPlaylist bietet keine Playlist-Auswahl an"
+    assert "Bitte oben eine Playlist" not in block, \
+        "bricht weiterhin ab, statt zu fragen"

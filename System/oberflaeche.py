@@ -661,6 +661,11 @@ html.light .abo-flyout{background:#faf5ec;border-color:#e3d8cc;box-shadow:0 14px
   opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:80vw}
 #toast.an{opacity:1;transform:translateX(-50%) translateY(0)}
 html.light #toast{background:#3a322c}
+/* Build 142: Bei mehreren Titeln sieht der Anfasser wie ein STAPEL aus —
+   dieselbe Bildsprache wie im Explorer, damit sofort klar ist, dass
+   mehr als einer mitreist. */
+.ziehghost.stapel{box-shadow:3px 3px 0 -1px var(--panel),3px 3px 0 0 var(--akz),
+  6px 6px 0 -1px var(--panel),6px 6px 0 0 var(--akz);font-weight:600}
 .ziehghost{position:fixed;top:-999px;left:-999px;pointer-events:none;z-index:9999;
   background:#241f1b;color:#f0e6dc;padding:5px 10px;border-radius:8px;font-size:12.5px;
   max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.5)}
@@ -1134,7 +1139,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 141</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 142</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -3961,6 +3966,12 @@ function libBandStart(ev){
       band.remove(); libBandLief=true;
       setTimeout(()=>{libBandLief=false;},0);
       libMalen();                                      // Auswahl-Leiste/Zähler nachziehen
+    }else if(libAuswahl.size&&!basis.size){
+      // Build 142 (JB): Ein KLICK auf freie Fläche (kein Zug) räumt die
+      // Auswahl ab — so macht es der Explorer. Vorher blieb sie samt
+      // Bulk-Leiste stehen, obwohl man erkennbar danebengeklickt hatte.
+      // Mit Strg gedrückt (basis gefüllt) bleibt sie natürlich erhalten.
+      libAuswahl.clear(); libMalen();
     }
   }
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
@@ -4010,11 +4021,28 @@ async function bulkMetadaten(){                         // Auto-Metadaten für d
   plInfo('Metadaten für '+keys.length+' Titel werden nachgeladen …', true);
   libAuswahl.clear(); libMalen(); setTimeout(libLaden,4000);
 }
-async function bulkPlaylist(){
-  const id=document.getElementById('plsel').value;
-  if(!id){alert('Bitte oben eine Playlist wählen (Playlist-Leiste).');return;}
-  for(const k of libAuswahl)await plApi({art:'add',id,key:k});
-  plInfo(libAuswahl.size+' zur Playlist hinzugefügt ✓');
+function bulkPlaylist(ev){
+  // Build 142 (JB): „Wenn ich + Playlist anklicke, dann sollte die Option
+  // kommen zu welcher Playlist ich die hinzufügen soll." Vorher verlangte es
+  // eine oben VORGEWÄHLTE Liste und brach sonst mit einer Meldung ab — man
+  // musste also erst woanders etwas einstellen, um hier klicken zu dürfen.
+  // Jetzt dieselbe Auswahl wie am ＋ jeder Kachel (plOptionen), inklusive
+  // „Neue Playlist…", nur eben für die ganze Markierung.
+  const keys=[...libAuswahl]; if(!keys.length)return;
+  const rein=async(id)=>{
+    const p=plState.find(x=>x.id===id);
+    const vorher=((p&&p.items)||[]).slice();
+    for(const k of keys)await plApi({art:'add',id,key:k});
+    plLetzterWurf={id,vorher,plNeu:false};
+    toastMitZurueck(keys.length+' Titel → „'+((plState.find(x=>x.id===id)||{}).name||'Playlist')+'"',
+                    'plZurueck()');
+  };
+  const opt=plState.map(p=>[p.name+' ('+p.items.length+')', false, ()=>rein(p.id)]);
+  opt.push(['＋ Neue Playlist…', false, async()=>{
+    const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim())return;
+    await plApi({art:'create',name:n.trim()});
+    const id=(plState[plState.length-1]||{}).id; if(id)rein(id);}]);
+  kmListe(kontextMenuBauen(ev||window.event,[]), '＋ '+keys.length+' Titel in …', opt);
 }
 
 /* ---- Abspielmodus (zyklisch), Shuffle, Meistgespielt, Zuletzt ---- */
@@ -4521,7 +4549,7 @@ function bulkMalen(){
   bulk.style.display='';
   bulk.innerHTML=`<b>${libAuswahl.size} ausgewählt</b>`+
     `<button class="btn mini" onclick="bulkPlay()">▶ Abspielen</button>`+
-    `<button class="btn mini" onclick="bulkPlaylist()">＋ Playlist</button>`+
+    `<button class="btn mini" onclick="bulkPlaylist(event)">＋ Playlist</button>`+
     `<button class="btn mini" onclick="bulkTags()" title="Kanal setzen / im Titel suchen+ersetzen (für alle Ausgewählten)">✎ Tags</button>`+
     `<button class="btn mini" onclick="bulkAutotag()" title="Künstler/Album via MusicBrainz für die Auswahl nachschlagen">🏷 Auto-Tag</button>`+
     `<button class="btn mini" onclick="bulkMetadaten()" title="Titel/Kanal/Datum neu von YouTube laden">↻ Metadaten</button>`+
@@ -4892,9 +4920,17 @@ function libDragStart(ev,id){
 /* Drag-Ghost: nur der Titel als kleiner Tooltip mitgezogen — nicht das ganze
    Kachelbild (JB 21.07.: „nur der Text, nicht das Bild bewegt sich"). */
 function ziehTooltip(ev,id){
-  const x=libFind(id); const t=x?(x.titel||id):id;
-  const g=document.createElement('div'); g.className='ziehghost';
-  g.textContent='🎵 '+t;
+  // Build 142 (JB): Bei mehreren Markierten zeigte der Anfasser nur den
+  // Titel, den man zufällig gegriffen hatte — man sah nicht, dass acht
+  // Stück mitreisen. Windows stapelt dafür die Symbole mit einem
+  // Zähler-Abzeichen, macOS macht es genauso mit rotem Abzeichen;
+  // gemeinsam ist beiden: die ANZAHL steht dran. Genau das hier auch.
+  const mehrere=libAuswahl.has(id)&&libAuswahl.size>1;
+  const x=libFind(id);
+  const t=mehrere ? (libAuswahl.size+' ausgewählte Titel')
+                  : (x?(x.titel||id):id);
+  const g=document.createElement('div'); g.className='ziehghost'+(mehrere?' stapel':'');
+  g.textContent=(mehrere?'🎵🎵 ':'🎵 ')+t;
   document.body.appendChild(g);
   try{ev.dataTransfer.setDragImage(g,12,12);}catch(e){}
   setTimeout(()=>g.remove(),0);                            // Browser hat das Bild bereits kopiert
