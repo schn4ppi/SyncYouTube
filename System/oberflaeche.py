@@ -1451,6 +1451,11 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
                muss man erst einmal erraten. -->
           <button class="btn mini" id="pl-werkbtn" onclick="plWerkzeugeImPlayer(event)"
                   title="Werkzeuge: Warteschlange sortieren, Duplikate entfernen, als Playlist speichern · Playlist umbenennen, Sync, .m3u">⋯ Werkzeuge</button>
+          <!-- Build 144 (JB Punkt 2): derselbe Hinweis wie im herausgelösten
+               Playlist-Fenster — wer die Playlist NICHT herauslöst, käme sonst
+               nicht daran. Erscheint nur bei echter Abweichung. -->
+          <button class="btn mini plq-sichern" style="display:none" onclick="plqSichern()"
+                  title="Die Änderungen an dieser Warteschlange in die gespeicherte Playlist übernehmen (Reihenfolge der Playlist bleibt, Neues kommt ans Ende)">💾 sichern</button>
           <span class="muted2" id="pl-pos"></span>
           <span class="muted2 pl-hint" style="font-size:11px">· Rechtsklick = alle Optionen</span>
         </div>
@@ -1465,6 +1470,10 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
   <div id="view-plq">
     <div class="card" style="height:100%;display:flex;flex-direction:column">
       <div class="kopfzeile"><h2 id="plq-titel">Playlist</h2><span class="muted2" id="plq-anzahl"></span>
+        <!-- Build 144 (JB Punkt 2, „ganz dezent irgendwo"): erscheint NUR, wenn
+             die Warteschlange von ihrer gespeicherten Playlist abweicht. -->
+        <button class="btn mini plq-sichern" style="display:none" onclick="plqSichern()"
+                title="Die Änderungen an dieser Warteschlange in die gespeicherte Playlist übernehmen (Reihenfolge der Playlist bleibt, Neues kommt ans Ende)">💾 sichern</button>
         <span class="spacer"></span>
         <button class="btn mini" onclick="plqWerkzeuge(event)" title="Warteschlangen-Werkzeuge: als Playlist speichern · sortieren · Duplikate entfernen · leeren">⋯ Werkzeuge</button>
         <button class="btn mini" onclick="plqFenster()" title="Playlist wieder in den Player eingliedern — der Player bekommt seine Breite zurück">⧉ In den Player</button></div>
@@ -5121,7 +5130,10 @@ function listeTab(arr){
 }
 
 /* ================= Player ================= */
-let playerState={queue:[],idx:-1,quelle:''};
+// plid (Build 144, JB Punkt 2): Kommt die Warteschlange aus einer GESPEICHERTEN
+// Playlist, merkt sich der Player deren Id — vorher reiste nur der Anzeige-Name
+// mit, und damit war gar nicht bekannt, wohin man zurueckspeichern koennte.
+let playerState={queue:[],idx:-1,quelle:'',plid:''};
 let playerLayout='horizontal';   // Standard: Video links, Playlist rechts (JB-Favorit)
 // Dashboard-Embed (?embed=1): standardmäßig Video OBEN, Playlist UNTEN (JB 22.07.). Die
 // GETEILTE localStorage-Preferenz bewusst NICHT lesen, damit die Standalone-Wahl nicht ins
@@ -5139,9 +5151,9 @@ function playerLayoutToggle(){
   playerLayoutSet();
 }
 function libFind(k){return libdaten.find(x=>x.id===k);}
-function playerPlay(keys,start,quelle){
+function playerPlay(keys,start,quelle,plid){
   if(!(libdaten||[]).length){                          // Bibliothek noch nicht geladen -> erst holen,
-    libLaden().then(()=>playerPlay(keys,start,quelle));// sonst filtert der Check ALLES raus und der
+    libLaden().then(()=>playerPlay(keys,start,quelle,plid));// sonst filtert der Check ALLES raus und der
     return;                                            // Player bleibt schwarz (JB-Fund 14.07.)
   }
   keys=(keys||[]).filter(k=>{const x=libFind(k); return x&&x.vorhanden;});
@@ -5152,6 +5164,7 @@ function playerPlay(keys,start,quelle){
   radioAktiv=false;                                  // manueller Start beendet den Radio-Stream
   playerState.queue=keys; playerState.idx=start||0;
   playerState.quelle=quelle||'Bibliothek';           // Name fürs Playlist-Fenster (JB 21.07.)
+  playerState.plid=plid||'';                         // nur gesetzt bei einer GESPEICHERTEN Playlist
   ensurePlayer(); renderPlayerMedia();
 }
 function playGefilterte(){
@@ -6336,6 +6349,40 @@ function plqZielDrop(e){
   if(key&&plqVon===null)plqEinfuegen(key, playerState.queue.length);
   plqVon=null;
 }
+/* ---- Build 144, JB Punkt 2: „Playlist speichern/aktualisieren, wenn man
+   Titel in eine gerade laufende Playlist zieht" — „ganz dezent irgendwo".
+   Bis hierher war die Warteschlange immer fluechtig: man zog einen Titel
+   hinein, hoerte ihn, und beim naechsten Start war er wieder weg. Jetzt weiss
+   der Player ueber `playerState.plid`, aus welcher gespeicherten Playlist er
+   spielt, und bietet das Sichern an — aber nur, wenn es wirklich etwas zu
+   sichern gibt (Calm-Design: Anzeige nur bei Handlungsbedarf). */
+function _plqZaehl(arr){const m=new Map(); (arr||[]).forEach(k=>m.set(k,(m.get(k)||0)+1)); return m;}
+function plqGeaendert(){
+  if(!playerState.plid)return false;
+  const p=(plState||[]).find(x=>x.id===playerState.plid); if(!p)return false;
+  // Vergleich als MENGE (sortiert), nicht als Reihenfolge: Mischen ist eine
+  // Wiedergabe-Entscheidung, keine Playlist-Aenderung — zaehlte die
+  // Reihenfolge mit, stuende nach JEDEM Zufalls-Start sofort „geaendert" da
+  // und der Hinweis waere wertlos. Sortiert vergleichen erfasst Duplikate
+  // richtig (die sind seit Build 138 ausdruecklich erlaubt).
+  const a=(p.items||[]).slice().sort(), b=playerState.queue.slice().sort();
+  return a.length!==b.length||a.some((k,i)=>k!==b[i]);
+}
+async function plqSichern(){
+  const p=(plState||[]).find(x=>x.id===playerState.plid); if(!p)return;
+  // Nicht-destruktiv (HARTE REGEL): die gespeicherte REIHENFOLGE bleibt
+  // stehen, Entferntes faellt heraus, Neues haengt hinten an. Wer bei
+  // gemischter Wiedergabe einen Titel hineinzieht, zerschiesst damit also
+  // nie die Ordnung seiner Playlist. `rest` zaehlt je Titel herunter, damit
+  // mehrfach vorhandene Titel nicht verloren gehen.
+  const rest=_plqZaehl(playerState.queue), alt=[];
+  (p.items||[]).forEach(k=>{const n=rest.get(k)||0; if(n>0){alt.push(k); rest.set(k,n-1);}});
+  const neu=playerState.queue.filter(k=>{const n=rest.get(k)||0; if(n>0){rest.set(k,n-1); return true;} return false;});
+  const items=alt.concat(neu);
+  await plApi({art:'ersetzen',id:p.id,items});
+  renderPlayerQueue();
+  toast('💾 „'+p.name+'" aktualisiert ('+items.length+' Titel'+(neu.length?', '+neu.length+' neu':'')+').');
+}
 function renderPlayerQueue(){
   // rendert in BEIDE Ziele: seitliche Liste im Player + eigenes Playlist-Fenster
   const html=playerState.queue.map((k,i)=>{const x=libFind(k)||{titel:k};
@@ -6350,6 +6397,10 @@ function renderPlayerQueue(){
   const qw=document.getElementById('pl-queue-win'); if(qw){qw.innerHTML=html; qw.onpointerdown=plqBandStart;}
   const za=document.getElementById('plq-anzahl');
   if(za)za.textContent=playerState.queue.length?(playerState.queue.length+' Titel'):'';
+  // Der Sichern-Hinweis haengt an BEIDEN Playlist-Sichten und erscheint nur,
+  // wenn die Warteschlange von ihrer gespeicherten Playlist abweicht.
+  const dreckig=plqGeaendert();
+  document.querySelectorAll('.plq-sichern').forEach(el=>{el.style.display=dreckig?'':'none';});
   // Playlist-Fenster trägt den echten Quellen-Namen (Radio / Playlist-Name /
   // Bibliothek / Mix …) statt statisch „Player-Playlist" (JB 21.07.).
   const pt=document.getElementById('plq-titel');
@@ -6571,7 +6622,7 @@ function plPlaySel(){const id=document.getElementById('plsel').value; const p=pl
   let ids=p.items.slice(); if(playShuffle)mische(ids);
   const start=ids.findIndex(k=>{const x=libFind(k); return x&&x.vorhanden&&artPasst(x);});
   if(start<0){alert('Nach dem 🎶/🎬-Filter bleibt in dieser Playlist nichts übrig.');return;}
-  playerPlay(ids,start,p.name);}
+  playerPlay(ids,start,p.name,p.id);}   // p.id: die Warteschlange weiss jetzt, wohin sie gehört
 function plExport(){
   const id=document.getElementById('plsel').value;
   if(!id){alert('Bitte oben eine Playlist wählen.');return;}

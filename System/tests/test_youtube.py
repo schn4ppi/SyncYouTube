@@ -1646,6 +1646,48 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_playlist_folgt_dem_hineingezogenen_titel():
+    # JB Punkt 2: "Playlist speichern/aktualisieren, wenn man Titel in eine
+    # gerade laufende Playlist zieht" - "ganz dezent irgendwo".
+    # Vorher war das gar nicht moeglich: playerPlay bekam nur den NAMEN der
+    # Quelle mit (plPlaySel rief playerPlay(ids,start,p.name)), nie ihre Id.
+    # Der Player wusste also nicht, WOHIN er zurueckspeichern soll.
+    quelle = _oberflaeche_html()
+    assert "plid" in quelle, "Der Player merkt sich die Playlist-Id nicht"
+    i = quelle.index("function plPlaySel")
+    ende = quelle.index("function plExport", i)          # genau diese eine Funktion, nicht mehr
+    assert "p.id" in quelle[i:ende], "plPlaySel reicht die Playlist-Id nicht weiter"
+    # "Geaendert?" wird VERGLICHEN, nicht gemerkt: ein Merker muesste an jeder
+    # kuenftigen Aenderungsstelle gesetzt werden und wird dort vergessen.
+    j = quelle.index("function plqGeaendert")
+    vgl = quelle[j:j + 900].replace(" ", "")
+    assert "plState" in vgl, "Der Aenderungs-Zustand wird nicht gegen die gespeicherte Playlist geprueft"
+    # Mischen ist eine Wiedergabe-Entscheidung, keine Playlist-Aenderung -
+    # sonst stuende nach jedem Zufalls-Start sofort "geaendert" da und der
+    # Hinweis waere wertlos (Calm-Design: nur bei echtem Handlungsbedarf).
+    assert "sort" in vgl, "Der Vergleich zaehlt die Reihenfolge mit - Mischen wuerde ihn ausloesen"
+
+
+def test_playlist_sichern_zerstoert_die_reihenfolge_nicht():
+    # Nicht-destruktiv (HARTE REGEL): Wer bei gemischter Wiedergabe einen
+    # Titel hineinzieht, darf damit nicht die gespeicherte Reihenfolge
+    # ueberschreiben. Deshalb behaelt das Sichern die Reihenfolge der
+    # PLAYLIST bei, wirft nur Entferntes raus und haengt Neues hinten an.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function plqSichern")
+    block = quelle[i:i + 1200]
+    kurz = block.replace(" ", "").replace('"', "'")
+    assert "'ersetzen'" in kurz, (
+        "Gesichert wird nicht ueber 'ersetzen' - nur das setzt die Liste exakt")
+    assert "p.items" in kurz, (
+        "Das Sichern geht nicht von der gespeicherten Reihenfolge aus")
+    # Der Hinweis erscheint NUR bei Bedarf und haengt an beiden Playlist-Sichten.
+    assert "plq-sichern" in quelle, "Kein Sichern-Hinweis in der Oberflaeche"
+    r = quelle.index("function renderPlayerQueue")
+    assert "plq-sichern" in quelle[r:r + 1800], (
+        "renderPlayerQueue blendet den Hinweis nicht nach Bedarf ein/aus")
+
+
 def test_tag_kandidat_zweiter_versuch_ohne_klammern():
     # JB: "wieso sind mehrere titel noch nicht korrekt benannt?"
     # Zwei Gruende. Der zweite: der Muell-Filter kennt nur BEKANNTE Zusaetze
