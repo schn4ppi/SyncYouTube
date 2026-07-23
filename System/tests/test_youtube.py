@@ -1773,3 +1773,36 @@ def test_plinfo_meldungen_verfallen():
     block = quelle[i:i + 700]
     assert "setTimeout" in block, "Ereignis-Meldungen verfallen nicht"
     assert "bleibt" in block, "Fortschritts-Meldungen koennen nicht bestehen bleiben"
+
+
+def test_umbenennen_zieht_den_titel_nach():
+    # JB: "dateinamen sind jetzt umbenannt, doch in der bibliothek nicht.
+    # Warum?" - Weil das Umbenennen nur `pfad` und `name` aktualisierte. Die
+    # Bibliothek zeigt aber `titel`, und der blieb der rohe YouTube-Titel.
+    # Der Dateiname ist die Wahrheit, die JB sieht - die Anzeige muss ihm
+    # folgen. Der Original-Titel geht dabei NICHT verloren (titel_orig),
+    # denn er ist die Grundlage fuer Suche und Tagging.
+    import inspect
+    quelle = inspect.getsource(app.migration_anwenden)
+    assert 'e["titel"]' in quelle, "Der Titel wird beim Umbenennen nicht nachgezogen"
+    assert "titel_orig" in quelle, "Der urspruengliche Titel wird nicht gesichert"
+
+
+def test_musikvideos_gelten_als_musik():
+    # JB: "Es sind zwar Videos, aber es sind Videos von Liedern. Ich finde da
+    # sollte es so gelten." Vorher pruefte _ist_musik nur auf Audio-Dateien,
+    # also lief das Auto-Tagging fuer Musikvideos (MP4) nie.
+    ist = app._ist_musik
+    # Audio bleibt Musik.
+    assert ist({"name": "lied.mp3"})
+    assert ist({"kategorie": "MP3", "name": "x.m4a"})
+    # Musikvideos: VEVO/-Topic-Kanaele und das "Kuenstler - Titel"-Muster.
+    assert ist({"name": "Gary Moore - Still Got The Blues (Live).mp4",
+                "kategorie": "Video"})
+    assert ist({"name": "irgendwas.mp4", "uploader": "ElthonJohnVEVO"})
+    assert ist({"name": "irgendwas.mp4", "uploader": "Nirvana - Topic"})
+    # Ein normales Video ohne diese Merkmale bleibt aussen vor - sonst
+    # befragt die App MusicBrainz zu jedem Let's Play.
+    assert not ist({"name": "Why WoW Classic Will Be PERFECT.mp4",
+                    "kategorie": "Video", "uploader": "Asmongold TV"})
+    assert not ist({"name": "urlaub2019.mp4", "kategorie": "Video"})

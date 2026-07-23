@@ -1093,8 +1093,32 @@ def _mb_suche(kuenstler, titel, timeout=10):
 
 
 def _ist_musik(e):
+    """Ist das ein Musiktitel? (Build 140 — JB: „Es sind zwar Videos, aber es
+    sind Videos von Liedern. Ich finde da sollte es so gelten.")
+
+    Vorher zählte nur das Dateiformat, also lief das Auto-Tagging für
+    Musikvideos nie. Jetzt gelten zusätzlich zwei Merkmale, an denen man ein
+    Musikvideo zuverlässig erkennt:
+      · der Kanal ist ein VEVO- oder „… - Topic"-Kanal (die legt YouTube
+        selbst für Labels bzw. automatisch für Musik an),
+      · der Name folgt dem Muster „Künstler - Titel".
+    Bewusst NICHT jedes Video: sonst befragt die App MusicBrainz zu jedem
+    Let's Play und bekommt Zufallstreffer statt Daten.
+    """
     n = (e.get("name") or "").lower()
-    return e.get("kategorie") == "MP3" or n.endswith((".mp3", ".m4a", ".opus", ".ogg", ".flac"))
+    if e.get("kategorie") == "MP3" or n.endswith((".mp3", ".m4a", ".opus", ".ogg", ".flac")):
+        return True
+    if not n.endswith((".mp4", ".mkv", ".webm")):
+        return False
+    up = (e.get("uploader") or "").strip().lower()
+    if up.endswith("- topic") or up.endswith("vevo"):
+        return True
+    # „Künstler - Titel": ein Bindestrich mit Leerzeichen, und beide Seiten
+    # tragen Text. Reine Satzzeichen-Striche („Warum X - und Y") fängt die
+    # Längenprüfung ab.
+    stamm = re.sub(r"\.[a-z0-9]{2,4}$", "", e.get("name") or "")
+    teile = re.split(r"\s+[-–—]\s+", stamm, maxsplit=1)
+    return len(teile) == 2 and 2 <= len(teile[0].strip()) <= 40 and len(teile[1].strip()) >= 2
 
 
 def _tags_in_datei(key, e):
@@ -2816,6 +2840,16 @@ def migration_anwenden(go=False, schema=None, keys=None):
             if e:
                 e["pfad"] = neu
                 e["name"] = os.path.basename(neu)
+                # Build 140 (JB: „Dateinamen sind jetzt umbenannt, doch in der
+                # Bibliothek nicht. Warum?"): Die Anzeige hängt am Feld
+                # `titel` — das blieb der rohe YouTube-Titel, während die
+                # Datei längst anders hieß. Der Dateiname ist die Wahrheit,
+                # die JB sieht; die Anzeige folgt ihm. Der ursprüngliche
+                # Titel wird dabei GESICHERT statt überschrieben: er ist die
+                # Grundlage für Suche und Auto-Tagging.
+                if not e.get("titel_orig"):
+                    e["titel_orig"] = e.get("titel") or ""
+                e["titel"] = _titel_aus_name(e["name"])
             umbenannt += 1
         except OSError:
             uebersprungen += 1
