@@ -1139,7 +1139,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 142</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 143</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -1408,6 +1408,13 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
         <select id="plsel" onchange="plWahl()" ondragover="plselDragOver(event)"
                 ondragleave="plselDragLeave(event)" ondrop="plselDrop(event)"
                 title="Playlist wählen — Auswahl zeigt sie sofort in der Bibliothek. Titel hierher ziehen reiht sie ein; auf „— keine —" fallen lassen legt eine neue an."></select>
+        <!-- Build 143 (JB): „vielleicht ein + stattdessen bei Playlist selbst?
+             Wenn ich auf Playlist: klicke, dann sollte neben den Playlists ein
+             Plus sein das für Hinzufügen steht. Ist intuitiv." — Genau hier
+             steht es jetzt, direkt neben der Liste. Es zeigt dieselbe Auswahl
+             wie das ＋ an jeder Kachel, nur für alles Markierte. -->
+        <button class="btn mini" id="plplus" onclick="bulkPlaylist(event)"
+                title="Markierte Titel zu einer Playlist hinzufügen — auch zu einer neuen">＋</button>
         <button class="ib" id="plviewbtn" onclick="plView()" title="Titel dieser Playlist unten in der Bibliothek anzeigen (nochmal = zurück zur ganzen Bibliothek)">📃</button>
         <button class="ib" id="plwerkbtn" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
         <input type="file" id="m3ufile" accept=".m3u,.m3u8" style="display:none" onchange="plImport(this)">
@@ -3944,6 +3951,10 @@ function libBandStart(ev){
   function mv(e){
     if(!band){
       if(Math.abs(e.clientX-x0)<5&&Math.abs(e.clientY-y0)<5)return;
+      // Build 143 (JB-Bild): Ohne das hier markiert der Browser beim
+      // Aufziehen den TEXT der Kacheln mit (blau hinterlegt) — der
+      // Rahmen soll aber Titel waehlen, nicht Buchstaben.
+      document.body.classList.add('nosel');
       band=document.createElement('div'); band.className='abo-band'; document.body.appendChild(band);
     }
     const l=Math.min(x0,e.clientX), t=Math.min(y0,e.clientY),
@@ -3962,6 +3973,7 @@ function libBandStart(ev){
   }
   function up(){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
+    document.body.classList.remove('nosel');
     if(band){
       band.remove(); libBandLief=true;
       setTimeout(()=>{libBandLief=false;},0);
@@ -4545,18 +4557,20 @@ function colToggle(key){const c=libcols.find(x=>x.key===key); if(c)c.sichtbar=!c
 
 function bulkMalen(){
   const bulk=document.getElementById('libbulk'); if(!bulk)return;
+  // Das ＋ neben der Playlist-Liste erscheint nur, wenn es etwas
+  // hinzuzufuegen GIBT — sonst waere es ein Knopf ohne Aufgabe.
+  const plus=document.getElementById('plplus');
+  if(plus)plus.style.display=libAuswahl.size?'':'none';
   if(!libAuswahl.size){bulk.style.display='none'; bulk.innerHTML=''; return;}
   bulk.style.display='';
+  // Build 143 (JB, JEDEN Knopf einzeln durchgegangen): Abspielen -> Ziehen in
+  // den Player; Tags/Metadaten -> passiert automatisch, Einzelfaelle per
+  // Rechtsklick; Archivieren/Aus Archiv/Loeschen -> Rechtsklick kann es
+  // besser; Aufheben -> Klick ins Leere. Damit blieb kein einziger Knopf
+  // uebrig, der seine Zeile wert waere. JB: „Die simplen Dinge sind oft die
+  // schoensten." Es bleibt die reine Anzeige, WIE VIELE markiert sind.
   bulk.innerHTML=`<b>${libAuswahl.size} ausgewählt</b>`+
-    `<button class="btn mini" onclick="bulkPlay()">▶ Abspielen</button>`+
-    `<button class="btn mini" onclick="bulkPlaylist(event)">＋ Playlist</button>`+
-    `<button class="btn mini" onclick="bulkTags()" title="Kanal setzen / im Titel suchen+ersetzen (für alle Ausgewählten)">✎ Tags</button>`+
-    `<button class="btn mini" onclick="bulkAutotag()" title="Künstler/Album via MusicBrainz für die Auswahl nachschlagen">🏷 Auto-Tag</button>`+
-    `<button class="btn mini" onclick="bulkMetadaten()" title="Titel/Kanal/Datum neu von YouTube laden">↻ Metadaten</button>`+
-    `<button class="btn mini" onclick="bulkAktion('archiv')">🗄 Archivieren</button>`+
-    `<button class="btn mini" onclick="bulkAktion('entarchiv')">↩ Aus Archiv</button>`+
-    `<button class="btn mini" onclick="bulkAktion('loeschen')">🗑 Löschen</button>`+
-    `<button class="btn mini" onclick="libAuswahl.clear();libMalen()">✖ Aufheben</button>`;
+    `<span class="muted2" style="font-size:11.5px">· ziehen = in den Player oder auf „Playlist:" · Rechtsklick = alles Weitere · Klick ins Leere hebt auf</span>`;
 }
 function libMalen(){
   fuelleSortSelect();
@@ -4595,6 +4609,12 @@ function libMalen(){
   // Build 135: Rahmen-Auswahl aufziehen. Der Zuhörer sitzt am Behälter, nicht
   // an den Kacheln — er soll ja gerade auf FREIER Fläche anspringen.
   el.onpointerdown=libBandStart;
+  // Build 143 (JB: „ich kann immer noch kein Fenster ziehen von einer Reihe
+  // ueber der Bibliothek, das ist frustrierend"). Gemessen: ueber der ersten
+  // Kachelreihe liegt gar nicht mehr libinhalt, sondern die KARTE — dort kam
+  // der Zuhoerer nie an. Jetzt hoert die ganze Bibliotheks-Karte mit;
+  // Bedienelemente filtert libBandStart ohnehin heraus.
+  const karte=el.closest('.card'); if(karte)karte.onpointerdown=libBandStart;
 }
 
 /* ---- Alben-Ansicht: nach Künstler/Album gruppiert (Felder aus dem Auto-Tagging) ---- */
@@ -5948,6 +5968,10 @@ function plqBandStart(ev){
   function mv(e){
     if(!band){
       if(Math.abs(e.clientX-x0)<5&&Math.abs(e.clientY-y0)<5)return;
+      // Build 143 (JB-Bild): Ohne das hier markiert der Browser beim
+      // Aufziehen den TEXT der Kacheln mit (blau hinterlegt) — der
+      // Rahmen soll aber Titel waehlen, nicht Buchstaben.
+      document.body.classList.add('nosel');
       band=document.createElement('div'); band.className='abo-band'; document.body.appendChild(band);
     }
     const l=Math.min(x0,e.clientX), t=Math.min(y0,e.clientY),
@@ -5966,6 +5990,7 @@ function plqBandStart(ev){
   }
   function up(){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
+    document.body.classList.remove('nosel');
     if(band){band.remove(); plqBandLief=true; setTimeout(()=>{plqBandLief=false;},0); plqMark();}
   }
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
