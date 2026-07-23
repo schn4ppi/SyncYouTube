@@ -620,7 +620,14 @@ def _kat_aus_name(name):
 
 
 def _plausible_id(vid):
-    return bool(re.fullmatch(r"[\w-]{6,20}", vid or ""))
+    """Sieht das nach einer echten YouTube-Id aus? Build 123 (JB-Fund:
+    „denke er verwechselt lokal… mit einem Link"): unsere EIGENEN Kunst-Ids
+    für Ordner-Funde („lokal-…") passten auf das Muster — importierte Dateien
+    bekamen dadurch eine erfundene YouTube-Adresse angehängt."""
+    vid = vid or ""
+    if vid.startswith("lokal-"):
+        return False
+    return bool(re.fullmatch(r"[\w-]{6,20}", vid))
 
 
 def _datei_index():
