@@ -6009,8 +6009,10 @@ function plqRahmenArtSetzen(v){
                   :'▭ Rahmen ab der Zeile — markierte Titel bleiben zum Verschieben greifbar.');
 }
 let plqBandModus=false;                                // laeuft gerade ein Band auf einer Zeile?
+let plqZugLaeuft=false;                                // ein Zug ist unterwegs (Zuhoerer haengt an ZWEI Ebenen)
 function plqBandStart(ev){
   if(ev.button!==0)return;
+  if(plqZugLaeuft)return;                              // sonst entstuenden zwei Baender uebereinander
   if(ev.target.closest('button,a,input,select'))return;
   const zeile=ev.target.closest('.pl-item');
   if(zeile){
@@ -6020,7 +6022,17 @@ function plqBandStart(ev){
     // frisst er die Bewegung, aus der das Band entsteht (plqDragStart).
     plqBandModus=true;
   }
-  const flaeche=ev.currentTarget;
+  /* Build 144c (JB nach der echten Maus-Probe): „wie in bibliothek soll der
+     fenster ziehen modus in player/playlist schon ein/zwei reihen darueber
+     funktionieren koennen." Der Zuhoerer haengt deshalb zusaetzlich am
+     BEHAELTER ueber der Liste — genau wie in der Bibliothek seit Build 143.
+     Getroffen und gescrollt wird aber weiter die LISTE, nicht der Behaelter:
+     sonst schoebe das Rand-Nachschieben am falschen Element. */
+  const behaelter=ev.currentTarget;
+  const flaeche=behaelter.classList.contains('pl-queue')
+    ? behaelter : (behaelter.querySelector('.pl-queue')||behaelter);
+  if(!flaeche)return;
+  plqZugLaeuft=true;
   const basis=new Set(ev.ctrlKey||ev.metaKey?[...plqAuswahl]:[]);
   const x0=ev.clientX, y0=ev.clientY; let band=null;
   function mv(e){
@@ -6048,7 +6060,7 @@ function plqBandStart(ev){
   }
   function up(){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
-    document.body.classList.remove('nosel'); plqBandModus=false;
+    document.body.classList.remove('nosel'); plqBandModus=false; plqZugLaeuft=false;
     if(band){band.remove(); plqBandLief=true; setTimeout(()=>{plqBandLief=false;},0); plqMark();}
   }
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
@@ -6395,6 +6407,14 @@ function renderPlayerQueue(){
     ||'<div class="pl-leer">Leer — Titel aus der Bibliothek hierher ziehen.</div>';
   const q=document.getElementById('pl-queue'); if(q){q.innerHTML=html; q.onpointerdown=plqBandStart;}
   const qw=document.getElementById('pl-queue-win'); if(qw){qw.innerHTML=html; qw.onpointerdown=plqBandStart;}
+  // Build 144c (JB): Der Rahmen soll schon ein, zwei Reihen ÜBER der Liste
+  // beginnen dürfen. Dort liegt gar nicht mehr die Liste, sondern ihr
+  // Behälter — im Player die Titel-/Steuerungs-Spalte, im herausgelösten
+  // Fenster die Karte mit der Kopfzeile. Beide hören jetzt mit; Bedienelemente
+  // filtert plqBandStart ohnehin heraus, und plqZugLaeuft verhindert, dass aus
+  // den zwei mithörenden Ebenen zwei Bänder werden.
+  const seite=document.querySelector('#view-player .pl-side'); if(seite)seite.onpointerdown=plqBandStart;
+  const fenster=document.querySelector('#view-plq .card'); if(fenster)fenster.onpointerdown=plqBandStart;
   const za=document.getElementById('plq-anzahl');
   if(za)za.textContent=playerState.queue.length?(playerState.queue.length+' Titel'):'';
   // Der Sichern-Hinweis haengt an BEIDEN Playlist-Sichten und erscheint nur,

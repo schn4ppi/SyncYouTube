@@ -1100,6 +1100,18 @@ def _oberflaeche_html():
     return oberflaeche.HTML
 
 
+def _funktionsende(quelle, start):
+    """Ende der JS-Funktion, die bei `start` beginnt (Anfang der naechsten).
+
+    Feste Zeichenfenster (`quelle[i:i+1800]`) sind truegerisch: waechst die
+    Funktion, rutscht der gepruefte Inhalt lautlos aus dem Fenster und der
+    Waechter wird gruen, ohne etwas zu pruefen - oder rot, obwohl alles
+    stimmt (beides am 23.07. passiert).
+    """
+    naechste = quelle.find("\nfunction ", start + 1)
+    return naechste if naechste > 0 else len(quelle)
+
+
 def _kaefig_klassen(quelle):
     """Klassen/Ids, die im CSS Containment setzen.
 
@@ -1646,6 +1658,32 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_rahmen_darf_oberhalb_der_playlist_beginnen():
+    # JB nach der Probe mit der echten Maus (23.07.): "wie in bibliothek soll
+    # der fenster ziehen modus in player/playlist schon ein/zwei reihen
+    # darueber funktionieren koennen" - das Ziehen selbst laeuft seit
+    # Build 144 ("ansonsten funktioniert das fenster ziehen jetzt").
+    # Dieselbe Bitte gab es fuer die BIBLIOTHEK schon einmal (Build 143:
+    # "ich kann immer noch kein Fenster ziehen von einer Reihe ueber der
+    # Bibliothek, das ist frustrierend"); dort haengt der Zuhoerer seitdem
+    # auch an der Karte. In der Playlist hing er nur an der Liste selbst -
+    # wer eine Reihe darueber ansetzte, traf ins Leere.
+    quelle = _oberflaeche_html()
+    r = quelle[quelle.index("function renderPlayerQueue"):][:2600]
+    assert "pl-side" in r, (
+        "Der Rahmen haengt nicht am Behaelter oberhalb der Playlist im Player")
+    assert "view-plq" in r, (
+        "Im herausgeloesten Playlist-Fenster haengt er nicht an der Karte")
+    b = quelle[quelle.index("function plqBandStart"):][:1800].replace(" ", "")
+    # Getroffen und gescrollt wird trotzdem die LISTE, nicht der Behaelter -
+    # sonst schiebt das Rand-Nachschieben am falschen Element.
+    assert "querySelector('.pl-queue')" in b, (
+        "plqBandStart ermittelt die Liste nicht aus dem Behaelter")
+    # Zwei Ebenen hoeren mit -> ohne Sperre entstuenden ZWEI Baender uebereinander.
+    assert "plqZugLaeuft" in b, (
+        "Keine Sperre gegen ein zweites Band, wenn beide Ebenen mithoeren")
+
+
 def test_playlist_folgt_dem_hineingezogenen_titel():
     # JB Punkt 2: "Playlist speichern/aktualisieren, wenn man Titel in eine
     # gerade laufende Playlist zieht" - "ganz dezent irgendwo".
@@ -1684,7 +1722,7 @@ def test_playlist_sichern_zerstoert_die_reihenfolge_nicht():
     # Der Hinweis erscheint NUR bei Bedarf und haengt an beiden Playlist-Sichten.
     assert "plq-sichern" in quelle, "Kein Sichern-Hinweis in der Oberflaeche"
     r = quelle.index("function renderPlayerQueue")
-    assert "plq-sichern" in quelle[r:r + 1800], (
+    assert "plq-sichern" in quelle[r:_funktionsende(quelle, r)], (
         "renderPlayerQueue blendet den Hinweis nicht nach Bedarf ein/aus")
 
 
