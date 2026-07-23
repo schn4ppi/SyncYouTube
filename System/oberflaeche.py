@@ -1124,7 +1124,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 134</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 135</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -1385,7 +1385,14 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
              Öffnen/Schließen ist ein Pfeil, Abspielen ein reiner Play-Knopf —
              aus vier Textknöpfen werden drei Symbole. -->
         <span style="font-size:12px;color:#8a7d74">Playlist:</span>
-        <select id="plsel" onchange="plWahl()" title="Playlist wählen — Auswahl zeigt sie sofort in der Bibliothek"></select>
+        <!-- Build 135 (JB Punkt 4): Titel lassen sich hierher ZIEHEN. Ist eine
+             Playlist gewählt, landen sie darin; steht „— keine —", entsteht
+             eine neue. Mehrfachauswahl reist mit, und ein Rückgängig gibt es
+             auch — Einreihen ist zwar harmlos, aber 50 Titel von Hand wieder
+             herauszunehmen wäre es nicht. -->
+        <select id="plsel" onchange="plWahl()" ondragover="plselDragOver(event)"
+                ondragleave="plselDragLeave(event)" ondrop="plselDrop(event)"
+                title="Playlist wählen — Auswahl zeigt sie sofort in der Bibliothek. Titel hierher ziehen reiht sie ein; auf „— keine —" fallen lassen legt eine neue an."></select>
         <button class="ib" id="plviewbtn" onclick="plView()" title="Titel dieser Playlist unten in der Bibliothek anzeigen (nochmal = zurück zur ganzen Bibliothek)">📃</button>
         <button class="ib" id="plwerkbtn" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
         <input type="file" id="m3ufile" accept=".m3u,.m3u8" style="display:none" onchange="plImport(this)">
@@ -3849,7 +3856,57 @@ function klickArtSetzen(v){
   try{localStorage.setItem('ytdl_klickart',v==='einfach'?'einfach':'doppel');}catch(e){}
   toast(v==='einfach'?'▶ Einfachklick spielt ab.':'▶ Doppelklick spielt ab (Einfachklick wählt aus).');
 }
+/* ---- Rahmen-Auswahl in der Bibliothek (Build 135, JB Punkt 4) ------------
+   JB: „Rahmen-Auswahl mit der Maus wie in Windows / wie in der Abo-Ansicht."
+   Dort gibt es das seit Build 94 (aboBandStart) — die Bibliothek bekommt
+   bewusst DIESELBEN Eigenschaften, damit sich beides gleich anfühlt: erst ab
+   5 px Bewegung wird daraus ein Band (darunter bleibt es ein normaler
+   Klick), Strg erweitert die bestehende Auswahl, und der nachlaufende Klick
+   der Startkachel wird geschluckt.
+   Ein Unterschied ist nötig: Kacheln sind ziehbar (draggable). Ein Zug auf
+   einer Kachel muss deshalb ein ZIEHEN bleiben — das Band startet nur auf
+   freier Fläche, sonst könnte man Titel nicht mehr auf Playlists ziehen. */
+let libBandLief=false;
+function libBandStart(ev){
+  if(ev.button!==0)return;
+  if(ev.target.closest('button,a,input,select'))return;
+  // Gezielt .kachel/tr: auch PANELS tragen ein data-id (gemessen) — ein
+  // unspezifisches [data-id] haette den Zug schon am Panel abgefangen.
+  if(ev.target.closest('.kachel[data-id],tr[data-id]'))return;   // auf einer Kachel: Ziehen hat Vorrang
+  const flaeche=ev.currentTarget;
+  const basis=new Set(ev.ctrlKey||ev.metaKey?[...libAuswahl]:[]);
+  const x0=ev.clientX, y0=ev.clientY; let band=null;
+  function mv(e){
+    if(!band){
+      if(Math.abs(e.clientX-x0)<5&&Math.abs(e.clientY-y0)<5)return;
+      band=document.createElement('div'); band.className='abo-band'; document.body.appendChild(band);
+    }
+    const l=Math.min(x0,e.clientX), t=Math.min(y0,e.clientY),
+          r=Math.max(x0,e.clientX), b=Math.max(y0,e.clientY);
+    band.style.left=l+'px'; band.style.top=t+'px';
+    band.style.width=(r-l)+'px'; band.style.height=(b-t)+'px';
+    const fr=flaeche.getBoundingClientRect();           // Rand-Nachschieben wie im Abo-Fenster
+    if(e.clientY>fr.bottom-18)flaeche.scrollTop+=14;
+    else if(e.clientY<fr.top+18)flaeche.scrollTop-=14;
+    libAuswahl=new Set(basis);
+    flaeche.querySelectorAll('.kachel[data-id],tr[data-id]').forEach(n=>{
+      const q=n.getBoundingClientRect();
+      if(q.left<r&&q.right>l&&q.top<b&&q.bottom>t)libAuswahl.add(n.dataset.id);
+      n.classList.toggle('sel',libAuswahl.has(n.dataset.id));
+    });
+  }
+  function up(){
+    document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
+    if(band){
+      band.remove(); libBandLief=true;
+      setTimeout(()=>{libBandLief=false;},0);
+      libMalen();                                      // Auswahl-Leiste/Zähler nachziehen
+    }
+  }
+  document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
+}
 function kachelClick(ev,id){
+  if(libBandLief)return;                               // der Klick war das Ende eines Band-Zugs
   if(ev.target.closest('button,a,input'))return;
   // Auswählen hat Vorrang: Strg/Umschalt und der Mehrfach-Auswahl-Modus
   // bleiben unberührt, sonst könnte man nichts mehr markieren.
@@ -3946,18 +4003,25 @@ function browserName(){
 function browserZeichen(){
   const art=browserArt();
   const kern='<circle class="apikern" cx="12" cy="12" r="4.6"/>';
-  // Firefox: die Erdkugel mit angedeuteten Meridianen (JB: „die Erde").
+  // Firefox: JB-Korrektur — ein Kreis mit Meridianen ist ein GENERISCHER
+  // Globus, kein Firefox. Erkennbar macht das Zeichen der Fuchsschweif, der
+  // sich um die Kugel legt und oben in einer Spitze ausläuft. Deshalb: ein
+  // fast geschlossener, kräftiger Bogen (der Schweif) mit Flammenzunge —
+  // und der Kern in der Mitte ist die Erdkugel, die die Statusfarbe trägt.
   if(art==='firefox')
     return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
-      '<circle class="apiring" cx="12" cy="12" r="9" stroke-width="1.6"/>'+
-      '<ellipse class="apiring" cx="12" cy="12" rx="4" ry="9" stroke-width="1.1"/>'+
-      '<path class="apiring" d="M3.6 9h16.8M3.6 15h16.8" stroke-width="1.1"/>'+kern+'</svg>';
-  // Chrome: der Ring aus drei Segmenten, der Kern sitzt dort, wo sonst das
-  // Blau steckt — genau die Stelle, die JB benannt hat.
+      '<path class="apiring" d="M14.8 3.9a9 9 0 1 1-6.4 1.1" stroke-width="2.6" stroke-linecap="round"/>'+
+      '<path d="M13.2 2.2 19 4.4l-4.6 2.5z" fill="currentColor" opacity=".75"/>'+
+      kern+'</svg>';
+  // Chrome: drei Segmente mit Fugen (statt eines glatten Rings) — das ist
+  // das, was man auf kleiner Fläche als Chrome liest. Der Kern sitzt dort,
+  // wo sonst das Blau steckt: genau die Stelle, die JB benannt hat.
   if(art==='chrome'||art==='opera')
     return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
-      '<circle class="apiring" cx="12" cy="12" r="9" stroke-width="2.4"/>'+
-      '<path class="apiring" d="M12 3v6M20 17l-5-3M4 17l5-3" stroke-width="1.4"/>'+kern+'</svg>';
+      '<path class="apiring" d="M12.9 3.05A9 9 0 0 1 20.5 15.6" stroke-width="2.6" stroke-linecap="round"/>'+
+      '<path class="apiring" d="M18.6 18.7A9 9 0 0 1 5.2 16.9" stroke-width="2.6" stroke-linecap="round"/>'+
+      '<path class="apiring" d="M4.2 14.7A9 9 0 0 1 10.6 3.2" stroke-width="2.6" stroke-linecap="round"/>'+
+      kern+'</svg>';
   // Edge: der offene Bogen.
   if(art==='edge')
     return '<svg viewBox="0 0 24 24" aria-hidden="true">'+
@@ -4430,6 +4494,9 @@ function libMalen(){
     }
     el.innerHTML='<div class="libleer">'+(libPlaylistView?'Diese Playlist ist noch leer — füge mit ＋ Titel hinzu.':libArchiv?'Archiv ist leer.':'Nichts gefunden — lade etwas herunter oder ändere den Filter.')+'</div>'; return;}
   el.innerHTML = libModus==='kachel' ? kacheln(arr) : libModus==='alben' ? albenHTML(arr) : listeTab(arr);
+  // Build 135: Rahmen-Auswahl aufziehen. Der Zuhörer sitzt am Behälter, nicht
+  // an den Kacheln — er soll ja gerade auf FREIER Fläche anspringen.
+  el.onpointerdown=libBandStart;
 }
 
 /* ---- Alben-Ansicht: nach Künstler/Album gruppiert (Felder aus dem Auto-Tagging) ---- */
@@ -4877,7 +4944,7 @@ function kachel(x){
   // Ausführliche Details nur noch als Tooltip auf der Info-Zeile (Kachel bleibt ruhig).
   const det=[COLDEF.kategorie.t(x),COLDEF.qualitaet.t(x),technikText(x),mb(x.groesse),
              x.dauer?zeit(x.dauer):'',x.uploader||'',ytdatum(x.upload_date)].filter(Boolean).join('  ·  ');
-  return `<div class="kachel ${x.vorhanden?'':'weg'}${sel}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}>
+  return `<div class="kachel ${x.vorhanden?'':'weg'}${sel}" data-id="${x.id}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}>
     <div class="thumbwrap ${x.thumb?'':'platzhalter'}" onclick="thumbClick(event,'${x.id}')" title="Abspielen">${thumb}${dauer}${weg}</div>
     <div class="kbody">
       <div class="ktitel" title="${esc(x.titel)}">${esc(x.titel)}</div>
@@ -4914,7 +4981,7 @@ function listeTab(arr){
       return `<td class="num">${esc(String(COLDEF[k].t(x)))}</td>`;
     }).join('');
     const sel=libAuswahl.has(x.id)?' sel':'';
-    return `<tr class="${x.vorhanden?'':'weg'}${sel}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}><td><div class="ltitel">${th}<span class="ltxt" title="${esc(x.titel)}">${esc(x.titel)}</span></div></td>${tds}<td class="num">${aktBtnsListe(x)}</td></tr>`;
+    return `<tr class="${x.vorhanden?'':'weg'}${sel}" data-id="${x.id}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}><td><div class="ltitel">${th}<span class="ltxt" title="${esc(x.titel)}">${esc(x.titel)}</span></div></td>${tds}<td class="num">${aktBtnsListe(x)}</td></tr>`;
   }).join('');
   return `<div class="libwrap"><table class="libtab${libKompakt?' kompakt':''}"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -6122,6 +6189,72 @@ async function plRemove(key){
   libMalen();
 }
 async function plApi(body){await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); await plLaden();}
+
+/* ---- Titel auf eine Playlist ziehen (Build 135, JB Punkt 4) --------------
+   Bisher ging Einreihen nur über das ＋-Menü an jeder Kachel — bei mehreren
+   Titeln also viele Klicks. Jetzt zieht man die Auswahl auf die
+   Playlist-Liste. Steht dort „— keine —", entsteht eine neue Playlist: genau
+   JBs Wunsch, denn beim Ziehen weiß man oft erst im Moment des Loslassens,
+   dass man eine neue braucht. */
+let plLetzterWurf=null;                                // fürs Rückgängig
+function plZiehKeys(ev){
+  // Wird ein Titel gezogen, der Teil der Auswahl ist, reist die GANZE
+  // Auswahl mit — sonst nur der eine. Das ist das Verhalten aus dem
+  // Explorer und verhindert, dass eine mühsame Auswahl unbemerkt verfällt.
+  let key=''; try{key=ev.dataTransfer.getData('ytdl/key')||'';}catch(e){}
+  if(!key)return [];
+  return (libAuswahl.has(key)&&libAuswahl.size>1)?[...libAuswahl]:[key];
+}
+function plselDragOver(ev){
+  let hat=false; try{hat=[...ev.dataTransfer.types].includes('ytdl/key');}catch(e){}
+  if(!hat)return;
+  ev.preventDefault(); ev.dataTransfer.dropEffect='copy';
+  ev.currentTarget.style.outline='2px dashed var(--akz)';
+}
+function plselDragLeave(ev){ ev.currentTarget.style.outline=''; }
+async function plselDrop(ev){
+  ev.preventDefault(); ev.currentTarget.style.outline='';
+  const keys=plZiehKeys(ev); if(!keys.length)return;
+  let id=document.getElementById('plsel').value;
+  let neu=false;
+  if(!id){                                             // „— keine —" = neue anlegen
+    const vorschlag=(libFind(keys[0])||{}).titel||'Neue Playlist';
+    const n=prompt('Neue Playlist anlegen — Name:', vorschlag.slice(0,40));
+    if(!n||!n.trim())return;
+    await plApi({art:'create',name:n.trim()});
+    id=(plState[plState.length-1]||{}).id; neu=true;
+    if(!id){toast('Playlist ließ sich nicht anlegen.');return;}
+  }
+  const p=plState.find(x=>x.id===id);
+  // Nur wirklich neue Titel einreihen — doppelte Einträge wären still
+  // verwirrend, und das Rückgängig soll genau das zurücknehmen, was DIESER
+  // Wurf getan hat (nicht was vorher schon drin lag).
+  const vorher=new Set((p&&p.items)||[]);
+  const frisch=keys.filter(k=>!vorher.has(k));
+  for(const k of frisch)await plApi({art:'add',id,key:k});
+  plLetzterWurf={id,keys:frisch,plNeu:neu};
+  const name=(plState.find(x=>x.id===id)||{}).name||'Playlist';
+  if(!frisch.length){toast('Schon alle in „'+name+'".');return;}
+  toastMitZurueck((neu?'📃 „'+name+'" angelegt · ':'')+frisch.length+
+    (frisch.length===1?' Titel':' Titel')+' → „'+name+'"', 'plZurueck()');
+}
+async function plZurueck(){
+  const w=plLetzterWurf; if(!w)return;
+  plLetzterWurf=null;
+  for(const k of w.keys)await plApi({art:'remove',id:w.id,key:k});
+  if(w.plNeu)await plApi({art:'delete',id:w.id});       // frisch angelegte Liste wieder weg
+  toast('↩ Rückgängig.');
+}
+function toastMitZurueck(text,ruf){
+  // Wie toast(), nur mit einem Knopf daneben. Bewusst KEIN eigener Kasten:
+  // dieselbe Stelle, dieselbe Optik, damit nichts Neues zu lernen ist.
+  let t=document.getElementById('toast');
+  if(!t){t=document.createElement('div'); t.id='toast'; document.body.appendChild(t);}
+  t.innerHTML=esc(text)+' <button class="btn mini" style="margin-left:10px" onclick="'+ruf+
+              ';document.getElementById(\\'toast\\').classList.remove(\\'an\\')">↩ Rückgängig</button>';
+  t.classList.add('an');
+  clearTimeout(t._weg); t._weg=setTimeout(()=>t.classList.remove('an'),7000);
+}
 /* Playlist-Optionen fürs Ausklapp-Untermenü (kmFuellen zeigt ab 9 automatisch die Suche) */
 function plOptionen(key){
   const rein=async(id)=>{await plApi({art:'add',id,key});

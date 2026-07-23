@@ -1539,3 +1539,44 @@ def test_klickart_zum_abspielen_einstellbar():
     assert m and m.group(1) == "doppel", "Standard ist nicht Doppelklick"
     # Und die Kacheln/Zeilen muessen den Doppelklick auch auswerten.
     assert "kachelDblClick" in quelle, "Kacheln reagieren nicht auf Doppelklick"
+
+
+def test_titel_auf_playlist_ziehen():
+    # JB Punkt 4: "Titel auf Playlists ziehen; auf 'keine Playlist' fallen
+    # lassen = neue anlegen; Mehrfachauswahl zusammen ziehen; Rueckgaengig
+    # dafuer."
+    quelle = _oberflaeche_html()
+    assert "plselDrop" in quelle, "Die Playlist-Auswahl ist kein Fallziel"
+    assert "ondrop=\"plselDrop(event)\"" in quelle, "Kein ondrop an der Playlist-Auswahl"
+    # Fallen lassen auf "keine Playlist" legt eine NEUE an.
+    i = quelle.index("function plselDrop")
+    block = quelle[i:i + 2200]
+    assert "art:'create'" in block.replace(" ", ""), \
+        "Fallenlassen auf 'keine Playlist' legt keine neue an"
+    # Mehrfachauswahl reist mit (die Entscheidung faellt in plZiehKeys).
+    j = quelle.index("function plZiehKeys")
+    zieh = quelle[j:j + 700]
+    assert "libAuswahl" in zieh, "Die Mehrfachauswahl wird beim Ziehen nicht mitgenommen"
+    assert "libAuswahl.size>1" in zieh.replace(" ", ""),         "Ein einzeln gezogener Titel darf nicht die ganze Auswahl mitreissen"
+    # Und es gibt ein Rueckgaengig.
+    assert "plZurueck" in quelle, "Kein Rueckgaengig fuer das Einreihen"
+
+
+def test_rahmenauswahl_in_der_bibliothek():
+    # JB Punkt 4: "Rahmen-Auswahl mit der Maus wie in Windows / wie in der
+    # Abo-Ansicht." Das Muster gibt es dort bereits (aboBandStart, Build 94) -
+    # die Bibliothek bekommt dasselbe, damit sich beides gleich anfuehlt.
+    quelle = _oberflaeche_html()
+    assert "libBandStart" in quelle, "Keine Rahmen-Auswahl in der Bibliothek"
+    i = quelle.index("function libBandStart")
+    block = quelle[i:i + 2200]
+    # Dieselben Eigenschaften wie das Vorbild: erst ab ein paar Pixeln ein
+    # Band, Strg additiv, nachlaufender Klick wird geschluckt.
+    assert "ctrlKey" in block, "Strg erweitert die Auswahl nicht"
+    assert "libBandLief" in block, "Kein Merker fuer einen gelaufenen Band-Zug"
+    # Die Eigenschaft zaehlt, nicht der Name: der Klick-Handler muss den
+    # Merker abfragen, sonst hebt der nachlaufende Klick die Auswahl auf.
+    k = quelle.index("function kachelClick")
+    assert "libBandLief" in quelle[k:k + 400],         "kachelClick schluckt den nachlaufenden Klick nicht"
+    # Die Elemente brauchen eine Kennung, damit der Rahmen sie treffen kann.
+    assert 'data-id="${x.id}"' in quelle, "Kacheln/Zeilen tragen keine data-id"
