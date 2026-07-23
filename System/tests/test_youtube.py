@@ -1658,6 +1658,56 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_kanal_nummer_ist_keine_tracknummer():
+    # JB Punkt 4: "Videonummer je Kanal als eigenes Feld." Mit ausdruecklicher
+    # Warnung: NICHT als Track-Nummer - die heisst "Position innerhalb eines
+    # Werks", daraus entstuende "500x die 1". Vorbild ist abo_nr.
+    eintraege = [
+        {"id": "a|b", "uploader": "Kanal X", "upload_date": "20240101"},
+        {"id": "b|b", "uploader": "Kanal X", "upload_date": "20240301"},
+        {"id": "c|b", "uploader": "kanal x", "upload_date": "20240201"},   # Schreibweise egal
+        {"id": "d|b", "uploader": "Anderer", "upload_date": "20240101"},
+        {"id": "e|b", "uploader": "", "upload_date": "20240101"},
+    ]
+    nr, von = app._kanal_nummern(eintraege)
+    # Je Kanal durchnummeriert, aeltestes = 1. Genau das verhindert "500x die 1".
+    assert (nr["a|b"], nr["c|b"], nr["b|b"]) == (1, 2, 3)
+    # Ein anderer Kanal faengt wieder bei 1 an.
+    assert nr["d|b"] == 1
+    # Ohne Kanal gibt es KEINE Nummer - lieber keine Angabe als eine erfundene.
+    assert "e|b" not in nr
+    # Und die Gesamtzahl je Kanal, damit "3 / 12" moeglich ist.
+    assert von["a|b"] == 3 and von["d|b"] == 1
+
+
+def test_kanal_nummer_weicht_der_echten_abo_nummer():
+    # Wo eine ECHTE Kanal-Nummer bekannt ist (Abo-Backkatalog: aelteste Folge
+    # = 1 ueber den ganzen Kanal), hat sie Vorrang vor der abgeleiteten
+    # Bibliotheks-Position - sie ist die genauere Wahrheit.
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    i = quelle.index("def _kanal_nummern")
+    # Die Zuweisung selbst steht in der Bibliotheks-Liste.
+    j = quelle.index('"abo_nr": e.get("abo_nr"')
+    umfeld = quelle[j:j + 600]
+    assert "kanal_nr" in umfeld, "Die Kanal-Nummer steht nicht in der Bibliotheks-Liste"
+    assert "abo_nr" in umfeld, "Die echte Abo-Nummer hat keinen Vorrang"
+    # Abgeleitet statt gespeichert: eine gespeicherte Nummer wuerde falsch,
+    # sobald ein aelteres Video des Kanals dazukommt.
+    block = quelle[i:i + 1200]
+    assert "upload_date" in block, "Die Reihenfolge haengt nicht am Upload-Datum"
+    # Die Oberflaeche zeigt es als eigene Spalte.
+    ui = _oberflaeche_html()
+    assert "kanal_nr" in ui, "Keine Spalte fuer die Kanal-Nummer"
+    # Und sie zeigt eine ABGELEITETE Nummer nur, wenn es beim selben Kanal
+    # etwas zu ordnen gibt. An JBs echter Bibliothek gemessen: 69 von 84
+    # Titeln stuenden sonst auf "#1" - er hat von den meisten Kanaelen genau
+    # EIN Video. Das saehe aus wie die befuerchtete "500x die 1".
+    k = ui.index("kanalnr:{")
+    spalte = ui[k:k + 400]
+    assert "kanal_von>1" in spalte.replace(" ", ""), (
+        "Eine Kanal-Nummer erscheint auch bei nur einem Video des Kanals")
+
+
 def test_playlist_fuellt_den_freien_platz():
     # JB mit Bild (23.07.): "jetzt ist playlist nur noch ein kleines fenster,
     # das sollte dynamisch bis zum unteren rand von playlist gehen."

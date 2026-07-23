@@ -784,8 +784,44 @@ def bibliothek_liste():
             "track": e.get("track", ""), "jahr": e.get("jahr", ""),
             "abo_nr": e.get("abo_nr", ""),
         })
+    # Build 144g (JB Punkt 4): „Videonummer je Kanal als eigenes Feld."
+    # Die ECHTE Kanal-Nummer aus dem Abo-Backkatalog hat Vorrang — sie zählt
+    # über den ganzen Kanal, nicht nur über das, was hier liegt.
+    nummer, gesamt = _kanal_nummern(out)
+    for x in out:
+        x["kanal_nr"] = x.get("abo_nr") or nummer.get(x["id"], 0)
+        x["kanal_von"] = gesamt.get(x["id"], 0)
     out.sort(key=lambda x: x["ts"] or 0, reverse=True)
     return out
+
+
+def _kanal_nummern(eintraege):
+    """„Das wievielte Video dieses Kanals ist das?" (JB Punkt 4)
+
+    Ausdrücklich NICHT die Track-Nummer: die heißt „Position innerhalb eines
+    Werks" und stünde bei Einzelvideos 500-mal auf 1 — genau JBs Sorge.
+    Vorbild ist `abo_nr`, das es für Abo-Folgen schon gibt; dieselbe Zählweise
+    (ältestes = 1), nur für JEDEN Kanal statt nur für abonnierte.
+
+    ABGELEITET statt gespeichert: eine einmal geschriebene Nummer würde falsch,
+    sobald ein ÄLTERES Video desselben Kanals dazukommt — und falsche Zahlen
+    wandern beim Kopieren mit. Ohne Kanal gibt es keine Nummer; lieber keine
+    Angabe als eine erfundene.
+    """
+    nach_kanal = {}
+    for x in eintraege:
+        kanal = (x.get("uploader") or "").strip().lower()
+        if kanal:
+            nach_kanal.setdefault(kanal, []).append(x)
+    nummer, gesamt = {}, {}
+    for liste in nach_kanal.values():
+        # Ältestes zuerst; ohne Upload-Datum entscheidet der Ladezeitpunkt,
+        # damit die Reihenfolge stabil bleibt statt zufällig zu springen.
+        liste.sort(key=lambda x: (x.get("upload_date") or "", x.get("ts") or 0))
+        for i, x in enumerate(liste, 1):
+            nummer[x["id"]] = i
+            gesamt[x["id"]] = len(liste)
+    return nummer, gesamt
 
 
 # ---- Datei zu einem Bibliotheks-Schlüssel finden (für Media/Player/Extern)

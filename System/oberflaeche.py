@@ -4489,6 +4489,19 @@ const COLDEF={
   added:{l:'Hinzugefügt', t:x=>x.ts?new Date(x.ts*1000).toLocaleDateString('de-DE'):'–', s:x=>x.ts||0},
   plays:{l:'Abspielungen', t:x=>String(x.plays||0), s:x=>x.plays||0},
   folge:{l:'Folge #', t:x=>x.abo_nr?('#'+x.abo_nr):'–', s:x=>x.abo_nr||0},
+  // Build 144g (JB Punkt 4): „Videonummer je Kanal" — ausdrücklich NICHT die
+  // Track-Nummer (die stünde bei Einzelvideos 500-mal auf 1). Bei Abos ist es
+  // die echte Nummer aus dem Backkatalog, sonst die Position innerhalb der
+  // Videos dieses Kanals hier. „von" macht die Bezugsgröße sichtbar.
+  // An JBs echter Bibliothek gemessen: 69 von 84 Titeln stünden auf „#1" —
+  // nicht als Track-Nummer, sondern weil er von den meisten Kanälen genau EIN
+  // Video hat. Angezeigt sähe das aus wie die befürchtete „500× die 1".
+  // Deshalb: eine abgeleitete Nummer erscheint nur, wenn es beim selben Kanal
+  // etwas zu ordnen GIBT. Die echte Abo-Nummer steht immer — sie zählt über
+  // den ganzen Kanal und sagt auch bei einem einzelnen Video etwas aus.
+  kanalnr:{l:'Kanal #', t:x=>x.abo_nr?('#'+x.abo_nr)
+                          :(x.kanal_von>1?('#'+x.kanal_nr+' von '+x.kanal_von):'–'),
+           s:x=>x.kanal_nr||0},
   ext:{l:'Endung', t:x=>ext(x.name), s:x=>ext(x.name)}
 };
 const COLALL=Object.keys(COLDEF);
