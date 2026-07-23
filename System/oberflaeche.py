@@ -3965,13 +3965,23 @@ function klickArtSetzen(v){
    einer Kachel muss deshalb ein ZIEHEN bleiben — das Band startet nur auf
    freier Fläche, sonst könnte man Titel nicht mehr auf Playlists ziehen. */
 let libBandLief=false;
+let libBandLaeuft=false;                               // ein Zug ist unterwegs (Zuhoerer haengt an drei Ebenen)
 function libBandStart(ev){
   if(ev.button!==0)return;
   if(ev.target.closest('button,a,input,select'))return;
   // Gezielt .kachel/tr: auch PANELS tragen ein data-id (gemessen) — ein
   // unspezifisches [data-id] haette den Zug schon am Panel abgefangen.
   if(ev.target.closest('.kachel[data-id],tr[data-id]'))return;   // auf einer Kachel: Ziehen hat Vorrang
-  const flaeche=ev.currentTarget;
+  // Build 144e: Der Zuhoerer haengt jetzt auch am panel-body (leerer Bereich
+  // unter den Kacheln). Getroffen und gescrollt wird trotzdem `libinhalt` —
+  // sonst schoebe das Rand-Nachschieben am falschen Element. Ohne sichtbaren
+  // Inhalt springt nichts an (ein Panel kann mehrere Ansichten tragen).
+  const beh=ev.currentTarget;
+  const flaeche=(beh.id==='libinhalt')?beh
+    :[...beh.querySelectorAll('#libinhalt')].find(n=>n.offsetParent);
+  if(!flaeche)return;
+  if(libBandLaeuft)return;                             // zwei Ebenen hoeren mit -> nur EIN Band
+  libBandLaeuft=true;
   const basis=new Set(ev.ctrlKey||ev.metaKey?[...libAuswahl]:[]);
   const x0=ev.clientX, y0=ev.clientY; let band=null;
   function mv(e){
@@ -3999,7 +4009,7 @@ function libBandStart(ev){
   }
   function up(){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
-    document.body.classList.remove('nosel');
+    document.body.classList.remove('nosel'); libBandLaeuft=false;
     if(band){
       band.remove(); libBandLief=true;
       setTimeout(()=>{libBandLief=false;},0);
@@ -4641,6 +4651,12 @@ function libMalen(){
   // der Zuhoerer nie an. Jetzt hoert die ganze Bibliotheks-Karte mit;
   // Bedienelemente filtert libBandStart ohnehin heraus.
   const karte=el.closest('.card'); if(karte)karte.onpointerdown=libBandStart;
+  /* Build 144e (JB mit Bild, dieselbe Regel wie in der Playlist): „solange es
+     in dem fenster ist, ist ein feld ziehen gewaehrleistet." Auch hier endet
+     die Karte am Inhalt — bei der auf einen Treffer gefilterten Bibliothek
+     gemessen 105 px Schwarz darunter, ohne Zuhoerer. Das Fenster ist der
+     `panel-body`. */
+  const koerper=el.closest('.panel-body'); if(koerper)koerper.onpointerdown=libBandStart;
 }
 
 /* ---- Alben-Ansicht: nach Künstler/Album gruppiert (Felder aus dem Auto-Tagging) ---- */
@@ -6024,6 +6040,7 @@ function plqBandStart(ev){
   if(ev.button!==0)return;
   if(plqZugLaeuft)return;                              // sonst entstuenden zwei Baender uebereinander
   if(ev.target.closest('button,a,input,select'))return;
+  if(ev.target.closest('.pl-media'))return;            // auf dem Video kein Band (eigene Steuerung, Drop-Ziel)
   const zeile=ev.target.closest('.pl-item');
   if(zeile){
     if(plqRahmenArt()==='frei')return;                 // Einstellung: Ziehen hat Vorrang
@@ -6040,7 +6057,10 @@ function plqBandStart(ev){
      sonst schoebe das Rand-Nachschieben am falschen Element. */
   const behaelter=ev.currentTarget;
   const flaeche=behaelter.classList.contains('pl-queue')
-    ? behaelter : (behaelter.querySelector('.pl-queue')||behaelter);
+    ? behaelter : [...behaelter.querySelectorAll('.pl-queue')].find(n=>n.offsetParent);
+  // Ohne SICHTBARE eigene Liste kein Band: ein Panel kann mehrere Ansichten
+  // tragen (Reiter), und der Zuhoerer am panel-body wuerde sonst in Ansicht A
+  // einen Rahmen ueber Ansicht B ziehen.
   if(!flaeche)return;
   plqZugLaeuft=true;
   const basis=new Set(ev.ctrlKey||ev.metaKey?[...plqAuswahl]:[]);
@@ -6466,6 +6486,17 @@ function renderPlayerQueue(){
   // den zwei mithörenden Ebenen zwei Bänder werden.
   const seite=document.querySelector('#view-player .pl-side'); if(seite)seite.onpointerdown=plqBandStart;
   const fenster=document.querySelector('#view-plq .card'); if(fenster)fenster.onpointerdown=plqBandStart;
+  /* Build 144e (JB mit Bild): „genauso wie oben, sollte man auch von UNTEN ein
+     fenster ziehen koennen … solange es in dem fenster ist, ist ein feld
+     ziehen gewaehrleistet." Gemessen: die Karte ist nur so hoch wie ihr
+     INHALT, nicht wie das Panel — im Playlist-Fenster lagen 232 px Schwarz
+     darunter, an denen kein Zuhoerer hing. Das FENSTER ist der `panel-body`,
+     also hoert der. Die Videoflaeche ist oben ausgenommen, und ohne sichtbare
+     eigene Liste springt nichts an (Reiter-Panels). */
+  ['#view-player','#view-plq'].forEach(sel=>{
+    const v=document.querySelector(sel), koerper=v&&v.closest('.panel-body');
+    if(koerper)koerper.onpointerdown=plqBandStart;
+  });
   const za=document.getElementById('plq-anzahl');
   if(za)za.textContent=playerState.queue.length?(playerState.queue.length+' Titel'):'';
   // Der Sichern-Hinweis haengt an BEIDEN Playlist-Sichten und erscheint nur,

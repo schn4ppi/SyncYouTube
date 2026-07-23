@@ -1581,7 +1581,7 @@ def test_rahmenauswahl_in_der_bibliothek():
     quelle = _oberflaeche_html()
     assert "libBandStart" in quelle, "Keine Rahmen-Auswahl in der Bibliothek"
     i = quelle.index("function libBandStart")
-    block = quelle[i:i + 2200]
+    block = quelle[i:_funktionsende(quelle, i)]
     # Dieselben Eigenschaften wie das Vorbild: erst ab ein paar Pixeln ein
     # Band, Strg additiv, nachlaufender Klick wird geschluckt.
     assert "ctrlKey" in block, "Strg erweitert die Auswahl nicht"
@@ -1658,6 +1658,35 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_rahmen_gilt_im_ganzen_fenster():
+    # JB-Regel mit Bild (23.07.): "genauso wie oben, sollte man auch von unten
+    # ein fenster ziehen koennen ... solange es in dem fenster ist, ist ein
+    # feld ziehen gewaehrleistet."
+    # Gemessen war das Gegenteil, und zwar bei BEIDEN Listen aus derselben
+    # Wurzel: die Karte ist nur so hoch wie ihr INHALT, nicht so hoch wie das
+    # Panel. Playlist-Fenster: Panel 420 px, Karte 132 px - die 232 px darunter
+    # gehoerten dem `panel-body`, dort hing "KEINER bis zum body". Bibliothek
+    # auf einen Treffer gefiltert: 105 px Leerraum, gleicher Befund.
+    # Der Zuhoerer gehoert deshalb an den panel-body: das IST das Fenster.
+    quelle = _oberflaeche_html()
+    r = quelle.index("function renderPlayerQueue")
+    assert "panel-body" in quelle[r:_funktionsende(quelle, r)], (
+        "Der Playlist-Rahmen deckt den leeren Bereich unter der Liste nicht ab")
+    m = quelle.index("function libMalen")
+    assert "panel-body" in quelle[m:_funktionsende(quelle, m)], (
+        "Der Bibliotheks-Rahmen deckt den leeren Bereich unter den Kacheln nicht ab")
+    # Ausgenommen bleibt die Videoflaeche - dort zieht man kein Band, sie hat
+    # ihre eigene Steuerung und ist Drop-Ziel.
+    b = quelle.index("function plqBandStart")
+    assert "pl-media" in quelle[b:_funktionsende(quelle, b)], (
+        "Auf dem Video darf kein Rahmen starten")
+    # Ein Panel kann mehrere Ansichten tragen (Reiter). Der Zuhoerer am
+    # panel-body darf deshalb nur anspringen, wenn SEINE Liste dort sichtbar
+    # ist - sonst zieht man in Ansicht A einen Rahmen ueber Ansicht B.
+    assert "offsetParent" in quelle[b:_funktionsende(quelle, b)], (
+        "Der Rahmen prueft nicht, ob seine Liste in diesem Fenster sichtbar ist")
+
+
 def test_lieblingssongs_knopf_im_player():
     # JB Punkt 3: "Spotify-artiges + im Player oben fuer eine
     # Lieblingssongs-Playlist."
@@ -1703,7 +1732,7 @@ def test_rahmen_darf_oberhalb_der_playlist_beginnen():
     b = quelle[quelle.index("function plqBandStart"):][:1800].replace(" ", "")
     # Getroffen und gescrollt wird trotzdem die LISTE, nicht der Behaelter -
     # sonst schiebt das Rand-Nachschieben am falschen Element.
-    assert "querySelector('.pl-queue')" in b, (
+    assert "'.pl-queue'" in b, (
         "plqBandStart ermittelt die Liste nicht aus dem Behaelter")
     # Zwei Ebenen hoeren mit -> ohne Sperre entstuenden ZWEI Baender uebereinander.
     assert "plqZugLaeuft" in b, (
@@ -2032,7 +2061,7 @@ def test_klick_ins_leere_hebt_die_auswahl_auf():
     # Auswahl ab - hier blieb sie samt Bulk-Leiste stehen.
     quelle = _oberflaeche_html()
     i = quelle.index("function libBandStart")
-    block = quelle[i:i + 2600]
+    block = quelle[i:_funktionsende(quelle, i)]
     assert "libAuswahl.clear()" in block, \
         "Ein Klick auf freie Flaeche raeumt die Auswahl nicht ab"
 
