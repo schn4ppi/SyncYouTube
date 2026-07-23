@@ -966,8 +966,11 @@ body.embed #view-player .card:not(.pl-horizontal) .pl-side .pl-queue{flex:1;max-
   display:flex;flex-direction:column;align-items:center;gap:2px;
   background:rgba(0,0,0,.55);border-radius:999px;padding:14px 18px;color:#fff;
   font-size:12px;font-weight:600;animation:sprungWeg .7s ease-out forwards}
-.pl-sprung.links{left:9%}
-.pl-sprung.rechts{right:9%}
+/* Build 139 (JB: „koennen wie bei YouTube etwas zentraler sein"): naeher an
+   die Mitte geholt. Bei YouTube liegen die Doppeltipp-Flaechen bei etwa
+   einem Viertel der Breite - dort sucht das Auge sie, nicht am Bildrand. */
+.pl-sprung.links{left:25%}
+.pl-sprung.rechts{right:25%}
 .pl-sprung svg{width:26px;height:26px;fill:#fff}
 @keyframes sprungWeg{0%{opacity:0;transform:translateY(-50%) scale(.86)}
   18%{opacity:1;transform:translateY(-50%) scale(1)}
@@ -1131,7 +1134,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 138</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 139</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -1630,6 +1633,7 @@ function popoverBei(m,r){
   let top=r.bottom+6; if(top+h>vh-8) top=r.top-h-6;     // nach oben klappen
   top=Math.max(8, Math.min(top, vh-h-8));
   m.style.left=left+'px'; m.style.top=top+'px';
+  nachVorn(m);                                         // Build 139: zuletzt geoeffnet = oben
   imBlick(m);
 }
 
@@ -1642,6 +1646,37 @@ function popoverBei(m,r){
    Element, statt aus dem Bild zu laufen (Anti-Scroll-Regel: die Seite
    scrollt nie, nur der Inhalt). ---- */
 const SCHWEBEND='.abo-flyout,.panelmenu,.itemmenu,.colmenu,.popover,.modal-box';
+/* Info-Zeile der Bibliotheksleiste (Build 139, JB-Fund: „eingereiht (3
+   Titel)" stand dauerhaft da, nach F5 war es weg — „war da etwas stuck?").
+   Nein: die Meldung wurde gesetzt und NIE zurueckgenommen. Ein Ereignis ist
+   vorbei, sobald man es gelesen hat; eine Fortschritts-Meldung („laeuft
+   noch") dagegen soll bleiben, bis sie abgeloest wird. Genau diese zwei
+   Faelle trennt `bleibt`. */
+let _plInfoWeg=null;
+function plInfo(text,bleibt){
+  const el=document.getElementById('plinfo'); if(!el)return;
+  el.textContent=text||'';
+  clearTimeout(_plInfoWeg);
+  if(text&&!bleibt)_plInfoWeg=setTimeout(()=>{
+    const e=document.getElementById('plinfo'); if(e)e.textContent='';},6000);
+}
+
+/* Hoechstmasse fuer schwebende Flaechen (Build 139, JB-Wunsch).
+   Eine Menue-Spalte wird jenseits von ~1000 px nicht besser lesbar, nur
+   breiter - lange Zeilen sind muehsamer zu lesen als kurze. Die Zahlen sind
+   deshalb bewusst am Lesbaren orientiert, nicht am verfuegbaren Platz. */
+const MAX_FLY={b:1000,h:820};
+
+/* Zuletzt geoeffnetes Fenster liegt oben (Build 139, JB-Fund: der
+   Namens-Baukasten verschwand hinter dem Optionen-Menue). Die Ebenen waren
+   statisch und willkuerlich verteilt - .abo-flyout 900, .modal 5000,
+   .panelmenu 6000, .itemmenu 9000 -, also entschied nicht die Reihenfolge
+   des Oeffnens, sondern die Bauart der Flaeche. Ein gemeinsamer Zaehler
+   dreht das um: wer zuletzt aufgeht, liegt vorn. Startwert ueber allen
+   festen Werten, damit nichts Altes dazwischenfunkt. */
+let _flyZ=9500;
+function nachVorn(el){ if(el)el.style.zIndex=(++_flyZ); }
+
 function imBlick(el,rand){
   // Kern der Garantie: die HÖCHSTMASSE werden an die POSITION gekoppelt
   // (maxHeight = Platz unter dem Element, maxWidth = Platz rechts davon).
@@ -1663,8 +1698,13 @@ function imBlick(el,rand){
   t=Math.max(rand, Math.min(t, vh-rand-1));
   l=Math.max(rand, Math.min(l, vw-rand-1));
   el.style.top=t+'px'; el.style.left=l+'px';
-  el.style.maxHeight=(vh-t-rand)+'px';
-  el.style.maxWidth=(vw-l-rand)+'px';
+  // Build 139 (JB): zusaetzlich eine absolute Obergrenze. Die Kopplung an die
+  // Position allein ergibt auf einem Ultrawide im Vollbild ein 3000 px
+  // breites Menue - JB: „sie sollten auch eine Standardgroesse haben, nicht
+  // unendlich gross werden". Es gilt das KLEINERE von beidem: der Platz, der
+  // da ist, und das Mass, das noch lesbar ist.
+  el.style.maxHeight=Math.min(vh-t-rand, MAX_FLY.h)+'px';
+  el.style.maxWidth=Math.min(vw-l-rand, MAX_FLY.b)+'px';
   if(getComputedStyle(el).overflowY==='visible')el.style.overflowY='auto';
 }
 function menuAnBody(m,knopf){
@@ -2896,7 +2936,7 @@ let _atWarAktiv=false;
 function autotagStatus(){
   const at=daten&&daten.autotag; if(!at)return;
   const info=document.getElementById('plinfo');
-  if(at.laeuft&&info)info.textContent=`🏷 Auto-Tagging läuft … ${at.erledigt}/${at.gesamt} geprüft · ${at.getaggt} getaggt`;
+  if(at.laeuft)plInfo(`🏷 Auto-Tagging läuft … ${at.erledigt}/${at.gesamt} geprüft · ${at.getaggt} getaggt`, true);
   if(_atWarAktiv&&!at.laeuft){
     logPush('🏷 Auto-Tagging fertig: '+at.getaggt+' von '+at.gesamt+' Titeln getaggt','fertig');
     if(info)info.textContent='🏷 Auto-Tagging fertig — '+at.getaggt+' getaggt ✓';
@@ -3240,7 +3280,7 @@ document.addEventListener('drop',async e=>{
   e.preventDefault();
   const q=(document.getElementById('cmd-qual')||{}).value||'beste';
   try{await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls:url,qualitaet:q})});}catch(err){}
-  const info=document.getElementById('plinfo'); if(info)info.textContent='⬇ Per Drag&Drop hinzugefügt: '+url.slice(0,48);
+  plInfo('⬇ Per Drag&Drop hinzugefügt: '+url.slice(0,48));
   laden();
 });
 
@@ -3320,7 +3360,7 @@ function aboFolgenToggle(id,ev){
   fly.innerHTML=`<div class="abo-fly-titel">📜 ${esc(a.name||'Backkatalog')}<span class="spacer"></span>
       <button class="ib" title="Schliessen (Esc)" onclick="aboFlyoutZu()">✕</button></div>
     <div class="abo-folgen" id="abo-folgen-${id}"></div>`;
-  document.body.appendChild(fly);
+  document.body.appendChild(fly); nachVorn(fly);
   const anker=ev&&ev.currentTarget?ev.currentTarget.getBoundingClientRect():{left:80,bottom:80,top:60};
   aboFlyoutPositionieren(fly,anker);
   fly.addEventListener('keydown',e=>aboFlyoutTasten(e,id));
@@ -3685,7 +3725,7 @@ function dubBody(){
       `<button class="ib" title="In den Papierkorb" onclick="dubDelete('${x.id}')">🗑</button></div>`).join('')+`</div>`).join('');
 }
 async function ordnerImportieren(){
-  const info=document.getElementById('plinfo'); if(info)info.textContent='📥 Ordner wird durchsucht …';
+  plInfo('📥 Ordner wird durchsucht …', true);        // Fortschritt: bleibt
   try{
     const r=await fetch('/api/importieren',{method:'POST'}); const d=await r.json();
     if(info)info.textContent=d.neu?('📥 '+d.neu+' neue Datei(en) aufgenommen ✓'):'📥 Nichts Neues im Ordner gefunden';
@@ -3967,14 +4007,14 @@ async function bulkTags(){                              // Batch-Tag-Editor: Kan
 async function bulkMetadaten(){                         // Auto-Metadaten für die Auswahl neu von YouTube laden
   const keys=[...libAuswahl]; if(!keys.length)return;
   await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'bulk',op:'enrich',keys})});
-  const info=document.getElementById('plinfo'); if(info)info.textContent='Metadaten für '+keys.length+' Titel werden nachgeladen …';
+  plInfo('Metadaten für '+keys.length+' Titel werden nachgeladen …', true);
   libAuswahl.clear(); libMalen(); setTimeout(libLaden,4000);
 }
 async function bulkPlaylist(){
   const id=document.getElementById('plsel').value;
   if(!id){alert('Bitte oben eine Playlist wählen (Playlist-Leiste).');return;}
   for(const k of libAuswahl)await plApi({art:'add',id,key:k});
-  document.getElementById('plinfo').textContent=libAuswahl.size+' zur Playlist hinzugefügt ✓';
+  plInfo(libAuswahl.size+' zur Playlist hinzugefügt ✓');
 }
 
 /* ---- Abspielmodus (zyklisch), Shuffle, Meistgespielt, Zuletzt ---- */
@@ -4209,7 +4249,7 @@ function radioStart(){
   radioAktiv=true;
   playerState.queue=erste; playerState.idx=0; playerState.quelle='📻 Radio';
   ensurePlayer(); renderPlayerMedia();
-  const info=document.getElementById('plinfo'); if(info)info.textContent='📻 Radio läuft — endloser Mix aus deiner Bibliothek';
+  plInfo('📻 Radio läuft — endloser Mix aus deiner Bibliothek', true);   // Zustand
 }
 function radioNachfuellen(){                          // hält den Stream unendlich am Laufen
   if(radioAktiv && playerState.idx>=playerState.queue.length-2){
@@ -4258,7 +4298,7 @@ async function clipDialog(id){
     '<div class="abo-staffel" style="margin-top:8px"><span style="opacity:.7">Wiedergabe endet an B.</span><span class="spacer"></span>'+
       '<button class="btn mini" onclick="schnittVorhoeren()" title="Den gewählten Bereich von A an abspielen">▶ Bereich</button>'+
       '<button class="btn mini" onclick="schnittSpeichern(this)" title="Bereich als NEUEN Titel speichern — das Original bleibt unangetastet">✂ Ausschnitt speichern</button></div>';
-  document.body.appendChild(fly);
+  document.body.appendChild(fly); nachVorn(fly);
   const m=document.querySelector('.pl-media'), r0=m?m.getBoundingClientRect():null;
   const w=Math.min(560, window.innerWidth-24);
   fly.style.width=w+'px';
@@ -4320,7 +4360,7 @@ async function schnittSpeichern(btn){
   if(!schnitt)return;
   const daten={id:schnitt.id, start:schnitt.a>0.5?zeit(schnitt.a):'', ende:schnitt.b<schnitt.dauer-0.5?zeit(schnitt.b):''};
   if(btn){btn.disabled=true; btn.textContent='⏳ …';}
-  const info=document.getElementById('plinfo'); if(info)info.textContent='✂ Ausschnitt wird erstellt …';
+  plInfo('✂ Ausschnitt wird erstellt …', true);
   try{
     const r=await fetch('/api/clip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(daten)});
     const d=await r.json();
@@ -4671,7 +4711,7 @@ async function entdeckerOeffnen(){
     '<span class="spacer"></span><button class="ib" title="Neu würfeln (andere Zufalls-Titel als Radio-Start)" onclick="entdeckerLaden()">🔄</button>'+
     '<button class="ib" title="Schließen (Esc)" onclick="entdeckerZu()">✕</button></div>'+
     '<div id="ent-inhalt" class="abo-folgen"><div class="leer">📡 Radios zu deinen Titeln werden aufgelöst…</div></div>';
-  document.body.appendChild(fly);
+  document.body.appendChild(fly); nachVorn(fly);
   aboFlyoutPositionieren(fly,null);
   fly.addEventListener('keydown',e=>{if(e.key==='Escape'){entdeckerZu(); e.stopPropagation();}});
   setTimeout(()=>document.addEventListener('pointerdown',entdeckerAussen,true),0);
@@ -4778,8 +4818,8 @@ function plAddListe(m,key){
       await plApi({art:'create',name:n.trim()}); id=(plState[plState.length-1]||{}).id;
     }
     if(id){ await plApi({art:'add',id,key});
-      const p=plState.find(x=>x.id===id), t=libFind(key), info=document.getElementById('plinfo');
-      if(p&&info)info.textContent='„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓'; }
+      const p=plState.find(x=>x.id===id), t=libFind(key);
+      if(p)plInfo('„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓'); }
     m.remove();
   });
 }
@@ -5842,7 +5882,65 @@ function plqFocus(i){                                  // nur den SICHTBAREN Ein
 // Auswahl NUR per Klasse markieren, NICHT neu rendern: sonst würde der Einfachklick das
 // Element ersetzen und der Doppelklick (zwei Klicks auf DASSELBE Element) fiele aus (JB 22.07.).
 function plqMark(){document.querySelectorAll('.pl-queue .pl-item').forEach(el=>el.classList.toggle('sel',+el.dataset.i===plqSel));}
-function plqSelect(i){plqSel=i; plqMark(); plqFocus(i);}
+/* ---- Rahmen-Auswahl in der Playlist (Build 139, JB Punkt 4) --------------
+   JB: „Ich wuerde gerne auch in der Playlist wieder wie in Windows mehrere
+   Titel mit der Maus markieren koennen (Maus macht ein Viereck und
+   markiert)." Dasselbe Muster wie in der Bibliothek und im Abo-Fenster,
+   damit es sich ueberall gleich anfuehlt: ab 5 px wird es ein Band, Strg
+   erweitert, der nachlaufende Klick wird geschluckt.
+   Unterschied zur Bibliothek: die Zeilen sind ZIEHBAR (Umsortieren), also
+   startet das Band nur auf freier Flaeche — sonst koennte man nicht mehr
+   umsortieren. */
+let plqAuswahl=new Set(), plqBandLief=false;
+function plqSelect(i,ev){
+  if(plqBandLief)return;                               // Ende eines Band-Zugs
+  if(ev&&(ev.ctrlKey||ev.metaKey)){                    // Strg: dazu/weg
+    if(plqAuswahl.has(i))plqAuswahl.delete(i); else plqAuswahl.add(i);
+  }else if(ev&&ev.shiftKey&&plqSel!==null){            // Umschalt: Bereich
+    const a=Math.min(plqSel,i), b=Math.max(plqSel,i);
+    for(let j=a;j<=b;j++)plqAuswahl.add(j);
+  }else plqAuswahl.clear();
+  plqSel=i; plqMark(); plqFocus(i);
+}
+function plqBandStart(ev){
+  if(ev.button!==0)return;
+  if(ev.target.closest('button,a,input,select'))return;
+  if(ev.target.closest('.pl-item'))return;             // auf einer Zeile: Ziehen hat Vorrang
+  const flaeche=ev.currentTarget;
+  const basis=new Set(ev.ctrlKey||ev.metaKey?[...plqAuswahl]:[]);
+  const x0=ev.clientX, y0=ev.clientY; let band=null;
+  function mv(e){
+    if(!band){
+      if(Math.abs(e.clientX-x0)<5&&Math.abs(e.clientY-y0)<5)return;
+      band=document.createElement('div'); band.className='abo-band'; document.body.appendChild(band);
+    }
+    const l=Math.min(x0,e.clientX), t=Math.min(y0,e.clientY),
+          r=Math.max(x0,e.clientX), b=Math.max(y0,e.clientY);
+    band.style.left=l+'px'; band.style.top=t+'px';
+    band.style.width=(r-l)+'px'; band.style.height=(b-t)+'px';
+    const fr=flaeche.getBoundingClientRect();
+    if(e.clientY>fr.bottom-18)flaeche.scrollTop+=14;
+    else if(e.clientY<fr.top+18)flaeche.scrollTop-=14;
+    plqAuswahl=new Set(basis);
+    flaeche.querySelectorAll('.pl-item').forEach(n=>{
+      const q=n.getBoundingClientRect();
+      if(q.left<r&&q.right>l&&q.top<b&&q.bottom>t)plqAuswahl.add(+n.dataset.i);
+      n.classList.toggle('sel',plqAuswahl.has(+n.dataset.i));
+    });
+  }
+  function up(){
+    document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
+    if(band){band.remove(); plqBandLief=true; setTimeout(()=>{plqBandLief=false;},0); plqMark();}
+  }
+  document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
+}
+function plqAuswahlLoeschen(){
+  // Mehrere auf einmal entfernen: von HINTEN nach vorn, sonst verschieben
+  // sich die Indizes unter den noch zu loeschenden Eintraegen weg.
+  if(!plqAuswahl.size){plqRemove(plqSel!==null?plqSel:playerState.idx); return;}
+  [...plqAuswahl].sort((a,b)=>b-a).forEach(i=>plqRemove(i));
+  plqAuswahl.clear(); plqMark();
+}
 function plqMoveSel(d){
   if(!playerState.queue.length)return;
   plqSel = plqSel===null ? 0 : Math.max(0, Math.min(playerState.queue.length-1, plqSel+d));
@@ -6084,8 +6182,7 @@ function cmdNowDrop(e){
   const x=libFind(key); if(!x||!x.vorhanden)return;
   if(playerState.idx<0||!playerState.queue.length){playerPlay([key]);}
   else{ if(!playerState.queue.includes(key))playerState.queue.push(key); renderPlayerQueue(); cmdNowRender(); }
-  const info=document.getElementById('plinfo');
-  if(info)info.textContent='🎶 „'+((x.titel||'').slice(0,24))+'" eingereiht ('+playerState.queue.length+' Titel)';
+  plInfo('🎶 „'+((x.titel||'').slice(0,24))+'" eingereiht ('+playerState.queue.length+' Titel)');
 }
 function plMediaDrop(e){
   e.preventDefault(); e.stopPropagation();
@@ -6095,8 +6192,7 @@ function plMediaDrop(e){
   if(playerState.idx<0||!playerState.queue.length){playerPlay([key]);return;}
   if(!playerState.queue.includes(key))playerState.queue.push(key);
   renderPlayerQueue(); cmdNowRender();
-  const info=document.getElementById('plinfo');
-  if(info)info.textContent='🎶 „'+((x.titel||'').slice(0,24))+'" eingereiht ('+playerState.queue.length+' Titel)';
+  plInfo('🎶 „'+((x.titel||'').slice(0,24))+'" eingereiht ('+playerState.queue.length+' Titel)');
 }
 function plqDrop(e,i){
   e.preventDefault(); e.stopPropagation();             // WICHTIG: sonst blubbert das Drop hoch zum
@@ -6127,12 +6223,12 @@ function renderPlayerQueue(){
     const aus=!artPasst(x||{});
     // Abo-Folgen: die CD-Nummer (#12) vor den Titel — so ist die Reihenfolge sofort klar (JB 21.07.)
     const nr=x.abo_nr?`<span class="pl-nr" title="Folge ${x.abo_nr}">#${x.abo_nr}</span> `:'';
-    return `<div class="pl-item ${i===playerState.idx?'akt':''}${i===plqSel?' sel':''}${aus?' artaus':''}" draggable="true" tabindex="0" data-i="${i}" `+
+    return `<div class="pl-item ${i===playerState.idx?'akt':''}${(i===plqSel||plqAuswahl.has(i))?' sel':''}${aus?' artaus':''}" draggable="true" tabindex="0" data-i="${i}" `+
       `ondragstart="plqDragStart(event,${i})" ondragover="plqDragOver(event)" ondrop="plqDrop(event,${i})" `+
-      `onclick="plqSelect(${i})" ondblclick="plQueueKlick(${i})" oncontextmenu="return plItemKontext(event,${i})" title="Klick = auswählen · Doppelklick/Enter = abspielen · Rechtsklick = Menü · Entf = aus Playlist löschen · ↑/↓ = Auswahl · Ziehen = umsortieren">${i+1}. ${nr}${esc(x.titel||k)}</div>`;}).join('')
+      `onclick="plqSelect(${i},event)" ondblclick="plQueueKlick(${i})" oncontextmenu="return plItemKontext(event,${i})" title="Klick = auswählen · Doppelklick/Enter = abspielen · Rechtsklick = Menü · Entf = aus Playlist löschen · ↑/↓ = Auswahl · Ziehen = umsortieren">${i+1}. ${nr}${esc(x.titel||k)}</div>`;}).join('')
     ||'<div class="pl-leer">Leer — Titel aus der Bibliothek hierher ziehen.</div>';
-  const q=document.getElementById('pl-queue'); if(q)q.innerHTML=html;
-  const qw=document.getElementById('pl-queue-win'); if(qw)qw.innerHTML=html;
+  const q=document.getElementById('pl-queue'); if(q){q.innerHTML=html; q.onpointerdown=plqBandStart;}
+  const qw=document.getElementById('pl-queue-win'); if(qw){qw.innerHTML=html; qw.onpointerdown=plqBandStart;}
   const za=document.getElementById('plq-anzahl');
   if(za)za.textContent=playerState.queue.length?(playerState.queue.length+' Titel'):'';
   // Playlist-Fenster trägt den echten Quellen-Namen (Radio / Playlist-Name /
@@ -6316,8 +6412,8 @@ function toastMitZurueck(text,ruf){
 /* Playlist-Optionen fürs Ausklapp-Untermenü (kmFuellen zeigt ab 9 automatisch die Suche) */
 function plOptionen(key){
   const rein=async(id)=>{await plApi({art:'add',id,key});
-    const p=plState.find(x=>x.id===id), t=libFind(key), info=document.getElementById('plinfo');
-    if(p&&info)info.textContent='„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓';};
+    const p=plState.find(x=>x.id===id), t=libFind(key);
+    if(p)plInfo('„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓');};
   const opt=plState.map(p=>[p.name+' ('+p.items.length+')', false, ()=>rein(p.id)]);
   opt.push(['＋ Neue Playlist…', false, async()=>{
     const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim())return;
@@ -6340,8 +6436,8 @@ async function plAdd(key){
     document.getElementById('plsel').value=id; plMalen();
   }
   await plApi({art:'add',id,key});
-  const p=plState.find(x=>x.id===id), info=document.getElementById('plinfo'), t=libFind(key);
-  if(p&&info)info.textContent='„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓';
+  const p=plState.find(x=>x.id===id), t=libFind(key);
+  if(p)plInfo('„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓');
 }
 function plPlaySel(){const id=document.getElementById('plsel').value; const p=plState.find(x=>x.id===id);
   if(!id||!p){
@@ -6370,8 +6466,8 @@ async function plImport(input){
     const r=await fetch('/api/playlist_import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,m3u:text})});
     const d=await r.json(); await plLaden();
     if(d.id){document.getElementById('plsel').value=d.id; plMalen();}
-    document.getElementById('plinfo').textContent='Import ✓ — '+(d.gefunden||0)+' Titel gefunden';
-  }catch(e){document.getElementById('plinfo').textContent='Import fehlgeschlagen';}
+    plInfo('Import ✓ — '+(d.gefunden||0)+' Titel gefunden');
+  }catch(e){plInfo('Import fehlgeschlagen');}
 }
 
 /* ---- Namens-Baukasten (Build 113, JB: „die Art der Beschreibung wählen …
@@ -6404,7 +6500,7 @@ async function namenFenster(){
       '<button class="btn mini" onclick="nameProbelauf()" title="Zeigt alt → neu für die ganze Bibliothek — es wird NICHTS umbenannt">🔍 Probelauf</button>'+
       '<button class="btn mini" id="name-go" disabled onclick="nameAnwenden()" title="Erst nach dem Probelauf: benennt die geprüften Dateien um">✔ Anwenden</button>'+
       '<button class="btn mini" onclick="nameUndo()" title="Nimmt den letzten Umbenenn-Lauf zurück (Protokoll + Vermerk in der Datei)">↩ Rückgängig</button></div>';
-  document.body.appendChild(fly);
+  document.body.appendChild(fly); nachVorn(fly);
   aboFlyoutPositionieren(fly,null);
   fly.style.height='auto';                             // wächst mit dem Inhalt …
   imBlick(fly);                                        // … aber NIE aus dem Bild (Build 114)
@@ -6542,7 +6638,7 @@ async function plSyncConfig(){
     '<div class="abo-staffel" style="margin-top:8px"><span style="opacity:.7">Spiegeln löscht im Ziel nur Dateien, die die App selbst kopiert hat.</span><span class="spacer"></span>'+
       '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',false)" title="Nur kopieren — es wird nie etwas gelöscht">Nur kopieren</button>'+
       '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',true)" title="Exakt spiegeln — Entferntes verschwindet auch im Ziel (nur App-eigene Kopien)">Exakt spiegeln</button></div>';
-  document.body.appendChild(fly);
+  document.body.appendChild(fly); nachVorn(fly);
   aboFlyoutPositionieren(fly,null);
   fly.style.height='auto';                             // wächst mit dem Inhalt …
   imBlick(fly);                                        // … aber NIE aus dem Bild (Build 114)
@@ -6599,7 +6695,7 @@ async function plSyncNow(id){
   if(!id){alert('Bitte zuerst eine Playlist wählen.');return;}
   const p=plState.find(x=>x.id===id);
   if(!p||!p.sync_ordner){alert('Für diese Playlist ist noch kein Sync-Ordner eingerichtet („⇄ Sync…“).');return;}
-  const info=document.getElementById('plinfo'); info.textContent='synchronisiere …';
+  plInfo('synchronisiere …', true);                    // Fortschritt: bleibt
   try{
     const r=await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'sync',id})});
     const d=await r.json();
@@ -6630,7 +6726,28 @@ document.addEventListener('click',e=>{
 /* Tastenkürzel (JB 21.07., YouTube-/Player-Standard). Greifen NUR, wenn nicht in
    einem Eingabefeld getippt wird. ? zeigt die Legende. */
 function tastenLegende(){
-  toast('⎵/K Play·Pause · J/L −/+10s · ←/→ −/+5s · ↑/↓ Lautstärke · N/P Titel · 0–9 Sprung · Home/End Anfang/Ende · M stumm · R Loop · Shift+,/. Tempo · F Vollbild · I Bild-in-Bild · S Untertitel · Playlist: Klick wählt · Doppelklick/Enter spielt · Entf löscht · ↑/↓ Auswahl');
+  /* Build 139 (JB: „Legende sollte etwas mehr Zeilenumbrueche haben"): Der
+     Einzeiler war eine 300 Zeichen lange Wurst - man las ihn nicht, man
+     suchte darin. Jetzt nach Themen gruppiert, jede Gruppe eine Zeile:
+     Abspielen, Springen, Ton, Ansicht, Playlist. */
+  const gruppen=[
+    ['Abspielen', '⎵/K Play·Pause · N/P nächster/voriger Titel · R Wiederholen'],
+    ['Springen',  'J/L −/+10 s · ←/→ −/+'+sprungWeite()+' s · 0–9 zu 0–90 % · Home/End Anfang/Ende'],
+    ['Ton',       '↑/↓ Lautstärke · M stumm · Shift+,/. Tempo'],
+    ['Bild',      'F Vollbild · I Bild-in-Bild · S Untertitel'],
+    ['Playlist',  'Klick wählt · Doppelklick/Enter spielt · Entf löscht · ↑/↓ Auswahl']];
+  toastHTML('<div style="font-size:11px;color:#8a7d74;margin-bottom:5px">Tastenkürzel</div>'+
+    gruppen.map(([k,v])=>'<div style="display:flex;gap:10px;padding:2px 0;line-height:1.5">'+
+      '<b style="flex:none;min-width:74px;color:var(--akz2)">'+k+'</b>'+
+      '<span>'+esc(v)+'</span></div>').join(''), 9000);
+}
+function toastHTML(html,dauer){
+  // Wie toast(), nur mit Zeilen statt einer Wurst. Bewusst dieselbe Stelle
+  // und dieselbe Optik — es gibt nichts Neues zu lernen.
+  let t=document.getElementById('toast');
+  if(!t){t=document.createElement('div'); t.id='toast'; document.body.appendChild(t);}
+  t.innerHTML=html; t.classList.add('an');
+  clearTimeout(t._weg); t._weg=setTimeout(()=>t.classList.remove('an'), dauer||5000);
 }
 function _vol(d){plbVol(Math.max(0,Math.min(100,(plVol||0)+d)));}
 function _rate(d){const el=document.getElementById('pl-el'); if(!el)return;
@@ -6653,7 +6770,7 @@ document.addEventListener('keydown',e=>{
     if(e.key==='ArrowDown'){e.preventDefault(); plqMoveSel(1); return;}
     if(e.key==='ArrowUp'){e.preventDefault(); plqMoveSel(-1); return;}
     if(e.key==='Enter'){e.preventDefault(); if(plqSel!==null)plQueueKlick(plqSel); return;}
-    if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault(); plqRemove(plqSel!==null?plqSel:playerState.idx); return;}
+    if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault(); plqAuswahlLoeschen(); return;}
   }
   const el=document.getElementById('pl-el');
   // Build 132: springt UND zeigt es an (JB). J/L bleiben bei 10 s wie bisher,

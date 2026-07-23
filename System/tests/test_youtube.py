@@ -1720,3 +1720,56 @@ def test_css_kommentare_sind_sauber_geschlossen():
     # Und die Zahl der Oeffner muss zur Zahl der Schliesser passen.
     assert css.count("/*") == css.count("*/"), \
         f"Unpaarige CSS-Kommentare: {css.count('/*')} Oeffner, {css.count('*/')} Schliesser"
+
+
+def test_zuletzt_geoeffnetes_fenster_liegt_oben():
+    # JB: "Wenn ich auf Namensbaukasten gehe, dann ist das geoeffnete Fenster
+    # hinter dem Optionen-Fenster. Sollten nicht neu geoeffnete Fenster ueber
+    # dem restlichen sein?" - Ja. Wurzel: die Ebenen waren STATISCH und
+    # willkuerlich verteilt (.abo-flyout 900, .modal 5000, .panelmenu 6000,
+    # .itemmenu 9000). Der Namens-Baukasten ist ein .abo-flyout und lag damit
+    # zwangslaeufig unter dem Optionen-Menue - unabhaengig davon, was zuerst
+    # geoeffnet wurde.
+    # Regel: beim Oeffnen zaehlt eine gemeinsame Funktion die Ebene hoch.
+    quelle = _oberflaeche_html()
+    assert "function nachVorn" in quelle, "Keine Funktion, die ein Fenster nach vorn holt"
+    i = quelle.index("function nachVorn")
+    block = quelle[i:i + 400]
+    assert "zIndex" in block, "nachVorn setzt keine Ebene"
+    # Und sie muss beim Oeffnen der Fenster auch gerufen werden.
+    # popoverBei deckt alle Menues ab; die Flyout-Fenster holen sich beim
+    # Anhaengen selbst nach vorn (5 Stellen). Beides pruefen.
+    j = quelle.index("function popoverBei")
+    assert "nachVorn" in quelle[j:j + 700], "popoverBei holt das Menue nicht nach vorn"
+    assert quelle.count("appendChild(fly); nachVorn(fly)") >= 4, (
+        "Nicht alle Flyout-Fenster holen sich nach vorn")
+
+
+def test_schwebende_flaechen_werden_nicht_unendlich_gross():
+    # JB: "sie sollten auch eine Standardgroesse haben, nicht unendlich gross
+    # werden wenn ich Vollbild auf einem Ultrawide stelle."
+    # imBlick koppelt die Hoechstmasse an die Position (Anti-Scroll-Regel) -
+    # auf einem 3440-px-Schirm ergibt das ein 3000 px breites Menue. Es
+    # braucht zusaetzlich eine absolute Obergrenze.
+    import re
+    quelle = _oberflaeche_html()
+    i = quelle.index("function imBlick")
+    block = quelle[i:i + 2200]
+    assert "MAX_FLY" in block, "Keine Obergrenze fuer schwebende Flaechen"
+    assert "Math.min(" in block, "Die Obergrenze wird nicht mit dem Platz verrechnet"
+    m = re.search(r"MAX_FLY\s*=\s*\{\s*b\s*:\s*(\d+)\s*,\s*h\s*:\s*(\d+)", quelle)
+    assert m, "MAX_FLY ist nicht als Breite/Hoehe definiert"
+    assert 600 <= int(m.group(1)) <= 1400, "Unplausible Hoechstbreite"
+
+
+def test_plinfo_meldungen_verfallen():
+    # JB: "Man sieht 'Eric Clapton - Tears in' eingereiht (3 Titel) dauerhaft,
+    # bei F5 ist es verschwunden, war da etwas stuck?" - Nein: die Meldung
+    # wurde gesetzt und NIE zurueckgenommen. Ereignis-Meldungen brauchen ein
+    # Verfallsdatum; Fortschritts-Meldungen ("laeuft noch") duerfen bleiben.
+    quelle = _oberflaeche_html()
+    assert "function plInfo" in quelle, "Keine zentrale Stelle fuer die Info-Zeile"
+    i = quelle.index("function plInfo")
+    block = quelle[i:i + 700]
+    assert "setTimeout" in block, "Ereignis-Meldungen verfallen nicht"
+    assert "bleibt" in block, "Fortschritts-Meldungen koennen nicht bestehen bleiben"
