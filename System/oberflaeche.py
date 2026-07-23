@@ -212,7 +212,11 @@ html.light .cmd-now{border-color:#e3d8cc;background:rgba(0,0,0,.02)}
    für zwei winzige Zeichen sah verloren aus und kostete den Player Platz.
    Die Ausweich-Ordnung bleibt unberührt: unter 430 px weicht der Zähler,
    Warnung und Punkt bleiben stehen. */
-.cmd-stat{display:flex;flex-direction:row;align-items:center;justify-content:flex-end;gap:7px;flex:none}
+/* Build 132: .cmd-stat als eigene Spalte ist entfallen — Zähler und Punkt
+   wohnen in der ersten Reihe (JB). Der Zähler bringt hier seinen eigenen
+   Abstand mit; der Tooltip klappt weiterhin unter ihm auf. */
+.cmd-row1 #counter{margin-left:4px}
+.cmd-row1 .apidot{margin-right:2px}
 .cmd-side{display:flex;flex-direction:column;justify-content:center;gap:3px;flex:none}
 /* Transport-Knöpfe: selbst gezeichnete SVGs, Spotify-Größe; aktiver Toggle =
    Akzentfarbe + Punkt darunter, inaktiv = neutral (JB 13.07.) */
@@ -276,7 +280,15 @@ html.light .cmd-nowtitel{color:#4a3f37}
       sie dann 121 px breit nebeneinander (JB-Bild) und fraß genau den
       Platz, der dem Player fehlte. Senkrecht ist ihre schmalste Form —
       die Drehung war ein Eigentor. */
-@media(max-width:430px){ .cmd-stat #counter{display:none} }
+@media(max-width:430px){ #counter{display:none} }
+/* Build 132: Die erste Reihe trägt seit dem Umzug von Punkt und Zähler mehr
+   Inhalt. Gemessen bei 373 px: sie brauchte 361 px in einem 336-px-Kasten
+   und lief heraus. Zuerst weicht der WORTLAUT des Logos (141 px) — das
+   Emblem bleibt und trägt die Wiedererkennung, der Name steht ohnehin im
+   Fenstertitel. `flex-wrap` ist das Netz darunter: sollte es trotzdem einmal
+   eng werden, bricht die Reihe um, statt aus dem Fenster zu laufen. */
+.cmd-row1{flex-wrap:wrap}
+@media(max-width:520px){ .cmd-logo b{display:none} }
 html.light #cmdbar{background:#fff;border-color:#e6ddd3}
 html.light .cmd-url,html.light .cmd-qual{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 html.light .dlrow:hover{background:#f3ede7}
@@ -829,7 +841,12 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
    Das Verhältnis steckt in --pl-ar und ist umschaltbar (Layout-Option);
    16/9 ist der Standard. max-height hält das Bild im verfügbaren Raum,
    margin:auto zentriert es darin. */
-.pl-media video{width:100%;height:auto;aspect-ratio:var(--pl-ar,16/9);max-height:100%;margin:auto;
+/* max-height in cqb statt Prozent: der Rahmen hat height:auto, und ein
+   Prozentwert gegen eine automatische Elternhöhe ist unbestimmt — er wurde
+   ignoriert, das Bild lief in sehr flachen Karten unten heraus (gemessen:
+   618 px Bild in 260 px Karte). cqb misst gegen die KARTE, die eine feste
+   Höhe hat (container-type:size liegt dort). */
+.pl-media video{width:100%;height:auto;aspect-ratio:var(--pl-ar,16/9);max-height:100cqb;margin:auto;
   border-radius:8px;background:#000;object-fit:contain}
 /* „Natürlich" gibt das feste Maß bewusst auf — für den seltenen Fall, dass
    jemand ein Hochkant-Video formatfüllend sehen will. */
@@ -837,6 +854,25 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
 .pl-media audio{width:100%;flex:none;position:relative;z-index:2}
 /* Visualizer: Canvas als animierter Hintergrund hinter dem Cover, Audio-Leiste oben drüber */
 .pl-media{position:relative;container-type:inline-size;container-name:plmedia}
+/* Build 132 (JB-Frage „ist das 16:9?"): Berechtigt — bisher trug nur das
+   VIDEO das feste Maß, der schwarze Rahmen drumherum nicht. War das Panel
+   höher als 16:9, blieb über und unter dem Bild ein breiter toter Streifen
+   in Schwarz stehen (JB-Bild 2).
+   Zwei Dinge waren dafür nötig, beide erst durch Messen gefunden:
+   1. Der Rahmen darf keine feste Höhe bekommen. Mit height:100% UND
+      max-width:100% sind BEIDE Maße vorgegeben — das schlägt aspect-ratio,
+      der Rahmen blieb 700x900. Jetzt wächst er mit dem Bild (height:auto)
+      und umschließt es; damit sitzt auch die Leiste wieder am Bild statt am
+      Panelboden.
+   2. align-self:center. Liegt die Playlist NEBEN dem Bild, ist die Karte
+      eine ZEILE — dann streckt sie den Rahmen über die volle Höhe und
+      height:auto bliebe wirkungslos.
+   body:not(.mini):not(.embed) grenzt Mini-Player und Einbett-Modus aus, die
+   ihre eigenen, bewusst anderen Höhenketten haben (Build 97/121). */
+body:not(.mini):not(.embed) #view-player .card .pl-media{
+  flex:0 1 auto;height:auto;width:100%;max-height:100%;margin:auto;align-self:center}
+body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
+  height:100%;flex:1;align-self:stretch}
 .pl-viz{position:absolute;inset:0;width:100%;height:100%;z-index:0;display:none}
 .pl-media.viz-an .pl-viz{display:block}
 .pl-vizwrap{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden}
@@ -904,6 +940,20 @@ body.embed #view-player .card:not(.pl-horizontal) .pl-side .pl-queue{flex:1;max-
    Nichts davon geht verloren: die Tastenkürzel gelten im Vollbild weiter
    (S Untertitel, Shift+,/. Tempo, ↑/↓ Lautstärke), und beim Verlassen ist
    die volle Leiste sofort wieder da. */
+/* Spul-Einblender (Build 132): erscheint auf der Seite, in die gesprungen
+   wird, und verblasst von selbst. pointer-events:none — er ist Rückmeldung,
+   kein Knopf, und darf einen Klick ins Bild nie abfangen. */
+.pl-sprung{position:absolute;top:50%;transform:translateY(-50%);z-index:7;pointer-events:none;
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  background:rgba(0,0,0,.55);border-radius:999px;padding:14px 18px;color:#fff;
+  font-size:12px;font-weight:600;animation:sprungWeg .7s ease-out forwards}
+.pl-sprung.links{left:9%}
+.pl-sprung.rechts{right:9%}
+.pl-sprung svg{width:26px;height:26px;fill:#fff}
+@keyframes sprungWeg{0%{opacity:0;transform:translateY(-50%) scale(.86)}
+  18%{opacity:1;transform:translateY(-50%) scale(1)}
+  70%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.pl-sprung{animation:none;opacity:.9}}
 .nur-vollbild{display:none}
 .pl-media:fullscreen .nur-vollbild{display:inline-flex;align-items:center;justify-content:center}
 .pl-media:fullscreen .weg-im-vollbild{display:none}
@@ -1042,10 +1092,19 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
                   fill="none" stroke="#141110" stroke-width="14" stroke-linecap="round"/>
           </svg><b>YouTube-Downloader</b></span>
         <span class="spacer"></span>
+        <!-- Build 132 (JB): Status-Punkt und Zähler stehen jetzt hier oben in
+             der ersten Reihe — Punkt links von „Layout", Zähler rechts von
+             „Mini". Sie brauchten unten neben dem Player eine eigene Spalte,
+             die dem Bild Platz wegnahm; hier liegen sie auf der ruhigen
+             Kopfzeile, wo Statuszeichen üblicherweise wohnen. -->
+        <span class="apidot bad" id="apidot" title="API-Status"></span>
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 131</span>
+        <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
+        <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
+              title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 132</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -1067,12 +1126,8 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
       <div class="cmd-row2">
         <div class="cmd-now" id="cmd-now" ondragover="cmdNowOver(event)" ondragleave="cmdNowLeave(event)" ondrop="cmdNowDrop(event)"
              title="Titel aus der Bibliothek hierher ziehen = in die Playlist einreihen"><span class="cmd-nolabel">// nichts läuft</span></div>
-        <div class="cmd-stat">
-          <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
-                title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-          <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
-          <span class="apidot bad" id="apidot" title="API-Status"></span>
-        </div>
+        <!-- Build 132: Die frühere Statistik-Spalte ist entfallen — ihr Inhalt
+             wohnt oben in der ersten Reihe. Der Player bekommt den Platz. -->
         <div class="cmd-side">
           <button class="iconbtn sm" onclick="abosZeigen()" title="Abos: Kanäle/Playlists abonnieren, Backkatalog, Format &amp; Regeln je Abo (Reiter im Download-Fenster)">📡</button>
           <button class="iconbtn sm" id="theme" onclick="themeToggle()" title="Tag-/Nacht-Modus schnell umschalten">🌙</button>
@@ -1636,6 +1691,10 @@ function optionenToggle(ev){
     // Titelwechsel nicht springt. Die anderen Verhältnisse stehen als
     // Layout-Option daneben — „Natürlich" heisst ausdrücklich, dass es
     // wieder springen darf.
+    // Build 132 (JB): Sprungweite der Pfeiltasten. 5 s ist der Standard, weil
+    // YouTube es so macht — belegt in dessen Tastenkürzel-Hilfe.
+    '<div class="optrow"><span>Pfeiltasten springen</span><span><input type="number" id="opt_sprung" min="1" max="60" '+
+      'style="width:56px" onchange="sprungWeiteSetzen(this.value)" title="Sekunden pro Druck auf ←/→ (J/L bleiben bei 10 s)"> s</span></div>'+
     '<div class="optrow"><span>Seitenverhältnis</span><select id="opt_ar" onchange="seitenverhaeltnisSetzen(this.value)">'+
       PL_AR.map(a=>'<option value="'+a[0]+'">'+a[1]+'</option>').join('')+'</select></div>'+
     '<div class="optrow"><span>Canvas-Hintergrund</span><label class="chk"><input type="checkbox" id="opt_canvas" '+
@@ -1660,6 +1719,7 @@ function optionenToggle(ev){
   const sel=m.querySelector('#opt_fehler'); if(sel)sel.value=fmin;
   const ar=m.querySelector('#opt_ar');
   if(ar){try{ar.value=localStorage.getItem('ytdl_ar')||'16/9';}catch(e){ar.value='16/9';}}
+  const sp=m.querySelector('#opt_sprung'); if(sp)sp.value=sprungWeite();
   const sk=m.querySelector('#opt_skin'); if(sk)sk.value=aktuellerSkin();
   const slp=m.querySelector('#opt_sleep'); if(slp)slp.value=sleepTitelende?'titel':'0'; sleepLabel();
   const ub=m.querySelector('#opt_ueb'); if(ub)ub.value=uebergang;
@@ -3778,7 +3838,14 @@ const ICONS={
   shuffle:'M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z',
   repeat:'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z',
   repeat1:'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z',
-  yt:'M21.6 7.2c-.2-.9-.9-1.6-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4c-.9.2-1.6.9-1.8 1.8C2 8.8 2 12 2 12s0 3.2.4 4.8c.2.9.9 1.6 1.8 1.8 1.6.4 7.8.4 7.8.4s6.2 0 7.8-.4c.9-.2 1.6-.9 1.8-1.8.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8zM10 15V9l5.2 3z'};
+  yt:'M21.6 7.2c-.2-.9-.9-1.6-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4c-.9.2-1.6.9-1.8 1.8C2 8.8 2 12 2 12s0 3.2.4 4.8c.2.9.9 1.6 1.8 1.8 1.6.4 7.8.4 7.8.4s6.2 0 7.8-.4c.9-.2 1.6-.9 1.8-1.8.4-1.6.4-4.8.4-4.8s0-3.2-.4-4.8zM10 15V9l5.2 3z',
+  // Build 132 (JB: „die blauen Pfeile sehen schlecht aus, kannst du die vom
+  // Stil identisch hinbekommen wie den play button?"). Das waren Emoji (⏪/⏩)
+  // — die zeichnet jedes System anders und bringt oft eigene Farbe mit, hier
+  // Blau. Jetzt gefüllte SVG-Dreiecke wie play/prev/next, also dieselbe
+  // Form-Sprache und dieselbe Farbe wie der Rest der Leiste.
+  back:'M11 12 19 6.5v11L11 12zm-8 0 8-5.5v11L3 12z',
+  fwd:'M13 12 5 17.5v-11L13 12zm8 0-8 5.5v-11L21 12z'};
 function ico(n){return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+ICONS[n]+'"/></svg>';}
 let playShuffle=false, playRepeat='aus';               // 'aus' | 'alle' | 'eins'
 try{
@@ -5302,10 +5369,10 @@ function plBarHTML(istVideo){
     // stehen oben in der Steuerzentrale, die nie verschwindet.
     // Build 130: ±10 s und „nächster Titel" gibt es NUR im Vollbild — dort
     // fehlt die Steuerzentrale oben, die das sonst übernimmt.
-    `<button class="mp-btn nur-vollbild" id="plb-back10" onclick="plbSpringen(-10)" title="10 Sekunden zurück (Taste J)">⏪</button>`+
+    `<button class="mp-btn nur-vollbild" id="plb-back10" onclick="plbSpringen(-10)" title="10 Sekunden zurück (Taste J)">${ico('back')}</button>`+
     `<button class="mp-btn" data-tr="pp" onclick="plTogglePlay()">${ico('play')}</button>`+
-    `<button class="mp-btn nur-vollbild" id="plb-fwd10" onclick="plbSpringen(10)" title="10 Sekunden vor (Taste L)">⏩</button>`+
-    `<button class="mp-btn nur-vollbild" id="plb-next" onclick="playerNext()" title="Nächster Titel (Taste N)">⏭</button>`+
+    `<button class="mp-btn nur-vollbild" id="plb-fwd10" onclick="plbSpringen(10)" title="10 Sekunden vor (Taste L)">${ico('fwd')}</button>`+
+    `<button class="mp-btn nur-vollbild" id="plb-next" onclick="playerNext()" title="Nächster Titel (Taste N)">${ico('next')}</button>`+
     `<span class="pl-bspacer"></span>`+
     `<button class="pl-bsp bo3" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
     `<button class="pl-bsp bo3 weg-im-vollbild" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
@@ -5321,29 +5388,70 @@ function plBarHTML(istVideo){
    `</div></div>`;
 }
 function plTogglePlay(){const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}}
-function plbSpringen(s){                               // Build 130: ±10 s im Vollbild-Overlay
+/* ---- Springen mit sichtbarer Rückmeldung (Build 132) ----------------------
+   JB: „Wenn ich Pfeiltasten drücke, dann will ich wie in YouTube sehen, dass
+   ich ein paar Sekunden vorgespult habe."
+   Recherche dazu: dass die Pfeiltasten bei YouTube 5 Sekunden springen, ist
+   belegt (support.google.com — Keyboard shortcuts). Für die genaue Optik der
+   Desktop-Rückmeldung fand sich keine belastbare Quelle; gebaut ist deshalb
+   das dokumentierte Muster aus YouTubes Doppeltipp-Bedienung und aus
+   Netflix/Disney: ein kurzer Einblender auf der Seite, in die gesprungen
+   wird, mit Pfeil und Sekundenzahl. Er verblasst nach ~700 ms von selbst und
+   nimmt keine Klicks an — reine Rückmeldung, kein Bedienelement. */
+let _sprungWeg=null, _sprungSumme=0, _sprungTimer=null;
+function sprungZeigen(s){
+  const media=document.getElementById('pl-media'); if(!media)return;
+  // Schnell hintereinander gedrückt? Dann zählt der Einblender mit, statt zu
+  // flackern — genau wie man es von YouTube kennt.
+  if(_sprungWeg && Math.sign(_sprungSumme)===Math.sign(s)) _sprungSumme+=s; else _sprungSumme=s;
+  if(_sprungWeg){_sprungWeg.remove(); _sprungWeg=null;}
+  const d=document.createElement('div');
+  d.className='pl-sprung '+(s<0?'links':'rechts');
+  d.innerHTML=ico(s<0?'back':'fwd')+'<span>'+Math.abs(_sprungSumme)+' s</span>';
+  media.appendChild(d); _sprungWeg=d;
+  clearTimeout(_sprungTimer);
+  _sprungTimer=setTimeout(()=>{if(_sprungWeg){_sprungWeg.remove(); _sprungWeg=null;} _sprungSumme=0;},700);
+}
+function plbSpringen(s,leise){                         // Build 130: ±x s im Vollbild-Overlay
   const el=document.getElementById('pl-el');
-  if(el&&el.duration)el.currentTime=Math.max(0,Math.min(el.duration,el.currentTime+s));
+  if(!el||!el.duration)return;
+  el.currentTime=Math.max(0,Math.min(el.duration,el.currentTime+s));
+  if(!leise)sprungZeigen(s);
+}
+/* Sprungweite der Pfeiltasten (JB-Wunsch: einstellbar). YouTube nimmt 5 s —
+   das bleibt der Standard, damit sich die Tasten vertraut anfühlen. */
+function sprungWeite(){
+  let v=5; try{v=parseInt(localStorage.getItem('ytdl_sprung'),10)||5;}catch(e){}
+  return Math.max(1,Math.min(60,v));
+}
+function sprungWeiteSetzen(v){
+  const n=Math.max(1,Math.min(60,parseInt(v,10)||5));
+  try{localStorage.setItem('ytdl_sprung',n);}catch(e){}
+  toast('⏩ Pfeiltasten springen '+n+' Sekunden.');
 }
 /* Seitenverhältnis des Bildfelds (Build 130). JB will 16:9 FEST, damit das
    Bild beim Titelwechsel nicht springt; die anderen Werte sind die
    Layout-Option daneben. Gemerkt wird lokal — es ist eine Ansichts-Sache,
    keine Programm-Einstellung. */
 const PL_AR=[['16/9','16:9 (Standard)'],['4/3','4:3'],['21/9','21:9 Kino'],['frei','Natürlich (springt)']];
-function seitenverhaeltnisSetzen(v){
-  const m=document.getElementById('pl-media');
-  try{localStorage.setItem('ytdl_ar',v);}catch(e){}
-  if(!m)return;
+function arAnlegen(m,v){
+  // --pl-ar fürs aspect-ratio, --pl-arn als ZAHL fürs Rechnen in calc()
+  // (ein „16/9" liesse sich dort nicht als Faktor verwenden).
   m.classList.toggle('ar-frei',v==='frei');
   m.style.setProperty('--pl-ar', v==='frei'?'auto':v);
-  const name=(PL_AR.find(a=>a[0]===v)||[])[1]||v;
-  toast('🖵 Seitenverhältnis: '+name);
+  const teile=String(v).split('/');
+  const zahl=(teile.length===2&&+teile[1])?(+teile[0]/+teile[1]):1.7778;
+  m.style.setProperty('--pl-arn', zahl.toFixed(4));
+}
+function seitenverhaeltnisSetzen(v){
+  try{localStorage.setItem('ytdl_ar',v);}catch(e){}
+  const m=document.getElementById('pl-media'); if(!m)return;
+  arAnlegen(m,v);
+  toast('🖵 Seitenverhältnis: '+((PL_AR.find(a=>a[0]===v)||[])[1]||v));
 }
 function seitenverhaeltnisAnwenden(){                  // beim Aufbau des Players
   let v='16/9'; try{v=localStorage.getItem('ytdl_ar')||'16/9';}catch(e){}
-  const m=document.getElementById('pl-media'); if(!m)return;
-  m.classList.toggle('ar-frei',v==='frei');
-  m.style.setProperty('--pl-ar', v==='frei'?'auto':v);
+  const m=document.getElementById('pl-media'); if(m)arAnlegen(m,v);
 }
 function plbSeekDrag(v){const el=document.getElementById('pl-el'), t=document.getElementById('plb-t0');
   if(el&&el.duration&&t)t.textContent=zeit(v/1000*el.duration);}
@@ -6233,7 +6341,9 @@ document.addEventListener('keydown',e=>{
     if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault(); plqRemove(plqSel!==null?plqSel:playerState.idx); return;}
   }
   const el=document.getElementById('pl-el');
-  const springen=s=>{if(el&&el.duration){el.currentTime=Math.max(0,Math.min(el.duration,el.currentTime+s));}};
+  // Build 132: springt UND zeigt es an (JB). J/L bleiben bei 10 s wie bisher,
+  // die Pfeiltasten nehmen die einstellbare Weite (Standard 5 s wie YouTube).
+  const springen=s=>plbSpringen(s);
   const playPause=()=>{if(el){if(el.paused)el.play(); else el.pause();}};
   if(e.ctrlKey&&e.key==='ArrowRight'){e.preventDefault();playerNext();return;}
   if(e.ctrlKey&&e.key==='ArrowLeft'){e.preventDefault();playerPrev();return;}
@@ -6244,8 +6354,8 @@ document.addEventListener('keydown',e=>{
     case 'Space': case 'KeyK': if(el){e.preventDefault(); playPause();} break;
     case 'KeyJ': e.preventDefault(); springen(-10); break;
     case 'KeyL': e.preventDefault(); springen(10); break;
-    case 'ArrowRight': e.preventDefault(); springen(5); break;
-    case 'ArrowLeft': e.preventDefault(); springen(-5); break;
+    case 'ArrowRight': e.preventDefault(); springen(sprungWeite()); break;
+    case 'ArrowLeft': e.preventDefault(); springen(-sprungWeite()); break;
     case 'ArrowUp': e.preventDefault(); _vol(5); break;
     case 'ArrowDown': e.preventDefault(); _vol(-5); break;
     case 'KeyN': e.preventDefault(); playerNext(); break;
