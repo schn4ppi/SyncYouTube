@@ -3,6 +3,15 @@
 > Diese Liste wird je Version auch als AMO-Versionsnotiz hinterlegt
 > (`amo_sign.py` liest den obersten passenden Eintrag beim Einreichen).
 
+## 1.0.9
+- Der Knopf springt nicht mehr in die linke obere Bildschirmecke, wenn ein
+  Video zu Ende ist. Ursache: Sobald YouTube am Ende den Abspann einblendet
+  oder den Player umbaut, hat das Video-Element kurzzeitig keine Maße mehr —
+  die Positionsabfrage liefert dann lauter Nullen, und der Knopf wurde an den
+  Bildschirmrand geklemmt statt versteckt. Jetzt gilt: ohne brauchbaren Anker
+  erscheint der Knopf gar nicht. Außerdem wird er am VIDEO geklemmt statt am
+  Bildschirm — er kann dadurch nie mehr neben dem Bild landen.
+
 ## 1.0.8
 - Eigenes Symbol: die Erweiterung trägt jetzt dasselbe Emblem wie der
   YouTube-Downloader selbst (Familien-Logo). Die S-Rille ist echt

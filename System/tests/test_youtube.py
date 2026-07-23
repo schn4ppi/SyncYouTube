@@ -1494,3 +1494,29 @@ def test_player_bild_springt_nicht():
     # Andere Verhaeltnisse als Option (JB: "zusaetzlich als Layout-Option").
     assert re.search(r"seitenverhaeltnis|--pl-ar", css + quelle), \
         "Es gibt keine Umschaltung auf ein anderes Seitenverhaeltnis"
+
+
+def test_addon_knopf_braucht_gueltigen_anker():
+    # JB-Fund 23.07.: "das firefox plugin ist bei einem beendeten video ganz
+    # oben links. nicht mehr im video, sondern ausserhalb."
+    # Wurzel: getBoundingClientRect() liefert bei einem Element OHNE Masse
+    # (beendetes Video, ausgeblendeter Player, gerade ausgetauschter DOM)
+    # lauter Nullen. zeigen() rechnete blind weiter, und Math.max(4, 0+6)
+    # klemmte den Knopf in die linke obere Bildschirmecke - sichtbar, aber
+    # ohne jeden Bezug zum Video.
+    # Regel: ohne brauchbaren Anker wird der Knopf VERSTECKT, nicht geparkt.
+    import io
+    import os
+    quelle = io.open(os.path.join(os.path.dirname(__file__), "..",
+                                  "browser-addon", "shared", "content.js"),
+                     encoding="utf-8").read()
+    assert "ankerBrauchbar" in quelle, "Keine Pruefung des Ankers vorhanden"
+    # zeigen() muss die Pruefung wirklich anwenden und bei Unbrauchbarkeit raus.
+    i = quelle.index("function zeigen(")
+    block = quelle[i:i + 900]
+    assert "ankerBrauchbar" in block, "zeigen() prueft den Anker nicht"
+    assert "verstecken()" in block, "zeigen() versteckt den Knopf nicht bei unbrauchbarem Anker"
+    # Und die Position darf nicht mehr an den Bildschirmrand geklemmt werden,
+    # sondern an den Anker (JB-Dauerregel: Masse an die POSITION koppeln).
+    assert "Math.max(4," not in block, (
+        "Der Knopf wird weiter an den Bildschirmrand geklemmt statt an das Video")

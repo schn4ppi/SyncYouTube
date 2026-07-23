@@ -83,12 +83,32 @@
     return a;
   }
 
+  // v1.0.9 (JB-Fund: „bei einem beendeten Video ganz oben links, nicht mehr
+  // im Video"). getBoundingClientRect() liefert für ein Element OHNE Maße
+  // lauter Nullen — das passiert, sobald YouTube am Ende eines Videos den
+  // Abspann einblendet, den Player umbaut oder das <video> kurz ausblendet.
+  // Vorher rechnete zeigen() blind weiter und Math.max(4, 0+6) parkte den
+  // Knopf in der linken oberen Bildschirmecke: sichtbar, aber ohne Bezug.
+  // Ein Knopf ohne brauchbaren Anker gehört WEG, nicht an den Rand geklemmt.
+  function ankerBrauchbar(r) {
+    if (!r || r.width < 40 || r.height < 40) return false;      // ohne Maße/zu klein
+    if (r.bottom <= 0 || r.right <= 0) return false;            // links/oben aus dem Bild
+    if (r.top >= innerHeight || r.left >= innerWidth) return false;  // unten/rechts draußen
+    return true;
+  }
+
   function zeigen(rect, url) {
+    if (!ankerBrauchbar(rect)) { verstecken(); return; }
     curUrl = url;
     // Oben LINKS statt oben rechts (JB 22.07.): oben rechts liegen YouTubes
     // eigene Hover-Knöpfe (Später ansehen / ⋮) — die dürfen wir nie verdecken.
-    btn.style.left = Math.max(4, rect.left + 6) + "px";
-    btn.style.top = Math.max(4, rect.top + 8) + "px";
+    // Geklemmt wird an den ANKER, nicht an den Bildschirm (JB-Dauerregel:
+    // Höchstmaße an die Position koppeln) — so bleibt der Knopf immer IM Bild.
+    const b = 30;                                    // Knopfgröße samt Rand
+    const l = Math.min(rect.left + 6, rect.right - b);
+    const t = Math.min(rect.top + 8, rect.bottom - b);
+    btn.style.left = l + "px";
+    btn.style.top = t + "px";
     btn.classList.add("an");
     // v1.0.6 (JB): grün, wenn das Video schon in der Bibliothek liegt
     // (Antwort kommt aus dem Hintergrund-Cache — kein Dauerfeuer).
@@ -134,9 +154,12 @@
       // Am echten BILD ausrichten (JB v1.0.5): der Player-Container umfasst
       // auch Letterbox/Chrome — der Knopf sass dadurch "etwas ausserhalb"
       // des sichtbaren Videos. Das <video>-Element hat die echten Bild-Masse.
+      // v1.0.9: erst das echte Bild, sonst der Player — und NUR, wenn der
+      // gewählte Anker auch Maße hat. Vorher genügte „Breite > 0"; ein
+      // beendetes Video kann aber breit und trotzdem ohne Höhe/Position sein.
       const video = player.querySelector("video");
-      const rect = (video && video.getBoundingClientRect().width > 0)
-        ? video.getBoundingClientRect() : player.getBoundingClientRect();
+      const vr = video && video.getBoundingClientRect();
+      const rect = ankerBrauchbar(vr) ? vr : player.getBoundingClientRect();
       zeigen(rect, location.href.split("&")[0]);
       resetIdle();
       return;
