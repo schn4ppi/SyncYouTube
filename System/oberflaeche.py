@@ -67,13 +67,21 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .iconbtn{width:34px;height:34px;border-radius:9px;border:1px solid #3a332e;background:#171310;color:#eee;
   font-size:16px;cursor:pointer;line-height:1}
 .iconbtn:hover{border-color:var(--akz)}
-.counter{position:relative;border:1px solid #3a332e;background:#171310;border-radius:999px;
-  padding:6px 13px;font-size:13px;color:#d7c7bd;cursor:default;user-select:none;white-space:nowrap}
-.counter b{color:var(--akz2);font-weight:700}
-.counter .tip{display:none;position:absolute;right:0;top:calc(100% + 8px);z-index:200;min-width:190px;
+/* Build 129 (JB-Fund „Formatierung wieder gekippt"): Diese Regeln hingen am
+   Selektor `.counter` — eine KLASSE, die es nirgends gibt. Der Zähler heisst
+   im HTML `class="cmd-count" id="counter"`; beim Umbau der Steuerzentrale
+   wurde die Klasse umbenannt, die Regeln blieben auf dem alten Namen stehen.
+   Da `.counter` nichts traf, griff weder `display:none` noch
+   `position:absolute`: die Aufschlüsselung war ein normales Inline-Element
+   im Fluss und blähte die Statistik-Spalte dauerhaft auf 98 px auf, statt
+   beim Überfahren darüber zu schweben (live gemessen: display:inline,
+   position:static). Jetzt am echten Element. Die frühere Pillen-Optik ist
+   NICHT wiedergekommen — sie war seit dem Umbau ohnehin aus, und das
+   Aussehen soll sich durch eine Fehlerbehebung nicht ändern. */
+.cmd-count .tip{display:none;position:absolute;right:0;top:calc(100% + 8px);z-index:200;min-width:190px;
   background:#211b16;border:1px solid #3a332e;border-radius:10px;padding:9px 11px;
   box-shadow:0 8px 24px rgba(0,0,0,.5);text-align:left;cursor:default}
-.counter:hover .tip,.counter:focus .tip,.counter:focus-within .tip{display:block}
+.cmd-count:hover .tip,.cmd-count:focus .tip,.cmd-count:focus-within .tip{display:block}
 .tiptitel{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#8a7d74;margin-bottom:6px}
 .tiprow{display:flex;justify-content:space-between;gap:16px;font-size:13px;padding:2px 0;color:#d7c7bd}
 .tiprow b{color:#eee;font-weight:600}
@@ -925,13 +933,12 @@ html.light .ptab.an{background:#f3e7d6;border-color:#d8b98a;color:#8a5a1e}
 html.light .panel-grip{border-color:#b8ab9f;color:#b8ab9f}
 html.light .panel-body .card{background:transparent}
 html.light textarea,html.light select,html.light input[type=text],
-html.light .btn,html.light .iconbtn,html.light .counter,html.light .chip,
+html.light .btn,html.light .iconbtn,html.light .chip,
 html.light .viewbtn,html.light .tog{
   background:#fbf8f4;border-color:#d9cfc4;color:#2a2320}
 html.light .btn.haupt{background:#f3e7d6;border-color:#d8b98a;color:#8a5a1e}
 html.light .viewbtn.an,html.light .tog.an{background:#f3e7d6;border-color:#d8b98a;color:#8a5a1e}
-html.light .counter b{color:#9a6a12}
-html.light .counter .tip{background:#fff;border-color:#e6ddd3;box-shadow:0 8px 24px rgba(120,90,60,.18)}
+html.light .cmd-count .tip{background:#fff;border-color:#e6ddd3;box-shadow:0 8px 24px rgba(120,90,60,.18)}
 html.light .tiprow{color:#5a4f47}html.light .tiprow b{color:#2a2320}
 html.light .tiptitel,html.light .chk{color:#8a7d74}html.light .tipsep{background:#e6ddd3}
 html.light .chip{color:#5a4f47}
@@ -1003,7 +1010,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 128</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 129</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.

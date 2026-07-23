@@ -1412,3 +1412,40 @@ def test_schwebende_flaechen_werden_alle_geschlossen():
             f"{funktion}: Flaeche haengt nicht am <body>")
         assert "menuSchliesser(m)" in block, (
             f"{funktion}: kein Aussenklick-Schliesser - {flaeche} bliebe stehen")
+
+
+def test_tooltips_sind_standardmaessig_verborgen():
+    # JB-Fund 23.07. ("Formatierung wieder gekippt"): Die Aufschluesselung im
+    # Zaehler stand dauerhaft in der Statistik-Spalte und blaehte sie auf.
+    # Wurzel: die Regeln hingen an der KLASSE `.counter`, das Element traegt
+    # aber `class="cmd-count"` (nur die id heisst counter). Ein toter
+    # Selektor versteckt nichts - und faellt niemandem auf, weil CSS still
+    # scheitert.
+    # Dieser Waechter prueft die EIGENSCHAFT statt des Namens: fuer jedes
+    # .tip im HTML muss es eine Regel geben, die es verbirgt und die ueber
+    # eine Klasse laeuft, die das Eltern-Element wirklich traegt.
+    import re
+    quelle = _oberflaeche_html()
+    css = re.search(r"<style>(.*?)</style>", quelle, re.S).group(1)
+
+    # Welche Selektoren verbergen ein .tip?
+    verstecker = set()
+    for regel in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+        sel, koerper = regel.group(1), regel.group(2)
+        if re.search(r"\.tip\b", sel) and re.search(r"display\s*:\s*none", koerper):
+            for teil in sel.split(","):
+                m = re.search(r"\.([A-Za-z][\w-]*)\s+\.tip\b", teil)
+                if m:
+                    verstecker.add(m.group(1))
+    assert verstecker, "Keine Regel verbirgt .tip — die Aufschluesselung stuende immer offen"
+
+    # Jedes .tip im HTML muss einen Vorfahren mit einer dieser Klassen haben.
+    for treffer in re.finditer(r'<span[^>]*class="[^"]*\btip\b[^"]*"', quelle):
+        davor = quelle[max(0, treffer.start() - 400):treffer.start()]
+        eltern_klassen = set()
+        for m in re.finditer(r'class="([^"]*)"', davor):
+            eltern_klassen.update(m.group(1).split())
+        assert eltern_klassen & verstecker, (
+            "Ein .tip haengt unter keinem Element, das von der Versteck-Regel "
+            f"getroffen wird. Versteckt wird unter: {sorted(verstecker)}; "
+            f"vorhanden sind: {sorted(eltern_klassen)}")
