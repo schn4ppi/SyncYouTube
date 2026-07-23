@@ -88,6 +88,12 @@ STANDARD_CONFIG = {
     "fernsteuerung_code": "",       # Zugangscode fürs Handy (wird beim ersten Aktivieren erzeugt)
     "untertitel": False,            # Untertitel beim Download mitziehen (Standard aus; der Player holt sie fuers Karaoke bei Bedarf)
     "auto_update": False,           # Selbst-Update der exe (Opt-in; prüft täglich das GitHub-Release)
+    # Build 126 („ein Feld für alles"): gemerkte Antwort auf die zwei echten
+    # Mehrdeutigkeiten. "" = jedes Mal fragen; sonst die Options-Id aus
+    # link_deuten(). Umstellbar im ⚙-Menü — eine einmal gemerkte Antwort darf
+    # nie zur Sackgasse werden.
+    "link_antwort_kanal": "",       # "" | "abo" | "laden"
+    "link_antwort_playlist": "",    # "" | "eines" | "alle"
 }
 
 
@@ -387,6 +393,63 @@ def ist_einzelvideo(url):
         return bool(qs.get("v")) or "/playlist" not in p.path
     except ValueError:
         return True
+
+
+def link_deuten(url):
+    """Was will JB mit diesem Link? (Build 126 — „ein Feld für alles")
+
+    Bisher gab es drei zu ähnliche Knöpfe: ⬇ Download, 📺 ganzer Kanal,
+    📡 Abonnieren. JBs Ziel: EIN Feld, Enter genügt, die App erkennt den Typ
+    selbst — und fragt NUR, wo die Absicht wirklich offen ist.
+
+    Wirklich offen ist genau zweierlei, alles andere ist ableitbar:
+      * ein blosser Kanal-Link — laden oder abonnieren?
+      * watch?v=…&list=… — dieses eine Video oder die ganze Liste?
+    Mixe (list=RD…) haben ihre eigene Anzahl-Frage (Build 98), die bleibt.
+
+    Rein aus der URL, ohne Netz: schnell, testbar, funktioniert offline.
+    Rückgabe: {typ, eindeutig, frage, optionen[{id,text,standard}]}
+    """
+    roh = (url or "").strip()
+    if not roh.lower().startswith(("http://", "https://")):
+        return {"typ": "unbekannt", "eindeutig": False, "frage": "", "optionen": []}
+    try:
+        p = urlparse(roh)
+        qs = parse_qs(p.query)
+    except ValueError:
+        return {"typ": "unbekannt", "eindeutig": False, "frage": "", "optionen": []}
+
+    eindeutig = {"eindeutig": True, "frage": "", "optionen": []}
+    host = (p.netloc or "").lower()
+    if not any(h in host for h in ("youtube.com", "youtu.be")):
+        return dict(typ="video", **eindeutig)         # fremde Seite: normaler Download
+
+    if _ist_mix(roh):                                 # endlos, eigene Anzahl-Frage
+        return dict(typ="mix", **eindeutig)
+
+    pfad = (p.path or "").rstrip("/")
+    low = pfad.lower()
+    if qs.get("v"):
+        if qs.get("list"):                            # MEHRDEUTIG: eines oder alle?
+            return {"typ": "video_in_playlist", "eindeutig": False,
+                    "frage": "Dieser Link zeigt ein Video AUS einer Playlist.",
+                    "optionen": [{"id": "eines", "text": "Nur dieses Video", "standard": True},
+                                 {"id": "alle", "text": "Die ganze Playlist", "standard": False}]}
+        return dict(typ="video", **eindeutig)
+    if "/playlist" in low:
+        return dict(typ="playlist", **eindeutig)
+    if "youtu.be" in host or low.startswith("/shorts/") or "/watch" in low:
+        return dict(typ="video", **eindeutig)
+    if any(low.endswith(s) for s in ("/videos", "/streams", "/shorts",
+                                     "/playlists", "/featured", "/live")):
+        return dict(typ="kanal", **eindeutig)         # Unterseite = klar: laden
+    if re.match(r"^/(@[^/]+|channel/[^/]+|c/[^/]+|user/[^/]+)$", pfad):
+        return {"typ": "kanal", "eindeutig": False,   # MEHRDEUTIG: laden oder abo?
+                "frage": "Das ist ein Kanal.",
+                "optionen": [{"id": "abo", "text": "Abonnieren (neue Folgen kommen von allein)",
+                              "standard": True},
+                             {"id": "laden", "text": "Alle Videos jetzt laden", "standard": False}]}
+    return dict(typ="video", **eindeutig)
 
 
 def _kanal_url(url):
@@ -3764,6 +3827,14 @@ class Handler(BaseHTTPRequestHandler):
                 return _antwort(self, 200, self._geo_test_start(daten))
             elif self.path == "/api/playlist_import":
                 return _antwort(self, 200, playlist_import_m3u(daten.get("name"), daten.get("m3u")))
+            elif self.path == "/api/link_deuten":      # Build 126: „ein Feld für alles"
+                d = link_deuten(daten.get("url") or "")
+                # Die gemerkte Antwort reist mit, damit die Oberfläche nur EINEN
+                # Weg kennt: fragen, wenn nichts gemerkt ist — sonst handeln.
+                merk = {"kanal": CFG.get("link_antwort_kanal") or "",
+                        "video_in_playlist": CFG.get("link_antwort_playlist") or ""}
+                d["gemerkt"] = merk.get(d["typ"], "")
+                return _antwort(self, 200, d)
             elif self.path == "/api/abo":
                 return _antwort(self, 200, abo_aktion(daten))
             elif self.path == "/api/clip":
@@ -3896,6 +3967,10 @@ class Handler(BaseHTTPRequestHandler):
                 CFG["cookies_browser"] = daten["cookies_browser"]
             if daten.get("standard_qualitaet") in QUALITAETEN:
                 CFG["standard_qualitaet"] = daten["standard_qualitaet"]
+            for schluessel, erlaubte in (("link_antwort_kanal", ("", "abo", "laden")),
+                                         ("link_antwort_playlist", ("", "eines", "alle"))):
+                if daten.get(schluessel) in erlaubte:
+                    CFG[schluessel] = daten[schluessel]
             if isinstance(daten.get("geo_vpn"), bool):
                 CFG["geo_vpn"] = daten["geo_vpn"]
             if isinstance(daten.get("geo_gratis_proxy"), bool):

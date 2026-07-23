@@ -1003,18 +1003,24 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 125</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 126</span>
       </div>
       <div class="cmd-rowadd">
-        <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
+        <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
+             Video, Playlist, Kanal, Mix — Enter genügt, den Rest erkennt die
+             App am Link. Der frühere 📺-Knopf ist damit überflüssig: ein
+             Playlist-/Kanal-Link löst denselben Weg von selbst aus, und wer
+             bei einem Video-in-Playlist-Link doch alles will, bekommt genau
+             dafür die Rückfrage. Nichts ist unerreichbar geworden. -->
+        <input id="cmd-url" class="cmd-url" placeholder="🔗 Video, Playlist oder Kanal einfügen — Enter genügt"
+               title="Erkennt selbst, was der Link ist. Nur bei echter Mehrdeutigkeit wird gefragt (Kanal: laden oder abonnieren? Video aus einer Playlist: eines oder alle?) — die Antwort lässt sich merken und unter ⚙ wieder umstellen."
                onkeydown="if(event.key==='Enter')cmdDownload()">
         <select id="cmd-qual" class="cmd-qual" title="Qualität (Auswahl wird gemerkt)" onchange="qualMerken(this.value)">
           <option value="beste">Beste</option><option value="2160p">2160p</option>
           <option value="1440p">1440p</option><option value="1080p">1080p</option>
           <option value="720p">720p</option><option value="audio">MP3</option>
         </select>
-        <button class="cmd-dl" onclick="cmdDownload()" title="In die Warteschlange laden">⬇ Download</button>
-        <button class="iconbtn sm" onclick="ganzerKanal(this)" title="Ganzen Kanal / ganze Playlist laden — löst den Link auf und stellt ALLE Videos in die Warteschlange (fragt vorher mit Anzahl)">📺</button>
+        <button class="cmd-dl" onclick="cmdDownload()" title="Laden — erkennt selbst, ob Video, Playlist, Kanal oder Mix">⬇ Laden</button>
       </div>
       <div class="cmd-row2">
         <div class="cmd-now" id="cmd-now" ondragover="cmdNowOver(event)" ondragleave="cmdNowLeave(event)" ondrop="cmdNowDrop(event)"
@@ -1590,11 +1596,23 @@ function optionenToggle(ev){
     // Breiten-Regel hängt, steht er hier IMMER — bei jeder Fenstergröße.
     '<div class="optrow"><span>Geladen</span><span style="color:var(--akz2);font-weight:700">'+
       (document.getElementById('counter_num')||{textContent:'0'}).textContent+'</span></div>'+
+    // Build 126: Eine gemerkte Link-Antwort darf nie zur Sackgasse werden —
+    // hier steht sie immer und lässt sich auf „jedes Mal fragen" zurückdrehen.
+    '<div class="optrow"><span>Link-Rückfragen</span><span style="display:flex;gap:4px">'+
+      '<select id="opt_lk" onchange="linkAntwortSetzen(\\'link_antwort_kanal\\',this.value)" title="Kanal-Link: was soll Enter tun?">'+
+        '<option value="">Kanal: fragen</option><option value="abo">Kanal: abonnieren</option>'+
+        '<option value="laden">Kanal: alles laden</option></select>'+
+      '<select id="opt_lp" onchange="linkAntwortSetzen(\\'link_antwort_playlist\\',this.value)" title="Video aus einer Playlist: was soll Enter tun?">'+
+        '<option value="">Playlist: fragen</option><option value="eines">Playlist: nur das Video</option>'+
+        '<option value="alle">Playlist: ganze Liste</option></select></span></div>'+
     '<div class="optrow"><span>Alle Einstellungen</span><button class="btn mini" onclick="einstellungenOeffnen()">⚙ Öffnen</button></div>'+
     '<div class="optrow"><span>📱 Fernsteuerung</span><button class="btn mini" id="fernbtn" onclick="fernToggle()">…</button></div>'+
     '<div id="ferninfo" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
   document.body.appendChild(m);
   const sel=m.querySelector('#opt_fehler'); if(sel)sel.value=fmin;
+  const cfg=(daten&&daten.config)||{};
+  const lk=m.querySelector('#opt_lk'); if(lk)lk.value=cfg.link_antwort_kanal||'';
+  const lp=m.querySelector('#opt_lp'); if(lp)lp.value=cfg.link_antwort_playlist||'';
   const sk=m.querySelector('#opt_skin'); if(sk)sk.value=aktuellerSkin();
   const slp=m.querySelector('#opt_sleep'); if(slp)slp.value=sleepTitelende?'titel':'0'; sleepLabel();
   const ub=m.querySelector('#opt_ueb'); if(ub)ub.value=uebergang;
@@ -1602,6 +1620,12 @@ function optionenToggle(ev){
   popoverBei(m, ev.currentTarget.getBoundingClientRect());
   setTimeout(()=>document.addEventListener('pointerdown',function zu(e2){
     if(!m.contains(e2.target)&&e2.target.id!=='optbtn'){m.remove(); document.removeEventListener('pointerdown',zu);}},true),0);
+}
+async function linkAntwortSetzen(schluessel,wert){
+  const d={}; d[schluessel]=wert;
+  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(d)});}catch(e){}
+  toast(wert?'Gemerkt.':'Wird wieder gefragt.');
 }
 function setGap(v){try{localStorage.setItem('ytdl_gap',v);}catch(e){} const g=document.getElementById('gapval'); if(g)g.textContent=v+' px';}
 async function setFehlerMin(v){
@@ -2721,18 +2745,73 @@ function qualMerken(v){                               // Qualitätswahl fuer nae
   const a=document.getElementById('cmd-qual'), b=document.getElementById('qual');
   if(a)a.value=v; if(b)b.value=v;
 }
+/* ---- Ein Feld für alles (Build 126) ---------------------------------------
+   JB: „Download / Playlist laden / Abonnieren sind drei zu ähnliche Knöpfe."
+   Jetzt genügt Enter im Feld — den Typ erkennt die App am Link (link_deuten
+   im Backend, EINE Wahrheit, ohne Netz). Gefragt wird nur, wo die Absicht
+   wirklich offen ist: Kanal = laden oder abonnieren, watch?v=…&list= = eines
+   oder alle. Die Antwort lässt sich merken und im ⚙-Menü wieder umstellen. */
 async function cmdDownload(){
-  const inp=document.getElementById('cmd-url'); const urls=(inp.value||'').trim(); if(!urls)return;
-  // Mix/Playlist-Link erkannt? Fragen, ob die ganze Liste geladen werden soll.
-  let ganze=false;
-  const l=urls.toLowerCase();
-  if(l.includes('list=') && (l.includes('watch?v=')||l.includes('youtu.be/')))
-    ganze=confirm('Dieser Link gehört zu einer Playlist bzw. einem Mix.\\n\\nOK = die ganze Liste / den Mix laden (Mixe bis 50 Titel)\\nAbbrechen = nur dieses eine Video');
-  else if(l.includes('/playlist?list='))
-    ganze=true;                                        // reiner Playlist-Link = immer ganze Liste
+  const inp=document.getElementById('cmd-url'); const url=(inp.value||'').trim(); if(!url)return;
+  let d=null;
+  try{const r=await fetch('/api/link_deuten',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url})}); d=await r.json();}catch(e){}
+  if(!d||d.typ==='unbekannt'){toast('Das sieht nicht nach einer Adresse aus — bitte einen Link einfügen.');return;}
+  if(d.eindeutig)      linkAusfuehren(url,d.typ,null);
+  else if(d.gemerkt)   linkAusfuehren(url,d.typ,d.gemerkt);
+  else                 linkFrage(d,url);
+}
+async function linkAusfuehren(url,typ,wahl){
+  const q=document.getElementById('cmd-qual').value;
+  if(typ==='kanal'&&wahl==='abo'){                     // abonnieren statt laden
+    toast('📡 Kanal wird abonniert …');
+    let r=null; try{r=await (await fetch('/api/abo',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({art:'create',url,qualitaet:q})})).json();}catch(e){}
+    if(!r||r.fehler){toast((r&&r.fehler)||'Abo ließ sich nicht anlegen.');return;}
+    cmdFeldLeeren(); toast('📡 Abonniert: „'+(r.name||'Kanal')+'" — neue Folgen kommen von allein.');
+    try{abosZeigen();}catch(e){}
+    return;
+  }
+  // Alles, was eine ganze Sammlung ist, geht über den bewährten Weg mit
+  // Anzahl + Größenschätzung + Rückfrage (ganzerKanal) — der zeigt vorher,
+  // was auf JB zukommt, statt wortlos 500 Downloads zu starten.
+  if(typ==='playlist'||typ==='mix'||typ==='kanal'||(typ==='video_in_playlist'&&wahl==='alle')){
+    ganzerKanal(null,url); return;
+  }
   await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls,qualitaet:document.getElementById('cmd-qual').value,ganze_liste:ganze})});
-  inp.value=''; cmdClipVerstecken(); laden();
+    body:JSON.stringify({urls:url,qualitaet:q,ganze_liste:false})});
+  cmdFeldLeeren(); laden();
+}
+function cmdFeldLeeren(){
+  const inp=document.getElementById('cmd-url'); if(inp)inp.value='';
+  try{cmdClipVerstecken();}catch(e){}
+}
+function linkFrage(d,url){
+  // Schwebende Fläche: gehört an den <body> (Build-125-Regel — sonst sperrt
+  // ein Eltern-Element mit Containment sie in seinen Stapel-Kontext ein).
+  document.querySelectorAll('#linkfrage').forEach(x=>x.remove());
+  const m=document.createElement('div'); m.className='panelmenu'; m.id='linkfrage';
+  m.style.minWidth='300px';
+  m.innerHTML='<div style="font-size:11.5px;color:#8a7d74;padding:2px 6px 7px">'+esc(d.frage)+'</div>'+
+    d.optionen.map(o=>'<button class="mbtn" data-id="'+o.id+'">'+esc(o.text)+'</button>').join('')+
+    '<div class="msep"></div>'+
+    '<label class="chk" style="padding:4px 6px;font-size:11.5px">'+
+      '<input type="checkbox" id="linkfrage-merken"> Immer so — nicht mehr fragen</label>';
+  document.body.appendChild(m);
+  const feld=document.getElementById('cmd-url');
+  popoverBei(m, feld.getBoundingClientRect());
+  m.querySelectorAll('.mbtn').forEach(b=>b.onclick=async()=>{
+    const wahl=b.dataset.id;
+    if(document.getElementById('linkfrage-merken').checked){
+      const schluessel=(d.typ==='kanal')?'link_antwort_kanal':'link_antwort_playlist';
+      const daten={}; daten[schluessel]=wahl;
+      try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(daten)});}catch(e){}
+      toast('Gemerkt — umstellbar unter ⚙ → Link-Rückfragen.');
+    }
+    m.remove(); linkAusfuehren(url,d.typ,wahl);
+  });
+  menuSchliesser(m);
 }
 /* „Ganzen Kanal laden" (JB 22.07.): Kanal-Link auflösen (Backend normalisiert
    /@name -> /videos, sonst kämen nur die Reiter), Anzahl zeigen, nach Rückfrage
@@ -2750,8 +2829,11 @@ function groesseSchaetzen(dauerSek,qual){
   const txt=mb>=1024?((mb/1024).toFixed(1)+' GB'):(Math.round(mb)+' MB');
   return '\\n≈ '+txt+' (Erfahrungswert deiner Bibliothek)';
 }
-async function ganzerKanal(btn){
-  const inp=document.getElementById('cmd-url'); const url=(inp.value||'').trim();
+async function ganzerKanal(btn,urlAus){
+  // Build 126: nimmt die Adresse jetzt auch als Parameter entgegen — das
+  // eine Feld ruft den Weg direkt auf, statt dass er selbst im Feld nachsieht.
+  const inp=document.getElementById('cmd-url');
+  const url=(urlAus||inp.value||'').trim();
   if(!url){toast('Erst einen Kanal- oder Playlist-Link oben einfügen.');return;}
   // Mix/Radio (Build 98, JB): ERST die Wunsch-Anzahl fragen, DANN nur so viele
   // aufloesen — Mixe sind endlos + nicht-deterministisch (JB mass 1877 vs 563),
@@ -2779,7 +2861,7 @@ async function ganzerKanal(btn){
   if(!confirm(frage))return;
   await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true,limit:limit})});
-  inp.value=''; cmdClipVerstecken(); laden();
+  cmdFeldLeeren(); laden();
   try{dlboxTab('queue');}catch(e){}
   toast('📺 „'+d.name+'": '+(d.mix?d.anzahl:n)+' Videos werden geladen.');
 }

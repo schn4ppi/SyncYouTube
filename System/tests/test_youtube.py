@@ -1266,3 +1266,89 @@ def test_abbruch_greift_auch_beim_zusammenfuegen():
             sys.modules["yt_dlp"] = alt
         else:
             sys.modules.pop("yt_dlp", None)
+
+
+# ---------------------------------------------------------------- Ein Feld fuer alles (Build 126)
+
+def test_link_deuten_eindeutige_faelle():
+    # JB-Ziel: EIN Feld, Enter genuegt, die App erkennt den Typ am Link.
+    # Gefragt wird NUR bei echter Mehrdeutigkeit — alles hier ist eindeutig
+    # und darf niemals eine Rueckfrage ausloesen.
+    d = app.link_deuten
+    for url, typ in [
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "video"),
+        ("https://youtu.be/dQw4w9WgXcQ", "video"),
+        ("https://m.youtube.com/watch?v=dQw4w9WgXcQ", "video"),
+        ("https://www.youtube.com/shorts/abcdefghijk", "video"),
+        ("https://www.youtube.com/playlist?list=PLabcdefgh", "playlist"),
+        ("https://www.youtube.com/@MrBeast/videos", "kanal"),
+        ("https://www.youtube.com/@MrBeast/streams", "kanal"),
+    ]:
+        r = d(url)
+        assert r["typ"] == typ, f"{url} -> {r['typ']}, erwartet {typ}"
+        assert r["eindeutig"] is True, f"{url} loest unnoetig eine Rueckfrage aus"
+        assert not r.get("frage"), f"{url} traegt eine Frage, obwohl eindeutig"
+
+
+def test_link_deuten_die_zwei_echten_mehrdeutigkeiten():
+    # Genau zwei Faelle sind wirklich mehrdeutig (JB hat sie benannt):
+    # Kanal = laden oder abonnieren? Video-in-Playlist = eines oder alle?
+    kanal = app.link_deuten("https://www.youtube.com/@MrBeast")
+    assert kanal["typ"] == "kanal" and kanal["eindeutig"] is False
+    assert {o["id"] for o in kanal["optionen"]} == {"laden", "abo"}
+
+    inpl = app.link_deuten("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc")
+    assert inpl["typ"] == "video_in_playlist" and inpl["eindeutig"] is False
+    assert {o["id"] for o in inpl["optionen"]} == {"eines", "alle"}
+
+    # Jede Option muss einen Klartext fuer den Menschen tragen.
+    for r in (kanal, inpl):
+        assert r.get("frage"), "Rueckfrage ohne Fragetext"
+        for o in r["optionen"]:
+            assert o.get("text"), "Option ohne Beschriftung"
+
+
+def test_link_deuten_mix_bleibt_beim_bestehenden_weg():
+    # Mixe (list=RD…) sind endlos und haben schon ihre eigene Anzahl-Frage
+    # (Build 98). Die Deutung meldet sie als Mix und erfindet keine zweite.
+    r = app.link_deuten("https://www.youtube.com/watch?v=abc&list=RDabc")
+    assert r["typ"] == "mix"
+    assert r["eindeutig"] is True          # Anzahl-Frage kommt aus dem Mix-Weg
+
+
+def test_link_deuten_kein_link():
+    for text in ("", "   ", "einfach nur text", "ftp://example.invalid/x"):
+        r = app.link_deuten(text)
+        assert r["typ"] == "unbekannt", f"{text!r} -> {r['typ']}"
+        assert r["eindeutig"] is False
+
+
+def test_link_deuten_fremde_seite_ist_kein_youtube():
+    # yt-dlp kann viele Seiten; ein fremder Link ist ein normaler Download
+    # und darf keine YouTube-Rueckfrage ausloesen.
+    r = app.link_deuten("https://vimeo.com/123456")
+    assert r["typ"] == "video" and r["eindeutig"] is True
+
+
+def test_link_antwort_wird_gemerkt_und_ist_umstellbar():
+    # JB: die Rueckfrage soll eine „gemerkte Standardantwort" haben. Sie darf
+    # aber nie zur Sackgasse werden — deshalb muss "" (= wieder fragen)
+    # genauso setzbar sein wie eine konkrete Antwort, und Unsinn prallt ab.
+    alt_k = app.CFG.get("link_antwort_kanal")
+    alt_p = app.CFG.get("link_antwort_playlist")
+    try:
+        for wert in ("abo", "laden", ""):
+            app.CFG["link_antwort_kanal"] = wert
+            assert app.CFG["link_antwort_kanal"] == wert
+        # Die Deutung selbst bleibt von der Merkung unberuehrt (eine Wahrheit).
+        app.CFG["link_antwort_kanal"] = "abo"
+        r = app.link_deuten("https://www.youtube.com/@MrBeast")
+        assert r["eindeutig"] is False and len(r["optionen"]) == 2
+        # Standard-Markierung: genau eine Option ist vorbelegt.
+        for url in ("https://www.youtube.com/@MrBeast",
+                    "https://www.youtube.com/watch?v=abc&list=PLx"):
+            opts = app.link_deuten(url)["optionen"]
+            assert sum(1 for o in opts if o.get("standard")) == 1
+    finally:
+        app.CFG["link_antwort_kanal"] = alt_k
+        app.CFG["link_antwort_playlist"] = alt_p
