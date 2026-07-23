@@ -1582,6 +1582,70 @@ def test_rahmenauswahl_in_der_bibliothek():
     assert 'data-id="${x.id}"' in quelle, "Kacheln/Zeilen tragen keine data-id"
 
 
+def test_rahmen_in_der_playlist_startet_auch_auf_einer_zeile():
+    # JB dreimal gemeldet, zuletzt 23.07.: "Ich kann im Player immer noch kein
+    # Fenster mit der Maus ziehen." Build 139 hatte das Muster der BIBLIOTHEK
+    # uebernommen - dort startet das Band nur auf freier Flaeche, damit die
+    # ziehbaren Kacheln ziehbar bleiben. In einer LISTE gibt es diese Flaeche
+    # aber nicht. Am echten Fenster gemessen (23.07., Build 144): bei 14 Titeln
+    # ist .pl-queue randvoll (Inhalt 362 px in 150 px Sicht), bei 3 Titeln
+    # schrumpft sie auf exakt ihre Zeilenhoehe (76 px) - freie Hoehe 0 px in
+    # BEIDEN Faellen, weil .pl-queue mit dem Inhalt waechst (flex:0 1 auto +
+    # max-height). Jeder Punkt der Liste liegt also auf einer .pl-item, das
+    # Band konnte nie starten. Denselben Fund gab es im Abo-Fenster schon
+    # (Build 94: "die Zeilen sind vollbreit, freie Flaeche gibt es kaum").
+    quelle = _oberflaeche_html()
+    i = quelle.index("function plqBandStart")
+    block = quelle[i:i + 2800].replace(" ", "")
+    assert "closest('.pl-item'))return" not in block, (
+        "plqBandStart steigt auf JEDER Zeile aus - in einer Liste ohne freie "
+        "Flaeche kann das Band damit nie starten")
+    # Die Entscheidung faellt jetzt an der MARKIERUNG statt am blossen
+    # Zeilen-Treffer (Explorer-Muster: erst waehlen, dann die Auswahl greifen).
+    assert "plqAuswahl.has" in block or "contains('sel')" in block, (
+        "Der Zeilen-Fall wird nicht an der Markierung entschieden")
+
+
+def test_playlist_umsortieren_bleibt_neben_dem_rahmen():
+    # Der Zeilen-Ausschluss aus Build 139 hatte einen echten Grund: die Zeilen
+    # sind draggable (Umsortieren, und seit Build 141 zieht die Mehrfachauswahl
+    # mit). Beides muss nebeneinander bestehen - der Rahmen darf das Ziehen
+    # nicht auffressen.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function plqBandStart")
+    block = quelle[i:i + 2800].replace(" ", "")
+    # 1) Eine markierte Zeile bleibt ziehbar (dort steigt das Band aus).
+    assert "return" in block and "sel" in block,         "Auf einer markierten Zeile hat das Ziehen keinen Vorrang mehr"
+    # 2) Wo das Band gilt, muss der native HTML5-Drag abgewuergt werden -
+    #    sonst frisst er die pointermove-Ereignisse und das Band bleibt leer.
+    j = quelle.index("function plqDragStart")
+    drag = quelle[j:j + 700].replace(" ", "")
+    assert "preventDefault" in drag, (
+        "plqDragStart wuergt den nativen Drag nicht ab - er verschluckt dann "
+        "die Bewegung, die das Band braucht")
+    # 3) Rueckweg (JB Punkt 7: "Einstellung zum Umschalten der Rahmen-Auswahl"):
+    #    das alte Verhalten muss einstellbar bleiben.
+    assert "plqRahmenArt" in quelle, "Keine Einstellung fuer die Rahmen-Auswahl"
+    assert "opt_plqrahmen" in quelle, "Die Einstellung steht in keinem Menue"
+
+
+def test_playlist_markierung_zeigt_die_ganze_auswahl():
+    # Live-Fund beim Nachmessen des Rahmens (23.07., Build 144): Das Band
+    # waehlte korrekt aus (plqAuswahl = 0..4), doch nach dem Loslassen trug
+    # KEINE Zeile mehr die Klasse 'sel' - plqMark() malte nur den Fokus-Eintrag
+    # plqSel an und loeschte die eben gezogene Auswahl sofort wieder weg.
+    # Denselben Weg nimmt der Strg-Klick. renderPlayerQueue kannte beide
+    # Quellen laengst ("i===plqSel||plqAuswahl.has(i)") - plqMark war beim
+    # Nachziehen von Build 139 schlicht vergessen worden. Zwei Stellen, eine
+    # Wahrheit: wer 'sel' setzt, muss beide Quellen kennen.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function plqMark")
+    block = quelle[i:i + 400].replace(" ", "")
+    assert "plqAuswahl" in block, (
+        "plqMark malt die Mehrfachauswahl nicht an - eine gezogene Auswahl "
+        "verschwindet beim Loslassen wieder")
+
+
 def test_tag_kandidat_zweiter_versuch_ohne_klammern():
     # JB: "wieso sind mehrere titel noch nicht korrekt benannt?"
     # Zwei Gruende. Der zweite: der Muell-Filter kennt nur BEKANNTE Zusaetze

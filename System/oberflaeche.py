@@ -1796,6 +1796,13 @@ function optionenToggle(ev){
     '<div class="optrow"><span>Abspielen per</span><select id="opt_klick" onchange="klickArtSetzen(this.value)" '+
       'title="Doppelklick stört die Auswahl nicht — Einfachklick ist schneller">'+
       '<option value="doppel">Doppelklick</option><option value="einfach">Einfachklick</option></select></div>'+
+    // Build 144 (JB Punkt 7): In der Playlist teilen sich Rahmen-Auswahl und
+    // Umsortieren dieselben Zeilen — eine Liste hat keine freie Fläche.
+    // Standard „ab der Zeile": markierte Titel greift man zum Verschieben,
+    // auf allen anderen zieht man einen Rahmen auf (Explorer-Muster).
+    '<div class="optrow"><span>Playlist-Rahmen</span><select id="opt_plqrahmen" onchange="plqRahmenArtSetzen(this.value)" '+
+      'title="Ab der Zeile: markierte Titel bleiben zum Verschieben greifbar · Nur auf freier Fläche: Ziehen hat überall Vorrang (Stand vor Build 144)">'+
+      '<option value="auto">ab der Zeile</option><option value="frei">nur auf freier Fläche</option></select></div>'+
     '<div class="optrow"><span>Pfeiltasten springen</span><span><input type="number" id="opt_sprung" min="1" max="60" '+
       'style="width:56px" onchange="sprungWeiteSetzen(this.value)" title="Sekunden pro Druck auf ←/→ (J/L bleiben bei 10 s)"> s</span></div>'+
     '<div class="optrow"><span>Seitenverhältnis</span><select id="opt_ar" onchange="seitenverhaeltnisSetzen(this.value)">'+
@@ -1824,6 +1831,7 @@ function optionenToggle(ev){
   if(ar){try{ar.value=localStorage.getItem('ytdl_ar')||'16/9';}catch(e){ar.value='16/9';}}
   const sp=m.querySelector('#opt_sprung'); if(sp)sp.value=sprungWeite();
   const kl=m.querySelector('#opt_klick'); if(kl)kl.value=klickArt();
+  const pr=m.querySelector('#opt_plqrahmen'); if(pr)pr.value=plqRahmenArt();
   const sk=m.querySelector('#opt_skin'); if(sk)sk.value=aktuellerSkin();
   const slp=m.querySelector('#opt_sleep'); if(slp)slp.value=sleepTitelende?'titel':'0'; sleepLabel();
   const ub=m.querySelector('#opt_ueb'); if(ub)ub.value=uebergang;
@@ -5937,7 +5945,13 @@ function plqFocus(i){                                  // nur den SICHTBAREN Ein
   document.querySelectorAll('.pl-queue .pl-item[data-i="'+i+'"]').forEach(el=>{if(el.offsetParent)el.focus();});}
 // Auswahl NUR per Klasse markieren, NICHT neu rendern: sonst würde der Einfachklick das
 // Element ersetzen und der Doppelklick (zwei Klicks auf DASSELBE Element) fiele aus (JB 22.07.).
-function plqMark(){document.querySelectorAll('.pl-queue .pl-item').forEach(el=>el.classList.toggle('sel',+el.dataset.i===plqSel));}
+// Build 144 (live gemessen): 'sel' hat ZWEI Quellen — den Fokus-Eintrag
+// plqSel und die Mehrfachauswahl plqAuswahl. plqMark kannte nur die erste und
+// wischte deshalb jede gerade gezogene Rahmen-Auswahl beim Loslassen wieder
+// weg (dasselbe galt fuer den Strg-Klick). renderPlayerQueue fragt beide ab —
+// hier stand die zweite Wahrheit. Es gibt nur eine.
+function plqMark(){document.querySelectorAll('.pl-queue .pl-item').forEach(el=>{
+  const i=+el.dataset.i; el.classList.toggle('sel', plqAuswahl.has(i)||i===plqSel);});}
 /* ---- Rahmen-Auswahl in der Playlist (Build 139, JB Punkt 4) --------------
    JB: „Ich wuerde gerne auch in der Playlist wieder wie in Windows mehrere
    Titel mit der Maus markieren koennen (Maus macht ein Viereck und
@@ -5958,10 +5972,41 @@ function plqSelect(i,ev){
   }else plqAuswahl.clear();
   plqSel=i; plqMark(); plqFocus(i);
 }
+/* Build 144 — warum der Rahmen bis hierher nie zu sehen war (JB dreimal:
+   „Ich kann im Player immer noch kein Fenster mit der Maus ziehen"):
+   Build 139 hatte das Muster der BIBLIOTHEK uebernommen — dort startet das
+   Band nur auf freier Flaeche, damit die ziehbaren Kacheln ziehbar bleiben,
+   und zwischen Kacheln ist reichlich Luft. Die Playlist ist aber eine LISTE
+   und hat diese Luft NIE: am echten Fenster gemessen ist .pl-queue bei 14
+   Titeln randvoll (362 px Inhalt in 150 px Sicht) und schrumpft bei 3 Titeln
+   auf exakt ihre Zeilenhoehe (76 px) — freie Hoehe 0 px in beiden Faellen,
+   weil die Liste mit ihrem Inhalt waechst. Jeder Punkt lag auf einer Zeile,
+   also stieg plqBandStart immer sofort aus.
+   Jetzt wie im Explorer: eine MARKIERTE Zeile greift man zum Verschieben, auf
+   jeder anderen zieht man einen Rahmen auf. Damit bleiben beide Gesten heil,
+   ohne neue Bedienzone. Wer das alte Verhalten will, stellt „nur auf freier
+   Flaeche" ein (⚙ Ansicht → Playlist-Rahmen). */
+function plqRahmenArt(){
+  let v='auto'; try{v=localStorage.getItem('ytdl_plqrahmen')||'auto';}catch(e){}
+  return v==='frei'?'frei':'auto';
+}
+function plqRahmenArtSetzen(v){
+  try{localStorage.setItem('ytdl_plqrahmen',v==='frei'?'frei':'auto');}catch(e){}
+  toast(v==='frei'?'▭ Rahmen nur auf freier Fläche (Ziehen hat überall Vorrang).'
+                  :'▭ Rahmen ab der Zeile — markierte Titel bleiben zum Verschieben greifbar.');
+}
+let plqBandModus=false;                                // laeuft gerade ein Band auf einer Zeile?
 function plqBandStart(ev){
   if(ev.button!==0)return;
   if(ev.target.closest('button,a,input,select'))return;
-  if(ev.target.closest('.pl-item'))return;             // auf einer Zeile: Ziehen hat Vorrang
+  const zeile=ev.target.closest('.pl-item');
+  if(zeile){
+    if(plqRahmenArt()==='frei')return;                 // Einstellung: Ziehen hat Vorrang
+    if(zeile.classList.contains('sel'))return;         // markiert = greifen und verschieben
+    // Ab hier gilt der Rahmen — der native HTML5-Drag muss schweigen, sonst
+    // frisst er die Bewegung, aus der das Band entsteht (plqDragStart).
+    plqBandModus=true;
+  }
   const flaeche=ev.currentTarget;
   const basis=new Set(ev.ctrlKey||ev.metaKey?[...plqAuswahl]:[]);
   const x0=ev.clientX, y0=ev.clientY; let band=null;
@@ -5990,7 +6035,7 @@ function plqBandStart(ev){
   }
   function up(){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
-    document.body.classList.remove('nosel');
+    document.body.classList.remove('nosel'); plqBandModus=false;
     if(band){band.remove(); plqBandLief=true; setTimeout(()=>{plqBandLief=false;},0); plqMark();}
   }
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
@@ -6204,7 +6249,13 @@ function eigenschaften(key){
   ov.onclick=e=>{if(e.target===ov)ov.remove();};
   document.body.appendChild(ov);
 }
-function plqDragStart(e,i){plqVon=i; e.dataTransfer.effectAllowed='move';}
+function plqDragStart(e,i){
+  // Build 144: Startet gerade ein Rahmen auf dieser Zeile, darf der native
+  // Drag NICHT anspringen — er wuerde die Mausbewegung an sich reissen und
+  // das Band bliebe leer. Umgekehrt bleibt jede markierte Zeile ziehbar,
+  // weil plqBandStart dort gar nicht erst in den Band-Modus geht.
+  if(plqBandModus){e.preventDefault(); return false;}
+  plqVon=i; e.dataTransfer.effectAllowed='move';}
 function plqDragOver(e){e.preventDefault(); e.dataTransfer.dropEffect='move';}
 function plqEinfuegen(key,i){                          // Bibliotheks-Titel an Position i einreihen
   const x=libFind(key); if(!x||!x.vorhanden)return;
