@@ -139,10 +139,13 @@ html.light .cmd-logo .sg{stroke:#f3ede2}
   border:1px solid #2e2823;border-radius:12px;padding:7px 14px;background:rgba(255,255,255,.022)}
 .cmd-now.spielt{border-color:rgba(214,95,95,.45);box-shadow:0 0 0 1px rgba(214,95,95,.12),0 4px 16px rgba(0,0,0,.25)}
 .cmd-now.dropziel{outline:2px dashed var(--akz);outline-offset:2px}
-/* Build 117: Player offen ⇒ Kopfleiste zeigt keine doppelten Transport-
-   Knöpfe mehr (8 Stück waren identisch). Radio bleibt — das gibt es dort
-   sonst nirgends; Zeitleiste und Lautstärke ebenso. */
-body.hat-player .cmd-now .mp-btn:not(.mp-radio){display:none}
+/* Build 121 (JB-Entscheid): Die Leiste oben ist die STEUERZENTRALE und
+   behält IMMER alles — sie ist der Ort, an dem JB sich wohlfühlt (Spotify-
+   Muster: eine Steuerung, immer dieselbe Stelle, verschwindet nie). Die
+   Doppelung wird nicht mehr durch Wegnehmen gelöst, sondern durch
+   Zuständigkeit: oben „was spiele ich", im Bild nur „wie sehe ich es"
+   (Untertitel/Schnitt/Tempo/Bild-in-Bild/Vollbild — Netflix-Muster,
+   erscheint bei Mausbewegung). Die frühere Ausblend-Regel ist damit weg. */
 html.light .cmd-now{border-color:#e3d8cc;background:rgba(0,0,0,.02)}
 .cmd-nowtitel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:12.5px;color:#d7c7bd;font-weight:500}
 .cmd-nolabel{color:#6a5c52}
@@ -919,7 +922,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 120</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 121</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1206,8 +1209,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
         <span style="font-size:12px;color:#8a7d74">Playlist:</span>
         <select id="plsel" onchange="plWahl()" title="Playlist wählen — Auswahl zeigt sie sofort in der Bibliothek"></select>
         <button class="ib" id="plviewbtn" onclick="plView()" title="Titel dieser Playlist unten in der Bibliothek anzeigen (nochmal = zurück zur ganzen Bibliothek)">📃</button>
-        <button class="ib" onclick="plPlaySel()" title="Gewählte Playlist abspielen — ohne gewählte Playlist wandert die ganze angezeigte Bibliothek in den Player">▶</button>
-        <button class="ib" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
+        <button class="ib" id="plwerkbtn" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
         <input type="file" id="m3ufile" accept=".m3u,.m3u8" style="display:none" onchange="plImport(this)">
         <span class="spacer"></span>
         <button class="btn mini" onclick="entdeckerOeffnen()" title="✨ Neues entdecken: YouTube-Radios zu Titeln der oben gewählten Playlist — alles, was du schon hast, wird herausgefiltert">✨ Entdecken</button>
@@ -5020,19 +5022,18 @@ function plBarHTML(istVideo){
       `onpointerdown="plbSeekAktiv=true" onpointerup="plbSeekAktiv=false">`+
     `<span class="pl-btime" id="plb-t1">0:00</span></div>`+
    `<div class="pl-barrow">`+
-    `<button class="mp-btn mp-tog bo2" data-tr="shuffle" onclick="shuffleToggle()">${ico('shuffle')}</button>`+
-    `<button class="mp-btn bo1" onclick="playerPrev()" title="Vorheriger">${ico('prev')}</button>`+
+    // Build 121 (JB-Entscheid): Im Bild lebt nur noch, was zum BILD gehört.
+    // Play/Pause bleibt (der eine Griff, den man im Video erwartet — und ein
+    // Klick ins Bild tut dasselbe); Zufall/Vor/Zurück/Wiederholen/Cover-Stil
+    // stehen oben in der Steuerzentrale, die nie verschwindet.
     `<button class="mp-btn" data-tr="pp" onclick="plTogglePlay()">${ico('play')}</button>`+
-    `<button class="mp-btn bo1" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
-    `<button class="mp-btn mp-tog bo2" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
-    `<button class="mp-btn mp-tog mp-art bo2" data-tr="art" onclick="playArtCycle()"></button>`+
     `<span class="pl-bspacer"></span>`+
     `<button class="pl-bsp bo3" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
     `<button class="pl-bsp bo3" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
     `<button class="pl-bsp bo3" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
     `<span class="pl-bvolwrap bo2">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
-    `<button class="pl-bsp pl-byt bo3" onclick="playerYoutube()" title="Dieses Video auf YouTube öffnen — springt zur aktuellen Stelle">${ico('yt')}<span class="bo-yttxt"> YouTube</span></button>`+
-    `<button class="pl-bsp bo3" onclick="playerLinkKopieren()" title="YouTube-Link kopieren (zum Teilen, OHNE Zeitstempel)">🔗</button>`+
+    // YouTube-Öffnen und Link-Kopieren beziehen sich auf den TITEL, nicht auf
+    // die Darstellung ⇒ sie stehen oben in der Steuerzentrale (Build 121).
     (istVideo?`<button class="pl-bsp bo2" onclick="plbPip()" title="Bild-in-Bild: Video schwebt über allen Fenstern (Taste I)">⧉</button>`:'')+
     (istVideo?`<button class="pl-bsp" onclick="plbFullscreen()" title="Vollbild (Taste F)">⛶</button>`:'')+
    `</div></div>`;
@@ -5557,6 +5558,14 @@ function plViewSchliessen(){libPlaylistView=''; plViewRender(); libMalen();}
 function plViewRender(){
   const btn=document.getElementById('plviewbtn');
   const p=plState.find(x=>x.id===libPlaylistView);
+  // Build 121 (JB: „wenn ich keine Playlist angewählt habe, wieso werden diese
+  // Knöpfe angezeigt?"): ohne gewählte Playlist gibt es nichts zu tun ⇒ die
+  // Knöpfe sind gar nicht erst da. Abspielen lebt oben in der Steuerzentrale.
+  const sel0=document.getElementById('plsel');
+  const gewaehlt=!!((sel0&&sel0.value&&sel0.value!=='__neu')||libPlaylistView);
+  const werk=document.getElementById('plwerkbtn');
+  if(werk)werk.style.display=gewaehlt?'':'none';
+  if(btn)btn.style.display=gewaehlt?'':'none';
   // Build 118 (JB): geöffnete Playlist ⇒ Zurück-Pfeil, sonst das Listen-Symbol.
   if(btn){btn.classList.toggle('an',!!libPlaylistView);
     btn.textContent=libPlaylistView?'↩':'📃';
