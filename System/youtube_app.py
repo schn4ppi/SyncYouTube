@@ -88,12 +88,11 @@ STANDARD_CONFIG = {
     "fernsteuerung_code": "",       # Zugangscode fürs Handy (wird beim ersten Aktivieren erzeugt)
     "untertitel": False,            # Untertitel beim Download mitziehen (Standard aus; der Player holt sie fuers Karaoke bei Bedarf)
     "auto_update": False,           # Selbst-Update der exe (Opt-in; prüft täglich das GitHub-Release)
-    # Build 126 („ein Feld für alles"): gemerkte Antwort auf die zwei echten
-    # Mehrdeutigkeiten. "" = jedes Mal fragen; sonst die Options-Id aus
-    # link_deuten(). Umstellbar im ⚙-Menü — eine einmal gemerkte Antwort darf
-    # nie zur Sackgasse werden.
-    "link_antwort_kanal": "",       # "" | "abo" | "laden"
-    "link_antwort_playlist": "",    # "" | "eines" | "alle"
+    # Build 127 (JB): Die Link-Rückfrage wird IMMER gestellt — „diese Abfrage
+    # ist meiner Meinung nach immer relevant". Ob man einen Kanal abonniert
+    # oder lädt, hängt am Kanal, nicht an einer Voreinstellung; eine gemerkte
+    # Antwort wäre hier eine Falle statt Komfort. Deshalb gibt es dafür
+    # bewusst KEINE Config-Schlüssel (mehr).
 }
 
 
@@ -516,7 +515,25 @@ def _ist_untertitel_fehler(exc):
                                 or "unable to download" in t)
 
 
-def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=None, ziel_playlist=""):
+def _liste_zuschneiden(eintraege, menge, richtung="neu"):
+    """Auswahl aus einer aufgelösten Liste (Build 127, JB-Regler).
+
+    yt-dlp liefert Kanäle und Playlists NEUESTE ZUERST. „Die 20 ältesten"
+    heißt also: vom anderen Ende nehmen. Danach wird chronologisch geladen
+    (älteste zuerst) — dieselbe Logik wie beim Abo-Backkatalog, damit eine
+    Serie in der Reihenfolge ankommt, in der man sie ansieht.
+    Ohne Menge bleibt alles unangetastet (Verhalten wie bisher).
+    """
+    liste = [e for e in (eintraege or []) if e]
+    if not menge or menge <= 0:
+        return liste
+    if richtung == "alt":
+        return list(reversed(liste))[:menge]
+    return liste[:menge]
+
+
+def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=None, ziel_playlist="",
+              menge=None, richtung="neu"):
     """URL prüfen und in Queue-Einträge verwandeln (Playlist/Mix -> Einzelvideos).
     ganze_liste=True erzwingt die komplette Liste/den Mix auch bei einem
     watch?v=…&list=…-Link (JB-/Kumpel-Wunsch: „YouTube-Mixe runterladen").
@@ -566,6 +583,7 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
             return
         if eintraege is not None:
             Q.items.remove(platzhalter)
+            eintraege = _liste_zuschneiden(eintraege, menge, richtung)   # Build 127: JB-Regler
             for e in eintraege:
                 if not e:
                     continue
@@ -3828,13 +3846,7 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/playlist_import":
                 return _antwort(self, 200, playlist_import_m3u(daten.get("name"), daten.get("m3u")))
             elif self.path == "/api/link_deuten":      # Build 126: „ein Feld für alles"
-                d = link_deuten(daten.get("url") or "")
-                # Die gemerkte Antwort reist mit, damit die Oberfläche nur EINEN
-                # Weg kennt: fragen, wenn nichts gemerkt ist — sonst handeln.
-                merk = {"kanal": CFG.get("link_antwort_kanal") or "",
-                        "video_in_playlist": CFG.get("link_antwort_playlist") or ""}
-                d["gemerkt"] = merk.get(d["typ"], "")
-                return _antwort(self, 200, d)
+                return _antwort(self, 200, link_deuten(daten.get("url") or ""))
             elif self.path == "/api/abo":
                 return _antwort(self, 200, abo_aktion(daten))
             elif self.path == "/api/clip":
@@ -3854,12 +3866,19 @@ class Handler(BaseHTTPRequestHandler):
         ganze_liste = bool(daten.get("ganze_liste"))
         limit = daten.get("limit")                    # Mix-Wunsch-Anzahl (Build 98)
         ziel_pl = str(daten.get("ziel_playlist") or "")[:80]   # Entdeckt-Sammlung (Build 100)
+        # Build 127 (JB-Regler): wie viele und von welchem Ende.
+        try:
+            menge = int(daten.get("menge") or 0) or None
+        except (TypeError, ValueError):
+            menge = None
+        richtung = "alt" if daten.get("richtung") == "alt" else "neu"
         urls = [u.strip() for u in (daten.get("urls") or "").splitlines() if u.strip()]
         for url in urls:
             if not url.lower().startswith(("http://", "https://")):
                 continue
             threading.Thread(target=aufloesen, args=(url, qualitaet, ganze_liste),
-                             kwargs={"limit": limit, "ziel_playlist": ziel_pl}, daemon=True).start()
+                             kwargs={"limit": limit, "ziel_playlist": ziel_pl,
+                                     "menge": menge, "richtung": richtung}, daemon=True).start()
 
     def _action(self, daten):
         art = daten.get("art")
@@ -3967,10 +3986,6 @@ class Handler(BaseHTTPRequestHandler):
                 CFG["cookies_browser"] = daten["cookies_browser"]
             if daten.get("standard_qualitaet") in QUALITAETEN:
                 CFG["standard_qualitaet"] = daten["standard_qualitaet"]
-            for schluessel, erlaubte in (("link_antwort_kanal", ("", "abo", "laden")),
-                                         ("link_antwort_playlist", ("", "eines", "alle"))):
-                if daten.get(schluessel) in erlaubte:
-                    CFG[schluessel] = daten[schluessel]
             if isinstance(daten.get("geo_vpn"), bool):
                 CFG["geo_vpn"] = daten["geo_vpn"]
             if isinstance(daten.get("geo_gratis_proxy"), bool):

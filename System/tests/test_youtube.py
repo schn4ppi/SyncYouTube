@@ -1330,25 +1330,46 @@ def test_link_deuten_fremde_seite_ist_kein_youtube():
     assert r["typ"] == "video" and r["eindeutig"] is True
 
 
-def test_link_antwort_wird_gemerkt_und_ist_umstellbar():
-    # JB: die Rueckfrage soll eine „gemerkte Standardantwort" haben. Sie darf
-    # aber nie zur Sackgasse werden — deshalb muss "" (= wieder fragen)
-    # genauso setzbar sein wie eine konkrete Antwort, und Unsinn prallt ab.
-    alt_k = app.CFG.get("link_antwort_kanal")
-    alt_p = app.CFG.get("link_antwort_playlist")
-    try:
-        for wert in ("abo", "laden", ""):
-            app.CFG["link_antwort_kanal"] = wert
-            assert app.CFG["link_antwort_kanal"] == wert
-        # Die Deutung selbst bleibt von der Merkung unberuehrt (eine Wahrheit).
-        app.CFG["link_antwort_kanal"] = "abo"
-        r = app.link_deuten("https://www.youtube.com/@MrBeast")
-        assert r["eindeutig"] is False and len(r["optionen"]) == 2
-        # Standard-Markierung: genau eine Option ist vorbelegt.
-        for url in ("https://www.youtube.com/@MrBeast",
-                    "https://www.youtube.com/watch?v=abc&list=PLx"):
-            opts = app.link_deuten(url)["optionen"]
-            assert sum(1 for o in opts if o.get("standard")) == 1
-    finally:
-        app.CFG["link_antwort_kanal"] = alt_k
-        app.CFG["link_antwort_playlist"] = alt_p
+def test_link_rueckfrage_wird_immer_gestellt():
+    # JB 23.07.: "Das Feld immer so muss nicht sein, diese Abfrage ist meiner
+    # Meinung nach immer relevant." Ob man einen Kanal abonniert oder laedt,
+    # haengt am Kanal - eine gemerkte Antwort waere hier eine Falle. Es darf
+    # also KEINE Config geben, die die Rueckfrage ueberspringt.
+    for weg in ("link_antwort_kanal", "link_antwort_playlist"):
+        assert weg not in app.CFG, f"{weg} lebt noch - die Rueckfrage waere abschaltbar"
+    for url in ("https://www.youtube.com/@MrBeast",
+                "https://www.youtube.com/watch?v=abc&list=PLx"):
+        r = app.link_deuten(url)
+        assert r["eindeutig"] is False
+        assert "gemerkt" not in r, "Die Deutung traegt noch eine gemerkte Antwort"
+        assert sum(1 for o in r["optionen"] if o.get("standard")) == 1
+
+
+def test_liste_zuschneiden_menge_und_richtung():
+    # JB 23.07.: "ich wuerde gerne einen Regler haben bei alle Videos jetzt
+    # laden ... die Option aelteste/neueste zuerst ist relevant."
+    # yt-dlp liefert Kanaele NEUESTE ZUERST. Der Zuschnitt muss deshalb
+    # wissen, von welchem Ende er nimmt - und die Downloads sollen danach
+    # chronologisch laufen (aelteste zuerst), so wie es der Abo-Backkatalog
+    # schon macht.
+    neu_zuerst = [{"id": f"v{i}", "title": f"Folge {10-i}"} for i in range(10)]
+    z = app._liste_zuschneiden
+
+    # Keine Menge = alles bleibt, Reihenfolge unangetastet.
+    assert z(neu_zuerst, None, "neu") == neu_zuerst
+    assert z(neu_zuerst, 0, "neu") == neu_zuerst
+
+    # Die 3 NEUESTEN: das sind die ersten drei der Quelle.
+    ids = [e["id"] for e in z(neu_zuerst, 3, "neu")]
+    assert ids == ["v0", "v1", "v2"]
+
+    # Die 3 AELTESTEN: das andere Ende - und chronologisch geladen,
+    # also aelteste zuerst.
+    ids = [e["id"] for e in z(neu_zuerst, 3, "alt")]
+    assert ids == ["v9", "v8", "v7"]
+
+    # Mehr gewuenscht als vorhanden: einfach alles, kein Fehler.
+    assert len(z(neu_zuerst, 999, "neu")) == 10
+    # Leere/kaputte Eintraege fliegen raus, ohne zu crashen.
+    assert z([None, {"id": "a"}, None], 5, "neu") == [{"id": "a"}]
+    assert z([], 3, "neu") == []

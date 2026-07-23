@@ -1003,7 +1003,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 126</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 127</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -1316,18 +1316,24 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
 
   <div id="view-abos">
     <div class="card">
+      <!-- Build 127 (JB: „bei Abos kann das Link-Feld weg"): Das zweite
+           Eingabefeld ist entfallen — abonniert wird über das EINE Feld
+           oben, ein Kanal-Link fragt dort ohnehin „laden oder abonnieren?".
+           Ein Weg statt zwei; der Knopf hier führt nur noch dorthin. -->
       <div class="zeile">
-        <input type="text" id="abo-url" placeholder="Kanal- oder Playlist-Link…" style="flex:1;min-width:150px"
-               onkeydown="if(event.key==='Enter')aboCreate()">
-        <select id="abo-qual">
-          <option value="beste">Beste</option><option value="1080p">1080p</option>
-          <option value="720p">720p</option><option value="audio">MP3</option>
-        </select>
-        <button class="btn" onclick="aboCreate()">＋ Abonnieren</button>
+        <button class="btn mini" onclick="aboAbonnierenHin()"
+                title="Springt zum Feld oben — dort einen Kanal-Link einfügen und Enter drücken">＋ Abonnieren</button>
+        <span class="spacer"></span>
       </div>
       <div id="abo-liste" class="abo-liste"></div>
-      <div class="hinweis">Beim Abonnieren werden die aktuellen Videos nur „gemerkt“ (nicht geladen) — automatisch
+      <div class="hinweis"><b>Abonnieren:</b> Kanal-Link oben ins Feld, Enter — dann „Abonnieren" wählen.
+        Die aktuellen Videos werden dabei nur „gemerkt“ (nicht geladen); automatisch
         geholt wird nur, was danach neu erscheint (Start + alle 6&nbsp;Stunden, leichter RSS-Puls).
+        <b>Je Abo:</b> das Format-Feld in der Zeile ändert die Qualität ab der nächsten Prüfung;
+        unter ⚙ liegen die Regeln (Titel-Filter, Stichtag, Shorts/Streams, Auto-Löschen) und
+        „🔁 Erneuern“ — damit holt man alles bisher Geladene im neuen Format,
+        wahlweise unter Behalten der alten Datei oder mit Ersetzen (die alte geht
+        erst NACH dem Erfolg in den Papierkorb).
         📜 zeigt den kompletten Backkatalog: Ausgegrautes ist noch nicht geladen — Doppelklick oder
         markieren&nbsp;+&nbsp;„⬇ Auswahl laden“ holt es nach. Fertige Abo-Downloads landen automatisch
         in der Playlist des Abos.</div>
@@ -1596,23 +1602,14 @@ function optionenToggle(ev){
     // Breiten-Regel hängt, steht er hier IMMER — bei jeder Fenstergröße.
     '<div class="optrow"><span>Geladen</span><span style="color:var(--akz2);font-weight:700">'+
       (document.getElementById('counter_num')||{textContent:'0'}).textContent+'</span></div>'+
-    // Build 126: Eine gemerkte Link-Antwort darf nie zur Sackgasse werden —
-    // hier steht sie immer und lässt sich auf „jedes Mal fragen" zurückdrehen.
-    '<div class="optrow"><span>Link-Rückfragen</span><span style="display:flex;gap:4px">'+
-      '<select id="opt_lk" onchange="linkAntwortSetzen(\\'link_antwort_kanal\\',this.value)" title="Kanal-Link: was soll Enter tun?">'+
-        '<option value="">Kanal: fragen</option><option value="abo">Kanal: abonnieren</option>'+
-        '<option value="laden">Kanal: alles laden</option></select>'+
-      '<select id="opt_lp" onchange="linkAntwortSetzen(\\'link_antwort_playlist\\',this.value)" title="Video aus einer Playlist: was soll Enter tun?">'+
-        '<option value="">Playlist: fragen</option><option value="eines">Playlist: nur das Video</option>'+
-        '<option value="alle">Playlist: ganze Liste</option></select></span></div>'+
+    // Build 127: Die Link-Umschalter sind wieder raus — ohne „immer so"-Haken
+    // gibt es nichts umzustellen, und ein Schalter für etwas, das immer
+    // gefragt wird, wäre ein Knopf ohne Aufgabe (JB: wenige Knöpfe).
     '<div class="optrow"><span>Alle Einstellungen</span><button class="btn mini" onclick="einstellungenOeffnen()">⚙ Öffnen</button></div>'+
     '<div class="optrow"><span>📱 Fernsteuerung</span><button class="btn mini" id="fernbtn" onclick="fernToggle()">…</button></div>'+
     '<div id="ferninfo" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
   document.body.appendChild(m);
   const sel=m.querySelector('#opt_fehler'); if(sel)sel.value=fmin;
-  const cfg=(daten&&daten.config)||{};
-  const lk=m.querySelector('#opt_lk'); if(lk)lk.value=cfg.link_antwort_kanal||'';
-  const lp=m.querySelector('#opt_lp'); if(lp)lp.value=cfg.link_antwort_playlist||'';
   const sk=m.querySelector('#opt_skin'); if(sk)sk.value=aktuellerSkin();
   const slp=m.querySelector('#opt_sleep'); if(slp)slp.value=sleepTitelende?'titel':'0'; sleepLabel();
   const ub=m.querySelector('#opt_ueb'); if(ub)ub.value=uebergang;
@@ -1620,12 +1617,6 @@ function optionenToggle(ev){
   popoverBei(m, ev.currentTarget.getBoundingClientRect());
   setTimeout(()=>document.addEventListener('pointerdown',function zu(e2){
     if(!m.contains(e2.target)&&e2.target.id!=='optbtn'){m.remove(); document.removeEventListener('pointerdown',zu);}},true),0);
-}
-async function linkAntwortSetzen(schluessel,wert){
-  const d={}; d[schluessel]=wert;
-  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(d)});}catch(e){}
-  toast(wert?'Gemerkt.':'Wird wieder gefragt.');
 }
 function setGap(v){try{localStorage.setItem('ytdl_gap',v);}catch(e){} const g=document.getElementById('gapval'); if(g)g.textContent=v+' px';}
 async function setFehlerMin(v){
@@ -2757,9 +2748,7 @@ async function cmdDownload(){
   try{const r=await fetch('/api/link_deuten',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({url})}); d=await r.json();}catch(e){}
   if(!d||d.typ==='unbekannt'){toast('Das sieht nicht nach einer Adresse aus — bitte einen Link einfügen.');return;}
-  if(d.eindeutig)      linkAusfuehren(url,d.typ,null);
-  else if(d.gemerkt)   linkAusfuehren(url,d.typ,d.gemerkt);
-  else                 linkFrage(d,url);
+  if(d.eindeutig) linkAusfuehren(url,d.typ,null); else linkFrage(d,url);
 }
 async function linkAusfuehren(url,typ,wahl){
   const q=document.getElementById('cmd-qual').value;
@@ -2792,24 +2781,17 @@ function linkFrage(d,url){
   document.querySelectorAll('#linkfrage').forEach(x=>x.remove());
   const m=document.createElement('div'); m.className='panelmenu'; m.id='linkfrage';
   m.style.minWidth='300px';
+  // Build 127 (JB): KEIN „immer so"-Haken. JB: „diese Abfrage ist meiner
+  // Meinung nach immer relevant" — bei einem Kanal will man mal abonnieren
+  // und mal laden, das hängt am Kanal und nicht an einer Voreinstellung.
+  // Eine gemerkte Antwort wäre hier kein Komfort, sondern eine Falle.
   m.innerHTML='<div style="font-size:11.5px;color:#8a7d74;padding:2px 6px 7px">'+esc(d.frage)+'</div>'+
-    d.optionen.map(o=>'<button class="mbtn" data-id="'+o.id+'">'+esc(o.text)+'</button>').join('')+
-    '<div class="msep"></div>'+
-    '<label class="chk" style="padding:4px 6px;font-size:11.5px">'+
-      '<input type="checkbox" id="linkfrage-merken"> Immer so — nicht mehr fragen</label>';
+    d.optionen.map(o=>'<button class="mbtn" data-id="'+o.id+'">'+esc(o.text)+'</button>').join('');
   document.body.appendChild(m);
   const feld=document.getElementById('cmd-url');
   popoverBei(m, feld.getBoundingClientRect());
-  m.querySelectorAll('.mbtn').forEach(b=>b.onclick=async()=>{
-    const wahl=b.dataset.id;
-    if(document.getElementById('linkfrage-merken').checked){
-      const schluessel=(d.typ==='kanal')?'link_antwort_kanal':'link_antwort_playlist';
-      const daten={}; daten[schluessel]=wahl;
-      try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(daten)});}catch(e){}
-      toast('Gemerkt — umstellbar unter ⚙ → Link-Rückfragen.');
-    }
-    m.remove(); linkAusfuehren(url,d.typ,wahl);
+  m.querySelectorAll('.mbtn').forEach(b=>b.onclick=()=>{
+    m.remove(); linkAusfuehren(url,d.typ,b.dataset.id);
   });
   menuSchliesser(m);
 }
@@ -2852,18 +2834,77 @@ async function ganzerKanal(btn,urlAus){
   if(btn){btn.disabled=false; btn.textContent=btn.dataset.alt||'📺';}
   if(!d||!d.ok){toast((d&&d.fehler)||'Kanal/Playlist nicht gefunden.'); return;}
   const q=document.getElementById('cmd-qual').value;
-  const qtext=({beste:'Beste',audio:'MP3'}[q])||q;
-  const n=d.anzahl+(d.gedeckelt?'+':'');
-  const gr=groesseSchaetzen(d.dauer_summe,q);
-  const frage=d.mix
-    ?('„'+d.name+'"\\n\\nDie ersten '+d.anzahl+' Titel des Mixes (ab dem Startvideo) in Qualität '+qtext+' laden?'+gr+'\\nSchon geladene werden übersprungen.')
-    :('„'+d.name+'"\\n\\n'+n+' Videos gefunden.\\n\\nAlle in Qualität '+qtext+' laden?'+gr+'\\nSchon geladene werden übersprungen.');
-  if(!confirm(frage))return;
-  await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true,limit:limit})});
-  cmdFeldLeeren(); laden();
-  try{dlboxTab('queue');}catch(e){}
-  toast('📺 „'+d.name+'": '+(d.mix?d.anzahl:n)+' Videos werden geladen.');
+  if(d.mix){                                           // Mix: endlos, Anzahl steht schon fest
+    const gr=groesseSchaetzen(d.dauer_summe,q);
+    const qtext=({beste:'Beste',audio:'MP3'}[q])||q;
+    if(!confirm('„'+d.name+'"\\n\\nDie ersten '+d.anzahl+' Titel des Mixes (ab dem Startvideo) in Qualität '+qtext+' laden?'+gr+'\\nSchon geladene werden übersprungen.'))return;
+    await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true,limit:limit})});
+    cmdFeldLeeren(); laden();
+    try{dlboxTab('queue');}catch(e){}
+    toast('📺 „'+d.name+'": '+d.anzahl+' Titel werden geladen.');
+    return;
+  }
+  mengenRegler(d,q);                                   // Build 127: JBs Regler
+}
+/* ---- Mengen-Regler (Build 127) --------------------------------------------
+   JB: „ich würde gerne einen Regler haben bei alle Videos jetzt laden (das
+   soll anzeigen wie viele Videos es insgesamt sind und die Option
+   älteste/neueste zuerst ist relevant)."
+   Der frühere confirm-Kasten konnte nur ganz oder gar nicht. Jetzt steht die
+   Gesamtzahl da, der Regler wählt die Menge, und die Richtung entscheidet,
+   von WELCHEM Ende gezählt wird — bei einer Serie will man die ältesten,
+   bei einem Nachrichtenkanal die neuesten. Dasselbe Begriffspaar wie im
+   Abo-Backkatalog (⏮/⏭), damit es sich überall gleich anfühlt. */
+function mengenRegler(d,q){
+  document.querySelectorAll('#mengenregler').forEach(x=>x.remove());
+  const gesamt=d.anzahl;
+  let menge=gesamt, richtung='alt';                    // Standard: alles, chronologisch
+  const m=document.createElement('div'); m.className='panelmenu'; m.id='mengenregler';
+  m.style.minWidth='330px';
+  m.innerHTML=
+    '<div style="font-size:12.5px;color:#e7dccf;padding:2px 6px 1px;font-weight:600">'+esc(d.name)+'</div>'+
+    '<div style="font-size:11.5px;color:#8a7d74;padding:0 6px 8px">'+gesamt+(d.gedeckelt?'+':'')+' Videos gefunden'+
+      (d.gedeckelt?' (Obergrenze erreicht)':'')+'</div>'+
+    '<div style="padding:0 6px"><input type="range" id="mr-range" min="1" max="'+gesamt+'" value="'+gesamt+'" style="width:100%"></div>'+
+    '<div class="mzeile"><span id="mr-zahl" style="color:var(--akz2);font-weight:700"></span>'+
+      '<span id="mr-groesse" style="font-size:11px;color:#8a7d74"></span></div>'+
+    '<div class="msep"></div>'+
+    '<div class="mzeile"><span>Reihenfolge</span><span style="display:flex;gap:3px">'+
+      '<button class="btn mini" id="mr-alt" title="Vom Anfang des Kanals — für Serien, die man der Reihe nach sieht">⏮ älteste</button>'+
+      '<button class="btn mini" id="mr-neu" title="Die neuesten Videos zuerst">⏭ neueste</button></span></div>'+
+    '<div class="msep"></div>'+
+    '<button class="mbtn" id="mr-los"></button>';
+  document.body.appendChild(m);
+  const feld=document.getElementById('cmd-url');
+  popoverBei(m, feld.getBoundingClientRect());
+  const range=m.querySelector('#mr-range');
+  const malen=()=>{
+    menge=parseInt(range.value,10)||1;
+    const alle=(menge>=gesamt);
+    m.querySelector('#mr-zahl').textContent=alle?('alle '+gesamt):(menge+' von '+gesamt);
+    // Größe anteilig schätzen: die Dauer-Summe gilt für ALLE Videos.
+    const anteil=d.dauer_summe?Math.round(d.dauer_summe*menge/gesamt):0;
+    m.querySelector('#mr-groesse').textContent=(groesseSchaetzen(anteil,q)||'').replace(/^\\n/,'');
+    m.querySelector('#mr-alt').classList.toggle('an',richtung==='alt');
+    m.querySelector('#mr-neu').classList.toggle('an',richtung==='neu');
+    m.querySelector('#mr-los').textContent='⬇ '+(alle?('alle '+gesamt):(menge+''))+' laden — '+
+      (richtung==='alt'?'älteste zuerst':'neueste zuerst');
+  };
+  range.oninput=malen;
+  m.querySelector('#mr-alt').onclick=()=>{richtung='alt'; malen();};
+  m.querySelector('#mr-neu').onclick=()=>{richtung='neu'; malen();};
+  m.querySelector('#mr-los').onclick=async()=>{
+    m.remove();
+    await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true,
+                           menge:(menge>=gesamt?0:menge),richtung})});
+    cmdFeldLeeren(); laden();
+    try{dlboxTab('queue');}catch(e){}
+    toast('📺 „'+d.name+'": '+menge+' Videos werden geladen ('+(richtung==='alt'?'älteste':'neueste')+' zuerst). Schon geladene werden übersprungen.');
+  };
+  malen();
+  menuSchliesser(m);
 }
 async function appBeenden(){
   if(!confirm('SyncYouTube komplett beenden?\\n\\nLaufende Downloads werden pausiert (setzen beim naechsten Start fort). Auch der Hintergrund-Dienst wird geschlossen.'))return;
@@ -3334,17 +3375,13 @@ async function aboAbspielen(id){
   const sel=document.getElementById('plsel'); if(sel)sel.value=a.playlist_id;
   ensurePlayer(); plPlaySel();
 }
-async function aboCreate(){
-  const inp=document.getElementById('abo-url'); const url=(inp.value||'').trim(); if(!url)return;
-  const qual=document.getElementById('abo-qual').value; inp.disabled=true;
-  try{
-    const r=await fetch('/api/abo',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({art:'create',url,qualitaet:qual})});
-    const d=await r.json();
-    if(d.fehler)alert(d.fehler);
-    else{inp.value=''; alert('Abonniert: „'+(d.name||url)+'" — '+d.basis+' aktuelle Videos gemerkt (nicht geladen). Neues wird automatisch geholt.');}
-  }catch(e){alert('Abonnieren fehlgeschlagen (App erreichbar?)');}
-  inp.disabled=false; aboLaden();
+function aboAbonnierenHin(){
+  // Build 127: Es gibt nur noch EIN Eingabefeld. Der Knopf im Abo-Reiter
+  // führt dorthin, statt ein zweites daneben zu stellen.
+  const inp=document.getElementById('cmd-url');
+  if(!inp){toast('Das Eingabefeld oben ist gerade nicht sichtbar.');return;}
+  inp.focus(); inp.select();
+  toast('Kanal-Link hier einfügen und Enter — dann „Abonnieren" wählen.');
 }
 function aboDelete(id,ev){
   // Build 95 (JB): beim Entfernen wahlweise die ueber DIESES Abo geladenen
