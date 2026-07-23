@@ -2879,6 +2879,21 @@ def ordner_importieren():
     return neu
 
 
+_auto_import_zuletzt = 0.0
+
+
+def _auto_import_anstossen(mindestabstand=60):
+    """Ordner still nach neuen Dateien absuchen — im Hintergrund, gedrosselt.
+    Ersetzt den Menüpunkt „Dateien aus dem Ordner aufnehmen" (JB: „die Option
+    finde ich bescheuert"). Nicht-blockierend: die Bibliothek antwortet sofort,
+    Neues erscheint beim nächsten Blick."""
+    global _auto_import_zuletzt
+    if time.time() - _auto_import_zuletzt < mindestabstand:
+        return
+    _auto_import_zuletzt = time.time()
+    threading.Thread(target=ordner_importieren, daemon=True).start()
+
+
 def pfade_heilen():
     """Tote 'pfad'-Einträge der geladen-DB reparieren (z.B. nach einem Ordner-
     Umzug wie Stage 3): existiert der gespeicherte Pfad nicht mehr, aber die
@@ -3559,6 +3574,13 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path == "/api/bibliothek":
+            # Build 122 (JB: „Dateien aus dem Ordner aufnehmen sollte
+            # selbstständig passieren — merkt man das nicht?"): Wer die
+            # Bibliothek ansieht, bekommt sie frisch. Der Ordner-Blick läuft
+            # dafür kurz vorher, höchstens einmal pro Minute und im
+            # Hintergrund — KEIN Dauerprozess, kein neuer Zeitplan
+            # (Last-Budget-Regel), aber in der Praxis merkt man es sofort.
+            _auto_import_anstossen()
             with _io_lock:
                 _antwort(self, 200, {"items": bibliothek_liste()})
         elif self.path == "/api/playlists":

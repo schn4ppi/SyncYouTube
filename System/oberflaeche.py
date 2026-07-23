@@ -93,6 +93,28 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .dlbox-tab.an{background:var(--panel2,#241f1b);color:var(--akz2)}
 .dlbox-tabs .spacer{flex:1}
 .dlbox-action{padding:2px 9px!important;font-size:11px!important}
+/* Build 122 (JB): im Mini-Modus dürfen die Reiter (Downloads/Fertig/Log/Abos)
+   flacher sein — jeder gesparte Pixel geht an die Liste darunter. */
+body.mini .dlbox-tab{font-size:11px;padding:1px 7px}
+body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
+/* Build 122 (JB: „wenn die Bibliothek kleiner wird, sollten unwichtige Reiter
+   ausgeblendet werden, wie bei der Manga-Leseliste"). Reihenfolge wie auf
+   Handy/Tablet üblich: zuerst geht das WORT (Symbol bleibt), dann das
+   Seltene, zuletzt bleibt der Kern. Der Kern ist: Suchen, Ansicht,
+   Playlist-Auswahl, Abspielen — alles andere ist erreichbar über die Menüs.
+   Umgesetzt über Container-Abfragen, damit es an der BREITE DES FENSTERS
+   hängt und nicht am Bildschirm (die Bibliothek ist ein andockbares Panel). */
+.libbar{container-type:inline-size}
+@container (max-width: 560px){
+  .plbar .btn .btxt,.libbar .btn .btxt{display:none}      /* nur noch Symbole */
+  .plbar span:first-child{display:none}                    /* das Wort „Playlist:" */
+}
+@container (max-width: 430px){
+  #libsort{display:none}                                   /* Sortieren steckt im Ansicht-Menü */
+}
+@container (max-width: 340px){
+  .plbar .btn:not(#plwerkbtn){display:none}                /* Entdecken/Mixer -> ⋯ */
+}
 /* Höhe kommt aus der linken Steuerspalte (cmd-main align-items:stretch) — so ist
    die Command-Bar in Voll- UND Mini-Modus EXAKT gleich hoch, nichts springt (JB 21.07.). */
 .dlbox-body{flex:1 1 auto;min-height:0;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
@@ -922,7 +944,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 121</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 122</span>
       </div>
       <div class="cmd-rowadd">
         <input id="cmd-url" class="cmd-url" placeholder="🔗 Link oder Playlist einfügen — Enter lädt… (Abos: 📡)"
@@ -1195,7 +1217,10 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
             <button class="mbtn" id="libselbtn" onclick="libSelectToggle()">☑ Mehrfach-Auswahl</button>
             <button class="mbtn" onclick="dublettenPopover(event);ansichtZu()">⧉ Dubletten finden…</button>
             <button class="mbtn" onclick="autotagAlle();ansichtZu()">🏷 Auto-Tagging (MusicBrainz)…</button>
-            <button class="mbtn" onclick="ordnerImportieren();ansichtZu()" title="Fremde Musik-/Videodateien im Downloads-Ordner in die Bibliothek aufnehmen">📥 Dateien aus dem Ordner aufnehmen</button>
+            <!-- Build 122 (JB: „sollte selbstständig passieren"): der
+                 Ordner-Blick läuft jetzt von allein, sobald die Bibliothek
+                 angesehen wird (gedrosselt, im Hintergrund). Kein Menüpunkt
+                 mehr nötig. -->
           </div>
           <div class="colmenu" id="libcolmenu" style="display:none"></div>
         </div>
