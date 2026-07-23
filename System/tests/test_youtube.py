@@ -1658,6 +1658,36 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_playlist_fuellt_den_freien_platz():
+    # JB mit Bild (23.07.): "jetzt ist playlist nur noch ein kleines fenster,
+    # das sollte dynamisch bis zum unteren rand von playlist gehen."
+    # Gemessen im vertikalen Layout bei 560 px Panel: Karte 489 px, aber die
+    # Playlist-SPALTE nahm davon nur 199 px (flex:0 0 auto) und die Liste war
+    # zusaetzlich auf max-height:150px gedeckelt - 180 px Inhalt scrollten in
+    # 150 px, waehrend darunter Platz ungenutzt blieb.
+    # Das Video bleibt an 16:9 gebunden; alles Uebrige gehoert der Liste.
+    # ERLEDIGT ist der Teil ohne Video: das herausgeloeste Playlist-FENSTER.
+    # Dort war die Karte nur so hoch wie ihr Inhalt (132 px in einem 420 px
+    # hohen Panel), weil `#view-plq` selbst keine Hoehe hatte - height:100%
+    # von auto ist auto.
+    quelle = _oberflaeche_html()
+    css = quelle[quelle.index("<style"):quelle.index("</style>")]
+    kurz = " ".join(css.split())
+    assert "#view-plq{height:100%" in kurz, (
+        "Das Playlist-Fenster hat keine eigene Hoehen-Regel - seine Karte "
+        "bleibt inhaltshoch, und darunter bleibt totes Schwarz")
+    i = kurz.find("#view-plq{height:100%")
+    assert "#view-plq>.card{flex:1 1 auto" in kurz[i:i + 200], (
+        "Die Karte im Playlist-Fenster fuellt das Panel nicht aus")
+    # NICHT erledigt und bewusst nicht geraten: die Playlist IM Player. Dort
+    # konkurriert ein 16:9-Video mit fester Hoehe mit der Liste um dieselbe
+    # Hoehe; vier CSS-Wege sind daran gescheitert (jeder live gemessen).
+    # Der Kommentar im CSS haelt den Stand fest, damit die naechste Session
+    # nicht bei null anfaengt - verschwindet er, ist die Warnung weg.
+    assert "vier CSS-Wege" in css, (
+        "Der offene Stand der Player-Playlist ist im CSS nicht mehr vermerkt")
+
+
 def test_rahmen_gilt_im_ganzen_fenster():
     # JB-Regel mit Bild (23.07.): "genauso wie oben, sollte man auch von unten
     # ein fenster ziehen koennen ... solange es in dem fenster ist, ist ein

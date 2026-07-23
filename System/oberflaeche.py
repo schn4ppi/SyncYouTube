@@ -902,6 +902,30 @@ body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
 .pl-vizwrap{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden}
 .pl-cover{max-width:96%;max-height:100%;border-radius:10px;object-fit:contain}
 .pl-side{display:flex;flex-direction:column;flex:none;min-height:0;min-width:0}
+/* Build 144f (JB mit Bild): „jetzt ist playlist nur noch ein kleines fenster,
+   das sollte dynamisch bis zum unteren rand von playlist gehen."
+   ERLEDIGT fuer das herausgeloeste Playlist-FENSTER (Regel unten). Fuer die
+   Playlist IM Player steht es bewusst NOCH OFFEN: vier CSS-Wege sind daran
+   gescheitert, jeder live gemessen (Zahlen in NAECHSTER_PROMPT.md).
+   Kurzfassung: im vertikalen Layout konkurrieren ein 16:9-Video mit fester
+   Hoehe und die Liste um dieselbe Hoehe. Wer der Liste Platz gibt, nimmt ihn
+   dem Video; `aspect-ratio` vertraegt sich schlecht mit `flex-shrink`, und
+   jeder Versuch kippte entweder das Seitenverhaeltnis, liess das Video auf
+   128x72 px kollabieren oder die Liste aus der Karte laufen.
+   Im HORIZONTALEN Layout ist es laengst richtig (gemessen: Liste 354 px,
+   fuellt die Spalte, kein Scrollen) — genau das belegt, dass die Aufteilung
+   einen echten Mechanismus braucht (ziehbarer Trenner oder gemerkte
+   Aufteilung), keine weitere CSS-Heuristik. */
+/* Das herausgelöste Playlist-Fenster: seine Karte trägt height:100%, aber
+   `#view-plq` selbst hatte keine Höhe — 100 % von auto ist auto, deshalb war
+   die Karte nur inhaltshoch (gemessen 132 px in einem 420 px hohen Panel). */
+#view-plq{height:100%;min-height:0;display:flex;flex-direction:column}
+#view-plq>.card{flex:1 1 auto;min-height:0}
+/* Und die Liste füllt die Karte. `.plq-gross` (Zeile ~399) will das längst,
+   verliert aber gegen `.pl-queue{max-height:150px}` — gleiche Spezifität, und
+   die spätere Regel gewinnt. Die Id hebt das auf; dieselbe Falle ist beim
+   Zu-klein-Verhalten weiter unten schon einmal dokumentiert. */
+#view-plq>.card>.pl-queue{flex:1 1 auto;max-height:none;min-height:0}
 /* HORIZONTAL: Video links, Titel/Steuerung/Playlist rechts */
 #view-player .card.pl-horizontal{flex-direction:row}
 .card.pl-horizontal .pl-media{height:100%}
