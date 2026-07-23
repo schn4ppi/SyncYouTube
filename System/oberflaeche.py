@@ -1109,6 +1109,14 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
              „Mini". Sie brauchten unten neben dem Player eine eigene Spalte,
              die dem Bild Platz wegnahm; hier liegen sie auf der ruhigen
              Kopfzeile, wo Statuszeichen üblicherweise wohnen. -->
+        <!-- Build 134 (JB Punkt 4): sichtbares Geräte-Symbol für die
+             Fernsteuerung. Die Funktion gab es längst, sie lag aber im
+             ⚙-Menü — niemand vermutet ein Handy hinter einem Zahnrad.
+             Sichtbar wird das Symbol nur, wenn die Fernsteuerung LÄUFT
+             (Calm-Design: keine Anzeige ohne Anlass); ausgeschaltet bleibt
+             sie über das ⚙ erreichbar wie bisher. -->
+        <button class="btn mini" id="fern-symbol" onclick="fernFenster(event)" style="display:none"
+                title="Fernsteuerung läuft — Code und Handy-Link anzeigen">📱</button>
         <span class="apidot bad" id="apidot" title="API-Status"></span>
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
@@ -1116,7 +1124,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 133</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 134</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -1705,6 +1713,10 @@ function optionenToggle(ev){
     // wieder springen darf.
     // Build 132 (JB): Sprungweite der Pfeiltasten. 5 s ist der Standard, weil
     // YouTube es so macht — belegt in dessen Tastenkürzel-Hilfe.
+    // Build 134 (JB Punkt 4): Einfach- oder Doppelklick zum Abspielen.
+    '<div class="optrow"><span>Abspielen per</span><select id="opt_klick" onchange="klickArtSetzen(this.value)" '+
+      'title="Doppelklick stört die Auswahl nicht — Einfachklick ist schneller">'+
+      '<option value="doppel">Doppelklick</option><option value="einfach">Einfachklick</option></select></div>'+
     '<div class="optrow"><span>Pfeiltasten springen</span><span><input type="number" id="opt_sprung" min="1" max="60" '+
       'style="width:56px" onchange="sprungWeiteSetzen(this.value)" title="Sekunden pro Druck auf ←/→ (J/L bleiben bei 10 s)"> s</span></div>'+
     '<div class="optrow"><span>Seitenverhältnis</span><select id="opt_ar" onchange="seitenverhaeltnisSetzen(this.value)">'+
@@ -1732,6 +1744,7 @@ function optionenToggle(ev){
   const ar=m.querySelector('#opt_ar');
   if(ar){try{ar.value=localStorage.getItem('ytdl_ar')||'16/9';}catch(e){ar.value='16/9';}}
   const sp=m.querySelector('#opt_sprung'); if(sp)sp.value=sprungWeite();
+  const kl=m.querySelector('#opt_klick'); if(kl)kl.value=klickArt();
   const sk=m.querySelector('#opt_skin'); if(sk)sk.value=aktuellerSkin();
   const slp=m.querySelector('#opt_sleep'); if(slp)slp.value=sleepTitelende?'titel':'0'; sleepLabel();
   const ub=m.querySelector('#opt_ueb'); if(ub)ub.value=uebergang;
@@ -2723,6 +2736,9 @@ function apiStatus(ok){
             +' · Browser: '+browserName();
   }
   const t=document.getElementById('apitext'); if(t)t.textContent=ok?'API verbunden · 127.0.0.1:8776':'API getrennt — läuft die App?';
+  // Build 134: Das Geräte-Symbol hängt am Datenstand, nicht am ⚙-Menü —
+  // sonst erschiene es erst, wenn jemand die Einstellungen öffnet.
+  try{fernInfoMalen();}catch(e){}
 }
 
 let cfgInit=false;
@@ -2774,9 +2790,29 @@ async function fernToggle(){
     'damit sie im WLAN erreichbar wird. Danach steht hier im ⚙ der Code + der Handy-Link.\\n\\n'+
     'Zugriff nur mit Code — Standard bleibt sonst dein PC allein.');
 }
+function fernFenster(ev){
+  // Build 134: zeigt Code + Handy-Link direkt an der Kopfleiste, ohne den
+  // Umweg über das Zahnrad. Schwebende Fläche => an den <body> (Build-125-Regel).
+  const f=daten&&daten.fernsteuerung; if(!f)return;
+  document.querySelectorAll('#fernfly').forEach(x=>x.remove());
+  const m=document.createElement('div'); m.className='panelmenu'; m.id='fernfly';
+  m.style.minWidth='280px';
+  m.innerHTML='<div style="font-size:11.5px;color:#8a7d74;padding:2px 6px 7px">📱 Fernsteuerung läuft</div>'+
+    '<div class="mzeile"><span>Code</span><b style="color:var(--akz2);letter-spacing:.08em">'+esc(f.code||'')+'</b></div>'+
+    (f.url?'<div class="mzeile"><span>Am Handy öffnen</span><b style="font-size:11.5px">'+esc(f.url)+'</b></div>'
+          :'<div class="mzeile"><span style="font-size:11.5px">Handy-Link erscheint nach einem App-Neustart</span></div>')+
+    '<div class="msep"></div>'+
+    '<button class="mbtn" onclick="document.getElementById(\\'fernfly\\').remove();fernToggle()">Fernsteuerung ausschalten</button>';
+  document.body.appendChild(m);
+  popoverBei(m, ev.currentTarget.getBoundingClientRect());
+  menuSchliesser(m);
+}
 function fernInfoMalen(){
   const b=document.getElementById('fernbtn'), info=document.getElementById('ferninfo');
   const f=daten&&daten.fernsteuerung;
+  // Das Symbol in der Kopfleiste erscheint nur bei laufender Fernsteuerung.
+  const sym=document.getElementById('fern-symbol');
+  if(sym)sym.style.display=(f&&f.aktiv)?'':'none';
   if(b)b.textContent=(f&&f.aktiv)?'An — ausschalten':'Aus — einschalten';
   if(info){
     if(f&&f.aktiv)info.innerHTML='Code: <b style="color:var(--akz2)">'+esc(f.code||'')+'</b>'+
@@ -3796,10 +3832,34 @@ function thumbClick(ev,id){
   const x=libFind(id);
   if(x&&x.vorhanden)playerPlay([id]); else biblioNeuladen(id);
 }
+/* ---- Klick-Art zum Abspielen (Build 134, JB Punkt 4) ---------------------
+   JB: „Einstellung Einfach- vs. Doppelklick zum Abspielen (Doppelklick
+   Standard — JBs Kumpel bevorzugt Einfachklick; JB: Doppelklick fühlt sich
+   nativer an und stört die Auswahl nicht)."
+   Die Begründung ist auch der Grund für den Standard: bei Einfachklick
+   kollidiert Abspielen mit dem Auswählen. Deshalb bleibt Doppelklick
+   voreingestellt — wer den Einfachklick will, stellt ihn um. Gemerkt wird
+   lokal, denn es ist eine Bedien-Vorliebe des Menschen am Gerät, keine
+   Programm-Einstellung. */
+function klickArt(){
+  let v='doppel'; try{v=localStorage.getItem('ytdl_klickart')||'doppel';}catch(e){}
+  return v==='einfach'?'einfach':'doppel';
+}
+function klickArtSetzen(v){
+  try{localStorage.setItem('ytdl_klickart',v==='einfach'?'einfach':'doppel');}catch(e){}
+  toast(v==='einfach'?'▶ Einfachklick spielt ab.':'▶ Doppelklick spielt ab (Einfachklick wählt aus).');
+}
 function kachelClick(ev,id){
-  if(!libSelektierend(ev))return;
   if(ev.target.closest('button,a,input'))return;
-  ev.preventDefault(); libSelectClick(ev,id);
+  // Auswählen hat Vorrang: Strg/Umschalt und der Mehrfach-Auswahl-Modus
+  // bleiben unberührt, sonst könnte man nichts mehr markieren.
+  if(libSelektierend(ev)){ ev.preventDefault(); libSelectClick(ev,id); return; }
+  if(klickArt()==='einfach'){ ev.preventDefault(); playerPlay([id]); }
+}
+function kachelDblClick(ev,id){
+  if(ev.target.closest('button,a,input'))return;
+  if(libSelektierend(ev))return;                       // im Auswahl-Modus nie abspielen
+  if(klickArt()==='doppel'){ ev.preventDefault(); playerPlay([id]); }
 }
 function delEinzeln(id){
   const x=libFind(id)||{titel:''};
@@ -4817,7 +4877,7 @@ function kachel(x){
   // Ausführliche Details nur noch als Tooltip auf der Info-Zeile (Kachel bleibt ruhig).
   const det=[COLDEF.kategorie.t(x),COLDEF.qualitaet.t(x),technikText(x),mb(x.groesse),
              x.dauer?zeit(x.dauer):'',x.uploader||'',ytdatum(x.upload_date)].filter(Boolean).join('  ·  ');
-  return `<div class="kachel ${x.vorhanden?'':'weg'}${sel}" onclick="kachelClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}>
+  return `<div class="kachel ${x.vorhanden?'':'weg'}${sel}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}>
     <div class="thumbwrap ${x.thumb?'':'platzhalter'}" onclick="thumbClick(event,'${x.id}')" title="Abspielen">${thumb}${dauer}${weg}</div>
     <div class="kbody">
       <div class="ktitel" title="${esc(x.titel)}">${esc(x.titel)}</div>
@@ -4854,7 +4914,7 @@ function listeTab(arr){
       return `<td class="num">${esc(String(COLDEF[k].t(x)))}</td>`;
     }).join('');
     const sel=libAuswahl.has(x.id)?' sel':'';
-    return `<tr class="${x.vorhanden?'':'weg'}${sel}" onclick="kachelClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}><td><div class="ltitel">${th}<span class="ltxt" title="${esc(x.titel)}">${esc(x.titel)}</span></div></td>${tds}<td class="num">${aktBtnsListe(x)}</td></tr>`;
+    return `<tr class="${x.vorhanden?'':'weg'}${sel}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}><td><div class="ltitel">${th}<span class="ltxt" title="${esc(x.titel)}">${esc(x.titel)}</span></div></td>${tds}<td class="num">${aktBtnsListe(x)}</td></tr>`;
   }).join('');
   return `<div class="libwrap"><table class="libtab${libKompakt?' kompakt':''}"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }

@@ -1520,3 +1520,22 @@ def test_addon_knopf_braucht_gueltigen_anker():
     # sondern an den Anker (JB-Dauerregel: Masse an die POSITION koppeln).
     assert "Math.max(4," not in block, (
         "Der Knopf wird weiter an den Bildschirmrand geklemmt statt an das Video")
+
+
+def test_klickart_zum_abspielen_einstellbar():
+    # JB Punkt 4: "Einstellung Einfach- vs. Doppelklick zum Abspielen
+    # (Doppelklick Standard - JBs Kumpel bevorzugt Einfachklick; JB:
+    # Doppelklick fuehlt sich nativer an und stoert die Auswahl nicht)."
+    # Der Grund fuer den Standard steckt in JBs Begruendung: bei Einfachklick
+    # kollidiert Abspielen mit dem Auswaehlen. Wer ihn trotzdem will, stellt
+    # ihn um - deshalb muss die Wahl existieren UND der Standard Doppelklick
+    # sein.
+    quelle = _oberflaeche_html()
+    assert "klickArt" in quelle, "Keine Einstellung fuer die Klick-Art vorhanden"
+    assert "ytdl_klickart" in quelle, "Die Wahl wird nicht gemerkt"
+    # Standard ist Doppelklick.
+    import re
+    m = re.search(r"function klickArt\(\)\{[^}]*'(einfach|doppel)'", quelle)
+    assert m and m.group(1) == "doppel", "Standard ist nicht Doppelklick"
+    # Und die Kacheln/Zeilen muessen den Doppelklick auch auswerten.
+    assert "kachelDblClick" in quelle, "Kacheln reagieren nicht auf Doppelklick"
