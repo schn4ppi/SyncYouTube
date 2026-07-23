@@ -1206,3 +1206,63 @@ def test_kopfleiste_player_hat_mindestmass():
         + (str(masse) if masse else "keins")
         + " — min-width:0 erlaubt das Schrumpfen bis zum Ueberlauf."
     )
+
+
+def test_abbruch_greift_auch_beim_zusammenfuegen():
+    # JB-Fund: „Laufende Downloads lassen sich nicht abbrechen."
+    # Wurzel: die Optionen trugen nur progress_hooks. Der feuert waehrend des
+    # Ladens — danach uebernimmt ffmpeg (Bild+Ton zusammenfuegen, MP3 wandeln,
+    # Cover einbetten), und genau in dieser laengsten Phase (Anzeige
+    # „Zusammenfuegen") sah niemand mehr nach, ob JB abgebrochen hat.
+    # yt-dlp bietet dafuer postprocessor_hooks — die muessen denselben
+    # Abbruch pruefen wie der Fortschritts-Hook.
+    import types
+    gefangen = {}
+
+    class FakeYDL:
+        def __init__(self, opts):
+            gefangen["opts"] = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def extract_info(self, url, download=True):
+            return {"id": "abbruchtest", "title": "Probe", "ext": "mp4"}
+
+    fake = types.ModuleType("yt_dlp")
+    fake.YoutubeDL = FakeYDL
+    alt = sys.modules.get("yt_dlp")
+    sys.modules["yt_dlp"] = fake
+    item = {"id": "abbr1", "qualitaet": "720p", "status": "laeuft", "titel": "Probe",
+            "url": "https://example.invalid/v", "prozent": 0.0, "geladen": 0, "gesamt": 0,
+            "geschw": 0, "phase": "", "versuche": 0, "fehler": "", "naechster_versuch": 0}
+    try:
+        try:
+            app._download_lauf(item)
+        except Exception:                             # noqa: BLE001 — nur die opts zaehlen
+            pass
+        opts = gefangen.get("opts") or {}
+        assert opts.get("progress_hooks"), "progress_hooks fehlen"
+        pp = opts.get("postprocessor_hooks")
+        assert pp, ("postprocessor_hooks fehlen — waehrend „Zusammenfuegen\" "
+                    "greift kein Abbruch")
+        # Der Nachbearbeitungs-Hook muss den Abbruch genauso beachten.
+        app.Q.abbrueche.add("abbr1")
+        try:
+            fehler = None
+            try:
+                pp[0]({"status": "started", "postprocessor": "Merger"})
+            except app.AbbruchError:
+                fehler = "abbruch"
+            assert fehler == "abbruch", (
+                "postprocessor_hook stoppt nicht bei gesetztem Abbruch")
+        finally:
+            app.Q.abbrueche.discard("abbr1")
+    finally:
+        if alt is not None:
+            sys.modules["yt_dlp"] = alt
+        else:
+            sys.modules.pop("yt_dlp", None)

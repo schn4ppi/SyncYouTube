@@ -3288,6 +3288,20 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
             item["phase"] = "Zusammenfügen"
             item["geschw"] = 0
 
+    def pp_hook(d):
+        # Build 125 (JB-Fund „laufende Downloads lassen sich nicht abbrechen"):
+        # progress_hooks feuern NUR waehrend des Ladens. Danach uebernimmt
+        # ffmpeg — Bild+Ton zusammenfuegen, MP3 wandeln, Cover einbetten — und
+        # in genau dieser Phase (Anzeige „Zusammenfuegen") sah niemand mehr
+        # nach, ob abgebrochen wurde. Bei grossen Videos ist das die laengste
+        # Strecke, also gerade die, in der JB abbricht. Derselbe Abbruch, eine
+        # Pruefstelle mehr; die AbbruchError faengt _download_lauf schon ab.
+        if item["id"] in Q.abbrueche:
+            raise AbbruchError()
+        if d.get("status") == "started":
+            item["phase"] = "Zusammenfügen"
+            Q.speichern()
+
     opts = _ydl_basis_opts(mit_cookies=mit_cookies)
     opts.update({
         "outtmpl": os.path.join(ziel_ordner(), "%(title)s [%(id)s].%(ext)s"),
@@ -3295,6 +3309,7 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
         "noplaylist": True,
         "continuedl": True,
         "progress_hooks": [hook],
+        "postprocessor_hooks": [pp_hook],
         "merge_output_format": "mp4",
     })
     # OHNE ffmpeg kann yt-dlp Bild+Ton nicht zusammenfügen -> Videos schlugen fehl
