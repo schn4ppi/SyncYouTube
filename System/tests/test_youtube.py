@@ -1373,3 +1373,42 @@ def test_liste_zuschneiden_menge_und_richtung():
     # Leere/kaputte Eintraege fliegen raus, ohne zu crashen.
     assert z([None, {"id": "a"}, None], 5, "neu") == [{"id": "a"}]
     assert z([], 3, "neu") == []
+
+
+def test_menuschliesser_schliesst_das_uebergebene_menue():
+    # JB-Fund 23.07.: "das Fenster ging eben nicht weg, auch wenn ich nichts
+    # angewaehlt habe. Wenn ich woanders hinklicke, dann sollte es
+    # verschwinden."
+    # Wurzel: menuSchliesser(m) nahm das Menue entgegen, benutzte es aber
+    # NICHT - es raeumte hartkodiert nur .itemmenu weg. Aufrufer mit einer
+    # anderen Klasse (die Link-Rueckfrage und der Mengen-Regler sind
+    # .panelmenu) bekamen stillschweigend gar kein Schliessen.
+    # Der Waechter haelt fest, dass der Parameter wirklich verwendet wird -
+    # sonst faellt der naechste Aufrufer mit neuer Klasse genauso durch.
+    import re
+    quelle = _oberflaeche_html()
+    m = re.search(r"function menuSchliesser\(m\)\{(.*?)\n\}", quelle, re.S)
+    assert m, "menuSchliesser nicht gefunden"
+    koerper = m.group(1)
+    assert re.search(r"\bm\.remove\(\)", koerper), (
+        "menuSchliesser entfernt sein eigenes Argument nicht - Menues mit "
+        "anderer Klasse als .itemmenu bleiben offen stehen")
+    assert re.search(r"\bm\.contains\(", koerper), (
+        "menuSchliesser prueft nicht, ob der Klick INS uebergebene Menue "
+        "ging - ein Klick auf den eigenen Inhalt wuerde es zuklappen")
+
+
+def test_schwebende_flaechen_werden_alle_geschlossen():
+    # Jede Flaeche, die per menuSchliesser aufgeraeumt wird, muss auch am
+    # <body> haengen (sonst greift popoverBei/das Schliessen ins Leere) -
+    # und umgekehrt darf keine neue schwebende Flaeche ohne Schliesser
+    # gebaut werden. Geprueft an den beiden Build-126/127-Flaechen.
+    quelle = _oberflaeche_html()
+    for funktion, flaeche in (("linkFrage", "linkfrage"),
+                              ("mengenRegler", "mengenregler")):
+        i = quelle.index("function " + funktion)
+        block = quelle[i:i + 3000]
+        assert "document.body.appendChild(m)" in block, (
+            f"{funktion}: Flaeche haengt nicht am <body>")
+        assert "menuSchliesser(m)" in block, (
+            f"{funktion}: kein Aussenklick-Schliesser - {flaeche} bliebe stehen")

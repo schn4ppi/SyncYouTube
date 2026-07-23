@@ -1003,7 +1003,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 127</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 128</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -4258,11 +4258,29 @@ function aktBtnsKachel(x){
 }
 /* ---- Menü-Werkzeuge (Explorer-Stil) ---- */
 function menuSchliesser(m){                            // Außenklick schließt Menü + offene Flyouts
-  setTimeout(()=>{const zu=(e2)=>{
-    if(!(e2.target.closest&&e2.target.closest('.itemmenu'))){
+  // Build 128 (JB-Fund: „das Fenster ging eben nicht weg, auch wenn ich
+  // nichts angewählt habe"). Wurzel: diese Funktion nahm `m` entgegen und
+  // benutzte es NIE — sie räumte hartkodiert nur `.itemmenu` weg. Wer sie
+  // mit einer anderen Klasse aufrief (die Link-Rückfrage und der
+  // Mengen-Regler sind `.panelmenu`), bekam stillschweigend gar kein
+  // Schließen. Jetzt schließt sie das übergebene Menü mit — damit gilt sie
+  // für JEDEN künftigen Aufrufer, egal welche Klasse er wählt.
+  setTimeout(()=>{
+    const zu=(e2)=>{
+      const t=e2.target;
+      const drin=t&&t.closest&&(t.closest('.itemmenu')||(m&&m.contains(t)));
+      if(drin)return;                                 // Klick INS Menü: offen lassen
       document.querySelectorAll('.itemmenu').forEach(x=>x.remove());
-      document.removeEventListener('pointerdown',zu,true);}};
-    document.addEventListener('pointerdown',zu,true);},0);
+      if(m)m.remove();
+      document.removeEventListener('pointerdown',zu,true);
+      document.removeEventListener('keydown',esc,true);
+    };
+    // Esc schließt ebenfalls — dasselbe Bedürfnis („weg damit"), nur über
+    // die Tastatur; sonst bliebe das Fenster bei reiner Tastaturbedienung.
+    const esc=(e2)=>{ if(e2.key==='Escape')zu({target:document.body}); };
+    document.addEventListener('pointerdown',zu,true);
+    document.addEventListener('keydown',esc,true);
+  },0);
 }
 function aktionsMenu(ev,eintraege){                    // generisches Klick-Menü an einem Knopf
   ev.stopPropagation();
