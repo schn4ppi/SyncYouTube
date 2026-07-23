@@ -205,7 +205,14 @@ html.light .cmd-now{border-color:#e3d8cc;background:rgba(0,0,0,.02)}
 .cmd-time{flex:none;font-size:11px;color:#8a7d74;min-width:36px;text-align:center;font-variant-numeric:tabular-nums}
 #cmd-seek{flex:1;min-width:60px;height:14px;accent-color:var(--akz);cursor:pointer;margin:0}
 #cmd-seek:disabled{opacity:.35;cursor:default}
-.cmd-stat{display:flex;flex-direction:column;justify-content:center;align-items:flex-end;gap:5px;flex:none}
+/* Build 131 (JB): Zähler und API-Punkt stehen NEBENeinander, direkt neben dem
+   Mini-Player — nicht mehr als schmale Säule mit dem Zähler oben und dem
+   Punkt weit darunter. Seit der Tooltip wieder schwebt (Build 129) ist der
+   Zähler nur noch 26 px breit; eine eigene Spalte über die volle Zeilenhöhe
+   für zwei winzige Zeichen sah verloren aus und kostete den Player Platz.
+   Die Ausweich-Ordnung bleibt unberührt: unter 430 px weicht der Zähler,
+   Warnung und Punkt bleiben stehen. */
+.cmd-stat{display:flex;flex-direction:row;align-items:center;justify-content:flex-end;gap:7px;flex:none}
 .cmd-side{display:flex;flex-direction:column;justify-content:center;gap:3px;flex:none}
 /* Transport-Knöpfe: selbst gezeichnete SVGs, Spotify-Größe; aktiver Toggle =
    Akzentfarbe + Punkt darunter, inaktiv = neutral (JB 13.07.) */
@@ -1038,7 +1045,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
                 title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
         <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 130</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 131</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
