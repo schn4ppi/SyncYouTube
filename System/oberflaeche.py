@@ -868,28 +868,28 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
 .pl-media audio{width:100%;flex:none;position:relative;z-index:2}
 /* Visualizer: Canvas als animierter Hintergrund hinter dem Cover, Audio-Leiste oben drüber */
 .pl-media{position:relative;container-type:inline-size;container-name:plmedia}
-/* Build 132 (JB-Frage „ist das 16:9?"): Berechtigt — bisher trug nur das
-   VIDEO das feste Maß, der schwarze Rahmen drumherum nicht. War das Panel
-   höher als 16:9, blieb über und unter dem Bild ein breiter toter Streifen
-   in Schwarz stehen (JB-Bild 2).
-   Zwei Dinge waren dafür nötig, beide erst durch Messen gefunden:
-   1. Der Rahmen darf keine feste Höhe bekommen. Mit height:100% UND
-      max-width:100% sind BEIDE Maße vorgegeben — das schlägt aspect-ratio,
-      der Rahmen blieb 700x900. Jetzt wächst er mit dem Bild (height:auto)
-      und umschließt es; damit sitzt auch die Leiste wieder am Bild statt am
-      Panelboden.
-   2. align-self:center. Liegt die Playlist NEBEN dem Bild, ist die Karte
-      eine ZEILE — dann streckt sie den Rahmen über die volle Höhe und
-      height:auto bliebe wirkungslos.
+/* Player-Rahmen: festes Seitenverhältnis, obenbündig (Builds 132/136/138)
+   JB-Weg dahin, damit es niemand wieder aufweicht:
+   132 „ist das 16:9?" — nein: das Maß hing nur am <video>, der schwarze
+       Rahmen drumherum war frei und liess oben/unten tote Streifen stehen.
+   136 „das Bild sollte oben angesetzt sein" — margin:0 auto statt auto und
+       align-self:flex-start; vorher stand über dem Bild derselbe Leerraum
+       wie darunter und die Playlist rutschte ans Kartenende.
+   138 „jetzt ist der Player nicht mehr 16:9" — bei einem AUDIO-Titel gibt es
+       gar kein <video>, nur ein quadratisches Cover; der Kasten wuchs damit
+       über die volle Panel-Höhe. Jetzt trägt der RAHMEN das Verhältnis.
+   Zwei gemessene Fallen: eine feste Höhe schlägt aspect-ratio (mit
+   height:100% blieb der Rahmen 700x900), und in einer ZEILEN-Karte streckt
+   align-items den Rahmen, solange align-self fehlt.
+   `width:100%` + `height:auto` lässt die Breite die Höhe bestimmen;
+   `max-height:100cqb` misst gegen die Karte (container-type:size liegt dort)
+   und fängt sehr flache Panels ab. JB ausdrücklich: „wenn der Player kleiner
+   wird bleibt halt darunter ein grosses Loch" — das Loch ist gewollt.
    body:not(.mini):not(.embed) grenzt Mini-Player und Einbett-Modus aus, die
    ihre eigenen, bewusst anderen Höhenketten haben (Build 97/121). */
-   Build 136 (JB-Bild): Das Bild sitzt jetzt OBEN statt in der Mitte —
-   `margin:0 auto` statt `margin:auto` (kein vertikales Auto mehr) und
-   align-self:flex-start. Vorher stand über dem Video derselbe Leerraum wie
-   darunter, und die Playlist rutschte ans untere Ende der Karte; jetzt
-   folgt sie direkt unter dem Bild. */
 body:not(.mini):not(.embed) #view-player .card .pl-media{
-  flex:0 1 auto;height:auto;width:100%;max-height:100%;margin:0 auto;align-self:flex-start}
+  flex:0 0 auto;aspect-ratio:var(--pl-ar,16/9);width:100%;height:auto;
+  max-height:100cqb;margin:0 auto;align-self:flex-start}
 body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
   height:100%;flex:1;align-self:stretch}
 .pl-viz{position:absolute;inset:0;width:100%;height:100%;z-index:0;display:none}
@@ -1131,7 +1131,7 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
         <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
         <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
               title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
-        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 137</span>
+        <span id="buildmark" title="Baustand — bei Problemen prüfen, ob dieser aktuell ist">Build 2026-07-14 · 138</span>
       </div>
       <div class="cmd-rowadd">
         <!-- Build 126 (JB: „drei zu ähnliche Knöpfe"): EIN Feld für alles.
@@ -6284,23 +6284,23 @@ async function plselDrop(ev){
     if(!id){toast('Playlist ließ sich nicht anlegen.');return;}
   }
   const p=plState.find(x=>x.id===id);
-  // Nur wirklich neue Titel einreihen — doppelte Einträge wären still
-  // verwirrend, und das Rückgängig soll genau das zurücknehmen, was DIESER
-  // Wurf getan hat (nicht was vorher schon drin lag).
-  const vorher=new Set((p&&p.items)||[]);
-  const frisch=keys.filter(k=>!vorher.has(k));
-  for(const k of frisch)await plApi({art:'add',id,key:k});
-  plLetzterWurf={id,keys:frisch,plNeu:neu};
+  // Build 138 (JB): Doppelte Titel sind erlaubt — „Ist ja meine Entscheidung."
+  // Es wird also NICHT mehr gefiltert. Fürs Rückgängig merken wir uns den
+  // Stand VOR dem Wurf und stellen ihn exakt wieder her; ein „remove" je
+  // Titel träfe alle Vorkommen, nicht nur die gerade hinzugefügten.
+  const vorher=((p&&p.items)||[]).slice();
+  for(const k of keys)await plApi({art:'add',id,key:k});
+  plLetzterWurf={id,vorher,plNeu:neu};
   const name=(plState.find(x=>x.id===id)||{}).name||'Playlist';
-  if(!frisch.length){toast('Schon alle in „'+name+'".');return;}
-  toastMitZurueck((neu?'📃 „'+name+'" angelegt · ':'')+frisch.length+
-    (frisch.length===1?' Titel':' Titel')+' → „'+name+'"', 'plZurueck()');
+  const schon=keys.filter(k=>vorher.includes(k)).length;
+  toastMitZurueck((neu?'📃 „'+name+'" angelegt · ':'')+keys.length+' Titel → „'+name+'"'+
+    (schon?' ('+schon+' schon drin — jetzt doppelt)':''), 'plZurueck()');
 }
 async function plZurueck(){
   const w=plLetzterWurf; if(!w)return;
   plLetzterWurf=null;
-  for(const k of w.keys)await plApi({art:'remove',id:w.id,key:k});
   if(w.plNeu)await plApi({art:'delete',id:w.id});       // frisch angelegte Liste wieder weg
+  else await plApi({art:'ersetzen',id:w.id,items:w.vorher});
   toast('↩ Rückgängig.');
 }
 function toastMitZurueck(text,ruf){

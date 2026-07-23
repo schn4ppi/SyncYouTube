@@ -1717,9 +1717,21 @@ def playlist_aktion(daten):
             elif art == "rename":
                 pl["name"] = (str(daten.get("name") or pl["name"])).strip()[:80] or pl["name"]
             elif art == "add":
+                # Build 138 (JB): Doppelte Titel sind ERLAUBT — „Ist ja meine
+                # Entscheidung." Vorher verschluckte `k not in pl["items"]`
+                # den Wurf stillschweigend: JB zog einen Song hinein, und es
+                # passierte einfach nichts. Eine Playlist ist eine
+                # Reihenfolge, kein Mengenbegriff.
                 k = daten.get("key")
-                if k and k in _geladen and k not in pl["items"]:
+                if k and k in _geladen:
                     pl["items"].append(k)
+            elif art == "ersetzen":
+                # Setzt die Liste EXAKT — für das Rückgängig nach einem Wurf.
+                # Ein „remove" träfe alle Vorkommen eines Titels, nicht nur
+                # die gerade hinzugefügten; seit Duplikate erlaubt sind, wäre
+                # das die falsche Umkehrung.
+                if isinstance(daten.get("items"), list):
+                    pl["items"] = [str(k) for k in daten["items"] if str(k) in _geladen]
             elif art == "remove":
                 pl["items"] = [x for x in pl["items"] if x != daten.get("key")]
             elif art == "reorder" and isinstance(daten.get("items"), list):

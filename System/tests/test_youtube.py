@@ -1650,3 +1650,73 @@ def test_warteschlange_heilt_tote_auftraege():
     start = quelle[quelle.index("class Warteschlange"):]
     start = start[:start.index("def speichern")]
     assert '"prueft"' in start, "Beim Start bleibt 'prueft' liegen"
+
+
+def test_playlist_erlaubt_doppelte_titel():
+    # JB 23.07.: "Ich will songs auch doppelt in eine playlist ziehen koennen.
+    # Ist ja meine Entscheidung."
+    # Das Backend hat es bisher STILL verhindert (k not in pl["items"]) - der
+    # Titel wurde gezogen, und nichts passierte. Eine Playlist ist eine
+    # Reihenfolge, kein Mengenbegriff: derselbe Song darf zweimal vorkommen.
+    import tempfile, os, json
+    alt_pl, alt_sp = app._playlists, app._json_speichern
+    app._json_speichern = lambda *a, **k: None
+    try:
+        app._playlists = [{"id": "p1", "name": "Test", "items": [], "ts": 0}]
+        schluessel = next(iter(app._geladen), None)
+        if not schluessel:
+            return                                    # leere Bibliothek: nichts zu pruefen
+        for _ in range(3):
+            app.playlist_aktion({"art": "add", "id": "p1", "key": schluessel})
+        assert app._playlists[0]["items"] == [schluessel] * 3, \
+            "Doppelte Titel werden weiterhin verschluckt"
+        # Rueckgaengig braucht eine Aktion, die die Liste EXAKT wiederherstellt -
+        # ein 'remove' wuerde alle Vorkommen treffen, nicht nur den letzten Wurf.
+        app.playlist_aktion({"art": "ersetzen", "id": "p1", "items": [schluessel]})
+        assert app._playlists[0]["items"] == [schluessel]
+        # Unbekannte Keys prallen ab (nichts Erfundenes in der Playlist).
+        app.playlist_aktion({"art": "ersetzen", "id": "p1", "items": ["gibtsnicht", schluessel]})
+        assert app._playlists[0]["items"] == [schluessel]
+    finally:
+        app._playlists, app._json_speichern = alt_pl, alt_sp
+
+
+def test_player_rahmen_ist_16zu9():
+    # JB-Bild: "jetzt ist der player nicht mehr 16:9, oder? Also Player 16:9
+    # obenbuendig ... Der Player ist ja eigentlich nur das 16:9 bild und
+    # darunter und darueber grosse freie flaechen."
+    # Der Rahmen (nicht nur das <video>) muss das Verhaeltnis tragen - sonst
+    # waechst er bei einem Audio-Titel mit quadratischem Cover ueber die
+    # ganze Panel-Hoehe, und genau das zeigte JBs Bild.
+    import re
+    quelle = _oberflaeche_html()
+    css = re.search(r"<style>(.*?)</style>", quelle, re.S).group(1)
+    treffer = [m.group(2) for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css)
+               if re.search(r"#view-player[^,{]*\.pl-media\b(?!\s+\w)", m.group(1))
+               and "aspect-ratio" in m.group(2)]
+    assert treffer, "Der Player-RAHMEN traegt kein Seitenverhaeltnis"
+    zus = " ".join(treffer).replace(" ", "")
+    assert "height:auto" in zus, \
+        "Mit fester Hoehe schlaegt die Hoehe das Seitenverhaeltnis (gemessen)"
+
+
+def test_css_kommentare_sind_sauber_geschlossen():
+    # Eigener Fehler, ZWEIMAL gemacht (Build 132 und 138): beim Erweitern
+    # eines Kommentarblocks blieb ein zweites "*/" stehen. CSS-Kommentare
+    # schachteln NICHT - nach dem ersten "*/" lief die weitere Prosa als CSS,
+    # und der Parser verwarf die folgende Regel STILLSCHWEIGEND. Beide Male
+    # fiel es nur auf, weil eine Live-Messung die Regel vermisste; im
+    # Quelltext sieht so etwas voellig harmlos aus.
+    # Deshalb dieser Waechter: jeder Kommentar muss genau EIN Ende haben.
+    import re
+    quelle = _oberflaeche_html()
+    css = re.search(r"<style>(.*?)</style>", quelle, re.S).group(1)
+    fehler = []
+    for m in re.finditer(r"/\*(.*?)\*/", css, re.S):
+        if "*/" in m.group(1):
+            fehler.append(m.group(1)[:70])
+    assert not fehler, ("CSS-Kommentar mit mehreren Enden — die Regel danach "
+                        "wird verworfen: " + str(fehler))
+    # Und die Zahl der Oeffner muss zur Zahl der Schliesser passen.
+    assert css.count("/*") == css.count("*/"), \
+        f"Unpaarige CSS-Kommentare: {css.count('/*')} Oeffner, {css.count('*/')} Schliesser"
