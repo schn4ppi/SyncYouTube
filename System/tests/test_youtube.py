@@ -1865,21 +1865,44 @@ def test_musik_grad_trennt_beleg_von_vermutung():
     assert grad({"name": "Bridge Over Troubled Water.mp3", "dauer": 290}) == "wahrscheinlich"
 
 
-def test_nur_lieder_ist_eine_zweite_achse():
-    # JBs eigene Bauform (23.07.): "wenn ich von Video zu MP3 wechsle, auch
-    # die Option zu only Lieder ... ein extra Knopf." Das Format sagt, in
-    # welcher FORM etwas vorliegt; dieser Schalter, ob es ein LIED ist.
-    # Beides zusammen ergibt seine Kombinationen von selbst.
+def test_nur_songs_ist_eine_abspielart():
+    # JB (25.07.): das 🎶-Symbol hiess "nur Musik", filterte aber nach FORMAT
+    # (nur Ton/MP3) - Video-Songs wie "Every Breath You Take" fielen raus,
+    # Comedy-MP3s blieben drin. Jetzt ist "Nur Songs" eine eigene Wahl der
+    # Abspielart, quer zum Format, an EINER Stelle mit Klartext.
     quelle = _oberflaeche_html()
-    assert "libnurlieder" in quelle, "Kein Schalter fuer 'nur Lieder'"
-    i = quelle.index("function libGefiltert")
+    for wort in ("Alles", "Nur Ton", "Nur Video", "Nur Songs"):
+        assert wort in quelle, f"Abspielart-Option fehlt: {wort}"
+    # artPasst kennt den Songs-Zustand und stuetzt ihn auf die Musik-Einstufung.
+    i = quelle.index("function artPasst")
     block = quelle[i:_funktionsende(quelle, i)]
-    assert "nurLieder()" in block, "Der Schalter wirkt nicht auf die Bibliothek"
-    # Und er darf nicht ins Leere filtern: youtube_app.py laedt nicht heiss
-    # nach, bis zum App-Neustart fehlt das Feld `musik` in der API-Antwort.
-    # Ohne diese Sicherung haette die Bibliothek LEER ausgesehen.
-    assert "libdaten.some" in block.replace(" ", ""), (
-        "Ohne Einstufung filtert der Schalter alles weg statt nichts")
+    assert "songs" in block and "musik" in block, (
+        "artPasst filtert 'Nur Songs' nicht nach Inhalt (musik)")
+    # ... und faellt nicht ins Leere, solange die Einstufung fehlt (vor dem
+    # App-Neustart hat die API noch kein musik-Feld) - Schutz via musikBekannt().
+    assert "musikBekannt" in block, "kein Schutz gegen leere Einstufung"
+    j = quelle.index("function musikBekannt")
+    assert "some(" in quelle[j:_funktionsende(quelle, j)].replace(" ", ""), (
+        "musikBekannt prueft nicht, ob ueberhaupt Einstufungen da sind")
+
+
+def test_abspielart_gilt_ueberall():
+    # Der Filter greift in Raster, Radio und Autoplay - alle gehen ueber
+    # artPasst, damit "Nur Songs" ueberall gleich wirkt (JB-Fund: im Radio
+    # kamen Video-Songs vor, in der 🎶-Ansicht nicht).
+    quelle = _oberflaeche_html()
+    for fn in ("function libGefiltert", "function radioKandidaten", "function queueIdxPassend"):
+        i = quelle.index(fn)
+        assert "artPasst" in quelle[i:_funktionsende(quelle, i)], (
+            f"{fn} nutzt artPasst nicht - 'Nur Songs' wuerde dort nicht wirken")
+
+
+def test_alte_nur_lieder_checkbox_ist_weg():
+    # Die vergrabene ⚙-Checkbox ist in die Abspielart-Auswahl gewandert - kein
+    # zweiter Schalter fuer dieselbe Sache (JB-Knopf-Diaet, ausgeblendet != weg).
+    quelle = _oberflaeche_html()
+    assert "libnurlieder" not in quelle and "nurLiederSetzen" not in quelle, (
+        "Die redundante 'nur Lieder'-Checkbox lebt noch neben der Abspielart")
 
 
 def test_kanal_nummer_ist_keine_tracknummer():
