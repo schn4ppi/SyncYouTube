@@ -20,9 +20,10 @@ Verwendung (aus jedem Skript in <Programm>\\System\\):
 """
 import json
 import os
+import threading
 import time
 
-KERN_VERSION = 1                    # bei Schema-/Verhaltensänderung hochzählen
+KERN_VERSION = 2                    # bei Schema-/Verhaltensänderung hochzählen
 
 
 def system():
@@ -71,16 +72,102 @@ def json_laden(pfad, standard=None):
 
 
 def json_schreiben(pfad, daten):
-    """Atomar schreiben (tmp + replace). Rückgabe True bei Erfolg."""
+    """Atomar schreiben (eigene tmp-Datei + replace). Rückgabe True bei Erfolg.
+
+    **Der tmp-Name MUSS je Schreiber eindeutig sein.** Bis 23.07.2026 hieß er fest
+    `<pfad>.tmp` — und genau daran zerbrach die Familie unter Mehr-Session-Last.
+    Gemessen mit 8 gleichzeitigen Schreibern und 4 Lesern auf einer Datei:
+    **3.105 von 3.200 Schreibvorgängen schlugen fehl** (Windows-Freigabekonflikt am
+    gemeinsamen tmp) und **2.835 Lesevorgänge sahen ungültiges JSON**. Der Grund ist
+    tückisch: `os.replace` IST atomar — nur nützt das nichts, wenn zwei Prozesse
+    vorher dieselbe Quelldatei beschreiben und einer die halb gefüllte verschiebt.
+    Mit eigenem tmp-Namen je Prozess/Thread: 0 kaputte Lesevorgänge.
+
+    **Zweiter Windows-Befund derselben Messung:** `os.replace` scheitert, solange ein
+    LESER die Zieldatei geöffnet hat (Freigabekonflikt) — bei 4 Dauer-Lesern schlugen
+    so noch 2.984 von 3.200 Schreibvorgängen fehl, obwohl niemand etwas falsch machte.
+    Unter Linux gibt es das nicht; die Familie läuft aber auf Windows. Deshalb ein
+    kurzer Wiederholungs-Anlauf (~0,5 s) statt sofort aufzugeben: der Leser ist im
+    Millisekundenbereich wieder weg.
+    """
+    tmp = f"{pfad}.{os.getpid()}.{threading.get_ident():x}.tmp"
     try:
         os.makedirs(os.path.dirname(os.path.abspath(pfad)), exist_ok=True)
-        tmp = pfad + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(daten, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, pfad)
-        return True
-    except OSError:
+    except (OSError, TypeError, ValueError):
+        _aufraeumen(tmp)
         return False
+    for versuch in range(25):
+        try:
+            os.replace(tmp, pfad)
+            return True
+        except OSError:
+            time.sleep(0.02 * (versuch + 1) if versuch < 5 else 0.02)
+    _aufraeumen(tmp)                # Rest nie liegen lassen (sonst Müll im System\)
+    return False
+
+
+def _aufraeumen(tmp):
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+
+
+SPERRE_ALT_S = 30.0                 # so alt darf eine Sperre höchstens sein
+
+
+def json_aendern(pfad, aenderung, standard=None, wartezeit_s=5.0):
+    """Lesen-Ändern-Schreiben UNTER EINER SPERRE — für gemeinsam geführte Dateien.
+
+    `json_schreiben` allein genügt dafür nicht: Es schreibt zwar heil, aber zwei
+    Sessions, die gleichzeitig lesen, je einen Eintrag ergänzen und zurückschreiben,
+    überschreiben sich gegenseitig. Gemessen (8 Sessions): **5 von 8 Einträgen waren
+    am Ende weg** — jede Datei war für sich gültig, der Inhalt trotzdem falsch. Genau
+    so verliert die Familie Reviere (`claims.json`) und Merkposten.
+
+    `aenderung(daten)` bekommt die geladenen Daten und gibt die neuen zurück (oder
+    ändert sie in place und gibt None zurück). Rückgabe: die geschriebenen Daten,
+    oder None, wenn die Sperre nicht zu bekommen war.
+
+    Nicht-destruktiv im Zweifel: Bekommt niemand die Sperre, wird NICHT blind
+    geschrieben — lieber diese Änderung auslassen als die Arbeit anderer wegwerfen.
+    Eine verwaiste Sperre (Prozess abgestürzt) verfällt nach `SPERRE_ALT_S`.
+    """
+    sperre = pfad + ".sperre"
+    ende = time.time() + wartezeit_s
+    griff = None
+    while time.time() < ende:
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(pfad)), exist_ok=True)
+            griff = os.open(sperre, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            try:                    # verwaiste Sperre eines abgestürzten Prozesses
+                if time.time() - os.path.getmtime(sperre) > SPERRE_ALT_S:
+                    os.remove(sperre)
+                    continue
+            except OSError:
+                pass
+            time.sleep(0.01)
+        except OSError:
+            return None
+    if griff is None:
+        return None
+    try:
+        daten = json_laden(pfad, standard)
+        neu = aenderung(daten)
+        if neu is None:
+            neu = daten
+        json_schreiben(pfad, neu)
+        return neu
+    finally:
+        os.close(griff)
+        try:
+            os.remove(sperre)
+        except OSError:
+            pass
 
 
 STATUS_DATEI = "status.json"        # Einheitsschema, liegt in <Programm>\\System\\
