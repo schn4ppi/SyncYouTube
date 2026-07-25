@@ -791,10 +791,14 @@ def bibliothek_liste():
     # Build 144h (JB Punkt 5): „nur Lieder" braucht eine Einstufung, die den
     # KANAL mitliest — deshalb über die ganze Liste, nicht je Eintrag.
     grade = _musik_grade([(x["id"], x) for x in out])
+    # Build 144k: Ausschnitte markieren (versteckt im Raster, Favorit zählt).
+    fav = set(_clip_favorit_je_gruppe().values())
     for x in out:
         x["kanal_nr"] = x.get("abo_nr") or nummer.get(x["id"], 0)
         x["kanal_von"] = gesamt.get(x["id"], 0)
         x["musik"] = grade.get(x["id"], "nein")
+        x["clip"] = _ist_clip(x["id"])
+        x["clip_favorit"] = x["id"] in fav
     out.sort(key=lambda x: x["ts"] or 0, reverse=True)
     return out
 
@@ -930,6 +934,60 @@ def _clip_basisname(quelle):
     return re.sub(r"\s*\[[\w-]{6,}\]", "", stamm).strip()
 
 
+# ---- Ausschnitte gehören zu ihrem Song (Build 144k, JB 25.07.) --------------
+# JB: „die ausschnitte sollten einen eigenen ordner bekommen, wie eine playlist,
+# nur in dem song … nur der favorit zählt." Ein Ausschnitt trägt |clip im
+# Schlüssel und teilt die Video-Id mit seinem Song. Genau EIN Ausschnitt je
+# Song ist der Favorit: die eigene Wahl (`favorit`-Flag), sonst der neuste.
+def _ist_clip(key):
+    return "|clip" in (key or "")
+
+
+def _clip_gruppe(key):
+    return (key or "").split("|")[0]
+
+
+def _clip_favorit_je_gruppe():
+    """Video-Id -> Schlüssel des Favorit-Ausschnitts. Die eigene Wahl
+    (`favorit`) gewinnt; ohne Wahl der neuste (größtes ts). Reine Auslese,
+    verändert NICHTS (kein Seiteneffekt beim Import/Listen)."""
+    gruppen = {}
+    for k, e in _geladen.items():
+        if _ist_clip(k):
+            gruppen.setdefault(_clip_gruppe(k), []).append((k, e))
+    fav = {}
+    for vid, liste in gruppen.items():
+        gewaehlt = [p for p in liste if p[1].get("favorit")]
+        kandidaten = gewaehlt or liste
+        fav[vid] = max(kandidaten, key=lambda p: p[1].get("ts") or 0)[0]
+    return fav
+
+
+def _clip_favorit_setzen(key):
+    """JBs Wahl festhalten: dieser Ausschnitt wird Favorit seiner Gruppe, die
+    Geschwister verlieren das Flag (persistiert)."""
+    if not _ist_clip(key) or key not in _geladen:
+        return {"fehler": "Kein Ausschnitt"}
+    vid = _clip_gruppe(key)
+    with _io_lock:
+        for k, e in _geladen.items():
+            if _ist_clip(k) and _clip_gruppe(k) == vid:
+                if k == key:
+                    e["favorit"] = True
+                else:
+                    e.pop("favorit", None)
+        _json_speichern(GELADEN_PFAD, _geladen)
+    return {"ok": True}
+
+
+def _clip_favorit_zuruecksetzen(vid):
+    """Alle Favoriten-Wahlen einer Gruppe löschen — damit nach einem NEUEN
+    Ausschnitt wieder der neuste (also der neue) Favorit ist (JB-Wunsch)."""
+    for k, e in _geladen.items():
+        if _ist_clip(k) and _clip_gruppe(k) == vid:
+            e.pop("favorit", None)
+
+
 def clip_erstellen(daten):
     """Aus einer vorhandenen Datei den Bereich [start, ende] herausschneiden
     (leer = Anfang/Ende) und als NEUEN Bibliothekseintrag speichern. Das Original
@@ -981,6 +1039,9 @@ def clip_erstellen(daten):
                         "pfad": ziel, "titel": (e.get("titel") or basis) + " (Ausschnitt)",
                         "dauer": (ende - start) if ende is not None else None,
                         "ts": time.time(), "archiviert": False})
+        # Build 144k: der NEUE Ausschnitt ist der Favorit — dafür die früheren
+        # Wahlen der Gruppe löschen (dann gewinnt der neuste, also dieser).
+        _clip_favorit_zuruecksetzen(vid)
         _geladen[neu_key] = eintrag
         _json_speichern(GELADEN_PFAD, _geladen)
     return {"ok": True, "name": os.path.basename(ziel)}
@@ -4213,6 +4274,10 @@ class Handler(BaseHTTPRequestHandler):
                 return _antwort(self, 200, abo_aktion(daten))
             elif self.path == "/api/clip":
                 return _antwort(self, 200, clip_erstellen(daten))
+            elif self.path == "/api/clip_favorit":         # Build 144k: Favorit wählen
+                if self.client_address[0] != "127.0.0.1":
+                    return _antwort(self, 403, {"fehler": "nur lokal"})
+                return _antwort(self, 200, _clip_favorit_setzen(daten.get("id") or ""))
             elif self.path == "/api/untertitel_laden":
                 threading.Thread(target=untertitel_nachladen, args=(daten.get("id") or "",), daemon=True).start()
             elif self.path == "/api/autotag":

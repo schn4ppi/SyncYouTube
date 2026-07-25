@@ -583,6 +583,14 @@ html.light .ib:hover{border-color:var(--akz);color:#8a5a1e}
 html.light .itemmenu{background:#fffdfa;border-color:#e0d7cc;box-shadow:0 10px 30px rgba(0,0,0,.15)}
 html.light .itemmenu button{color:#4a3f37}
 html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
+/* Build 144k: Ausschnitt-Untermenü — je Zeile Favorit-Stern, Titel, Papierkorb. */
+.clip-sub{max-height:min(60vh,340px);overflow:auto}
+.clip-row{display:flex;align-items:center;gap:2px}
+.clip-row .clip-play{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clip-row .clip-fav,.clip-row .clip-del{flex:none;padding:7px 8px}
+.clip-row .clip-fav.an{color:var(--akz2)}
+.clip-meta{color:#8a7d74;font-size:11px;margin-left:4px}
+.km-leer{color:#8a7d74;font-size:12px;padding:7px 10px}
 /* Abos */
 .abo-liste{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .abo-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d7c7bd;font-weight:600}
@@ -4335,7 +4343,10 @@ function playLetzte(){                                // „Zuletzt gespielt"
 
 /* ---- 📻 Radio: endloser, personalisierter Zufalls-Stream ---- */
 let radioAktiv=false;
-function radioKandidaten(){return libdaten.filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x));}
+// Build 144k (JB): „nur der favorit zählt." Der Song bleibt im Zufalls-/
+// Radio-Pool, der Favorit-Ausschnitt zählt mit, die übrigen Ausschnitte
+// fallen raus — sonst käme 6× derselbe Schnipsel im Zufall.
+function radioKandidaten(){return libdaten.filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x)&&(!x.clip||x.clip_favorit));}
 function radioPick(anzahl,vermeiden){
   const pool=radioKandidaten(); if(!pool.length)return [];
   // Vermeidungs-Fenster nie größer als der Pool minus 1 — sonst blockiert es bei
@@ -4607,7 +4618,10 @@ function libGefiltert(){
   }
   const f=document.getElementById('libfilter').value;
   const hide=document.getElementById('libhidegray').checked;
-  let arr=libdaten.filter(x=>!!x.archiviert===libArchiv).filter(artPasst);   // 🎶/🎬-Schalter
+  // Build 144k (JB): Ausschnitte erscheinen NICHT als eigene Kacheln — sie
+  // gehören zu ihrem Song (Rechtsklick → ✂ Ausschnitte). So bleibt das Raster
+  // sauber statt von sechs Test-Clips zugemüllt.
+  let arr=libdaten.filter(x=>!x.clip).filter(x=>!!x.archiviert===libArchiv).filter(artPasst);   // 🎶/🎬-Schalter
   // Build 144h (JB Punkt 5): zweite Achse, quer zum Format. „Alles/MP3/Video/
   // 4K+" sagt, in welcher FORM etwas vorliegt — dieser Schalter sagt, ob es
   // ein LIED ist. Beides zusammen ergibt JBs Kombinationen von selbst.
@@ -5012,6 +5026,11 @@ function libItemMenu(ev,id){
   if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(id,'ordner')]);
   if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
   if(x.vorhanden)eintraege.push(['✂ Ausschnitt schneiden…', ()=>clipDialog(id)]);
+  // Build 144k (JB: „Rechtsklick auf den song = welcher der ausschnitte ist
+  // der favorit?"): Die Ausschnitte dieses Songs wohnen HIER, nicht als
+  // eigene Kacheln. ⭐ markiert den Favoriten; der zählt allein im Zufall.
+  const clips=clipsVon(id);
+  if(clips.length)eintraege.push(['✂ Ausschnitte ('+clips.length+')', (m)=>clipListe(m,id), 'bleib']);
   eintraege.push([x.archiviert?'↩ Aus dem Archiv holen':'🗄 Ins Archiv legen', ()=>biblio(id, x.archiviert?'entarchiv':'archiv')]);
   eintraege.push([x.blacklist?'✓ Für Meistgespielt zulassen':'🚫 Von Meistgespielt ausschließen', ()=>biblio(id, x.blacklist?'unblacklist':'blacklist')]);
   if(libPlaylistView)eintraege.push(['✖ Aus dieser Playlist entfernen', ()=>plRemove(id)]);
@@ -5027,6 +5046,38 @@ function libItemMenu(ev,id){
     ent[1](); m.remove();
   });
   menuSchliesser(m);
+}
+/* Build 144k (JB): die Ausschnitte eines Songs — sie teilen seine Video-Id.
+   Der Favorit (⭐) zählt allein im Zufall; hier wählt man ihn, spielt einen
+   Ausschnitt oder wirft ihn in den Papierkorb. */
+function clipsVon(id){
+  const vid=(id||'').split('|')[0];
+  return libdaten.filter(c=>c.clip&&(c.id||'').split('|')[0]===vid);
+}
+function clipListe(m,id){
+  const clips=clipsVon(id).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));   // neuste oben
+  const rows=clips.map(c=>{
+    const fav=c.clip_favorit;
+    return '<div class="clip-row" data-k="'+c.id+'">'
+      +'<button class="clip-fav'+(fav?' an':'')+'" data-act="fav" title="'+(fav?'Ist der Favorit — zählt allein im Zufall':'Als Favorit setzen')+'">'+(fav?'⭐':'☆')+'</button>'
+      +'<button class="clip-play" data-act="play" title="Abspielen">▶ '+esc(c.titel||'Ausschnitt')+(c.dauer?' <span class="clip-meta">'+zeit(c.dauer)+'</span>':'')+'</button>'
+      +'<button class="clip-del" data-act="del" title="Ausschnitt in den Papierkorb">🗑</button></div>';
+  }).join('')||'<div class="km-leer">keine Ausschnitte</div>';
+  m.innerHTML='<div class="sm-titel">✂ Ausschnitte — ⭐ ist der Favorit</div><div class="km-sub clip-sub">'+rows+'</div>';
+  m.querySelectorAll('.clip-row button').forEach(b=>b.onclick=async(e2)=>{
+    e2.stopPropagation();
+    const row=b.closest('.clip-row'), k=row.dataset.k, act=b.dataset.act;
+    if(act==='play'){playerPlay([k]); m.remove(); return;}
+    if(act==='fav'){
+      await fetch('/api/clip_favorit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});
+      await libLaden(); clipListe(m,id); return;                     // Menü mit frischem Stand neu malen
+    }
+    if(act==='del'){
+      if(!confirm('Diesen Ausschnitt in den Papierkorb verschieben?\\nDie Datei wird gelöscht (aus dem Windows-Papierkorb wiederherstellbar).'))return;
+      await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k,art:'loeschen'})});
+      await libLaden(); if(clipsVon(id).length)clipListe(m,id); else m.remove(); return;
+    }
+  });
 }
 /* Playlist-Ansicht: Titel mit der Maus umsortieren (speichert die neue Reihenfolge) */
 let plvVon=null;

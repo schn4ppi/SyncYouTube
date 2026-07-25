@@ -1658,6 +1658,89 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_clip_erkennung_und_gruppe():
+    # Ein Ausschnitt traegt |clip im Schluessel und gehoert zum Song mit
+    # derselben Video-Id davor.
+    assert app._ist_clip("abc123|clip9f") is True
+    assert app._ist_clip("abc123|audio") is False
+    assert app._clip_gruppe("abc123|clip9f") == "abc123"
+    assert app._clip_gruppe("abc123|audio") == "abc123"
+
+
+def test_neuster_ausschnitt_ist_favorit():
+    # JB: "Der snippet titel sollte direkt der favorit sein." Ohne eigene Wahl
+    # ist der NEUSTE Ausschnitt (groesstes ts) der Favorit der Gruppe.
+    app._geladen["v1|clipAAA"] = {"name": "A (Ausschnitt).mp3", "pfad": "/x", "ts": 100, "kategorie": "MP3"}
+    app._geladen["v1|clipBBB"] = {"name": "A (Ausschnitt 2).mp3", "pfad": "/x", "ts": 200, "kategorie": "MP3"}
+    try:
+        liste = {x["id"]: x for x in app.bibliothek_liste()}
+        assert liste["v1|clipAAA"]["clip"] is True
+        assert liste["v1|clipBBB"]["clip_favorit"] is True   # der neuere
+        assert liste["v1|clipAAA"]["clip_favorit"] is False  # genau einer je Gruppe
+    finally:
+        app._geladen.pop("v1|clipAAA", None)
+        app._geladen.pop("v1|clipBBB", None)
+
+
+def test_favorit_waehlen_bleibt(tmp_path, monkeypatch):
+    # JB waehlt einen anderen als den neusten -> die Wahl haelt.
+    monkeypatch.setattr(app, "GELADEN_PFAD", str(tmp_path / "g.json"))
+    app._geladen["v2|clipX"] = {"name": "B (Ausschnitt).mp3", "pfad": "/x", "ts": 1, "kategorie": "MP3"}
+    app._geladen["v2|clipY"] = {"name": "B (Ausschnitt 2).mp3", "pfad": "/x", "ts": 2, "kategorie": "MP3"}
+    try:
+        # ohne Wahl ist der neuere (Y) Favorit
+        assert {x["id"]: x for x in app.bibliothek_liste()}["v2|clipY"]["clip_favorit"] is True
+        r = app._clip_favorit_setzen("v2|clipX")           # JB waehlt den aelteren X
+        assert r.get("ok")
+        liste = {x["id"]: x for x in app.bibliothek_liste()}
+        assert liste["v2|clipX"]["clip_favorit"] is True
+        assert liste["v2|clipY"]["clip_favorit"] is False  # weiter genau einer
+    finally:
+        app._geladen.pop("v2|clipX", None)
+        app._geladen.pop("v2|clipY", None)
+
+
+def test_neuer_ausschnitt_uebernimmt_favorit(tmp_path, monkeypatch):
+    # Ein neuer Ausschnitt hebt eine fruehere Favoriten-WAHL auf (neuster
+    # gewinnt, JB-Wunsch) - clip_erstellen loescht die Flags der Gruppe.
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    i = quelle.index("def clip_erstellen")
+    ende = quelle.index("\ndef ", i + 1)                   # genau diese Funktion
+    assert "_clip_favorit_zuruecksetzen" in quelle[i:ende], (
+        "clip_erstellen macht den neuen Ausschnitt nicht zum Favoriten")
+
+
+def test_raster_versteckt_die_ausschnitte():
+    # JB: "So wird die bibliothek nicht zugemüllt." Clips erscheinen NICHT als
+    # eigene Kacheln im Hauptraster.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function libGefiltert")
+    block = quelle[i:_funktionsende(quelle, i)].replace(" ", "")
+    assert "!x.clip" in block or "x.clip" in block, (
+        "Das Raster filtert die Ausschnitte nicht heraus")
+
+
+def test_zufall_nimmt_nur_den_favorit_clip():
+    # JB: "die extra titel sollten nicht im zufallsabspiel modus abgespielt
+    # werden, nur der favorit zählt." Song bleibt, Favorit-Clip bleibt, die
+    # uebrigen Clips fallen aus dem Zufalls-/Radio-Pool.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function radioKandidaten")
+    block = quelle[i:_funktionsende(quelle, i)].replace(" ", "")
+    assert "!x.clip||x.clip_favorit" in block, (
+        "Der Zufalls-Pool nimmt entweder alle Clips oder gar keinen - "
+        "gebraucht ist: nur der Favorit-Clip zaehlt")
+
+
+def test_song_menue_hat_ausschnitte():
+    # JB: "Rechtsklick auf den song = welcher der ausschnitte ist der favorit?"
+    quelle = _oberflaeche_html()
+    i = quelle.index("function libItemMenu")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "Ausschnitte" in block and "clipListe" in block, (
+        "Der Song-Rechtsklick bietet kein Ausschnitt-Untermenü")
+
+
 def test_embed_player_fuellt_die_kachel():
     # JB (25.07., mit Bild): "die fläche rechts oben sollte ausgefüllt sein
     # vom player." Im Dashboard-Embed ist die Playlist ausgelagert
@@ -1826,16 +1909,14 @@ def test_kanal_nummer_weicht_der_echten_abo_nummer():
     # = 1 ueber den ganzen Kanal), hat sie Vorrang vor der abgeleiteten
     # Bibliotheks-Position - sie ist die genauere Wahrheit.
     quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
-    i = quelle.index("def _kanal_nummern")
-    # Die Zuweisung selbst steht in der Bibliotheks-Liste.
-    j = quelle.index('"abo_nr": e.get("abo_nr"')
-    umfeld = quelle[j:j + 600]
-    assert "kanal_nr" in umfeld, "Die Kanal-Nummer steht nicht in der Bibliotheks-Liste"
-    assert "abo_nr" in umfeld, "Die echte Abo-Nummer hat keinen Vorrang"
+    # Die Zuweisung steht in der Bibliotheks-Liste: die echte abo_nr hat Vorrang.
+    assert 'x["kanal_nr"] = x.get("abo_nr")' in quelle, (
+        "Die echte Abo-Nummer hat keinen Vorrang vor der abgeleiteten")
     # Abgeleitet statt gespeichert: eine gespeicherte Nummer wuerde falsch,
     # sobald ein aelteres Video des Kanals dazukommt.
-    block = quelle[i:i + 1200]
-    assert "upload_date" in block, "Die Reihenfolge haengt nicht am Upload-Datum"
+    i = quelle.index("def _kanal_nummern")
+    ende = quelle.index("\ndef ", i + 1)
+    assert "upload_date" in quelle[i:ende], "Die Reihenfolge haengt nicht am Upload-Datum"
     # Die Oberflaeche zeigt es als eigene Spalte.
     ui = _oberflaeche_html()
     assert "kanal_nr" in ui, "Keine Spalte fuer die Kanal-Nummer"
