@@ -945,6 +945,17 @@ body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
 body.embed #view-player .card:not(.pl-horizontal) .pl-media{flex:none;aspect-ratio:16/9;max-height:70%}
 body.embed #view-player .card:not(.pl-horizontal) .pl-side{flex:1;min-height:0}
 body.embed #view-player .card:not(.pl-horizontal) .pl-side .pl-queue{flex:1;max-height:none}
+/* Build 144j (JB 25.07., mit Bild: „die fläche rechts oben sollte ausgefüllt
+   sein vom player"): Im Dashboard ist die Playlist als eigener Tab ausgelagert
+   (body.plq-extern) — dann hat der Player NUR Video/Cover und keine Playlist,
+   die den Rest füllt. Gemessen blieben 102 px leer unter der Medienfläche.
+   Ohne konkurrierende Playlist ist das Füllen gefahrlos (anders als der Player-
+   Fall aus 144f): Das <video>/.pl-cover behält sein 16:9 über object-fit:contain,
+   die FLÄCHE wächst nur mit und bekommt bei Bedarf schmale Balken. Regeln nach
+   den obigen, damit sie bei ausgelagerter Playlist gewinnen. */
+body.embed.plq-extern #view-player{height:100%;display:flex;flex-direction:column}
+body.embed.plq-extern #view-player>.card{flex:1 1 auto;min-height:0}
+body.embed.plq-extern #view-player .card:not(.pl-horizontal) .pl-media{flex:1 1 auto;max-height:none;min-height:0}
 /* Zu-klein-Verhalten (JB 14.07., Muster Video.js/Media Chrome/VLC): Knöpfe haben
    Vorrang — die Videofläche gibt zuerst nach, dann fallen Playlist/Titel weg,
    und in der Video-Leiste verschwinden Sekundär-Knöpfe GESTUFT (bo3→bo2→bo1);

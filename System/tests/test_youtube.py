@@ -1658,6 +1658,25 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_embed_player_fuellt_die_kachel():
+    # JB (25.07., mit Bild): "die fläche rechts oben sollte ausgefüllt sein
+    # vom player." Im Dashboard-Embed ist die Playlist ausgelagert
+    # (body.plq-extern) - dann hatte der Player nur Video/Cover und liess 102 px
+    # leer (gemessen). Ohne konkurrierende Playlist darf die Medienflaeche
+    # fuellen; das 16:9 haelt das <video>/.pl-cover selbst (object-fit:contain).
+    quelle = _oberflaeche_html()
+    css = quelle[quelle.index("<style"):quelle.index("</style>")]
+    kurz = " ".join(css.split())
+    assert "body.embed.plq-extern #view-player .card:not(.pl-horizontal) .pl-media" in kurz, (
+        "Keine Fuell-Regel fuer die ausgelagerte Playlist im Embed")
+    i = kurz.find("body.embed.plq-extern #view-player .card:not(.pl-horizontal) .pl-media")
+    assert "flex:1 1 auto" in kurz[i:i + 120] and "max-height:none" in kurz[i:i + 120], (
+        "Die Medienflaeche waechst im Embed nicht mit")
+    # Diese Regel steht NACH der 70%-Deckel-Regel (sonst gewinnt der Deckel).
+    assert i > kurz.find("body.embed #view-player .card:not(.pl-horizontal) .pl-media{flex:none"), (
+        "Die Fuell-Regel steht vor dem 70%-Deckel und verliert gegen ihn")
+
+
 def test_youtube_rechtsklick_springt_zur_stelle():
     # JB (25.07.): "auf youtube öffnen mit rechtsklick geht nicht zum moment
     # wo man gerade ist." Der Werkzeug-Knopf tut es (playerYoutube -> &t=…s),
