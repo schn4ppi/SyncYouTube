@@ -923,6 +923,13 @@ def _zeit_sekunden(s):
         return None
 
 
+def _clip_basisname(quelle):
+    """Dateiname-Stamm für einen Ausschnitt — ohne die [Video-Id]-Klammern.
+    Dieselbe Klammer-Regel wie in `_migrations_ziel` (e=None)."""
+    stamm = os.path.splitext(os.path.basename(quelle))[0]
+    return re.sub(r"\s*\[[\w-]{6,}\]", "", stamm).strip()
+
+
 def clip_erstellen(daten):
     """Aus einer vorhandenen Datei den Bereich [start, ende] herausschneiden
     (leer = Anfang/Ende) und als NEUEN Bibliothekseintrag speichern. Das Original
@@ -942,7 +949,10 @@ def clip_erstellen(daten):
     if ende is not None and ende <= start:
         return {"fehler": "„Bis“ muss nach „Von“ liegen."}
 
-    basis, ext = os.path.splitext(os.path.basename(quelle))
+    # Build 144i (JB 25.07.): den Ausschnitt sauber benennen — die
+    # [Video-Id]-Klammern des Quellnamens wandern NICHT mit.
+    basis = _clip_basisname(quelle)
+    ext = os.path.splitext(quelle)[1]
     ordner = os.path.dirname(quelle)
     ziel = os.path.join(ordner, f"{basis} (Ausschnitt){ext}")
     n = 2
@@ -1056,6 +1066,36 @@ def autotag_nach_download(item):
         if not e or not _ist_musik(e) or e.get("album"):
             return
         threading.Thread(target=autotag_lauf, args=([key],), daemon=True).start()
+    except Exception:                                 # noqa: BLE001 — nie den Download stören
+        pass
+
+
+def auto_umbenennen_nach_download(item):
+    """Frisch geladene Datei sofort sauber benennen (JB 25.07.: „Das sollte
+    direkt automatisch passieren").
+
+    Der Download schreibt „%(title)s [%(id)s]" — die [Video-Id]-Klammern
+    blieben bisher für immer stehen, weil KEIN Download-Pfad je umbenannte
+    (autotag_lauf schreibt nur Tags). Jetzt läuft nach dem Download derselbe
+    nicht-destruktive, reversible Weg wie beim Ordner-Import: migration_anwenden
+    entfernt die Klammern, wendet das Namens-Schema an, nimmt .vtt-Geschwister
+    mit und schreibt ein Rückroll-Protokoll (↩ im Namens-Fenster).
+
+    Gesteuert vom bestehenden Schalter `auto_umbenennen` — bei JB an. Der frisch
+    geladene Eintrag trägt fp + Id-Tag (geladen_merken), das Sicherheitsnetz der
+    Migration greift also. Bricht etwas: die Klammern bleiben, alles läuft
+    weiter (die Erkennungs-Kette trägt beide Namen).
+    """
+    if not CFG.get("auto_umbenennen"):
+        return
+    try:
+        key = _geladen_key(item.get("url") or "", item.get("qualitaet") or "")
+        if key not in _geladen:
+            return
+        r = migration_anwenden(go=True, keys={key})
+        if r.get("umbenannt"):
+            _sag(f"Auto-Umbenennen: frisch geladene Datei nach dem Namens-Schema "
+                 "benannt (↩ rückgängig im Namens-Fenster)")
     except Exception:                                 # noqa: BLE001 — nie den Download stören
         pass
 
@@ -3775,6 +3815,10 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
             untertitel_einsortieren()                 # mitgeladene .vtt in den Untertitel-Ordner
         except Exception:                             # noqa: BLE001
             pass
+        # Build 144i (JB 25.07.): Klammern/Schema NACH dem Einsortieren — die
+        # .vtt liegen dann schon Id-keyed im Untertitel-Ordner, das Umbenennen
+        # der Mediendatei kann sie also nicht mehr verwaisen lassen.
+        auto_umbenennen_nach_download(item)
         autotag_nach_download(item)                   # Build 136 (JB): direkt benennen
     except AbbruchError:
         item["status"] = "pausiert"

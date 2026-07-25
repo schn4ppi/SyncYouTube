@@ -4464,8 +4464,13 @@ async function schnittSpeichern(btn){
   try{
     const r=await fetch('/api/clip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(daten)});
     const d=await r.json();
-    if(d.fehler){if(info)info.textContent=''; alert('Ausschnitt: '+d.fehler); if(btn){btn.disabled=false;btn.textContent='✂ Ausschnitt speichern';}}
-    else{if(info)info.textContent='✂ Ausschnitt erstellt: '+d.name; toast('✂ '+d.name); libLaden(); schnittZu();}
+    // Build 144i (JB 25.07.: „zeigt dass er es geschafft hat, aber die
+    // Fehlermeldung"): Hier wurde eine NIE deklarierte Variable geprüft — der
+    // Erfolgspfad warf dadurch einen ReferenceError, der unten im catch als
+    // „fehlgeschlagen" ankam, obwohl die Datei längst da war.
+    // plInfo() ist der richtige Weg (wie überall sonst im Player).
+    if(d.fehler){plInfo(''); alert('Ausschnitt: '+d.fehler); if(btn){btn.disabled=false;btn.textContent='✂ Ausschnitt speichern';}}
+    else{plInfo('✂ Ausschnitt erstellt: '+d.name); toast('✂ '+d.name); libLaden(); schnittZu();}
   }catch(e){alert('Ausschnitt fehlgeschlagen (App erreichbar?).'); if(btn){btn.disabled=false;btn.textContent='✂ Ausschnitt speichern';}}
 }
 
@@ -5150,7 +5155,11 @@ function playerKontext(ev){
     ()=>({left:pos.clientX,right:pos.clientX,top:pos.clientY,bottom:pos.clientY})}})]);
   if(x.vorhanden)eintraege.push(['✂ Ausschnitt schneiden…', ()=>clipDialog(k)]);
   if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(k,'ordner')]);
-  if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
+  // Build 144i (JB 25.07.: „auf youtube öffnen mit rechtsklick geht nicht zum
+  // moment wo man gerade ist"): playerYoutube() hängt &t=<Position>s an — genau
+  // wie der Werkzeug-Knopf. Nur HIER, im Player-Rechtsklick, wo es eine
+  // laufende Stelle gibt (in der Bibliothek gibt es keine).
+  if(x.url)eintraege.push(['↗ Auf YouTube öffnen (an dieser Stelle)', playerYoutube]);
   eintraege.push(['⧉ In VLC / extern öffnen', playerExtern]);
   eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(k)]);
   kontextMenuBauen(ev, eintraege);

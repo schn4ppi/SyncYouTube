@@ -1658,6 +1658,79 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_youtube_rechtsklick_springt_zur_stelle():
+    # JB (25.07.): "auf youtube öffnen mit rechtsklick geht nicht zum moment
+    # wo man gerade ist." Der Werkzeug-Knopf tut es (playerYoutube -> &t=…s),
+    # das RECHTSKLICK-Menü im Player öffnete aber die nackte URL.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function playerKontext")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "playerYoutube" in block, (
+        "Der Player-Rechtsklick 'Auf YouTube öffnen' springt nicht zur "
+        "aktuellen Stelle")
+    # playerYoutube selbst muss den Zeitstempel anhängen (Beleg, nicht Name).
+    j = quelle.index("function playerYoutube")
+    assert "currentTime" in quelle[j:_funktionsende(quelle, j)], (
+        "playerYoutube hängt die aktuelle Position nicht an")
+
+
+def test_clip_erfolg_wird_nicht_als_fehler_gemeldet():
+    # JB (25.07.): der Ausschnitt wurde erstellt, trotzdem kam "Ausschnitt
+    # fehlgeschlagen (App erreichbar?)". Ursache: schnittSpeichern benutzte
+    # eine NIE deklarierte Variable `info` — der Erfolgspfad warf einen
+    # ReferenceError, der im catch als Fehler gemeldet wurde.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function schnittSpeichern")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "if(info)" not in block.replace(" ", ""), (
+        "schnittSpeichern greift noch auf die undeklarierte Variable `info` zu")
+    assert "plInfo(" in block, (
+        "schnittSpeichern meldet den Erfolg nicht über plInfo")
+
+
+def test_clip_name_ohne_klammern():
+    # JB (25.07.): der Ausschnitt trug "Leb deinen Traum (Digimon) [0pUlbIcKmeA]
+    # (Ausschnitt).mp3" — die [Video-Id]-Klammern wanderten aus dem Quellnamen
+    # mit. Ein Ausschnitt soll einen sauberen Namen bekommen.
+    basis = app._clip_basisname("C:/x/Leb deinen Traum (Digimon) [0pUlbIcKmeA].mp3")
+    assert "[" not in basis and "0pUlbIcKmeA" not in basis
+    assert basis == "Leb deinen Traum (Digimon)"
+    # Ohne Klammern bleibt der Name, wie er ist.
+    assert app._clip_basisname("C:/x/Toto - Africa.mp3") == "Toto - Africa"
+
+
+def test_download_wird_automatisch_umbenannt(tmp_path, monkeypatch):
+    # JB (25.07.): "Das sollte direkt automatisch passieren" — die frisch
+    # geladene Datei behielt den rohen YouTube-Namen mit [Id]. Kein
+    # Download-Pfad hat je umbenannt; jetzt tut es der Fertig-Hook, wenn
+    # `auto_umbenennen` an ist (nicht-destruktiv über migration_anwenden).
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert "auto_umbenennen_nach_download" in quelle, "Kein Auto-Umbenenn-Hook"
+    # Der Fertig-Weg ruft ihn auch WIRKLICH auf (nicht nur definiert).
+    f = quelle.index("def _download_lauf") if "def _download_lauf" in quelle else 0
+    assert quelle.count("auto_umbenennen_nach_download(") >= 2, (
+        "Der Hook wird definiert, aber vom Download-Abschluss nicht gerufen")
+
+    # Funktional: eine echte Datei mit [Id] wird sauber benannt.
+    datei = tmp_path / "Leb deinen Traum (Digimon) [0pUlbIcKmeA].mp3"
+    datei.write_bytes(b"nur-eine-probe")
+    key = app._geladen_key("https://youtu.be/0pUlbIcKmeA", "audio")
+    monkeypatch.setattr(app, "GELADEN_PFAD", str(tmp_path / "geladen.json"))
+    monkeypatch.setattr(app, "PROTOKOLL_PFAD", str(tmp_path / "protokoll.json"))
+    monkeypatch.setattr(app, "_orig_tag", lambda *a, **k: False)  # kein mutagen auf der Probe
+    monkeypatch.setitem(app.CFG, "auto_umbenennen", True)
+    app._geladen[key] = {"name": datei.name, "pfad": str(datei), "kategorie": "MP3",
+                         "titel": "Leb deinen Traum (Digimon)", "idtag": True}
+    try:
+        app.auto_umbenennen_nach_download({"url": "https://youtu.be/0pUlbIcKmeA",
+                                           "qualitaet": "audio"})
+        neu = app._geladen[key]["pfad"]
+        assert "[" not in os.path.basename(neu), "Die [Id]-Klammern sind noch da"
+        assert os.path.isfile(neu) and not datei.exists(), "Datei nicht umbenannt"
+    finally:
+        app._geladen.pop(key, None)
+
+
 def test_musik_grad_trennt_beleg_von_vermutung():
     # JB Punkt 5: der Filter soll "wirklich Lieder nehmen, nicht nur Videos
     # und MP3". Gemessen an JBs 86 Titeln waren die Belege duenn: nur 11 haben
