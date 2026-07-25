@@ -5046,6 +5046,25 @@ function libItemMenu(ev,id){
   });
   menuSchliesser(m);
 }
+/* Build 144n (JB 25.07.): app-eigener Ja/Nein-Dialog. Das native confirm()
+   lässt sich im Browser abschalten („diese Handlung unterbinden") — dann kam
+   keine Rückfrage mehr und das Löschen ging ins Leere. Ein Modal auf dem
+   `<body>` unterliegt dieser Sperre NICHT. */
+function frageModal(text, jaLabel, onJa){
+  const ov=document.createElement('div'); ov.className='modal';
+  ov.innerHTML='<div class="modal-box" style="max-width:430px"><div class="modal-head"><b>Bitte bestätigen</b>'
+    +'<button class="ib" title="Abbrechen" onclick="this.closest(\\'.modal\\').remove()">✕</button></div>'
+    +'<div style="padding:16px;line-height:1.5">'+esc(text).replace(/\\n/g,'<br>')+'</div>'
+    +'<div style="padding:0 16px 16px;display:flex;gap:8px;justify-content:flex-end">'
+    +'<button class="btn mini" data-nein>Abbrechen</button>'
+    +'<button class="btn mini" data-ja style="background:var(--akz);border-color:var(--akz);color:#1b1512">'+esc(jaLabel||'OK')+'</button>'
+    +'</div></div></div>';
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.querySelector('[data-nein]').onclick=()=>ov.remove();
+  ov.querySelector('[data-ja]').onclick=()=>{ov.remove(); onJa&&onJa();};
+  document.body.appendChild(ov);
+  try{ov.querySelector('[data-ja]').focus();}catch(e){}
+}
 /* Build 144k (JB): die Ausschnitte eines Songs — sie teilen seine Video-Id.
    Der Favorit (⭐) zählt allein im Zufall; hier wählt man ihn, spielt einen
    Ausschnitt oder wirft ihn in den Papierkorb. */
@@ -5072,9 +5091,13 @@ function clipListe(m,id){
       await libLaden(); clipListe(m,id); return;                     // Menü mit frischem Stand neu malen
     }
     if(act==='del'){
-      if(!confirm('Diesen Ausschnitt in den Papierkorb verschieben?\\nDie Datei wird gelöscht (aus dem Windows-Papierkorb wiederherstellbar).'))return;
-      await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k,art:'loeschen'})});
-      await libLaden(); if(clipsVon(id).length)clipListe(m,id); else m.remove(); return;
+      frageModal('Diesen Ausschnitt in den Papierkorb verschieben?\\nAus dem Windows-Papierkorb wiederherstellbar.', '🗑 In den Papierkorb', async()=>{
+        await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k,art:'loeschen'})});
+        await libLaden();
+        if(document.body.contains(m)&&clipsVon(id).length)clipListe(m,id); else m.remove();
+        toast('🗑 Ausschnitt in den Papierkorb.');
+      });
+      return;
     }
   });
 }

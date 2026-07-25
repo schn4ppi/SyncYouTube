@@ -1745,6 +1745,18 @@ def test_selbst_neustart_haengt_in_bestehender_schleife():
         "Wiedergabe wird nicht als Aktivitaet vermerkt")
 
 
+def test_ausschnitt_loeschen_ohne_nativen_dialog():
+    # JB (25.07.): Firefox-Dialoge abgeschaltet ("diese Handlung unterbinden")
+    # -> confirm() kam nicht mehr, Loeschen ging nicht. Ein app-eigener Dialog
+    # laesst sich NICHT vom Browser unterdruecken.
+    quelle = _oberflaeche_html()
+    assert "function frageModal" in quelle, "Kein app-eigener Bestaetigungs-Dialog"
+    i = quelle.index("function clipListe")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "frageModal(" in block, "Ausschnitt-Loeschen nutzt keinen app-eigenen Dialog"
+    assert "confirm(" not in block, "Ausschnitt-Loeschen haengt noch am nativen confirm()"
+
+
 def test_clip_erkennung_und_gruppe():
     # Ein Ausschnitt traegt |clip im Schluessel und gehoert zum Song mit
     # derselben Video-Id davor.
