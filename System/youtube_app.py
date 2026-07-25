@@ -791,14 +791,23 @@ def bibliothek_liste():
     # Build 144h (JB Punkt 5): „nur Lieder" braucht eine Einstufung, die den
     # KANAL mitliest — deshalb über die ganze Liste, nicht je Eintrag.
     grade = _musik_grade([(x["id"], x) for x in out])
-    # Build 144k: Ausschnitte markieren (versteckt im Raster, Favorit zählt).
-    fav = set(_clip_favorit_je_gruppe().values())
+    # Build 144o: Favorit-Repräsentant je Gruppe. Nur er erscheint im Raster
+    # und im Zufall; die übrigen (Clips + Hauptsong, falls ein Clip Favorit
+    # ist) liegen im Rechtsklick. `hat_geschwister` sagt, ob es überhaupt
+    # Alternativen gibt (für das Gruppen-Menü + das ✂-Abzeichen).
+    fav = set(_favorit_je_gruppe().values())
+    gruppen_groesse = {}
     for x in out:
+        gruppen_groesse[_clip_gruppe(x["id"])] = gruppen_groesse.get(_clip_gruppe(x["id"]), 0) + 1
+    for x in out:
+        vid = _clip_gruppe(x["id"])
         x["kanal_nr"] = x.get("abo_nr") or nummer.get(x["id"], 0)
         x["kanal_von"] = gesamt.get(x["id"], 0)
         x["musik"] = grade.get(x["id"], "nein")
         x["clip"] = _ist_clip(x["id"])
-        x["clip_favorit"] = x["id"] in fav
+        x["gruppe"] = vid
+        x["ist_favorit"] = (x["id"] in fav)
+        x["hat_geschwister"] = gruppen_groesse.get(vid, 1) > 1
     out.sort(key=lambda x: x["ts"] or 0, reverse=True)
     return out
 
@@ -948,27 +957,35 @@ def _clip_gruppe(key):
     return (key or "").split("|")[0]
 
 
-def _clip_favorit_je_gruppe():
-    """Video-Id -> Schlüssel des Favorit-Ausschnitts. Die eigene Wahl
-    (`favorit`) gewinnt; ohne Wahl der neuste (größtes ts). Reine Auslese,
-    verändert NICHTS (kein Seiteneffekt beim Import/Listen)."""
+def _favorit_je_gruppe():
+    """Video-Id -> Schlüssel des Favoriten der Gruppe (Build 144o, JB 25.07.).
+
+    Der Favorit ist der REPRÄSENTANT: er wird angezeigt, abgespielt und zählt
+    im Zufall. Wählbar ist JEDER Eintrag der Gruppe — der Hauptsong ODER ein
+    Ausschnitt. Regel: die eigene Wahl (`favorit`-Flag) gewinnt; ohne Wahl ist
+    der HAUPTSONG (Nicht-Clip) der Favorit — nur wenn es gar keinen Hauptsong
+    gibt (reine Clip-Gruppe), der neuste. Reine Auslese, kein Seiteneffekt.
+    """
     gruppen = {}
     for k, e in _geladen.items():
-        if _ist_clip(k):
-            gruppen.setdefault(_clip_gruppe(k), []).append((k, e))
+        gruppen.setdefault(_clip_gruppe(k), []).append((k, e))
     fav = {}
     for vid, liste in gruppen.items():
         gewaehlt = [p for p in liste if p[1].get("favorit")]
-        kandidaten = gewaehlt or liste
-        fav[vid] = max(kandidaten, key=lambda p: p[1].get("ts") or 0)[0]
+        if gewaehlt:
+            fav[vid] = max(gewaehlt, key=lambda p: p[1].get("ts") or 0)[0]
+            continue
+        haupt = [p for p in liste if not _ist_clip(p[0])]
+        basis = haupt or liste                       # Hauptsong bevorzugt, sonst neuster Clip
+        fav[vid] = max(basis, key=lambda p: p[1].get("ts") or 0)[0]
     return fav
 
 
 def _clip_favorit_setzen(key):
-    """JBs Wahl festhalten: dieser Ausschnitt wird Favorit seiner Gruppe, die
-    Geschwister verlieren das Flag (persistiert)."""
-    if not _ist_clip(key) or key not in _geladen:
-        return {"fehler": "Kein Ausschnitt"}
+    """JBs Wahl festhalten: dieser Eintrag (Hauptsong ODER Ausschnitt) wird
+    Favorit seiner Gruppe, die Geschwister verlieren das Flag (persistiert)."""
+    if key not in _geladen:
+        return {"fehler": "unbekannt"}
     vid = _clip_gruppe(key)
     with _io_lock:
         for k, e in _geladen.items():
@@ -1040,9 +1057,11 @@ def clip_erstellen(daten):
                         "pfad": ziel, "titel": (e.get("titel") or basis) + " (Ausschnitt)",
                         "dauer": (ende - start) if ende is not None else None,
                         "ts": time.time(), "archiviert": False})
-        # Build 144k: der NEUE Ausschnitt ist der Favorit — dafür die früheren
-        # Wahlen der Gruppe löschen (dann gewinnt der neuste, also dieser).
+        # Build 144o: der NEUE Ausschnitt wird Favorit (JB) — die früheren
+        # Wahlen der Gruppe löschen und das Flag auf den neuen Eintrag setzen.
+        # (Ohne Flag wäre sonst der Hauptsong der Standard-Favorit.)
         _clip_favorit_zuruecksetzen(vid)
+        eintrag["favorit"] = True
         _geladen[neu_key] = eintrag
         _json_speichern(GELADEN_PFAD, _geladen)
     return {"ok": True, "name": os.path.basename(ziel)}

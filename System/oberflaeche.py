@@ -545,6 +545,9 @@ details.einst summary:hover{color:var(--akz)}
 .thumbwrap.platzhalter::after{content:'▶';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#3a332e;font-size:34px}
 .kdauer{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.8);color:#fff;font-size:11px;padding:1px 6px;border-radius:5px}
 .wegbadge{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.78);color:#f0a35e;font-size:11px;padding:1px 7px;border-radius:5px;border:1px solid #6b4a2a}
+/* Build 144o: ✂-Abzeichen oben rechts auf einer Ausschnitt-Kachel (JB). */
+.clip-schere{position:absolute;right:6px;top:6px;background:rgba(0,0,0,.8);color:var(--akz2);font-size:12px;line-height:1;padding:3px 5px;border-radius:6px;border:1px solid var(--akz)}
+.clip-row .clip-schutz{cursor:default}
 .kbody{padding:9px 10px;display:flex;flex-direction:column;gap:6px;flex:1}
 .ktitel{font-size:13px;font-weight:600;line-height:1.32;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .kinfo{font-size:11.5px;color:#8a7d74;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:auto}
@@ -1151,7 +1154,10 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
      (?embed=1) nur Logo + Build-Marke ausblenden. Die Layout-Leiste (✏ Layout,
      🔳 Mini) BLEIBT — JB braucht sie auch im Dashboard (21.07.). -->
 <style>body.embed .cmd-logo,body.embed #buildmark{display:none}</style>
-<script>if(location.search.indexOf('embed=1')>=0)document.body.classList.add('embed');</script>
+<script>/* embed nur im echten iframe (Dashboard). Ein neuer Tab schleppt ?embed=1 mit,
+   ist aber KEIN iframe -> dort das Logo zeigen (JB 25.07.). window.top!==self ist
+   cross-origin-sicher (nur Referenzvergleich, kein Property-Zugriff). */
+if(location.search.indexOf('embed=1')>=0 && window.top!==window.self)document.body.classList.add('embed');</script>
 <div id="cmdbar">
   <div class="cmd-main">
     <div class="cmd-left">
@@ -2068,7 +2074,7 @@ function renderPanels(){
     if(node.parentNode!==body)body.appendChild(node);
   });
   const libSichtbar=L.panels.some(p=>p.active==='lib');
-  if(libSichtbar){if(!libTimer){libLaden();libTimer=setInterval(libLaden,5000);}}
+  if(libSichtbar){if(!libTimer){libLaden();libTimer=setInterval(libPoll,5000);}}
   else{clearInterval(libTimer);libTimer=null;}
   if(L.panels.some(p=>p.active==='abos'))aboLaden();   // Abo-Fenster sichtbar -> Stand auffrischen
   // Playlist als eigenes Fenster? Dann blendet der Player seine Seitenliste aus.
@@ -4363,10 +4369,10 @@ function playLetzte(){                                // „Zuletzt gespielt"
 
 /* ---- 📻 Radio: endloser, personalisierter Zufalls-Stream ---- */
 let radioAktiv=false;
-// Build 144k (JB): „nur der favorit zählt." Der Song bleibt im Zufalls-/
-// Radio-Pool, der Favorit-Ausschnitt zählt mit, die übrigen Ausschnitte
-// fallen raus — sonst käme 6× derselbe Schnipsel im Zufall.
-function radioKandidaten(){return libdaten.filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x)&&(!x.clip||x.clip_favorit));}
+// Build 144o (JB): „der favorit wird immer abgespielt." Im Zufalls-/Radio-Pool
+// zählt nur der Favorit-Repräsentant jeder Gruppe (Hauptsong oder Clip).
+function radioKandidaten(){const fb=libdaten.some(x=>typeof x.ist_favorit!=='undefined');
+  return libdaten.filter(x=>x.vorhanden&&!x.blacklist&&artPasst(x)&&(!fb||x.ist_favorit));}
 function radioPick(anzahl,vermeiden){
   const pool=radioKandidaten(); if(!pool.length)return [];
   // Vermeidungs-Fenster nie größer als der Pool minus 1 — sonst blockiert es bei
@@ -4568,8 +4574,20 @@ function sichtbareCols(){return libcols.filter(c=>c.sichtbar).map(c=>c.key);}
 function ladeSort(){try{const s=JSON.parse(localStorage.getItem('ytdl_libsort_v1'));if(s&&s.key)return s;}catch(e){}return {key:'neu',dir:-1};}
 function saveSort(){try{localStorage.setItem('ytdl_libsort_v1',JSON.stringify(libsort));}catch(e){}}
 
+let _libSig=null;
 async function libLaden(){
-  try{const r=await fetch('/api/bibliothek'); const d=await r.json(); libdaten=d.items||[]; libMalen();}catch(e){}
+  // Ausdruecklicher Aufruf (Aktion, Auswahl aufheben, Menue frisch): IMMER zeichnen.
+  try{const r=await fetch('/api/bibliothek'); const txt=await r.text(); _libSig=txt;
+      const d=JSON.parse(txt); libdaten=d.items||[]; libMalen();}catch(e){}
+}
+async function libPoll(){
+  // Der 5-Sekunden-Takt baute bisher IMMER das ganze Bibliotheks-innerHTML neu auf
+  // -- dabei werden alle <img> neu erzeugt, und Thumbnails ohne Browser-Cache laden
+  // sichtbar nach (Flackern alle 5 s, JB 25.07.: „ein paar, John Waite …"). Jetzt
+  // im Takt nur zeichnen, wenn sich die Antwort WIRKLICH geaendert hat.
+  try{const r=await fetch('/api/bibliothek'); const txt=await r.text();
+      if(txt===_libSig)return; _libSig=txt;
+      const d=JSON.parse(txt); libdaten=d.items||[]; libMalen();}catch(e){}
 }
 function libAnsicht(m){
   libModus=m;
@@ -4624,12 +4642,13 @@ function libGefiltert(){
   }
   const f=document.getElementById('libfilter').value;
   const hide=document.getElementById('libhidegray').checked;
-  // Build 144k (JB): Ausschnitte erscheinen NICHT als eigene Kacheln — sie
-  // gehören zu ihrem Song (Rechtsklick → ✂ Ausschnitte). So bleibt das Raster
-  // sauber statt von sechs Test-Clips zugemüllt.
-  // Build 144l: „Nur Songs" steckt jetzt in der Abspielart (artPasst) und wirkt
-  // damit überall gleich — der frühere separate „nur Lieder"-Schalter ist weg.
-  let arr=libdaten.filter(x=>!x.clip).filter(x=>!!x.archiviert===libArchiv).filter(artPasst);
+  // Build 144o (JB): Es erscheint nur der FAVORIT jeder Gruppe als Kachel
+  // (Hauptsong ODER ein Ausschnitt); die Alternativen liegen im Rechtsklick.
+  // Solange die API das Feld noch nicht liefert (kurz vor dem Selbst-Neustart),
+  // NICHT filtern — sonst sähe die Bibliothek leer aus.
+  // Build 144l: „Nur Songs" steckt in der Abspielart (artPasst), wirkt überall.
+  const favBekannt=libdaten.some(x=>typeof x.ist_favorit!=='undefined');
+  let arr=libdaten.filter(x=>!favBekannt||x.ist_favorit).filter(x=>!!x.archiviert===libArchiv).filter(artPasst);
   if(f==='vorhanden')arr=arr.filter(x=>x.vorhanden);
   else if(f==='verschoben')arr=arr.filter(x=>!x.vorhanden);
   if(hide&&!libArchiv)arr=arr.filter(x=>x.vorhanden);
@@ -5028,8 +5047,12 @@ function libItemMenu(ev,id){
   // Build 144k (JB: „Rechtsklick auf den song = welcher der ausschnitte ist
   // der favorit?"): Die Ausschnitte dieses Songs wohnen HIER, nicht als
   // eigene Kacheln. ⭐ markiert den Favoriten; der zählt allein im Zufall.
-  const clips=clipsVon(id);
-  if(clips.length)eintraege.push(['✂ Ausschnitte ('+clips.length+')', (m)=>clipListe(m,id), 'bleib']);
+  // Build 144o: hat die Gruppe Alternativen (Hauptsong + Clips)? Dann hier
+  // wählen, welcher der Favorit ist — Hauptsong oder Ausschnitt.
+  if(x.hat_geschwister){
+    const clips=gruppeVon(id).filter(c=>c.clip).length;
+    eintraege.push(['✂ Ausschnitte ('+clips+')', (m)=>gruppeListe(m,id), 'bleib']);
+  }
   eintraege.push([x.archiviert?'↩ Aus dem Archiv holen':'🗄 Ins Archiv legen', ()=>biblio(id, x.archiviert?'entarchiv':'archiv')]);
   eintraege.push([x.blacklist?'✓ Für Meistgespielt zulassen':'🚫 Von Meistgespielt ausschließen', ()=>biblio(id, x.blacklist?'unblacklist':'blacklist')]);
   if(libPlaylistView)eintraege.push(['✖ Aus dieser Playlist entfernen', ()=>plRemove(id)]);
@@ -5068,33 +5091,40 @@ function frageModal(text, jaLabel, onJa){
 /* Build 144k (JB): die Ausschnitte eines Songs — sie teilen seine Video-Id.
    Der Favorit (⭐) zählt allein im Zufall; hier wählt man ihn, spielt einen
    Ausschnitt oder wirft ihn in den Papierkorb. */
-function clipsVon(id){
-  const vid=(id||'').split('|')[0];
-  return libdaten.filter(c=>c.clip&&(c.id||'').split('|')[0]===vid);
+function gruppeVon(id){                                 // alle Eintraege der Gruppe (Hauptsong + Clips)
+  const x=libFind(id); const g=(x&&x.gruppe)||(id||'').split('|')[0];
+  return libdaten.filter(c=>((c.gruppe)||(c.id||'').split('|')[0])===g);
 }
-function clipListe(m,id){
-  const clips=clipsVon(id).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));   // neuste oben
-  const rows=clips.map(c=>{
-    const fav=c.clip_favorit;
+function gruppeListe(m,id){
+  // Hauptsong zuerst, dann Clips (neuste oben). Der ⭐ markiert den Favoriten —
+  // die sichtbare, abgespielte Kachel. Der Hauptsong ist NICHT löschbar
+  // (JB: „das hauptvideo bleibt jedoch immer erhalten").
+  const alle=gruppeVon(id).slice().sort((a,b)=>{
+    if(!a.clip&&b.clip)return -1; if(a.clip&&!b.clip)return 1; return (b.ts||0)-(a.ts||0);});
+  const rows=alle.map(c=>{
+    const fav=c.ist_favorit;
+    const label=c.clip?esc(c.titel||'Ausschnitt'):('🎵 '+esc(c.titel||'Hauptsong'));
     return '<div class="clip-row" data-k="'+c.id+'">'
-      +'<button class="clip-fav'+(fav?' an':'')+'" data-act="fav" title="'+(fav?'Ist der Favorit — zählt allein im Zufall':'Als Favorit setzen')+'">'+(fav?'⭐':'☆')+'</button>'
-      +'<button class="clip-play" data-act="play" title="Abspielen">▶ '+esc(c.titel||'Ausschnitt')+(c.dauer?' <span class="clip-meta">'+zeit(c.dauer)+'</span>':'')+'</button>'
-      +'<button class="clip-del" data-act="del" title="Ausschnitt in den Papierkorb">🗑</button></div>';
-  }).join('')||'<div class="km-leer">keine Ausschnitte</div>';
-  m.innerHTML='<div class="sm-titel">✂ Ausschnitte — ⭐ ist der Favorit</div><div class="km-sub clip-sub">'+rows+'</div>';
-  m.querySelectorAll('.clip-row button').forEach(b=>b.onclick=async(e2)=>{
+      +'<button class="clip-fav'+(fav?' an':'')+'" data-act="fav" title="'+(fav?'Ist der Favorit — wird angezeigt & abgespielt':'Als Favorit setzen (wird angezeigt & abgespielt)')+'">'+(fav?'⭐':'☆')+'</button>'
+      +'<button class="clip-play" data-act="play" title="Abspielen">▶ '+label+(c.dauer?' <span class="clip-meta">'+zeit(c.dauer)+'</span>':'')+'</button>'
+      +(c.clip?'<button class="clip-del" data-act="del" title="Ausschnitt in den Papierkorb">🗑</button>'
+              :'<span class="clip-del clip-schutz" title="Der Hauptsong bleibt immer erhalten">🔒</span>')
+      +'</div>';
+  }).join('')||'<div class="km-leer">nichts</div>';
+  m.innerHTML='<div class="sm-titel">⭐ Favorit — wird angezeigt & abgespielt</div><div class="km-sub clip-sub">'+rows+'</div>';
+  m.querySelectorAll('.clip-row button[data-act]').forEach(b=>b.onclick=async(e2)=>{
     e2.stopPropagation();
     const row=b.closest('.clip-row'), k=row.dataset.k, act=b.dataset.act;
     if(act==='play'){playerPlay([k]); m.remove(); return;}
     if(act==='fav'){
       await fetch('/api/clip_favorit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});
-      await libLaden(); clipListe(m,id); return;                     // Menü mit frischem Stand neu malen
+      await libLaden(); if(document.body.contains(m))gruppeListe(m,id); return;   // frisch neu malen
     }
     if(act==='del'){
       frageModal('Diesen Ausschnitt in den Papierkorb verschieben?\\nAus dem Windows-Papierkorb wiederherstellbar.', '🗑 In den Papierkorb', async()=>{
         await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k,art:'loeschen'})});
         await libLaden();
-        if(document.body.contains(m)&&clipsVon(id).length)clipListe(m,id); else m.remove();
+        if(document.body.contains(m)&&gruppeVon(id).length>1)gruppeListe(m,id); else m.remove();
         toast('🗑 Ausschnitt in den Papierkorb.');
       });
       return;
@@ -5261,12 +5291,15 @@ function kachel(x){
   const dauer=x.dauer?`<span class="kdauer">${zeit(x.dauer)}</span>`:'';
   const weg=x.vorhanden?'':'<span class="wegbadge">verschoben</span>';
   const thumb=x.thumb?`<img class="thumb" src="${esc(x.thumb)}" loading="lazy" draggable="false" onerror="this.style.display='none';this.parentNode.classList.add('platzhalter')">`:'';
+  // Build 144o (JB): kleine ✂ oben rechts, wenn diese Kachel ein Ausschnitt ist
+  // (der Hauptsong liegt dann im Rechtsklick) — damit man es auf einen Blick sieht.
+  const schere=x.clip?'<span class="clip-schere" title="Ausschnitt — der Hauptsong liegt im Rechtsklick">✂</span>':'';
   const sel=libAuswahl.has(x.id)?' sel':'';
   // Ausführliche Details nur noch als Tooltip auf der Info-Zeile (Kachel bleibt ruhig).
   const det=[COLDEF.kategorie.t(x),COLDEF.qualitaet.t(x),technikText(x),mb(x.groesse),
              x.dauer?zeit(x.dauer):'',x.uploader||'',ytdatum(x.upload_date)].filter(Boolean).join('  ·  ');
   return `<div class="kachel ${x.vorhanden?'':'weg'}${sel}" data-id="${x.id}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}>
-    <div class="thumbwrap ${x.thumb?'':'platzhalter'}" onclick="thumbClick(event,'${x.id}')" title="Abspielen">${thumb}${dauer}${weg}</div>
+    <div class="thumbwrap ${x.thumb?'':'platzhalter'}" onclick="thumbClick(event,'${x.id}')" title="Abspielen">${thumb}${dauer}${weg}${schere}</div>
     <div class="kbody">
       <div class="ktitel" title="${esc(x.titel)}">${esc(x.titel)}</div>
       <div class="kinfo" title="${esc(det)}">${kachelInfo(x)}</div>

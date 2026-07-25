@@ -1751,7 +1751,7 @@ def test_ausschnitt_loeschen_ohne_nativen_dialog():
     # laesst sich NICHT vom Browser unterdruecken.
     quelle = _oberflaeche_html()
     assert "function frageModal" in quelle, "Kein app-eigener Bestaetigungs-Dialog"
-    i = quelle.index("function clipListe")
+    i = quelle.index("function gruppeListe")
     block = quelle[i:_funktionsende(quelle, i)]
     assert "frageModal(" in block, "Ausschnitt-Loeschen nutzt keinen app-eigenen Dialog"
     assert "confirm(" not in block, "Ausschnitt-Loeschen haengt noch am nativen confirm()"
@@ -1766,78 +1766,89 @@ def test_clip_erkennung_und_gruppe():
     assert app._clip_gruppe("abc123|audio") == "abc123"
 
 
-def test_neuster_ausschnitt_ist_favorit():
-    # JB: "Der snippet titel sollte direkt der favorit sein." Ohne eigene Wahl
-    # ist der NEUSTE Ausschnitt (groesstes ts) der Favorit der Gruppe.
-    app._geladen["v1|clipAAA"] = {"name": "A (Ausschnitt).mp3", "pfad": "/x", "ts": 100, "kategorie": "MP3"}
-    app._geladen["v1|clipBBB"] = {"name": "A (Ausschnitt 2).mp3", "pfad": "/x", "ts": 200, "kategorie": "MP3"}
+def test_hauptsong_ist_standard_favorit():
+    # Neues Modell (JB 25.07.): der Favorit ist der REPRAESENTANT der Gruppe.
+    # Ohne eigene Wahl ist der HAUPTSONG (Nicht-Clip) der Favorit - nicht ein
+    # Clip. Genau einer je Gruppe.
+    app._geladen["v1|audio"] = {"name": "A.mp3", "pfad": "/x", "ts": 50, "kategorie": "MP3"}
+    app._geladen["v1|clipAAA"] = {"name": "A (Ausschnitt).mp3", "pfad": "/x", "ts": 200, "kategorie": "MP3"}
     try:
         liste = {x["id"]: x for x in app.bibliothek_liste()}
-        assert liste["v1|clipAAA"]["clip"] is True
-        assert liste["v1|clipBBB"]["clip_favorit"] is True   # der neuere
-        assert liste["v1|clipAAA"]["clip_favorit"] is False  # genau einer je Gruppe
+        assert liste["v1|audio"]["ist_favorit"] is True      # Hauptsong = Standard
+        assert liste["v1|clipAAA"]["ist_favorit"] is False
+        assert liste["v1|audio"]["hat_geschwister"] is True  # Gruppe hat mehr als einen
     finally:
+        app._geladen.pop("v1|audio", None)
         app._geladen.pop("v1|clipAAA", None)
-        app._geladen.pop("v1|clipBBB", None)
 
 
-def test_favorit_waehlen_bleibt(tmp_path, monkeypatch):
-    # JB waehlt einen anderen als den neusten -> die Wahl haelt.
+def test_favorit_kann_hauptsong_oder_clip_sein(tmp_path, monkeypatch):
+    # JB: "Ich kann den grundsong nicht als favorit nennen" - jetzt schon.
+    # Wahl haelt, und man kann zum Hauptsong ZURUECK.
     monkeypatch.setattr(app, "GELADEN_PFAD", str(tmp_path / "g.json"))
-    app._geladen["v2|clipX"] = {"name": "B (Ausschnitt).mp3", "pfad": "/x", "ts": 1, "kategorie": "MP3"}
-    app._geladen["v2|clipY"] = {"name": "B (Ausschnitt 2).mp3", "pfad": "/x", "ts": 2, "kategorie": "MP3"}
+    app._geladen["v2|audio"] = {"name": "B.mp3", "pfad": "/x", "ts": 1, "kategorie": "MP3"}
+    app._geladen["v2|clipY"] = {"name": "B (Ausschnitt).mp3", "pfad": "/x", "ts": 2, "kategorie": "MP3"}
     try:
-        # ohne Wahl ist der neuere (Y) Favorit
-        assert {x["id"]: x for x in app.bibliothek_liste()}["v2|clipY"]["clip_favorit"] is True
-        r = app._clip_favorit_setzen("v2|clipX")           # JB waehlt den aelteren X
-        assert r.get("ok")
+        assert {x["id"]: x for x in app.bibliothek_liste()}["v2|audio"]["ist_favorit"] is True
+        assert app._clip_favorit_setzen("v2|clipY").get("ok")          # Clip waehlen
         liste = {x["id"]: x for x in app.bibliothek_liste()}
-        assert liste["v2|clipX"]["clip_favorit"] is True
-        assert liste["v2|clipY"]["clip_favorit"] is False  # weiter genau einer
+        assert liste["v2|clipY"]["ist_favorit"] is True
+        assert liste["v2|audio"]["ist_favorit"] is False
+        assert app._clip_favorit_setzen("v2|audio").get("ok")          # Hauptsong zurueck
+        assert {x["id"]: x for x in app.bibliothek_liste()}["v2|audio"]["ist_favorit"] is True
     finally:
-        app._geladen.pop("v2|clipX", None)
+        app._geladen.pop("v2|audio", None)
         app._geladen.pop("v2|clipY", None)
 
 
-def test_neuer_ausschnitt_uebernimmt_favorit(tmp_path, monkeypatch):
-    # Ein neuer Ausschnitt hebt eine fruehere Favoriten-WAHL auf (neuster
-    # gewinnt, JB-Wunsch) - clip_erstellen loescht die Flags der Gruppe.
+def test_neuer_ausschnitt_wird_favorit():
+    # JB: "Der snippet titel sollte direkt der favorit sein." clip_erstellen
+    # setzt das Favorit-Flag auf den NEUEN Ausschnitt (nicht auf den Hauptsong).
     quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
     i = quelle.index("def clip_erstellen")
-    ende = quelle.index("\ndef ", i + 1)                   # genau diese Funktion
-    assert "_clip_favorit_zuruecksetzen" in quelle[i:ende], (
+    block = quelle[i:quelle.index("\ndef ", i + 1)]
+    assert 'eintrag["favorit"] = True' in block, (
         "clip_erstellen macht den neuen Ausschnitt nicht zum Favoriten")
 
 
-def test_raster_versteckt_die_ausschnitte():
-    # JB: "So wird die bibliothek nicht zugemüllt." Clips erscheinen NICHT als
-    # eigene Kacheln im Hauptraster.
+def test_raster_zeigt_nur_den_favorit():
+    # JB: der Favorit ist die sichtbare Kachel; die uebrigen (Clips + Hauptsong,
+    # falls ein Clip Favorit ist) liegen im Rechtsklick.
     quelle = _oberflaeche_html()
     i = quelle.index("function libGefiltert")
     block = quelle[i:_funktionsende(quelle, i)].replace(" ", "")
-    assert "!x.clip" in block or "x.clip" in block, (
-        "Das Raster filtert die Ausschnitte nicht heraus")
+    assert "x.ist_favorit" in block, "Das Raster zeigt nicht nur den Favoriten"
 
 
-def test_zufall_nimmt_nur_den_favorit_clip():
-    # JB: "die extra titel sollten nicht im zufallsabspiel modus abgespielt
-    # werden, nur der favorit zählt." Song bleibt, Favorit-Clip bleibt, die
-    # uebrigen Clips fallen aus dem Zufalls-/Radio-Pool.
+def test_zufall_nimmt_nur_den_favorit():
+    # JB: "der favorit wird immer abgespielt." Im Zufalls-/Radio-Pool zaehlt
+    # nur der Repraesentant der Gruppe.
     quelle = _oberflaeche_html()
     i = quelle.index("function radioKandidaten")
     block = quelle[i:_funktionsende(quelle, i)].replace(" ", "")
-    assert "!x.clip||x.clip_favorit" in block, (
-        "Der Zufalls-Pool nimmt entweder alle Clips oder gar keinen - "
-        "gebraucht ist: nur der Favorit-Clip zaehlt")
+    assert "x.ist_favorit" in block, "Der Zufalls-Pool nimmt nicht nur den Favoriten"
 
 
-def test_song_menue_hat_ausschnitte():
-    # JB: "Rechtsklick auf den song = welcher der ausschnitte ist der favorit?"
+def test_clip_kachel_traegt_schere():
+    # JB: "eventuell eine kleine schere oben rechts in den thumbnail" - damit
+    # sichtbar ist, dass die Kachel ein Ausschnitt ist (nicht der volle Song).
+    quelle = _oberflaeche_html()
+    assert "clip-schere" in quelle, "Kein ✂-Abzeichen auf der Ausschnitt-Kachel"
+
+
+def test_gruppen_menue_und_hauptsong_geschuetzt():
+    # Rechtsklick zeigt die Gruppe (Hauptsong + Clips), Favorit waehlbar.
+    # Der Hauptsong bleibt erhalten: im Menue KEIN Papierkorb fuer ihn.
     quelle = _oberflaeche_html()
     i = quelle.index("function libItemMenu")
-    block = quelle[i:_funktionsende(quelle, i)]
-    assert "Ausschnitte" in block and "clipListe" in block, (
-        "Der Song-Rechtsklick bietet kein Ausschnitt-Untermenü")
+    assert "gruppeListe" in quelle[i:_funktionsende(quelle, i)], (
+        "Der Song-Rechtsklick bietet kein Gruppen-Untermenü")
+    g = quelle.index("function gruppeListe")
+    block = quelle[g:_funktionsende(quelle, g)].replace(" ", "")
+    # Der Papierkorb erscheint nur fuer Clips (c.clip?…); der Hauptsong bekommt
+    # stattdessen ein Schloss (clip-schutz) statt eines Loesch-Knopfes.
+    assert "c.clip?" in block and "clip-schutz" in block, (
+        "Der Hauptsong ist im Gruppen-Menü nicht vor dem Löschen geschützt")
 
 
 def test_embed_player_fuellt_die_kachel():
