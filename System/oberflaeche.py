@@ -903,9 +903,20 @@ html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
    wird bleibt halt darunter ein grosses Loch" — das Loch ist gewollt.
    body:not(.mini):not(.embed) grenzt Mini-Player und Einbett-Modus aus, die
    ihre eigenen, bewusst anderen Höhenketten haben (Build 97/121). */
+/* Build 144p (JB 25.07., Bild 1 vs. 2): Im eigenständigen Player muss das
+   16:9-Bild OHNE Scrollen in den Viewport passen und Titel + Playlist sichtbar
+   lassen. Vorher stand das Video auf `flex:0 0 auto` mit `max-height:100cqb` —
+   bei einem breiten Panel nahm es die volle Kartenhöhe (width:100% → hohe
+   16:9-Höhe) und drückte die Playlist aus dem Bild (Scroll, Bild 2).
+   Jetzt darf es SCHRUMPFEN (`flex:0 1 auto`): reicht die Höhe nicht, wird das
+   Bild flacher UND schmaler — das <video> behält sein 16:9 (object-fit:contain)
+   und bekommt seitliche Balken (Pillarbox, Bild 1). Die Playlist-Seite ist
+   `flex:none` (Zeile ~915), behält also ihren Platz. JBs gewolltes „Loch"
+   unter einem kleinen Player bleibt: passt das 16:9 hinein, schrumpft nichts.
+   Live gemessen: kein Scroll bei 1858×700 / 1100×760 / 560×820. */
 body:not(.mini):not(.embed) #view-player .card .pl-media{
-  flex:0 0 auto;aspect-ratio:var(--pl-ar,16/9);width:100%;height:auto;
-  max-height:100cqb;margin:0 auto;align-self:flex-start}
+  flex:0 1 auto;aspect-ratio:var(--pl-ar,16/9);width:100%;height:auto;
+  min-height:120px;margin:0 auto;align-self:flex-start}
 body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
   height:100%;flex:1;align-self:stretch}
 .pl-viz{position:absolute;inset:0;width:100%;height:100%;z-index:0;display:none}

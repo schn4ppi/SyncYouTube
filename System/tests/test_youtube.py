@@ -1851,6 +1851,25 @@ def test_gruppen_menue_und_hauptsong_geschuetzt():
         "Der Hauptsong ist im Gruppen-Menü nicht vor dem Löschen geschützt")
 
 
+def test_standalone_player_zwingt_kein_scrollen():
+    # JB (25.07., mit Bild 1 vs. 2): im eigenstaendigen Player soll das
+    # 16:9-Bild OHNE Scrollen in den Viewport passen (pillarboxed), Titel +
+    # Playlist sichtbar bleiben. Vorher nahm das Video (flex:0 0 auto +
+    # max-height:100cqb) die volle Kartenhoehe und drueckte die Playlist raus.
+    # Jetzt darf es schrumpfen (flex:0 1 auto), das Bild bleibt 16:9 via
+    # object-fit. Live gemessen: kein Scroll bei breit/mittel/schmal.
+    quelle = _oberflaeche_html()
+    css = quelle[quelle.index("<style"):quelle.index("</style>")]
+    kurz = " ".join(css.split())
+    i = kurz.index("body:not(.mini):not(.embed) #view-player .card .pl-media{")
+    regel = kurz[i:i + 200]
+    assert "flex:0 1 auto" in regel, (
+        "Das Player-Video kann nicht schrumpfen (flex:0 0 auto) - es draengt "
+        "die Playlist aus dem Bild und erzwingt Scrollen")
+    assert "max-height:100cqb" not in regel, (
+        "max-height:100cqb liess das Video die volle Kartenhoehe nehmen")
+
+
 def test_embed_player_fuellt_die_kachel():
     # JB (25.07., mit Bild): "die fläche rechts oben sollte ausgefüllt sein
     # vom player." Im Dashboard-Embed ist die Playlist ausgelagert
