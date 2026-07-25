@@ -1658,6 +1658,93 @@ def test_playlist_markierung_zeigt_die_ganze_auswahl():
         "verschwindet beim Loslassen wieder")
 
 
+def test_quell_signatur_reagiert_auf_backend_aenderung(tmp_path, monkeypatch):
+    # Selbst-Neustart (Build 144m): erkennt geaenderten Backend-Code an der
+    # mtime-Signatur. Die pro Anfrage neu ladenden Module (oberflaeche/handy)
+    # zaehlen NICHT mit - die brauchen keinen Neustart.
+    (tmp_path / "youtube_app.py").write_text("x=1", encoding="utf-8")
+    (tmp_path / "oberflaeche.py").write_text("y=1", encoding="utf-8")
+    monkeypatch.setattr(app, "SCRIPT_DIR", str(tmp_path))
+    sig1 = app._quell_signatur()
+    os.utime(tmp_path / "youtube_app.py", (time.time() + 50, time.time() + 50))
+    assert app._quell_signatur() != sig1, "Aenderung am Backend nicht erkannt"
+    sig2 = app._quell_signatur()
+    os.utime(tmp_path / "oberflaeche.py", (time.time() + 80, time.time() + 80))
+    assert app._quell_signatur() == sig2, "oberflaeche loest faelschlich Neustart aus"
+
+
+def test_leerlauf_haelt_bei_download_und_stream(monkeypatch):
+    # Nie mitten im Download oder waehrend des Abspielens neu starten.
+    monkeypatch.setattr(app.Q, "items", [{"status": "laeuft"}])
+    monkeypatch.setattr(app, "_letzter_stream", 0.0)
+    assert app._code_leerlauf() is False, "startet trotz laufendem Download neu"
+    monkeypatch.setattr(app.Q, "items", [])
+    monkeypatch.setattr(app, "_letzter_stream", time.time())        # gerade gestreamt
+    assert app._code_leerlauf() is False, "startet trotz laufender Wiedergabe neu"
+    monkeypatch.setattr(app, "_letzter_stream", 0.0)                # lange her
+    assert app._code_leerlauf() is True, "startet nicht, obwohl alles ruhig"
+
+
+def test_neustart_nur_bei_neuem_stabilem_code(monkeypatch):
+    # Aenderung -> Beruhigungszeit -> bei Ruhe Neustart. Kein Sofort-Neustart
+    # (schuetzt gegen mehrere schnelle Edits).
+    gerufen = []
+    monkeypatch.setattr(app, "_selbst_neustart", lambda: gerufen.append(1))
+    monkeypatch.setattr(app.Q, "items", [])
+    monkeypatch.setattr(app, "_letzter_stream", 0.0)
+    monkeypatch.setattr(app, "_neustart_geplant", False)
+    monkeypatch.setattr(app, "_neu_sig", None)
+    monkeypatch.setattr(app, "_START_SIGNATUR", 100.0)
+    monkeypatch.setitem(app.CFG, "auto_neustart", True)
+    monkeypatch.setattr(app, "_quell_signatur", lambda: 100.0)      # unveraendert
+    app._neustart_pruefen()
+    assert app._neustart_geplant is False, "Neustart ohne Code-Aenderung"
+    monkeypatch.setattr(app, "_quell_signatur", lambda: 200.0)      # geaendert
+    app._neustart_pruefen()                                        # nur Uhr stellen
+    assert app._neustart_geplant is False, "Sofort-Neustart trotz Beruhigungszeit"
+    monkeypatch.setattr(app, "_neu_sig_seit", time.time() - 999)    # Zeit vorbei
+    app._neustart_pruefen()
+    assert app._neustart_geplant is True, "kein Neustart, obwohl Code stabil neu + Ruhe"
+
+
+def test_neustart_wartet_bei_last(monkeypatch):
+    # Geaenderter, stabiler Code, aber ein Download laeuft -> NICHT neu starten.
+    monkeypatch.setattr(app, "_selbst_neustart", lambda: None)
+    monkeypatch.setattr(app.Q, "items", [{"status": "laeuft"}])
+    monkeypatch.setattr(app, "_neustart_geplant", False)
+    monkeypatch.setattr(app, "_neu_sig", 200.0)
+    monkeypatch.setattr(app, "_neu_sig_seit", time.time() - 999)
+    monkeypatch.setattr(app, "_START_SIGNATUR", 100.0)
+    monkeypatch.setattr(app, "_quell_signatur", lambda: 200.0)
+    monkeypatch.setitem(app.CFG, "auto_neustart", True)
+    app._neustart_pruefen()
+    assert app._neustart_geplant is False, "startet mitten im Download neu"
+
+
+def test_selbstneustart_baut_das_richtige_kommando(monkeypatch):
+    # Als Skript: python + Skript + Argumente. Der Prozess wird ersetzt (execv).
+    ruf = {}
+    monkeypatch.setattr(os, "execv", lambda p, a: ruf.update(pfad=p, argv=list(a)))
+    monkeypatch.setattr(app.Q, "speichern", lambda: None)
+    monkeypatch.setattr(app.sys, "argv", ["youtube_app.py", "--no-browser"])
+    monkeypatch.setattr(app.sys, "frozen", False, raising=False)
+    app._selbst_neustart()
+    assert ruf["pfad"] == app.sys.executable
+    assert ruf["argv"] == [app.sys.executable, "youtube_app.py", "--no-browser"]
+
+
+def test_selbst_neustart_haengt_in_bestehender_schleife():
+    # Kein neuer Timer (Last-Budget): die Pruefung laeuft in ticker_schleife;
+    # die Wiedergabe setzt den Ruhe-Zeitstempel in _stream_datei.
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    i = quelle.index("def ticker_schleife")
+    assert "_neustart_pruefen()" in quelle[i:quelle.index("\ndef ", i + 1)], (
+        "Neustart-Pruefung haengt nicht in der bestehenden 5-s-Schleife")
+    j = quelle.index("def _stream_datei")
+    assert "_letzter_stream" in quelle[j:quelle.index("\ndef ", j + 1)], (
+        "Wiedergabe wird nicht als Aktivitaet vermerkt")
+
+
 def test_clip_erkennung_und_gruppe():
     # Ein Ausschnitt traegt |clip im Schluessel und gehoert zum Song mit
     # derselben Video-Id davor.

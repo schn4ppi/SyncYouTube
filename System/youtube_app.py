@@ -854,6 +854,7 @@ _MIME = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".opus": "audio/ogg", ".ogg"
 
 def _stream_datei(handler, pfad):
     """Datei ausliefern, Range-Anfragen (Seek/Abspielen) inklusive."""
+    globals()["_letzter_stream"] = time.time()        # Build 144m: „gerade Wiedergabe" merken
     groesse = os.path.getsize(pfad)
     ctype = _MIME.get(os.path.splitext(pfad)[1].lower()) \
         or mimetypes.guess_type(pfad)[0] or "application/octet-stream"
@@ -3996,6 +3997,97 @@ def _fehler_aufraeumen():
         Q.speichern()
 
 
+# ---- Selbst-Neustart bei Code-Änderung (Build 144m, JB 25.07.) -------------
+# JB: „den Haken sollten wir lösen, das sollte immer klappen. Egal ob auf
+# Homeserver oder in der Simulation." Wurzel: Die Oberfläche lädt pro Anfrage
+# neu (importlib.reload), das Hauptmodul aber nicht — Backend-Änderungen (neue
+# Felder, Routen) griffen erst nach einem manuellen Neustart.
+# Lösung: Die App merkt sich beim Start die mtime-Signatur ihrer Backend-
+# Quelldateien. Ist der Code auf der Platte neuer, ersetzt sie ihren eigenen
+# Prozess (os.execv) — Zustand liegt auf der Platte, Port wird frei. Ausgelöst
+# in der BESTEHENDEN 5-s-Schleife (kein neuer Timer, Last-Budget), nur bei Ruhe
+# (kein Download/Stream) und erst, wenn der Code ein paar Sekunden stabil ist.
+_HEISS_NACHLADBAR = {"oberflaeche.py", "handy.py"}   # laden pro Anfrage neu -> kein Neustart nötig
+NEUSTART_BERUHIGUNG = 3.0                             # s stabil, bevor neu gestartet wird
+STREAM_RUHE = 15.0                                   # s ohne Abspielen = sicher
+_letzter_stream = 0.0
+_START_SIGNATUR = None                               # in main() gesetzt
+_neu_sig = None
+_neu_sig_seit = 0.0
+_neustart_geplant = False
+_neustart_lock = threading.Lock()
+
+
+def _quell_signatur():
+    """mtime-Summe der Backend-Quelldateien (die NICHT pro Anfrage neu laden)."""
+    sig = 0.0
+    try:
+        for f in os.listdir(SCRIPT_DIR):
+            if f.endswith(".py") and f not in _HEISS_NACHLADBAR:
+                try:
+                    sig += os.path.getmtime(os.path.join(SCRIPT_DIR, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return round(sig, 3)
+
+
+def _code_leerlauf():
+    """Kein aktiver Download und kein kürzliches Abspielen — sicher zum Neustart."""
+    try:
+        if any(i.get("status") in ("laeuft", "prueft") for i in Q.items):
+            return False
+    except Exception:                                # noqa: BLE001 — im Zweifel NICHT neu starten
+        return False
+    return (time.time() - _letzter_stream) > STREAM_RUHE
+
+
+def _selbst_neustart():
+    """Den eigenen Prozess durch eine frische Kopie ersetzen. Zustand (Config,
+    Warteschlange, DB) liegt auf der Platte; der Port wird durch execv frei und
+    sofort wieder belegt. Als exe: die exe neu; als Skript: python + Skript."""
+    try:
+        Q.speichern()
+    except Exception:                                # noqa: BLE001
+        pass
+    _sag("Code aktualisiert — Selbst-Neustart, der Zustand bleibt erhalten.")
+    try:
+        if getattr(sys, "frozen", False):
+            os.execv(sys.executable, [sys.executable] + sys.argv[1:])
+        else:
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+    except OSError as e:
+        globals()["_neustart_geplant"] = False
+        _sag(f"Selbst-Neustart nicht möglich: {e}")
+
+
+def _neustart_pruefen():
+    """Läuft in der 5-s-Schleife: neuer Code auf der Platte? Dann leise selbst
+    neu starten — nach Beruhigungszeit und nur bei Ruhe."""
+    global _neu_sig, _neu_sig_seit, _neustart_geplant
+    if _neustart_geplant or _START_SIGNATUR is None or not CFG.get("auto_neustart", True):
+        return
+    sig = _quell_signatur()
+    if sig == _START_SIGNATUR:                        # unverändert
+        _neu_sig = None
+        return
+    jetzt = time.time()
+    if sig != _neu_sig:                               # (neue) Änderung -> Beruhigungsuhr neu
+        _neu_sig = sig
+        _neu_sig_seit = jetzt
+        return
+    if jetzt - _neu_sig_seit < NEUSTART_BERUHIGUNG:   # noch nicht stabil
+        return
+    if not _code_leerlauf():                          # lädt/spielt gerade -> später
+        return
+    with _neustart_lock:
+        if _neustart_geplant:
+            return
+        _neustart_geplant = True
+    threading.Timer(0.3, _selbst_neustart).start()    # Antwort erst rausgeben lassen
+
+
 def ticker_schleife():
     """Fortschritt alle 5 s sichern, damit ein Absturz höchstens 5 s Anzeige kostet."""
     while True:
@@ -4004,6 +4096,7 @@ def ticker_schleife():
             Q.speichern()
         _fehler_aufraeumen()
         queue_heilen()                                # Build 137: hängende Aufträge (JB Punkt 6)
+        _neustart_pruefen()                           # Build 144m: neuer Code -> Selbst-Neustart
 
 
 # ---------------------------------------------------------------- HTTP-Server
@@ -4642,6 +4735,7 @@ def _tray_icon(url):
 
 def main():
     sys.path.insert(0, SCRIPT_DIR)
+    globals()["_START_SIGNATUR"] = _quell_signatur()  # Build 144m: Code-Stand beim Start merken
     port = int(CFG.get("port", 8776))
     # Nur bei aktivierter Handy-Fernsteuerung im ganzen WLAN lauschen, sonst strikt
     # nur auf dem eigenen PC (Sicherheits-Standard der Suite: 127.0.0.1).
