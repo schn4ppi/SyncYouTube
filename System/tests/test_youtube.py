@@ -1692,6 +1692,35 @@ def test_addon_popup_zeigt_version_und_update():
     assert 'id="version"' in ph, "Kein Versions-Element im Popup"
 
 
+def test_testmodus_leitet_alle_daten_um(tmp_path):
+    # JB (alter Plan, "finde ich gut"; go 05.08.): Proben laufen ausserhalb
+    # der echten Ordner. Hintergrund-Vorfall: ein Auto-Import-Test legte eine
+    # Probedatei in Downloads/; Datei, DB-Eintrag und ein Warteschlangen-
+    # Auftrag mit erfundener Adresse blieben JB sichtbar.
+    # 1) Die Weiche: --testmodus [pfad] -> eigener Daten-Ordner.
+    d, tm = app._daten_dir(["youtube_app.py"], {})
+    assert d == app.SCRIPT_DIR and tm is False          # Normalfall: alles wie immer
+    d, tm = app._daten_dir(["x", "--testmodus", str(tmp_path / "probe")], {})
+    assert tm is True and str(tmp_path) in d and os.path.isdir(d)
+    d2, tm2 = app._daten_dir(["x", "--testmodus"], {"TEMP": str(tmp_path)})
+    assert tm2 is True and str(tmp_path) in d2          # ohne Pfad: unter TEMP
+    # 2) Testmodus-Config: eigener Port (kein Konflikt mit JBs 8776) und
+    #    Selbst-Neustart AUS (eine Probe soll sich nicht selbst neu starten).
+    cfg = {"port": 8776, "auto_neustart": True, "ziel_ordner": "C:/echte/Downloads"}
+    app._testmodus_config(cfg, str(tmp_path / "probe"))
+    assert cfg["port"] == 8779
+    assert cfg["auto_neustart"] is False
+    assert str(tmp_path) in cfg["ziel_ordner"]          # Downloads im Probenordner
+    # 3) Quell-Waechter: KEINE Zustandsdatei haengt mehr an SCRIPT_DIR —
+    #    nur Code (bin/, browser-addon) darf dort wohnen.
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    import re as _re
+    zustand = _re.findall(r'os\.path\.join\(SCRIPT_DIR, "([^"]+)"\)', quelle)
+    boese = [z for z in zustand if z.endswith(".json") or z in ("abo_index",)]
+    assert not boese, f"Zustandsdateien haengen noch an SCRIPT_DIR: {boese}"
+    assert "DATEN_DIR" in quelle, "Kein DATEN_DIR - der Testmodus kann nichts umleiten"
+
+
 def test_untertitel_sprachwahl(monkeypatch):
     # JB Punkt 6: "Untertitel: Sprachwahl, wenn automatisches Laden
     # eingeschaltet ist." Vorher waren de/en/Original an zwei Stellen hart

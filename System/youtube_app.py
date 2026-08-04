@@ -51,11 +51,45 @@ if getattr(sys, "frozen", False):
 else:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))        # System\
     PROGRAMM_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, ".."))
-CONFIG_PFAD = os.path.join(SCRIPT_DIR, "config.json")
-QUEUE_PFAD = os.path.join(SCRIPT_DIR, "warteschlange.json")
-GELADEN_PFAD = os.path.join(SCRIPT_DIR, "geladen_log.json")  # „Datenbank" fertiger Downloads
-PLAYLIST_PFAD = os.path.join(SCRIPT_DIR, "playlists.json")
-STATUS_PFAD = os.path.join(SCRIPT_DIR, "yt_status.json")   # fürs Dashboard (read-only Konsument)
+
+
+def _daten_dir(argv, env):
+    """Testmodus-Weiche (JB: „Testmodus, der Proben außerhalb JBs echter
+    Ordner fährt"). Vorfall 23.07.: ein Auto-Import-Test legte eine Probedatei
+    in Downloads/ — Datei, DB-Eintrag und ein Warteschlangen-Auftrag mit
+    erfundener Adresse blieben JB sichtbar. Jetzt technisch verhindert:
+    `--testmodus [pfad]` legt ALLE Zustandsdateien (Config, DB, Warteschlange,
+    Playlists, Abos, Logs, Downloads) in einen Wegwerf-Ordner. Code (bin/,
+    browser-addon, .py-Signatur des Selbst-Neustarts) bleibt am SCRIPT_DIR."""
+    if "--testmodus" in argv:
+        i = argv.index("--testmodus")
+        pfad = (argv[i + 1] if i + 1 < len(argv)
+                and not argv[i + 1].startswith("--") else "")
+        if not pfad:
+            pfad = os.path.join(env.get("TEMP") or env.get("TMP") or SCRIPT_DIR,
+                                "ytdl-testmodus")
+        os.makedirs(pfad, exist_ok=True)
+        return os.path.abspath(pfad), True
+    return SCRIPT_DIR, False
+
+
+def _testmodus_config(cfg, daten_dir):
+    """Im Testmodus erzwingen: eigener Port (kein Wettstreit mit JBs 8776),
+    Downloads im Probenordner, Selbst-Neustart AUS (eine Probe soll sich
+    nicht selbst neu starten und dabei ihre Argumente verlieren)."""
+    cfg["port"] = 8779
+    cfg["ziel_ordner"] = os.path.join(daten_dir, "Downloads")
+    cfg["auto_neustart"] = False
+    cfg["fernsteuerung"] = False                      # Probe lauscht NIE im WLAN
+    return cfg
+
+
+DATEN_DIR, TESTMODUS = _daten_dir(sys.argv, os.environ)
+CONFIG_PFAD = os.path.join(DATEN_DIR, "config.json")
+QUEUE_PFAD = os.path.join(DATEN_DIR, "warteschlange.json")
+GELADEN_PFAD = os.path.join(DATEN_DIR, "geladen_log.json")  # „Datenbank" fertiger Downloads
+PLAYLIST_PFAD = os.path.join(DATEN_DIR, "playlists.json")
+STATUS_PFAD = os.path.join(DATEN_DIR, "yt_status.json")   # fürs Dashboard (read-only Konsument)
 BIN_DIR = os.path.join(SCRIPT_DIR, "bin")
 # In der Release-exe sind ffmpeg/ffprobe/deno MIT eingepackt (PyInstaller-Bundle,
 # entpackt nach sys._MEIPASS/bin). Ein eigener bin\-Ordner NEBEN der exe hat
@@ -173,6 +207,8 @@ def _json_speichern(pfad, daten):
 def config_laden():
     cfg = dict(STANDARD_CONFIG)
     cfg.update({k: v for k, v in _json_laden(CONFIG_PFAD, {}).items() if k in STANDARD_CONFIG})
+    if TESTMODUS:                                     # Probe: eigener Port, eigene Downloads,
+        _testmodus_config(cfg, DATEN_DIR)             # kein Selbst-Neustart, kein WLAN
     return cfg
 
 
@@ -269,11 +305,14 @@ CFG = config_laden()
 
 
 def ziel_ordner():
-    pfad = CFG.get("ziel_ordner") or os.path.join(PROGRAMM_DIR, "Downloads")
+    # Testmodus: JEDER Fallback landet im Probenordner — nie in JBs Downloads
+    # (der Fallback war sonst genau das Loch, durch das die Probedatei kam).
+    basis = DATEN_DIR if TESTMODUS else PROGRAMM_DIR
+    pfad = CFG.get("ziel_ordner") or os.path.join(basis, "Downloads")
     try:
         os.makedirs(pfad, exist_ok=True)
     except OSError:
-        pfad = os.path.join(PROGRAMM_DIR, "Downloads")
+        pfad = os.path.join(basis, "Downloads")
         os.makedirs(pfad, exist_ok=True)
     return pfad
 
@@ -1760,7 +1799,7 @@ def untertitel_nachladen(key):
 #      Ergänzt die YouTube-Untertitel fürs Musik-Karaoke: echte, zeilengenaue
 #      Songtexte. Rein lesend, Ergebnis-Cache neben dem Code (keine Fremddaten).
 
-LYRICS_CACHE = os.path.join(SCRIPT_DIR, "lyrics_cache.json")
+LYRICS_CACHE = os.path.join(DATEN_DIR, "lyrics_cache.json")
 _lyrics = _json_laden(LYRICS_CACHE, {})
 if not isinstance(_lyrics, dict):
     _lyrics = {}
@@ -2207,7 +2246,7 @@ def playlist_import_m3u(name, text):
 #      gemerkt und NICHT geladen (Baseline) — geholt wird nur, was danach neu
 #      dazukommt (kein versehentliches Herunterladen des ganzen Archivs).
 
-ABO_PFAD = os.path.join(SCRIPT_DIR, "abos.json")
+ABO_PFAD = os.path.join(DATEN_DIR, "abos.json")
 _abos = _json_laden(ABO_PFAD, [])
 if not isinstance(_abos, list):
     _abos = []
@@ -2475,7 +2514,7 @@ def addon_update_info():
 # v1.1.2 (JB: „wenn ich eine playlist bereits heruntergeladen habe, wird der
 # button nicht zum haken"): komplett eingereihte Listen merken. NUR komplette
 # Läufe (ohne von/bis) und NIE Mixe — die sind endlos und nie „fertig".
-LISTEN_LOG_PFAD = os.path.join(SCRIPT_DIR, "listen_log.json")
+LISTEN_LOG_PFAD = os.path.join(DATEN_DIR, "listen_log.json")
 _listen_log = _json_laden(LISTEN_LOG_PFAD, {})       # list_id -> ts
 
 
@@ -2754,7 +2793,7 @@ def abos_pruefen():
     return gesamt
 
 
-ABO_INDEX_ORDNER = os.path.join(SCRIPT_DIR, "abo_index")
+ABO_INDEX_ORDNER = os.path.join(DATEN_DIR, "abo_index")
 
 
 def abo_folgen(abo_id, aktualisieren=False):
@@ -3169,7 +3208,7 @@ def _vtt_geschwister(pfad):
                   + glob.glob(glob.escape(stamm) + ".vtt"))
 
 
-PROTOKOLL_PFAD = os.path.join(SCRIPT_DIR, "migration_protokoll.json")
+PROTOKOLL_PFAD = os.path.join(DATEN_DIR, "migration_protokoll.json")
 
 
 def migration_probelauf(schema=None, keys=None):
@@ -4874,6 +4913,13 @@ def _tray_icon(url):
 def main():
     sys.path.insert(0, SCRIPT_DIR)
     globals()["_START_SIGNATUR"] = _quell_signatur()  # Build 144m: Code-Stand beim Start merken
+    if TESTMODUS:
+        # Probe: nichts öffnet sich, nichts bleibt zurück außer dem Probenordner.
+        for flag in ("--no-browser", "--no-tray"):
+            if flag not in sys.argv:
+                sys.argv.append(flag)
+        _sag(f"TESTMODUS — alle Daten liegen unter {DATEN_DIR} (Port {CFG.get('port')}). "
+             "JBs echte Ordner werden nicht angefasst.")
     port = int(CFG.get("port", 8776))
     # Nur bei aktivierter Handy-Fernsteuerung im ganzen WLAN lauschen, sonst strikt
     # nur auf dem eigenen PC (Sicherheits-Standard der Suite: 127.0.0.1).
