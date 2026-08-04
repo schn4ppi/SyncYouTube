@@ -1394,9 +1394,18 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
           </select>
           <span>Untertitel laden</span>
           <select id="cfg_subs">
-            <option value="1">an (de/en, auch automatische)</option>
+            <option value="1">an (auch automatische)</option>
             <option value="0">aus</option>
           </select>
+          <!-- JB Punkt 6: Sprachwahl fürs automatische Laden. „Original" =
+               die unübersetzte Auto-Spur des Videos (Karaoke/Romaji). -->
+          <span>Untertitel-Sprachen<br><small style="color:#6a5c52">wirkt nur, wenn „laden" an ist</small></span>
+          <span id="cfg_subs_sprachen" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label class="chk" style="margin:0"><input type="checkbox" id="cfg_sub_de" checked style="width:auto"> Deutsch</label>
+            <label class="chk" style="margin:0"><input type="checkbox" id="cfg_sub_en" checked style="width:auto"> Englisch</label>
+            <label class="chk" style="margin:0" title="Die unübersetzte Original-Spur des Videos — braucht das Karaoke (Romaji)"><input type="checkbox" id="cfg_sub_orig" checked style="width:auto"> Original</label>
+            <input id="cfg_sub_extra" placeholder="weitere: ja, es" style="width:110px" title="Weitere Sprach-Kennungen, mit Komma (z. B. ja, es, fr)">
+          </span>
           <span>SponsorBlock<br><small style="color:#6a5c52">Werbung rausschneiden</small></span>
           <select id="cfg_sponsor">
             <option value="">aus</option>
@@ -2931,6 +2940,13 @@ function configFuellen(){
   document.getElementById('cfg_qual').value=daten.config.standard_qualitaet;
   document.getElementById('cfg_sponsor').value=daten.config.sponsorblock||'';
   document.getElementById('cfg_subs').value=daten.config.untertitel?'1':'0';
+  // JB Punkt 6: Sprachwahl. Ohne gespeicherte Wahl gilt der Standard de/en/orig.
+  const sp=(daten.config.untertitel_sprachen&&daten.config.untertitel_sprachen.length)
+    ?daten.config.untertitel_sprachen:['de','en','orig'];
+  document.getElementById('cfg_sub_de').checked=sp.includes('de');
+  document.getElementById('cfg_sub_en').checked=sp.includes('en');
+  document.getElementById('cfg_sub_orig').checked=sp.includes('orig');
+  document.getElementById('cfg_sub_extra').value=sp.filter(s=>!['de','en','orig'].includes(s)).join(', ');
   document.getElementById('cfg_autoupdate').value=daten.config.auto_update?'1':'0';
   document.getElementById('qual').value=daten.config.standard_qualitaet;
   const cq=document.getElementById('cmd-qual'); if(cq)cq.value=daten.config.standard_qualitaet;
@@ -3872,6 +3888,15 @@ async function configSpeichern(){
       standard_qualitaet:document.getElementById('cfg_qual').value,
       sponsorblock:document.getElementById('cfg_sponsor').value,
       untertitel:document.getElementById('cfg_subs').value==='1',
+      untertitel_sprachen:(()=>{                       // JB Punkt 6: Sprachwahl
+        const sp=[];
+        if(document.getElementById('cfg_sub_de').checked)sp.push('de');
+        if(document.getElementById('cfg_sub_en').checked)sp.push('en');
+        if(document.getElementById('cfg_sub_orig').checked)sp.push('orig');
+        document.getElementById('cfg_sub_extra').value.split(',')
+          .map(s=>s.trim()).filter(Boolean).forEach(s=>sp.push(s));
+        return sp;
+      })(),
       auto_update:document.getElementById('cfg_autoupdate').value==='1'})});
   document.getElementById('cfg_meldung').textContent='Gespeichert ✓';
   setTimeout(()=>document.getElementById('cfg_meldung').textContent='',2500);

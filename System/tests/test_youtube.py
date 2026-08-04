@@ -1692,6 +1692,35 @@ def test_addon_popup_zeigt_version_und_update():
     assert 'id="version"' in ph, "Kein Versions-Element im Popup"
 
 
+def test_untertitel_sprachwahl(monkeypatch):
+    # JB Punkt 6: "Untertitel: Sprachwahl, wenn automatisches Laden
+    # eingeschaltet ist." Vorher waren de/en/Original an zwei Stellen hart
+    # verdrahtet. "orig" steht fuer yt-dlps ".*-orig" (die unuebersetzte
+    # Auto-Spur - wichtig fuers Karaoke, Romaji).
+    monkeypatch.setitem(app.CFG, "untertitel_sprachen", ["ja", "orig"])
+    assert app._untertitel_sprachen() == ["ja", ".*-orig"]
+    # Ohne eigene Wahl bleibt das Bestandsverhalten exakt erhalten.
+    monkeypatch.setitem(app.CFG, "untertitel_sprachen", [])
+    assert app._untertitel_sprachen() == ["de", "en", ".*-orig"]
+    monkeypatch.delitem(app.CFG, "untertitel_sprachen", raising=False)
+    assert app._untertitel_sprachen() == ["de", "en", ".*-orig"]
+    # Unsinn wird gefiltert (kommt via /api/config von aussen).
+    monkeypatch.setitem(app.CFG, "untertitel_sprachen",
+                        ["de", "../boese", "x" * 40, "en-GB", 7, "orig"])
+    assert app._untertitel_sprachen() == ["de", "en-GB", ".*-orig"]
+    # Beide Lade-Stellen nutzen die Wahl statt der Hartliste.
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert quelle.count('["de", "en", ".*-orig"]') <= 1, (
+        "Die Sprachliste ist weiter hart verdrahtet (nur der Standard in "
+        "_untertitel_sprachen darf sie tragen)")
+    assert quelle.count("_untertitel_sprachen()") >= 2, (
+        "Nicht beide Lade-Stellen (Download + Nachladen) nutzen die Wahl")
+    # Die Oberflaeche bietet die Wahl an und /api/config nimmt sie an.
+    ui = _oberflaeche_html()
+    assert "cfg_subs_sprachen" in ui, "Keine Sprachwahl in den Einstellungen"
+    assert '"untertitel_sprachen"' in quelle, "/api/config nimmt die Wahl nicht an"
+
+
 def test_mini_modus_kann_playlist_nicht_eingliedern():
     # JB (04.08.): "ich kann wenn ich den mini player gestartet habe die
     # playlist noch mit dem player wieder verbinden, das sollte wenn der

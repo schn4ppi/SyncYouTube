@@ -1527,6 +1527,28 @@ def autotag_lauf(keys=None):
         _autotag["laeuft"] = False
 
 
+def _untertitel_sprachen():
+    """Welche Untertitel-Sprachen automatisch mitgeladen werden (JB Punkt 6).
+
+    CFG `untertitel_sprachen` = Liste von Kennungen („de", „en-GB", …);
+    „orig" steht für yt-dlps `.*-orig` — die UNübersetzte Auto-Spur des
+    Videos (wichtig fürs Karaoke: authentisch, als Romaji angezeigt).
+    Ohne eigene Wahl bleibt exakt das Bestandsverhalten: de, en, Original.
+    Werte kommen über /api/config von außen — deshalb streng filtern.
+    """
+    roh = CFG.get("untertitel_sprachen") or []
+    sprachen = []
+    for s in roh:
+        if not isinstance(s, str):
+            continue
+        s = s.strip()
+        if s == "orig":
+            sprachen.append(".*-orig")
+        elif re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?", s):
+            sprachen.append(s)
+    return sprachen or ["de", "en", ".*-orig"]
+
+
 # ---- Untertitel: .vtt neben der Mediendatei finden bzw. nachladen ----
 
 def _vtt_sprache(pfad):
@@ -1723,7 +1745,7 @@ def untertitel_nachladen(key):
     opts = _ydl_basis_opts()
     opts.update({"skip_download": True, "noplaylist": True,
                  "writesubtitles": True, "writeautomaticsub": True,
-                 "subtitleslangs": ["de", "en", ".*-orig"], "subtitlesformat": "vtt/best",
+                 "subtitleslangs": _untertitel_sprachen(), "subtitlesformat": "vtt/best",
                  "outtmpl": {"default": ziel + ".%(ext)s"}})   # .vtt landet im Untertitel-Ordner
     for _ in (1, 2):
         try:
@@ -3887,7 +3909,7 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
     # wichtig fürs Karaoke (JB: authentisch, als Romaji angezeigt).
     if CFG.get("untertitel", True):
         opts.update({"writesubtitles": True, "writeautomaticsub": True,
-                     "subtitleslangs": ["de", "en", ".*-orig"], "subtitlesformat": "vtt/best"})
+                     "subtitleslangs": _untertitel_sprachen(), "subtitlesformat": "vtt/best"})
 
     hat_ff = bool(_ffmpeg_pfad())
     pps = []
@@ -4642,6 +4664,9 @@ class Handler(BaseHTTPRequestHandler):
                 CFG["sponsorblock"] = daten["sponsorblock"]
             if isinstance(daten.get("untertitel"), bool):
                 CFG["untertitel"] = daten["untertitel"]
+            if isinstance(daten.get("untertitel_sprachen"), list):   # JB Punkt 6: Sprachwahl
+                CFG["untertitel_sprachen"] = [str(s)[:12] for s
+                                              in daten["untertitel_sprachen"][:10]]
             if isinstance(daten.get("auto_update"), bool):
                 CFG["auto_update"] = daten["auto_update"]
             if isinstance(daten.get("fernsteuerung"), bool):
