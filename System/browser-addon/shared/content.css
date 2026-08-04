@@ -28,4 +28,26 @@
    Klick darauf blitzt ROT mit ✗ („hast du schon") statt doppelt zu laden —
    bewusstes Nachladen läuft über das Rechtsklick-Menü. */
 .ytdl-hoverbtn.hab { background: rgba(63, 122, 72, .95); }
+
+/* v1.1.1: Listen-Pfeil (ganze Playlist/Mix) — gleicher Knopf, gestrichelter
+   Ring als Zeichen „hier kommt eine Liste, Klick fragt von–bis". */
+.ytdl-hoverbtn.liste { outline: 2px dashed rgba(255, 255, 255, .75); outline-offset: 2px; }
+
+/* v1.1.1: Von-bis-Dialog des Listen-Pfeils (eigener Dialog — window.prompt
+   wäre von der Firefox-Dialogsperre betroffen). */
+#ytdl-listendialog { position: fixed; z-index: 2147483001; width: 220px;
+  background: #1c1814; color: #eee; border: 1px solid #3a332e; border-radius: 10px;
+  padding: 10px 12px; font: 13px system-ui, "Segoe UI", sans-serif;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .55); }
+#ytdl-listendialog .ytdl-ld-titel { font-weight: 600; color: #d67756; margin-bottom: 8px; }
+#ytdl-listendialog .ytdl-ld-zeile { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+#ytdl-listendialog .ytdl-ld-zeile label { flex: 1; color: #8a7d74; font-size: 12px; }
+#ytdl-listendialog input { width: 74px; font: inherit; border-radius: 7px;
+  border: 1px solid #3a332e; background: #171310; color: #eee; padding: 4px 7px; }
+#ytdl-listendialog .ytdl-ld-hinweis { font-size: 11px; color: #6a5c52; margin: 6px 0 8px; line-height: 1.4; }
+#ytdl-listendialog .ytdl-ld-knoepfe { display: flex; gap: 8px; justify-content: flex-end; }
+#ytdl-listendialog button { font: inherit; font-size: 12.5px; border-radius: 7px;
+  border: 1px solid #3a332e; background: #171310; color: #eee; padding: 5px 10px; cursor: pointer; }
+#ytdl-listendialog #ytdl-ld-ja { background: rgba(214, 119, 86, .85); border-color: rgba(214, 119, 86, .9); color: #fff; }
+#ytdl-listendialog button:hover { border-color: #c9952b; }
 .ytdl-hoverbtn.nein { background: rgba(192, 73, 42, .95) !important; }

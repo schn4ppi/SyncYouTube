@@ -537,7 +537,7 @@ def _liste_zuschneiden(eintraege, menge, richtung="neu"):
 
 
 def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=None, ziel_playlist="",
-              menge=None, richtung="neu"):
+              menge=None, richtung="neu", von=None, bis=None):
     """URL prüfen und in Queue-Einträge verwandeln (Playlist/Mix -> Einzelvideos).
     ganze_liste=True erzwingt die komplette Liste/den Mix auch bei einem
     watch?v=…&list=…-Link (JB-/Kumpel-Wunsch: „YouTube-Mixe runterladen").
@@ -558,6 +558,13 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
     # damit nicht tausende Einträge entstehen; echte Playlists laufen unbegrenzt.
     if ganze_liste and _ist_mix(url):
         opts["playlistend"] = _mix_limit(limit)
+    # Von–bis-Bereich (v1.1.1, JB übers Addon: „von was bis was") — schneidet
+    # schon bei der Auslese, nicht erst danach; bei Mixen ersetzt `bis` die
+    # Standard-Anzahl. Werte kommen geprüft aus _add (>=1, bis>=von).
+    if von:
+        opts["playliststart"] = von
+    if bis:
+        opts["playlistend"] = bis
     opts.update({"extract_flat": "in_playlist", "skip_download": True,
                  "noplaylist": (not ganze_liste) and ist_einzelvideo(url)})
     try:
@@ -2397,6 +2404,39 @@ def _mb_pro_min(qualitaet):
     if len(werte) >= 5:
         return round(werte[len(werte) // 2], 1)
     return _MB_FALLBACK.get(qualitaet, _MB_FALLBACK["beste"])
+
+
+ADDON_UPDATES_URL = ("https://github.com/schn4ppi/SyncYouTube/releases/"
+                     "latest/download/updates.json")
+_addon_update_cache = {"ts": 0.0, "info": {}}
+
+
+def addon_update_info():
+    """Neueste Addon-Version aus dem Verteil-Kanal (v1.1.1, JB: das Popup soll
+    die aktive Version zeigen „und ob es updates gibt").
+
+    Die APP holt die updates.json — nicht das Addon selbst: so braucht die
+    Erweiterung keine neue Host-Berechtigung für github.com (jede neue
+    Berechtigung = Warn-Dialog bei allen Nutzern). 1-h-Cache, damit kein
+    Dauerfeuer auf GitHub entsteht; offline ⇒ leeres Ergebnis, das Popup
+    zeigt dann nur die aktive Version.
+    """
+    jetzt = time.time()
+    if jetzt - _addon_update_cache["ts"] < 3600:
+        return _addon_update_cache["info"]
+    info = {}
+    try:
+        with urllib.request.urlopen(ADDON_UPDATES_URL, timeout=6) as r:
+            daten = json.loads(r.read().decode("utf-8"))
+        eintraege = next(iter((daten.get("addons") or {}).values()), {})
+        neuste = (eintraege.get("updates") or [{}])[-1]
+        if neuste.get("version"):
+            info = {"version": neuste["version"],
+                    "link": neuste.get("update_link", "")}
+    except Exception:                                # noqa: BLE001 — offline ist kein Fehler
+        info = {}
+    _addon_update_cache.update(ts=jetzt, info=info)
+    return info
 
 
 def addon_hab(vid):
@@ -4239,6 +4279,8 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/addon_hab"):    # Erweiterung: Video schon in der Bibliothek? (Build 98)
             vid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, addon_hab(vid))
+        elif self.path.startswith("/api/addon_update"):  # Erweiterung: neueste Kanal-Version (v1.1.1)
+            _antwort(self, 200, addon_update_info())
         elif self.path.startswith("/api/schaetzfaktoren"):   # MB/min je Qualitaet (Build 105)
             _antwort(self, 200, {q: _mb_pro_min(q) for q in QUALITAETEN})
         elif self.path.startswith("/api/ordner_waehlen"):    # nativer Ordnerdialog (Build 108)
@@ -4416,13 +4458,25 @@ class Handler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             menge = None
         richtung = "alt" if daten.get("richtung") == "alt" else "neu"
+        # v1.1.1 (Addon-Playlist-Pfeil, JB: „von was bis was"): Bereich prüfen —
+        # >=1, bis>=von; Unsinn wird still zu „kein Bereich".
+        def _ganzzahl(name):
+            try:
+                w = int(daten.get(name) or 0)
+                return w if w >= 1 else None
+            except (TypeError, ValueError):
+                return None
+        von, bis = _ganzzahl("von"), _ganzzahl("bis")
+        if von and bis and bis < von:
+            von, bis = bis, von
         urls = [u.strip() for u in (daten.get("urls") or "").splitlines() if u.strip()]
         for url in urls:
             if not url.lower().startswith(("http://", "https://")):
                 continue
             threading.Thread(target=aufloesen, args=(url, qualitaet, ganze_liste),
                              kwargs={"limit": limit, "ziel_playlist": ziel_pl,
-                                     "menge": menge, "richtung": richtung}, daemon=True).start()
+                                     "menge": menge, "richtung": richtung,
+                                     "von": von, "bis": bis}, daemon=True).start()
 
     def _action(self, daten):
         art = daten.get("art")

@@ -1556,7 +1556,7 @@ def test_addon_knopf_ankert_am_vorschaubild():
     quelle = _addon_content_js()
     # Kein Zeichenfenster (die Falle von heute frueh): die NEUE, eindeutige
     # Anker-Zeile muss existieren — img-Rect, wenn brauchbar, sonst Link-Rect.
-    assert 'const img = a.querySelector("img, yt-image")' in quelle, (
+    assert 'a.querySelector("img") || a.querySelector("yt-image")' in quelle, (
         "Der Knopf holt sich das Vorschaubild nicht als Anker")
     assert "ankerBrauchbar(ir) ? ir : a.getBoundingClientRect()" in quelle, (
         "Der Knopf ankert am Link statt am Vorschaubild - er springt je nach "
@@ -1569,8 +1569,10 @@ def test_addon_bibliothek_titel_zeigt_haken():
     # mit x." Vorher: gold mit ⬇, Klick blitzte nur rot (ohne x).
     quelle = _addon_content_js()
     # 1) Der hab-Zustand traegt den Haken (nicht den Download-Pfeil).
-    i = quelle.index("btn.classList.add(\"hab\")")
-    assert '"\\u2713"' in quelle[i - 400:i + 400] or '"✓"' in quelle[i - 400:i + 400], (
+    # v1.1.1: aus classList.add wurde habAnwenden (setzt Klasse + Zeichen
+    # gemeinsam, gespeist aus dem lokalen Hab-Speicher).
+    i = quelle.index("const habAnwenden")
+    assert '"✓"' in quelle[i:i + 400] and 'toggle("hab"' in quelle[i:i + 400], (
         "Ein Bibliothek-Titel zeigt keinen Haken")
     # 2) Der Klick auf einen hab-Knopf zeigt das X (nicht nur rote Farbe).
     j = quelle.index('btn.classList.contains("hab")')
@@ -1587,6 +1589,103 @@ def test_addon_bibliothek_titel_zeigt_haken():
                   encoding="utf-8").read()
     k = css.index(".ytdl-hoverbtn.hab")
     assert "63, 122, 72" in css[k:k + 200], "hab ist nicht gruen"
+
+
+def _addon_datei(name):
+    import io
+    return io.open(os.path.join(os.path.dirname(__file__), "..",
+                                "browser-addon", "shared", name),
+                   encoding="utf-8").read()
+
+
+def test_addon_playlist_pfeil_fragt_von_bis():
+    # JB (04.08.): "ja, sollte fragen wie viel runtergeladen werden soll,
+    # bzw von was bis was" + "Ich seh auch keinen pfeil um eine playlist
+    # herunterzuladen." Der Pfeil erscheint an Playlist-Links UND am
+    # Playlist-Panel; Klick oeffnet einen kleinen Von-bis-Dialog (kein
+    # window.prompt - das waere von derselben Firefox-Sperre betroffen wie
+    # confirm beim Ausschnitt-Loeschen).
+    js = _addon_content_js()
+    assert "listenAnker" in js, "Kein Anker fuer Playlists/Panel"
+    assert 'playlist?list=' in js, "Playlist-Links werden nicht erkannt"
+    assert "ytd-playlist-panel-renderer" in js, "Das Playlist-Panel wird nicht erkannt"
+    assert "listeDialog" in js, "Kein Von-bis-Dialog"
+    d = js[js.index("function listeDialog"):]
+    d = d[:d.index("\n  function ") if "\n  function " in d else 2600]
+    assert "Von" in d and "Bis" in d, "Der Dialog fragt nicht von-bis"
+    assert "prompt(" not in d, "window.prompt waere von der Dialog-Sperre betroffen"
+    # Mixe (list=RD...) sind endlos -> der Dialog sagt es ehrlich.
+    assert "RD" in js, "Mix/Radio wird nicht erkannt"
+
+
+def test_addon_background_reicht_liste_durch():
+    # Der Listen-Auftrag traegt ganze_liste + von/bis bis zur App.
+    bg = _addon_datei("background.js")
+    assert '"add_liste"' in bg or "'add_liste'" in bg, "Kein Listen-Auftrag im Hintergrund"
+    i = bg.index("add_liste")
+    block = bg[i:i + 900]
+    assert "ganze_liste" in block and "von" in block and "bis" in block, (
+        "Der Listen-Auftrag verliert ganze_liste/von/bis auf dem Weg zur App")
+
+
+def test_app_add_kann_von_bis():
+    # App-Seite: /api/add nimmt von/bis an und uebersetzt sie in die
+    # yt-dlp-Bereichs-Optionen (playliststart/playlistend).
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    i = quelle.index("def aufloesen")
+    block = quelle[i:quelle.index("\ndef ", i + 1)]
+    assert "playliststart" in block and "playlistend" in block, (
+        "aufloesen kennt keinen von-bis-Bereich")
+    j = quelle.index("def _add(self")
+    addblock = quelle[j:quelle.index("\n    def ", j + 1)]
+    assert '"von"' in addblock and '"bis"' in addblock, (
+        "/api/add nimmt von/bis nicht an")
+
+
+def test_addon_update_info_gecacht(monkeypatch):
+    # Popup-Versionsanzeige (JB 04.08.): die App holt die Kanal-updates.json
+    # (Addon braucht so KEINE neue Host-Berechtigung) - gecacht, damit kein
+    # Dauerfeuer auf GitHub entsteht.
+    antworten = []
+    def fake_urlopen(url, timeout=0):
+        antworten.append(str(url))
+        class R:
+            def read(self):
+                return (b'{"addons":{"x":{"updates":[{"version":"9.9.9",'
+                        b'"update_link":"https://example/x.xpi"}]}}}')
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        return R()
+    monkeypatch.setattr(app.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(app, "_addon_update_cache", {"ts": 0.0, "info": {}})
+    d1 = app.addon_update_info()
+    d2 = app.addon_update_info()                      # aus dem Cache
+    assert d1.get("version") == "9.9.9" and "example" in d1.get("link", "")
+    assert d2 == d1
+    assert len(antworten) == 1, "Kein Cache - jede Abfrage geht ins Netz"
+
+
+def test_addon_hab_cache_gegen_flackern():
+    # JB (04.08.): "wenn ich auf den gruenen pfeil gehe und mich entferne,
+    # kommt ganz kurz das download symbol." Wurzel: zeigen() setzte bei JEDER
+    # Mausbewegung erst ⬇ und wartete auf die Hab-Antwort. Jetzt merkt sich
+    # das Content-Skript die Antwort je Video und setzt den Zustand SOFORT.
+    js = _addon_content_js()
+    i = js.index("function zeigen(")
+    block = js[i:js.index("\n  function ", i + 1)]
+    assert "habLokal" in block, "Kein lokaler Hab-Speicher - der Knopf flackert"
+
+
+def test_addon_popup_zeigt_version_und_update():
+    # JB (04.08.): Im Popup unten die AKTIVE Version zeigen und ob es ein
+    # Update gibt - mit 1-Klick-Installation (xpi-Link oeffnen, Firefox
+    # fragt dann selbst).
+    pj = _addon_datei("popup.js")
+    ph = _addon_datei("popup.html")
+    assert "getManifest().version" in pj, "Popup zeigt die aktive Version nicht"
+    assert "addon_update" in pj, "Popup prueft nicht auf Updates"
+    assert "tabs.create" in pj, "Kein 1-Klick-Weg zur Installation"
+    assert 'id="version"' in ph, "Kein Versions-Element im Popup"
 
 
 def test_klickart_zum_abspielen_einstellbar():

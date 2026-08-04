@@ -44,3 +44,38 @@ fetch(APP + "/api/status")
     status.className = "status bad";
     status.textContent = "✗ App nicht erreichbar — YouTube-Downloader.bat starten";
   });
+
+// v1.1.1 (JB): aktive Version unten zeigen + Update-Stand mit 1-Klick.
+// Die APP holt die Kanal-updates.json (/api/addon_update) — das Addon braucht
+// so keine neue Host-Berechtigung für github.com. Der Klick öffnet die
+// signierte xpi; Firefox fragt dann selbst „installieren?".
+(function () {
+  const vEl = document.getElementById("version");
+  const uBtn = document.getElementById("update");
+  const aktiv = api.runtime.getManifest().version;
+  vEl.textContent = "Add-on v" + aktiv + " — prüfe auf Updates…";
+  const neuer = (a, b) => {                            // ist b neuer als a?
+    const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      if ((pb[i] || 0) > (pa[i] || 0)) return true;
+      if ((pb[i] || 0) < (pa[i] || 0)) return false;
+    }
+    return false;
+  };
+  fetch(APP + "/api/addon_update")
+    .then((r) => r.json())
+    .then((d) => {
+      if (d && d.version && neuer(aktiv, d.version)) {
+        vEl.textContent = "Add-on v" + aktiv + " — Update v" + d.version + " verfügbar";
+        if (d.link) {
+          uBtn.style.display = "";
+          uBtn.onclick = () => api.tabs.create({ url: d.link });
+        }
+      } else if (d && d.version) {
+        vEl.textContent = "Add-on v" + aktiv + " — auf dem neuesten Stand ✓";
+      } else {
+        vEl.textContent = "Add-on v" + aktiv;
+      }
+    })
+    .catch(() => { vEl.textContent = "Add-on v" + aktiv; });
+})();

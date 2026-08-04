@@ -3,6 +3,19 @@
 > Diese Liste wird je Version auch als AMO-Versionsnotiz hinterlegt
 > (`amo_sign.py` liest den obersten passenden Eintrag beim Einreichen).
 
+## 1.1.1
+- Playlists und Mixe lassen sich jetzt direkt von YouTube laden: der ⬇-Pfeil
+  (mit gestricheltem Ring) erscheint an Playlist-Karten und am Kopf der
+  Playlist-Leiste. Ein Klick fragt „Von–Bis"; bei einem Mix (endlos) werden
+  ohne Angabe 50 geladen. Eigener kleiner Dialog — kein Browser-Fenster, das
+  sich unterbinden lässt.
+- Das Popup zeigt unten die aktive Version und prüft über die App, ob es ein
+  Update gibt — mit 1-Klick-Installation (öffnet die signierte Datei, Firefox
+  fragt selbst).
+- Der grüne Haken flackert nicht mehr kurz zum Download-Pfeil, wenn man den
+  Knopf verlässt oder wieder betritt: der Schon-in-der-Bibliothek-Zustand wird
+  je Video lokal gemerkt und sofort gesetzt statt jedes Mal neu erfragt.
+
 ## 1.1.0
 - Der ⬇-Knopf springt in Playlist-Zeilen nicht mehr: je nachdem, ob die Maus
   auf dem Text oder dem Vorschaubild stand, war der Anker ein anderes Element.

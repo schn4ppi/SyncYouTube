@@ -84,6 +84,22 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     habVideo(msg.id).then((da) => sendResponse({ da }));
     return true;
   }
+  if (msg && msg.typ === "add_liste" && /youtube\.com\/playlist\?list=/.test(msg.url || "")) {
+    // v1.1.1 (JB): ganze Playlist/Mix — von/bis reisen bis zur App
+    // (/api/add versteht sie seit v1.1.1 als playliststart/playlistend).
+    const body = { urls: msg.url, ganze_liste: true };
+    if (msg.von) body.von = msg.von;
+    if (msg.bis) { body.bis = msg.bis; body.limit = msg.bis; }
+    if (msg.qualitaet) body.qualitaet = msg.qualitaet;
+    fetch(APP, { method: "POST", body: JSON.stringify(body) })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status);
+        appOk = true; appOkTs = Date.now();
+        melden("Playlist in die Warteschlange ✓", "", false);
+        sendResponse({ ok: true }); })
+      .catch((e) => { appOk = false; appOkTs = Date.now();
+        sendResponse({ ok: false, fehler: String((e && e.message) || e) }); });
+    return true;
+  }
   if (msg && msg.typ === "add" && istYoutube(msg.url)) {
     senden(msg.url, msg.qualitaet || null).then((res) => {
       if (res && res.ok && msg.url) {
