@@ -315,6 +315,9 @@ body.layoutedit #layoutbar{display:flex}
 /* Mini-Player-Modus: der Player sitzt kompakt eingebettet in der Command-Bar
    (#cmd-mini) — Seitenliste weg, Karte flach (JB 21.07.). */
 body.mini #view-player .pl-side{display:none}
+/* JB 04.08.: im Mini ist die Playlist IMMER ein eigenes Fenster — der
+   Eingliedern-Knopf würde sie in die (ausgeblendete) Seitenliste schieben. */
+body.mini #plq-zurueck{display:none}
 /* Mini-Player fuellt die Leiste (Build 97, JB: „warum so mini?") — die Karte
    bekam nie die Hoehe der Zone, das Video rendere in Naturgroesse klein in
    der Ecke; ohne Titel kollabierte die Box sogar auf 0 Breite. */
@@ -1545,7 +1548,10 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
                 title="Die Änderungen an dieser Warteschlange in die gespeicherte Playlist übernehmen (Reihenfolge der Playlist bleibt, Neues kommt ans Ende)">💾 sichern</button>
         <span class="spacer"></span>
         <button class="btn mini" onclick="plqWerkzeuge(event)" title="Warteschlangen-Werkzeuge: als Playlist speichern · sortieren · Duplikate entfernen · leeren">⋯ Werkzeuge</button>
-        <button class="btn mini" onclick="plqFenster()" title="Playlist wieder in den Player eingliedern — der Player bekommt seine Breite zurück">⧉ In den Player</button></div>
+        <!-- v1.1.2-Nachtrag (JB): im MINI-Modus ausgeblendet — dort gibt es
+             keine Playlist-Seitenliste, Eingliedern ließe die Playlist ins
+             Nichts verschwinden (CSS body.mini + Riegel in plqFenster). -->
+        <button class="btn mini" id="plq-zurueck" onclick="plqFenster()" title="Playlist wieder in den Player eingliedern — der Player bekommt seine Breite zurück">⧉ In den Player</button></div>
       <div class="pl-queue plq-gross" id="pl-queue-win" ondragover="plqZielOver(event)" ondrop="plqZielDrop(event)"
            title="Titel aus der Bibliothek hierher ziehen = einreihen"></div>
     </div>
@@ -2713,6 +2719,10 @@ function tearOut(panelId,view,cx,cy){
    Als Fenster ist sie normal andockbar (Tab-System) — so lassen sich Player
    und Playlist frei kombinieren oder getrennt anordnen (JB 13.07.). */
 function plqFenster(){
+  // JB 04.08.: im Mini-Modus ist die Playlist FEST ein eigenes Fenster —
+  // Eingliedern schöbe sie in die ausgeblendete Seitenliste (weg wäre sie).
+  // Riegel zusätzlich zum versteckten Knopf, falls ein anderer Weg ruft.
+  if(miniAn){toast('Im Mini-Modus bleibt die Playlist ein eigenes Fenster.');return;}
   // Abspalten OHNE dass sich irgendetwas bewegt (JB 14.07.): die Playlist
   // bekommt den RECHTEN STREIFEN des Player-Fensters, der Player wird nur
   // schmaler — alle anderen Fenster bleiben exakt stehen. Eingliedern gibt

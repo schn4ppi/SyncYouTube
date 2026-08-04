@@ -1692,6 +1692,26 @@ def test_addon_popup_zeigt_version_und_update():
     assert 'id="version"' in ph, "Kein Versions-Element im Popup"
 
 
+def test_mini_modus_kann_playlist_nicht_eingliedern():
+    # JB (04.08.): "ich kann wenn ich den mini player gestartet habe die
+    # playlist noch mit dem player wieder verbinden, das sollte wenn der
+    # miniplayer aktiv ist keine option mehr sein." Im Mini ist die
+    # Playlist-Seitenliste bewusst ausgeblendet (body.mini .pl-side:
+    # display none) - ein Eingliedern liesse die Playlist ins NICHTS
+    # verschwinden (ausgeblendet != unerreichbar waere verletzt).
+    quelle = _oberflaeche_html()
+    # 1) Der Knopf ist im Mini gar nicht sichtbar (CSS an der Wurzel) ...
+    assert 'id="plq-zurueck"' in quelle, "Der Eingliedern-Knopf hat keine Kennung"
+    css = quelle[quelle.index("<style"):quelle.index("</style>")]
+    assert "body.mini #plq-zurueck{display:none}" in " ".join(css.split()), (
+        "Der Eingliedern-Knopf bleibt im Mini-Modus sichtbar")
+    # 2) ... und der Weg selbst ist verriegelt (falls ihn etwas anderes ruft).
+    i = quelle.index("function plqFenster")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "miniAn" in block, (
+        "plqFenster laesst das Eingliedern im Mini-Modus weiter zu")
+
+
 def test_playlist_haken_wenn_schon_eingereiht(tmp_path, monkeypatch):
     # JB (04.08.): "wenn ich eine playlist bereits heruntergeladen habe, dann
     # wird der download playlist button nicht zum haken." Die App merkt sich
