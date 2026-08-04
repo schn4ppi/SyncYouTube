@@ -842,6 +842,7 @@ def bibliothek_liste():
             "genre": e.get("genre", ""),
             "cover_album": bool(e.get("cover_album")),
             "abo_nr": e.get("abo_nr", ""),
+            "wiedergabe": e.get("wiedergabe") or None,
         })
     # Build 144g (JB Punkt 4): „Videonummer je Kanal als eigenes Feld."
     # Die ECHTE Kanal-Nummer aus dem Abo-Backkatalog hat Vorrang — sie zählt
@@ -2365,6 +2366,80 @@ def playlist_aktion(daten):
                 if daten.get("sync_modus") in ("kopieren", "spiegeln"):
                     pl["sync_modus"] = daten["sync_modus"]
         _json_speichern(PLAYLIST_PFAD, _playlists)
+
+
+# ---- Wiedergabe-Grundeinstellungen (Spec Punkt 5, Etappe C) -----------------
+# Drei Ebenen, jede schlägt die darüber (JB-bestätigt 23.07.):
+# global (CFG) → je Playlist/Werk → je Titel („absolut" gemerkt).
+# Gespeichert wird nur, was gesetzt ist — leere Ebene heißt „erbt von oben".
+
+WIEDERGABE_SUB = ("aus", "zeilen", "karaoke", "transkript")
+
+
+def _wiedergabe_saeubern(daten, merge_mit=None):
+    """Gültige Werte herausziehen; bei merge_mit werden nur die MITGESCHICKTEN
+    Felder ersetzt (Auto-Merken am laufenden Titel darf die anderen nicht
+    wegwischen), sonst ersetzt das Ergebnis die Ebene komplett."""
+    w = dict(merge_mit or {})
+    if "sub" in daten:
+        if daten.get("sub") in WIEDERGABE_SUB:
+            w["sub"] = daten["sub"]
+        else:
+            w.pop("sub", None)                        # leer/ungültig = erben
+    if "speed" in daten:
+        try:
+            sp = float(daten.get("speed") or 0)
+        except (TypeError, ValueError):
+            sp = 0
+        if 0.25 <= sp <= 3:
+            w["speed"] = sp
+        else:
+            w.pop("speed", None)
+    if "ton" in daten:                                # vorbereitet (Mehrspur kommt mit dem Film-Import)
+        ton = str(daten.get("ton") or "").strip().lower()[:8]
+        if ton:
+            w["ton"] = ton
+        else:
+            w.pop("ton", None)
+    return w
+
+
+def wiedergabe_setzen(daten):
+    """Eine Ebene setzen: {'global':1}, {'plid':id} oder {'keys':[...]} —
+    dazu die Felder sub/speed/ton (fehlend = unangetastet bei merge,
+    leer = löschen). merge=1 kommt vom Auto-Merken am laufenden Titel."""
+    merge = bool(daten.get("merge"))
+    with _io_lock:
+        if daten.get("global"):
+            w = _wiedergabe_saeubern(daten, CFG.get("wiedergabe") if merge else None)
+            if w:
+                CFG["wiedergabe"] = w
+            else:
+                CFG.pop("wiedergabe", None)
+            _json_speichern(CONFIG_PFAD, CFG)
+            return {"ok": True, "wiedergabe": CFG.get("wiedergabe")}
+        if daten.get("plid"):
+            pl = next((p for p in _playlists if p.get("id") == daten["plid"]), None)
+            if not pl:
+                return {"fehler": "Playlist unbekannt"}
+            w = _wiedergabe_saeubern(daten, pl.get("wiedergabe") if merge else None)
+            if w:
+                pl["wiedergabe"] = w
+            else:
+                pl.pop("wiedergabe", None)
+            _json_speichern(PLAYLIST_PFAD, _playlists)
+            return {"ok": True, "wiedergabe": pl.get("wiedergabe")}
+        keys = [k for k in (daten.get("keys") or []) if k in _geladen]
+        for k in keys:
+            e = _geladen[k]
+            w = _wiedergabe_saeubern(daten, e.get("wiedergabe") if merge else None)
+            if w:
+                e["wiedergabe"] = w
+            else:
+                e.pop("wiedergabe", None)
+        if keys:
+            _json_speichern(GELADEN_PFAD, _geladen)
+        return {"ok": True, "anzahl": len(keys)}
 
 
 def playlist_sync(pl):
@@ -4701,6 +4776,8 @@ class Handler(BaseHTTPRequestHandler):
                 return _antwort(self, 200, remote_befehl(daten))
             if self.path == "/api/vlc":               # Gerät „VLC": Befehl an den VLC-Motor
                 return _antwort(self, 200, vlc_kommando(daten))
+            if self.path == "/api/wiedergabe":        # Grundeinstellungen: global/Playlist/Titel
+                return _antwort(self, 200, wiedergabe_setzen(daten))
             if self.path == "/api/beenden":
                 # Sauberes Beenden aus der Suite (JB 14.07.2026: im Suite-Betrieb gibt es
                 # kein eigenes Tray mehr — Steuerung über SyncDashTray/Dashboard). Nur vom

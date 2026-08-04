@@ -3035,3 +3035,54 @@ def test_vlc_fehlt_ehrlicher_rueckfall(monkeypatch):
     q = inspect.getsource(app)
     assert '"/api/vlc"' in q and "vlc_kommando(daten)" in q, \
         "POST /api/vlc fehlt im Server"
+
+
+def test_wiedergabe_drei_ebenen(monkeypatch):
+    # Etappe C (Spec Punkt 5, JB-bestaetigt 23.07.): Grundeinstellungen in drei
+    # Ebenen - global -> je Playlist -> je Titel; leere Ebene erbt von oben;
+    # merge=1 (Auto-Merken am laufenden Titel) laesst fremde Felder stehen.
+    monkeypatch.setattr(app, "_geladen", {"k1": {"titel": "A"}, "k2": {"titel": "B"}})
+    monkeypatch.setattr(app, "_playlists", [{"id": "p1", "name": "P", "items": []}])
+    monkeypatch.setattr(app, "CFG", dict(app.CFG))    # Kopie - JBs config.json bleibt zu
+    monkeypatch.setattr(app, "_json_speichern", lambda pfad, d: None)
+
+    app.wiedergabe_setzen({"global": 1, "sub": "zeilen", "speed": 1.5, "ton": "de"})
+    assert app.CFG["wiedergabe"] == {"sub": "zeilen", "speed": 1.5, "ton": "de"}
+    app.wiedergabe_setzen({"plid": "p1", "speed": 2})
+    assert app._playlists[0]["wiedergabe"] == {"speed": 2.0}
+    app.wiedergabe_setzen({"keys": ["k1"], "sub": "karaoke"})
+    assert app._geladen["k1"]["wiedergabe"] == {"sub": "karaoke"}
+    app.wiedergabe_setzen({"keys": ["k1"], "merge": 1, "speed": 1.25})
+    assert app._geladen["k1"]["wiedergabe"] == {"sub": "karaoke", "speed": 1.25}, \
+        "merge darf das gemerkte sub nicht wegwischen"
+    app.wiedergabe_setzen({"keys": ["k1"], "sub": "", "speed": 0})
+    assert "wiedergabe" not in app._geladen["k1"], "leeres Replace raeumt die Ebene"
+    app.wiedergabe_setzen({"keys": ["k2"], "sub": "quatsch", "speed": 99})
+    assert "wiedergabe" not in app._geladen["k2"], "Unsinn darf nicht gespeichert werden"
+    app.wiedergabe_setzen({"global": 1, "sub": "", "speed": 0, "ton": ""})
+    assert "wiedergabe" not in app.CFG
+
+
+def test_wiedergabe_ui_verkabelt():
+    # Die drei Ebenen muessen im Player auch ANKOMMEN: Aufloesung beim
+    # Titelstart, Auto-Merken bei Sub-/Tempo-Wechsel, drei Einstiege
+    # (Rechtsklick auch fuer die Mehrfach-Auswahl, Playlist-Werkzeuge,
+    # Optionen) und der Server liefert die Ebenen mit.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function wiedergabeFuer")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "t.sub||p.sub||g.sub" in block, "Aufloesung Titel->Playlist->global fehlt"
+    assert "wiedergabeAnwenden(x,el)" in quelle, "renderPlayerMedia wendet die Regeln nicht an"
+    i = quelle.index("function subModusSetzen")
+    assert "wiedergabeMerken" in quelle[i:_funktionsende(quelle, i)], \
+        "Sub-Wechsel am laufenden Titel wird nicht gemerkt"
+    assert "function speedWaehlen" in quelle and "()=>speedWaehlen(s)" in quelle, \
+        "Tempo-Wahl laeuft nicht ueber das Auto-Merken"
+    assert "wiedergabeDialog({keys:wgKeys}" in quelle, "Rechtsklick-Einstieg fehlt"
+    assert "wiedergabeDialog({plid:p.id}" in quelle, "Playlist-Einstieg fehlt"
+    assert "wgGlobalDialog()" in quelle, "Optionen-Einstieg (global) fehlt"
+    import inspect
+    q = inspect.getsource(app)
+    assert '"/api/wiedergabe"' in q, "POST /api/wiedergabe fehlt im Server"
+    assert '"wiedergabe": e.get("wiedergabe")' in q, \
+        "bibliothek_liste liefert die Titel-Ebene nicht mit"

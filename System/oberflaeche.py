@@ -1922,6 +1922,10 @@ function optionenToggle(ev){
       '<option value="60">60 min</option><option value="titel">nach diesem Titel</option></select>'+
       '<span id="sleepval" style="color:#8a7d74;font-size:11px;margin-left:6px"></span></span></div>'+
     '<div class="optrow"><span>Dateinamen</span><button class="btn mini" onclick="namenFenster()" title="Bausteine wählen und schieben, Probelauf ansehen, anwenden oder zurücknehmen">🏷 Namens-Baukasten</button></div>'+
+    // Etappe C (Spec Punkt 5): globale Grundeinstellungen — unterste geteilte
+    // Ebene; Playlist- und Titel-Regeln gehen vor (drei Ebenen, JB 23.07.).
+    '<div class="optrow"><span>Wiedergabe-Standard</span><button class="btn mini" onclick="wgGlobalDialog()" '+
+      'title="Untertitel/Karaoke, Geschwindigkeit und (vorbereitet) Ton-Sprache als Standard für alle Titel — Playlist- und Titel-Regeln gehen vor">🎚 ändern…</button></div>'+
     // Build 125: Der Zähler weicht in schmalen Fenstern aus der Kopfleiste
     // (Ausweich-Ordnung). Damit „ausgeblendet ≠ unerreichbar" nicht an einer
     // Breiten-Regel hängt, steht er hier IMMER — bei jeder Fenstergröße.
@@ -5119,6 +5123,12 @@ function libItemMenu(ev,id){
   eintraege.push([x.archiviert?'↩ Aus dem Archiv holen':'🗄 Ins Archiv legen', ()=>biblio(id, x.archiviert?'entarchiv':'archiv')]);
   eintraege.push([x.blacklist?'✓ Für Meistgespielt zulassen':'🚫 Von Meistgespielt ausschließen', ()=>biblio(id, x.blacklist?'unblacklist':'blacklist')]);
   if(libPlaylistView)eintraege.push(['✖ Aus dieser Playlist entfernen', ()=>plRemove(id)]);
+  // Etappe C (Spec Punkt 5): Wiedergabe-Regeln je Titel — ist der Titel Teil
+  // einer Mehrfach-Auswahl, reist die GANZE Auswahl mit (Explorer-Muster,
+  // dieselbe Regel wie beim Ziehen) = JBs „Eigenschaften setzen" in Masse.
+  const wgKeys=(libAuswahl.has(id)&&libAuswahl.size>1)?[...libAuswahl]:[id];
+  eintraege.push(['🎚 Wiedergabe…'+(wgKeys.length>1?' ('+wgKeys.length+' Titel)':''),
+    ()=>wiedergabeDialog({keys:wgKeys}, wgKeys.length>1?wgKeys.length+' Titel':(x.titel||'Titel'))]);
   eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(id)]);
   eintraege.push(['🗑 In den Papierkorb', ()=>delEinzeln(id)]);
   const m=document.createElement('div'); m.className='itemmenu';
@@ -5322,7 +5332,7 @@ function playerKontext(ev){
   eintraege.push(['📊 Visualizer', ()=>VIZMODES.map(v=>[v[2], v[0]===vizMode, ()=>{vizMode=v[0];
       try{localStorage.setItem('ytdl_viz',vizMode);}catch(e){} vizModeRender();}]), 'sub']);
   eintraege.push(['⚡ Geschwindigkeit ('+playSpeed+'×)', ()=>
-    [0.5,0.75,1,1.25,1.5,2].map(s=>[s+'×', s===playSpeed, ()=>{playSpeed=s; speedAnwenden();}]), 'sub']);
+    [0.5,0.75,1,1.25,1.5,2].map(s=>[s+'×', s===playSpeed, ()=>speedWaehlen(s)]), 'sub']);
   eintraege.push(['💬 Untertitel', ()=>{
     const opt=SUBMODES.map(sm=>[sm[2], sm[0]===subMode, ()=>subModusSetzen(sm[0])]);
     if(subSprachen.length>1)opt.push(['🌐 Sprache: '+(subLang||'?')+' → nächste', false, subSpracheWechsel]);
@@ -5612,7 +5622,9 @@ function subAnzeigen(){
 }
 function subModusSetzen(mode){
   subMode=mode;
+  if(typeof subModeSitzung!=='undefined')subModeSitzung=mode;   // Sitzungs-Standard mitziehen
   try{localStorage.setItem('ytdl_submode',subMode);}catch(e){}
+  if(typeof wiedergabeMerken==='function')wiedergabeMerken({sub:mode});   // laufenden Titel absolut merken (Etappe C)
   if(subMode!=='aus'&&!subCues)subNachladen();         // fehlen welche -> still holen, KEIN Popup
   subAnzeigen();
   const el=document.getElementById('pl-el');           // Wischer sofort mitnehmen (Build 115)
@@ -6151,7 +6163,7 @@ setInterval(plbTick,500);
 function speedMenu(ev){                                // Geschwindigkeit als Liste (Haken = aktiv)
   ev.stopPropagation();
   kmListe(kontextMenuBauen(ev,[]),'⚡ Geschwindigkeit',
-    [0.5,0.75,1,1.25,1.5,2].map(s=>[s+'×', s===playSpeed, ()=>{playSpeed=s; speedAnwenden();}]));
+    [0.5,0.75,1,1.25,1.5,2].map(s=>[s+'×', s===playSpeed, ()=>speedWaehlen(s)]));
 }
 function plBarIdleInit(media,el){                      // Leiste ruht die Maus -> ausblenden (nur beim Abspielen)
   clearTimeout(plbIdleTimer);
@@ -6244,6 +6256,73 @@ async function vlcTick(){
     vlcEndeFuer=s.key; playerAdvance();
   }
 }
+/* ---- Wiedergabe-Grundeinstellungen (Spec Punkt 5, Etappe C) --------------
+   Drei Ebenen, jede schlägt die darüber (JB-bestätigt 23.07.):
+   global (Einstellungen) → je Playlist → je Titel. Änderungen am LAUFENDEN
+   Titel merkt sich der Player für genau diesen Titel („absolut") — die
+   Sitzungs-Standards (localStorage) bleiben die unterste Ebene, damit sich
+   für Titel ohne eigene Regel nichts ändert. Ton-Sprache ist vorbereitet
+   und greift, sobald der Film-Import Mehrspur-Dateien bringt. */
+let subModeSitzung=subMode;
+function wiedergabeFuer(x){
+  const p=(playerState.plid&&((plState.find(q=>q.id===playerState.plid)||{}).wiedergabe))||{};
+  const g=(daten&&daten.config&&daten.config.wiedergabe)||{};
+  const t=(x&&x.wiedergabe)||{};
+  return {sub:t.sub||p.sub||g.sub||'', speed:t.speed||p.speed||g.speed||0, ton:t.ton||p.ton||g.ton||''};
+}
+function wiedergabeAnwenden(x,el){
+  const w=wiedergabeFuer(x);
+  const sub=w.sub||subModeSitzung;                     // keine Regel -> Sitzungs-Standard
+  if(sub!==subMode){subMode=sub; subAnzeigen();}
+  const sp=w.speed||playSpeed;
+  if(el)el.playbackRate=sp;
+  const b=document.getElementById('plb-speed'); if(b)b.textContent=sp+'×';
+}
+function wiedergabeMerken(felder){
+  const k=aktKey(); if(!k)return;                      // nichts läuft -> nichts zu merken
+  const x=libFind(k); if(x)x.wiedergabe=Object.assign({},x.wiedergabe||{},felder);
+  fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(Object.assign({keys:[k],merge:1},felder))}).catch(()=>{});
+}
+function speedWaehlen(s){playSpeed=s; speedAnwenden(); wiedergabeMerken({speed:s});}
+let wgZiel=null;
+function wgGlobalDialog(){wiedergabeDialog({global:1},'Standard für alles ohne eigene Regel');}
+function wiedergabeDialog(ziel,name){
+  wgZiel=ziel;
+  const w=ziel.plid?(((plState.find(p=>p.id===ziel.plid)||{}).wiedergabe)||{})
+        :ziel.global?((daten&&daten.config&&daten.config.wiedergabe)||{})
+        :(ziel.keys&&ziel.keys.length===1?(((libFind(ziel.keys[0])||{}).wiedergabe)||{}):{});
+  const sopt=[['','— erben —'],['aus','aus'],['zeilen','Untertitel'],['karaoke','Karaoke'],['transkript','Transkript']];
+  const vopt=[['','— erben —'],['0.5','0.5×'],['0.75','0.75×'],['1','1×'],['1.25','1.25×'],['1.5','1.5×'],['2','2×'],['3','3×']];
+  const topt=[['','— egal —'],['de','Deutsch'],['en','Englisch'],['orig','Original']];
+  const sel=(id,opt,akt)=>'<select id="'+id+'">'+opt.map(o=>'<option value="'+o[0]+'"'+
+    (String(akt||'')===o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>';
+  const ov=document.createElement('div'); ov.className='modal';
+  ov.innerHTML='<div class="modal-box" style="max-width:460px"><div class="modal-head"><b>🎚 Wiedergabe — '+esc(name)+'</b>'
+    +'<button class="ib" title="Abbrechen" onclick="this.closest(\\'.modal\\').remove()">✕</button></div>'
+    +'<div style="padding:14px 16px;display:flex;flex-direction:column;gap:9px">'
+    +'<div class="optrow"><span>Untertitel / Karaoke</span>'+sel('wg-sub',sopt,w.sub)+'</div>'
+    +'<div class="optrow"><span>Geschwindigkeit</span>'+sel('wg-speed',vopt,w.speed)+'</div>'
+    +(ziel.global?'<div class="optrow"><span>Ton-Sprache (Mehrspur, vorbereitet)</span>'+sel('wg-ton',topt,w.ton)+'</div>':'')
+    +'<div class="muted2" style="font-size:11.5px">„— erben —" = die Ebene darüber gilt: Titel → Playlist → global → Sitzung.'
+    +(ziel.keys&&ziel.keys.length?' Ändert '+ziel.keys.length+' Titel.':'')+'</div>'
+    +'</div><div style="padding:0 16px 16px;display:flex;gap:8px;justify-content:flex-end">'
+    +'<button class="btn mini" data-nein>Abbrechen</button>'
+    +'<button class="btn mini" data-ja style="background:var(--akz);border-color:var(--akz);color:#1b1512">Übernehmen</button>'
+    +'</div></div>';
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.querySelector('[data-nein]').onclick=()=>ov.remove();
+  ov.querySelector('[data-ja]').onclick=()=>{wgSpeichern(); ov.remove();};
+  document.body.appendChild(ov);
+}
+async function wgSpeichern(){
+  const hol=id=>{const s=document.getElementById(id); return s?s.value:undefined;};
+  const body=Object.assign({},wgZiel,{sub:hol('wg-sub')||'',speed:parseFloat(hol('wg-speed'))||0});
+  const ton=hol('wg-ton'); if(ton!==undefined)body.ton=ton;
+  await fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  await Promise.all([libLaden(),plLaden(),laden()]);   // alle drei Ebenen frisch
+  toast('🎚 Wiedergabe-Einstellungen gespeichert.');
+}
 function renderPlayerMedia(){
   const media=document.getElementById('pl-media'); if(!media)return;
   const k=aktKey(), x=libFind(k);
@@ -6301,6 +6380,7 @@ function renderPlayerMedia(){
   playerLayoutSet();
   cmdNowRender();
   speedAnwenden();                                     // Geschwindigkeit auf neues Element anwenden
+  wiedergabeAnwenden(x,el);                            // Etappe C: Titel/Playlist/global-Regeln obendrauf
   renderKapitel(x);                                    // YouTube-Kapitel als Sprungmarken
   subLaden(k);                                         // Untertitel für den neuen Titel holen
   canvasAnwenden();                                    // animierter Cover-Hintergrund (falls an)
@@ -6607,6 +6687,12 @@ function plWerkzeugeImPlayer(ev){
   eintraege.push(['— Playlist —', ()=>{}]);
   eintraege.push(['📻 Neues entdecken', entdeckerOeffnen]);
   eintraege.push(['✎ Umbenennen', plRename]);
+  eintraege.push(['🎚 Wiedergabe…', ()=>{                // Etappe C: Regeln je Playlist
+    const id=(document.getElementById('plsel')||{}).value||playerState.plid;
+    const p=plState.find(q=>q.id===id);
+    if(p)wiedergabeDialog({plid:p.id}, 'Playlist „'+p.name+'"');
+    else toast('Erst eine gespeicherte Playlist wählen/laden.');
+  }]);
   eintraege.push(['⇄ Sync einrichten…', plSyncConfig]);
   eintraege.push(['⤓ Als .m3u exportieren', plExport]);
   eintraege.push(['⤒ .m3u importieren…', ()=>document.getElementById('m3ufile').click()]);
