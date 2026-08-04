@@ -1692,6 +1692,40 @@ def test_addon_popup_zeigt_version_und_update():
     assert 'id="version"' in ph, "Kein Versions-Element im Popup"
 
 
+def test_playlist_haken_wenn_schon_eingereiht(tmp_path, monkeypatch):
+    # JB (04.08.): "wenn ich eine playlist bereits heruntergeladen habe, dann
+    # wird der download playlist button nicht zum haken." Die App merkt sich
+    # KOMPLETT eingereihte Listen (ohne von/bis, kein Mix - der ist endlos und
+    # nie 'fertig'); das Addon zeigt dann den gruenen Haken.
+    monkeypatch.setattr(app, "LISTEN_LOG_PFAD", str(tmp_path / "listen.json"))
+    monkeypatch.setattr(app, "_listen_log", {})
+    app._liste_vermerken("https://www.youtube.com/playlist?list=PLabc123", True, None, None)
+    assert app.addon_hab_liste("PLabc123") == {"da": True}
+    # Bereich oder Mix vermerken NICHT (nicht komplett bzw. endlos):
+    app._liste_vermerken("https://www.youtube.com/playlist?list=PLbereich1", True, 5, 10)
+    app._liste_vermerken("https://www.youtube.com/watch?v=x1&list=RDx1", True, None, None)
+    assert app.addon_hab_liste("PLbereich1") == {"da": False}
+    assert app.addon_hab_liste("RDx1") == {"da": False}
+    assert app.addon_hab_liste("") == {"da": False}
+    # Die Route muss VOR /api/addon_hab haengen - startswith("/api/addon_hab")
+    # wuerde /api/addon_hab_liste sonst wegfressen.
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert quelle.index('"/api/addon_hab_liste"') < quelle.index('"/api/addon_hab"'), (
+        "addon_hab frisst addon_hab_liste (startswith-Falle)")
+    # Addon-Seite: Listen-Zustand lokal gemerkt, Haken am Listen-Pfeil, und der
+    # Dialog sagt es ehrlich - der Klick VERWEIGERT nicht (von-bis-Nachladen
+    # muss moeglich bleiben, Bekanntes wird eh uebersprungen).
+    js = _addon_content_js()
+    i = js.index("function listeZeigen")
+    block = js[i:js.index("\n  function ", i + 1)]
+    assert "listenWert" in block and "listenVeraltet" in block, (
+        "Der Listen-Pfeil kennt den Schon-eingereiht-Zustand nicht")
+    d = js[js.index("function listeDialog"):]
+    assert "schonDa" in d[:2400], "Der Dialog sagt nicht, dass die Liste schon eingereiht ist"
+    bg = _addon_datei("background.js")
+    assert '"hab_liste"' in bg or "'hab_liste'" in bg, "Kein hab_liste-Weg im Hintergrund"
+
+
 def test_review_fixes_v111():
     # 9 bestaetigte Findings der adversarialen Pruefrunde (28 Agenten) vor der
     # Signierung - die Kerne als Waechter, damit keiner zurueckrutscht.

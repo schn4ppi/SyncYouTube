@@ -75,6 +75,21 @@ async function habVideo(id) {
   return da;
 }
 
+// v1.1.2: dasselbe fuer ganze Listen — „schon komplett eingereiht?".
+const listenCache = new Map();
+async function habListe(id) {
+  if (!id) return false;
+  const c = listenCache.get(id);
+  if (c && Date.now() - c.ts < 60000) return c.da;
+  let da = false;
+  try {
+    const r = await fetch("http://127.0.0.1:8776/api/addon_hab_liste?id=" + encodeURIComponent(id));
+    da = !!(r.ok && (await r.json()).da);
+  } catch (e) { da = false; }
+  listenCache.set(id, { da, ts: Date.now() });
+  return da;
+}
+
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.typ === "ping") {
     appLebt().then((ok) => sendResponse({ ok }));
@@ -82,6 +97,11 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg && msg.typ === "hab") {
     habVideo(msg.id).then((da) => sendResponse({ da }));
+    return true;
+  }
+  if (msg && msg.typ === "hab_liste") {
+    // v1.1.2: wurde diese Playlist schon komplett eingereiht? (60-s-Cache)
+    habListe(msg.id).then((da) => sendResponse({ da }));
     return true;
   }
   if (msg && msg.typ === "add_liste") {
@@ -102,6 +122,11 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     fetch(APP, { method: "POST", body: JSON.stringify(body) })
       .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status);
         appOk = true; appOkTs = Date.now();
+        // v1.1.2: KOMPLETT eingereiht (ohne von/bis) -> sofort als „hab" merken.
+        if (!body.von && !body.bis) {
+          const lm = (msg.url || "").match(/[?&]list=([\w-]+)/);
+          if (lm) listenCache.set(lm[1], { da: true, ts: Date.now() });
+        }
         melden("Playlist in die Warteschlange ✓", "", false);
         sendResponse({ ok: true }); })
       .catch((e) => { appOk = false; appOkTs = Date.now();

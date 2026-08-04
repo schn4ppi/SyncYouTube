@@ -15,6 +15,11 @@
   function habSetzen(id, da) { habLokal.set(id, { da: !!da, ts: Date.now() }); }
   function habWert(id) { const e = habLokal.get(id); return !!(e && e.da); }
   function habVeraltet(id) { const e = habLokal.get(id); return !e || Date.now() - e.ts > 60000; }
+  // v1.1.2 (JB): dasselbe fuer ganze LISTEN — „schon komplett eingereiht?".
+  const listenLokal = new Map();                       // list_id -> {da, ts}
+  function listenSetzen(id, da) { listenLokal.set(id, { da: !!da, ts: Date.now() }); }
+  function listenWert(id) { const e = listenLokal.get(id); return !!(e && e.da); }
+  function listenVeraltet(id) { const e = listenLokal.get(id); return !e || Date.now() - e.ts > 60000; }
 
   // Hover-Knopf abschaltbar (JB v1.0.5, Popup-Schalter; Standard AN) —
   // wirkt sofort über storage.onChanged, das Rechtsklick-Menü bleibt immer.
@@ -210,16 +215,38 @@
   function listeZeigen(anker) {
     if (!ankerBrauchbar(anker.rect)) { verstecken(); return; }
     curUrl = null;
-    curListe = { url: anker.url,
-                 mix: /[?&]list=RD/.test(anker.url) };  // RD… = Radio/Mix (endlos)
+    const lid = (anker.url.match(/[?&]list=([\w-]+)/) || [])[1] || "";
+    curListe = { url: anker.url, id: lid,
+                 mix: /^RD/.test(lid),                  // RD… = Radio/Mix (endlos)
+                 schonDa: listenWert(lid) };
     const b = 30;
     btn.style.left = Math.min(anker.rect.left + 6, anker.rect.right - b) + "px";
     btn.style.top = Math.min(anker.rect.top + 8, anker.rect.bottom - b) + "px";
-    btn.classList.remove("hab", "ok", "fehl", "nein");
+    btn.classList.remove("ok", "fehl", "nein");
     btn.classList.add("an", "liste");
-    btn.textContent = "⬇";
-    btn.title = curListe.mix ? "Diesen Mix laden — Klick fragt, wie viele"
-                             : "Diese Playlist laden — Klick fragt von–bis";
+    // v1.1.2 (JB): schon komplett eingereihte Playlist -> gruener Haken, wie
+    // beim Video. Der Klick VERWEIGERT aber nicht: er oeffnet den Dialog mit
+    // Hinweis — „von 51 bis 100 nachladen" muss moeglich bleiben (Bekanntes
+    // wird beim Einreihen ohnehin uebersprungen). Mixe sind endlos und
+    // bekommen nie einen Haken.
+    const listeAnwenden = (da) => {
+      if (!curListe || curListe.id !== lid) return;
+      curListe.schonDa = !!da;
+      btn.classList.toggle("hab", !!da);
+      btn.textContent = da ? "✓" : "⬇";
+      btn.title = da ? "Playlist schon eingereiht — Klick öffnet trotzdem den Von-bis-Dialog"
+                     : (curListe.mix ? "Diesen Mix laden — Klick fragt, wie viele"
+                                     : "Diese Playlist laden — Klick fragt von–bis");
+    };
+    listeAnwenden(!curListe.mix && listenWert(lid));
+    if (lid && !curListe.mix && listenVeraltet(lid)) {
+      try {
+        api.runtime.sendMessage({ typ: "hab_liste", id: lid }).then((res) => {
+          listenSetzen(lid, res && res.da);
+          listeAnwenden(res && res.da);
+        }, () => {});
+      } catch (e) { /* Hintergrund nicht erreichbar -> Pfeil bleibt neutral */ }
+    }
   }
 
   function listeDialog(liste) {
@@ -229,6 +256,8 @@
     box.id = "ytdl-listendialog";
     box.innerHTML =
       '<div class="ytdl-ld-titel">' + (liste.mix ? "🎧 Mix laden" : "📃 Playlist laden") + "</div>" +
+      // v1.1.2: ehrlicher Hinweis statt Verweigern — Nachladen bleibt moeglich.
+      (liste.schonDa ? '<div class="ytdl-ld-hinweis" style="color:#6fcf7f">✓ Schon komplett eingereiht — Bekanntes wird übersprungen.</div>' : "") +
       '<div class="ytdl-ld-zeile"><label>Von Nr.</label><input type="number" min="1" id="ytdl-ld-von" placeholder="1"></div>' +
       '<div class="ytdl-ld-zeile"><label>Bis Nr.</label><input type="number" min="1" id="ytdl-ld-bis" placeholder="' +
         (liste.mix ? "50" : "Ende") + '"></div>' +

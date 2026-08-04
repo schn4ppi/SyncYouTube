@@ -3,6 +3,13 @@
 > Diese Liste wird je Version auch als AMO-Versionsnotiz hinterlegt
 > (`amo_sign.py` liest den obersten passenden Eintrag beim Einreichen).
 
+## 1.1.2
+- Der Playlist-Pfeil wird grün mit Haken ✓, wenn die Playlist schon komplett
+  eingereiht wurde — wie beim einzelnen Video. Der Klick verweigert aber
+  nicht: er öffnet den Von-bis-Dialog mit dem Hinweis „schon eingereiht,
+  Bekanntes wird übersprungen" — so bleibt gezieltes Nachladen (z. B. 51–100)
+  möglich. Mixe sind endlos und bekommen nie einen Haken.
+
 ## 1.1.1
 - Playlists und Mixe lassen sich jetzt direkt von YouTube laden: der ⬇-Pfeil
   (mit gestricheltem Ring) erscheint an Playlist-Karten und am Kopf der

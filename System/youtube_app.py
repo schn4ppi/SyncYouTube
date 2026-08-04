@@ -637,6 +637,8 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
                 else:
                     platzhalter["status"] = "wartend"
     Q.speichern()
+    if eintraege:                                     # v1.1.2: komplette Liste vermerken (Haken im Addon)
+        _liste_vermerken(url, ganze_liste, von, bis)
 
 
 def _video_id(url):
@@ -2446,6 +2448,27 @@ def addon_update_info():
         info = {}
     _addon_update_cache.update(ts=jetzt, info=info)
     return info
+
+
+# v1.1.2 (JB: „wenn ich eine playlist bereits heruntergeladen habe, wird der
+# button nicht zum haken"): komplett eingereihte Listen merken. NUR komplette
+# Läufe (ohne von/bis) und NIE Mixe — die sind endlos und nie „fertig".
+LISTEN_LOG_PFAD = os.path.join(SCRIPT_DIR, "listen_log.json")
+_listen_log = _json_laden(LISTEN_LOG_PFAD, {})       # list_id -> ts
+
+
+def _liste_vermerken(url, ganze_liste, von, bis):
+    if not ganze_liste or von or bis or _ist_mix(url):
+        return
+    m = re.search(r"[?&]list=([\w-]+)", url)
+    if m:
+        _listen_log[m.group(1)] = time.time()
+        _json_speichern(LISTEN_LOG_PFAD, _listen_log)
+
+
+def addon_hab_liste(lid):
+    """Fuer die Erweiterung: wurde diese Playlist schon komplett eingereiht?"""
+    return {"da": bool(lid and lid in _listen_log)}
 
 
 def addon_hab(vid):
@@ -4285,6 +4308,9 @@ class Handler(BaseHTTPRequestHandler):
             q = parse_qs(urlparse(self.path).query)
             url = (q.get("url") or [""])[0]
             _antwort(self, 200, kanal_info(url, limit=(q.get("limit") or [None])[0]))
+        elif self.path.startswith("/api/addon_hab_liste"):  # Erweiterung: Playlist schon eingereiht? (v1.1.2)
+            lid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            _antwort(self, 200, addon_hab_liste(lid))
         elif self.path.startswith("/api/addon_hab"):    # Erweiterung: Video schon in der Bibliothek? (Build 98)
             vid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, addon_hab(vid))
