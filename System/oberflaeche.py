@@ -1926,6 +1926,8 @@ function optionenToggle(ev){
     // Ebene; Playlist- und Titel-Regeln gehen vor (drei Ebenen, JB 23.07.).
     '<div class="optrow"><span>Wiedergabe-Standard</span><button class="btn mini" onclick="wgGlobalDialog()" '+
       'title="Untertitel/Karaoke, Geschwindigkeit und (vorbereitet) Ton-Sprache als Standard für alle Titel — Playlist- und Titel-Regeln gehen vor">🎚 ändern…</button></div>'+
+    '<div class="optrow"><span>Player-Tasten</span><button class="btn mini" onclick="hotkeyEditor()" '+
+      'title="Tastenkürzel des Players selbst belegen — ? zeigt die Legende mit der aktuellen Belegung">⌨ Hotkeys…</button></div>'+
     // Build 125: Der Zähler weicht in schmalen Fenstern aus der Kopfleiste
     // (Ausweich-Ordnung). Damit „ausgeblendet ≠ unerreichbar" nicht an einer
     // Breiten-Regel hängt, steht er hier IMMER — bei jeder Fenstergröße.
@@ -7434,11 +7436,14 @@ function tastenLegende(){
      Einzeiler war eine 300 Zeichen lange Wurst - man las ihn nicht, man
      suchte darin. Jetzt nach Themen gruppiert, jede Gruppe eine Zeile:
      Abspielen, Springen, Ton, Ansicht, Playlist. */
+  // Die Legende liest die ECHTE Belegung (Hotkey-Editor) — eine hart
+  // getippte Liste würde nach dem ersten Umbelegen lügen.
+  const t=a=>hkLabel(a);
   const gruppen=[
-    ['Abspielen', '⎵/K Play·Pause · N/P nächster/voriger Titel · R Wiederholen'],
-    ['Springen',  'J/L −/+10 s · ←/→ −/+'+sprungWeite()+' s · 0–9 zu 0–90 % · Home/End Anfang/Ende'],
-    ['Ton',       '↑/↓ Lautstärke · M stumm · Shift+,/. Tempo'],
-    ['Bild',      'F Vollbild · I Bild-in-Bild · S Untertitel'],
+    ['Abspielen', t('playpause')+' Play·Pause · '+t('naechster')+'/'+t('voriger')+' nächster/voriger Titel · '+t('wiederholen')+' Wiederholen'],
+    ['Springen',  t('rueck10')+'/'+t('vor10')+' −/+10 s · '+t('sprungzurueck')+'/'+t('sprungvor')+' −/+'+sprungWeite()+' s · 0–9 zu 0–90 % · '+t('anfang')+'/'+t('ende')+' Anfang/Ende'],
+    ['Ton',       t('lauter')+'/'+t('leiser')+' Lautstärke · '+t('stumm')+' stumm · '+t('langsamer')+'/'+t('schneller')+' Tempo'],
+    ['Bild',      t('vollbild')+' Vollbild · '+t('pip')+' Bild-in-Bild · '+t('untertitel')+' Untertitel'],
     ['Playlist',  'Klick wählt · Doppelklick/Enter spielt · Entf löscht · ↑/↓ Auswahl']];
   toastHTML('<div style="font-size:11px;color:#8a7d74;margin-bottom:5px">Tastenkürzel</div>'+
     gruppen.map(([k,v])=>'<div style="display:flex;gap:10px;padding:2px 0;line-height:1.5">'+
@@ -7457,6 +7462,69 @@ function _vol(d){plbVol(Math.max(0,Math.min(100,(plVol||0)+d)));}
 function _rate(d){const el=document.getElementById('pl-el'); if(!el)return;
   el.playbackRate=Math.max(0.25,Math.min(4,Math.round((el.playbackRate+d)*100)/100));
   toast('⏩ Tempo '+el.playbackRate+'×');}
+/* ---- Hotkey-Editor (JB-Wunsch, Marschbefehl 05.08.) ----------------------
+   Die Player-Tasten sind eine TABELLE statt hart verdrahteter switch-Fälle:
+   HK_DEF = Auslieferung, localStorage 'ytdl_hotkeys' = JBs eigene Belegung.
+   Fest bleiben, was System- oder Listen-Konvention ist: Medientasten der
+   Tastatur, Ziffern (0–90 %), Strg+←/→, Enter/Entf in Playlist- und
+   Fertig-Liste — sonst zerschösse eine Umbelegung die Listenbedienung. */
+const HK_DEF={playpause:['Space','KeyK'],rueck10:['KeyJ'],vor10:['KeyL'],
+  sprungzurueck:['ArrowLeft'],sprungvor:['ArrowRight'],lauter:['ArrowUp'],leiser:['ArrowDown'],
+  naechster:['KeyN'],voriger:['KeyP'],stumm:['KeyM'],vollbild:['KeyF'],pip:['KeyI'],
+  untertitel:['KeyS'],anfang:['Home'],ende:['End'],wiederholen:['KeyR'],
+  langsamer:['Shift+Comma'],schneller:['Shift+Period']};
+const HK_NAMEN={playpause:'Play / Pause',rueck10:'10 s zurück',vor10:'10 s vor',
+  sprungzurueck:'Sprung zurück (←)',sprungvor:'Sprung vor (→)',lauter:'Lauter',leiser:'Leiser',
+  naechster:'Nächster Titel',voriger:'Voriger Titel',stumm:'Stumm',vollbild:'Vollbild',
+  pip:'Bild-in-Bild',untertitel:'Untertitel wechseln',anfang:'Zum Anfang',ende:'Zum Ende',
+  wiederholen:'Wiederholen (Titel)',langsamer:'Tempo −',schneller:'Tempo +'};
+let HK={};
+(function(){let g={}; try{g=JSON.parse(localStorage.getItem('ytdl_hotkeys')||'{}')||{};}catch(e){}
+  for(const a in HK_DEF)HK[a]=(Array.isArray(g[a])&&g[a].length)?g[a].slice():HK_DEF[a].slice();})();
+function hkSpeichern(){try{localStorage.setItem('ytdl_hotkeys',JSON.stringify(HK));}catch(e){}}
+function hkCode(e){return (e.shiftKey?'Shift+':'')+e.code;}
+function hkAktionFuer(code){for(const a in HK){if((HK[a]||[]).includes(code))return a;} return '';}
+function hkTaste(code){return code.replace('Shift+','⇧').replace('Key','').replace('Arrow','')
+  .replace('Space','⎵').replace('Comma',',').replace('Period','.')
+  .replace('Up','↑').replace('Down','↓').replace('Left','←').replace('Right','→');}
+function hkLabel(a){return (HK[a]||[]).map(hkTaste).join('/')||'—';}
+function hkZeileMalen(a){const b=document.getElementById('hk-'+a); if(b)b.textContent=hkLabel(a);}
+let _hkFang=null;
+function hkFangen(a,btn){
+  if(_hkFang)return;
+  const alt=btn.textContent; btn.textContent='Taste drücken…';
+  _hkFang=ev=>{
+    ev.preventDefault(); ev.stopPropagation();
+    document.removeEventListener('keydown',_hkFang,true); _hkFang=null; btn.textContent=alt;
+    if(ev.code==='Escape')return;                      // Esc = abbrechen
+    if(/^(Digit|Numpad)/.test(ev.code)||['Tab','Enter','Delete','Backspace','F5'].includes(ev.code)
+       ||ev.ctrlKey||ev.metaKey||ev.altKey){
+      toast('Diese Taste ist fest vergeben (Listen/Ziffern-Sprung/System).'); return;}
+    const code=hkCode(ev), belegt=hkAktionFuer(code);
+    if(belegt&&belegt!==a){toast('Schon belegt: „'+(HK_NAMEN[belegt]||belegt)+'" — dort erst ändern.'); return;}
+    HK[a]=[code]; hkSpeichern(); hkZeileMalen(a);
+  };
+  document.addEventListener('keydown',_hkFang,true);
+}
+function hkZuruecksetzen(a){HK[a]=HK_DEF[a].slice(); hkSpeichern(); hkZeileMalen(a);}
+function hkAlleZurueck(){for(const a in HK_DEF)HK[a]=HK_DEF[a].slice(); hkSpeichern();
+  for(const a in HK_DEF)hkZeileMalen(a); toast('⌨ Alle Tasten auf Standard.');}
+function hotkeyEditor(){
+  const zeilen=Object.keys(HK_DEF).map(a=>'<div class="optrow"><span>'+HK_NAMEN[a]+'</span>'
+    +'<span style="display:flex;gap:6px;align-items:center">'
+    +'<b id="hk-'+a+'" style="min-width:56px;text-align:right;color:var(--akz2)">'+hkLabel(a)+'</b>'
+    +'<button class="btn mini" onclick="hkFangen(\\''+a+'\\',this)">ändern</button>'
+    +'<button class="ib" title="Standard wiederherstellen" onclick="hkZuruecksetzen(\\''+a+'\\')">↺</button></span></div>').join('');
+  const ov=document.createElement('div'); ov.className='modal';
+  ov.innerHTML='<div class="modal-box" style="max-width:470px"><div class="modal-head"><b>⌨ Hotkeys — Player-Tasten belegen</b>'
+    +'<button class="ib" title="Schließen" onclick="this.closest(\\'.modal\\').remove()">✕</button></div>'
+    +'<div style="padding:12px 16px;max-height:58vh;overflow:auto;display:flex;flex-direction:column;gap:6px">'+zeilen+'</div>'
+    +'<div style="padding:0 16px 14px;display:flex;gap:8px;justify-content:space-between;align-items:center">'
+    +'<span class="muted2" style="font-size:11px">„ändern" klicken, dann Taste drücken (Esc bricht ab). Gilt in diesem Browser.</span>'
+    +'<button class="btn mini" onclick="hkAlleZurueck()">↺ Alle Standard</button></div></div>';
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  document.body.appendChild(ov);
+}
 document.addEventListener('keydown',e=>{
   const tgt=e.target;
   if(tgt&&tgt.matches&&tgt.matches('input,textarea,select'))return;
@@ -7486,25 +7554,25 @@ document.addEventListener('keydown',e=>{
   if(e.ctrlKey||e.metaKey||e.altKey)return;            // keine sonstigen Strg/Cmd/Alt-Kombis kapern
   if(/^(Digit|Numpad)[0-9]$/.test(e.code)&&el&&el.duration){   // 0–9 -> zu 0–90 % springen (YouTube-Standard)
     e.preventDefault(); el.currentTime=el.duration*(+e.code.slice(-1)/10); return;}
-  switch(e.code){
-    case 'Space': case 'KeyK': if(el||plGeraet==='vlc'){e.preventDefault(); playPause();} break;
-    case 'KeyJ': e.preventDefault(); springen(-10); break;
-    case 'KeyL': e.preventDefault(); springen(10); break;
-    case 'ArrowRight': e.preventDefault(); springen(sprungWeite()); break;
-    case 'ArrowLeft': e.preventDefault(); springen(-sprungWeite()); break;
-    case 'ArrowUp': e.preventDefault(); _vol(5); break;
-    case 'ArrowDown': e.preventDefault(); _vol(-5); break;
-    case 'KeyN': e.preventDefault(); playerNext(); break;
-    case 'KeyP': e.preventDefault(); playerPrev(); break;
-    case 'KeyM': if(el){e.preventDefault(); el.muted=!el.muted; toast(el.muted?'🔇 stumm':'🔊 Ton an');} break;
-    case 'KeyF': e.preventDefault(); plbFullscreen(); break;
-    case 'KeyI': e.preventDefault(); plbPip(); break;
-    case 'KeyS': e.preventDefault(); if(typeof subCycle==='function')subCycle(); break;
-    case 'Home': if(el){e.preventDefault(); el.currentTime=0;} break;
-    case 'End': if(el&&el.duration){e.preventDefault(); el.currentTime=el.duration;} break;
-    case 'KeyR': if(el){e.preventDefault(); el.loop=!el.loop; toast(el.loop?'🔁 Wiederholen an':'▶ Wiederholen aus');} break;
-    case 'Comma': if(e.shiftKey&&el){e.preventDefault(); _rate(-0.25);} break;   // Shift+, langsamer
-    case 'Period': if(e.shiftKey&&el){e.preventDefault(); _rate(0.25);} break;   // Shift+. schneller
+  if(_hkFang)return;                                   // der Fang-Dialog hört gerade selbst zu
+  // Tabellen-Dispatcher (Hotkey-Editor): HK bestimmt, welche Taste was tut.
+  const HK_TUN={
+    playpause:()=>{if(el||plGeraet==='vlc')playPause();},
+    rueck10:()=>springen(-10), vor10:()=>springen(10),
+    sprungvor:()=>springen(sprungWeite()), sprungzurueck:()=>springen(-sprungWeite()),
+    lauter:()=>_vol(5), leiser:()=>_vol(-5),
+    naechster:()=>playerNext(), voriger:()=>playerPrev(),
+    stumm:()=>{if(el){el.muted=!el.muted; toast(el.muted?'🔇 stumm':'🔊 Ton an');}},
+    vollbild:()=>plbFullscreen(), pip:()=>plbPip(),
+    untertitel:()=>{if(typeof subCycle==='function')subCycle();},
+    anfang:()=>{if(el)el.currentTime=0;},
+    ende:()=>{if(el&&el.duration)el.currentTime=el.duration;},
+    wiederholen:()=>{if(el){el.loop=!el.loop; toast(el.loop?'🔁 Wiederholen an':'▶ Wiederholen aus');}},
+    langsamer:()=>{if(el)_rate(-0.25);}, schneller:()=>{if(el)_rate(0.25);}
+  };
+  const tu=HK_TUN[hkAktionFuer(hkCode(e))];
+  if(tu){e.preventDefault(); tu(); return;}
+  switch(e.code){                                      // fest: Medientasten der Tastatur
     case 'MediaPlayPause': e.preventDefault(); playPause(); break;
     case 'MediaTrackNext': e.preventDefault(); playerNext(); break;
     case 'MediaTrackPrevious': e.preventDefault(); playerPrev(); break;

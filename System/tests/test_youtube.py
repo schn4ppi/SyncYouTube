@@ -3086,3 +3086,27 @@ def test_wiedergabe_ui_verkabelt():
     assert '"/api/wiedergabe"' in q, "POST /api/wiedergabe fehlt im Server"
     assert '"wiedergabe": e.get("wiedergabe")' in q, \
         "bibliothek_liste liefert die Titel-Ebene nicht mit"
+
+
+def test_hotkey_editor():
+    # JB-Marschbefehl 05.08.: Hotkey-Editor. Die Player-Tasten sind eine
+    # TABELLE (HK_DEF/localStorage) statt hart verdrahteter switch-Faelle -
+    # sonst koennte man sie nicht umbelegen, und die Legende wuerde luegen.
+    quelle = _oberflaeche_html()
+    assert "const HK_DEF=" in quelle and "const HK_NAMEN=" in quelle
+    i = quelle.index("const HK_TUN=")
+    block = quelle[i:quelle.index("switch(e.code)", i)]   # Dispatcher-Tabelle
+    for aktion in ("playpause:", "naechster:", "stumm:", "vollbild:", "langsamer:"):
+        assert aktion in block, f"Aktion {aktion} fehlt im Dispatcher"
+    assert "hkAktionFuer(hkCode(e))" in quelle, "Dispatcher fragt die Tabelle nicht"
+    i = quelle.index("function hkFangen")
+    fang = quelle[i:_funktionsende(quelle, i)]
+    assert "Schon belegt" in fang, "Kollisions-Wache fehlt (zwei Aktionen, eine Taste)"
+    assert "Escape" in fang, "Esc bricht das Fangen nicht ab"
+    assert "hotkeyEditor()" in quelle and "hkAlleZurueck" in quelle, \
+        "Einstieg in den Optionen bzw. Alle-zuruecksetzen fehlt"
+    i = quelle.index("function tastenLegende")
+    assert "hkLabel(" in quelle[i:_funktionsende(quelle, i)], \
+        "Die Legende liest nicht die echte Belegung"
+    assert "case 'KeyJ'" not in quelle and "case 'Space'" not in quelle, \
+        "Alte harte Tasten-Faelle leben noch - zwei Wahrheiten"
