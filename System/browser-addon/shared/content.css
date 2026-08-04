@@ -23,8 +23,9 @@
 
 .ytdl-hoverbtn.fehl { background: rgba(192, 73, 42, .95); opacity: 1; }
 
-/* v1.0.7 (JB): Video liegt schon in der Bibliothek -> Knopf GELB (Familien-
-   Gold); Klick darauf blitzt kurz ROT („hast du schon") statt doppelt zu
-   laden — bewusstes Nachladen läuft über das Rechtsklick-Menü. */
-.ytdl-hoverbtn.hab { background: rgba(201, 149, 43, .92); }
+/* v1.1.0 (JB): Video liegt schon in der Bibliothek -> Knopf GRUEN mit Haken ✓
+   (vorher Gold mit Pfeil — man sah erst am Klick, dass man ihn schon hat).
+   Klick darauf blitzt ROT mit ✗ („hast du schon") statt doppelt zu laden —
+   bewusstes Nachladen läuft über das Rechtsklick-Menü. */
+.ytdl-hoverbtn.hab { background: rgba(63, 122, 72, .95); }
 .ytdl-hoverbtn.nein { background: rgba(192, 73, 42, .95) !important; }

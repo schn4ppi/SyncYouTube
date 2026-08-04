@@ -2384,10 +2384,15 @@ def _mb_pro_min(qualitaet):
     """Erfahrungswert MB je Minute fuer eine Qualitaet — MEDIAN aus den echten
     eigenen Downloads (Build 105, JB: „wie viel lade ich ungefaehr?");
     unter 5 Datenpunkten greifen ehrliche Fallback-Werte."""
+    # Ausschnitte zaehlen NICHT mit (Build 144q): sie sind keine Downloads,
+    # erben aber die Qualitaet ihres Songs — JBs sechs kleine Test-Clips
+    # drueckten den Audio-Median von ~10 auf 2,1 MB/min und haetten jede
+    # Groessen-Schaetzung verfaelscht.
     werte = sorted(
         (e["groesse"] / 1e6) / (e["dauer"] / 60)
-        for e in _geladen.values()
-        if e.get("qualitaet") == qualitaet and e.get("groesse") and e.get("dauer")
+        for k, e in _geladen.items()
+        if not _ist_clip(k)
+        and e.get("qualitaet") == qualitaet and e.get("groesse") and e.get("dauer")
         and e["dauer"] >= 30 and not e.get("importiert"))
     if len(werte) >= 5:
         return round(werte[len(werte) // 2], 1)

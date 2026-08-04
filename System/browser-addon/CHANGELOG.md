@@ -3,6 +3,15 @@
 > Diese Liste wird je Version auch als AMO-Versionsnotiz hinterlegt
 > (`amo_sign.py` liest den obersten passenden Eintrag beim Einreichen).
 
+## 1.1.0
+- Der ⬇-Knopf springt in Playlist-Zeilen nicht mehr: je nachdem, ob die Maus
+  auf dem Text oder dem Vorschaubild stand, war der Anker ein anderes Element.
+  Jetzt ankert der Knopf immer am Vorschaubild — eine Zeile, eine Position.
+- Schon geladene Titel sind auf einen Blick erkennbar: der Knopf ist GRÜN mit
+  Haken ✓, bevor man klickt (vorher Gold mit Pfeil). Ein Klick darauf blitzt
+  rot mit ✗ („hast du schon") und lädt nicht doppelt; bewusstes Nachladen in
+  anderem Format weiter über das Rechtsklick-Menü.
+
 ## 1.0.9
 - Der Knopf springt nicht mehr in die linke obere Bildschirmecke, wenn ein
   Video zu Ende ist. Ursache: Sobald YouTube am Ende den Abspann einblendet

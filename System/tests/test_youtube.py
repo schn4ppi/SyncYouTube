@@ -560,21 +560,26 @@ def test_datei_fp():
     assert app._datei_fp(os.path.join(d, "fehlt.mp3")) == ""   # weg -> leer, kein Crash
 
 
-def test_mb_pro_min():
-    # Build 105 (JB: „wie viel lade ich ungefähr?"): Groessen-Schaetzung aus
-    # den ECHTEN eigenen Downloads (Median MB/min je Qualitaet); zu wenig
-    # Datenpunkte -> ehrliche Erfahrungs-Fallbacks.
-    for i, (g, d) in enumerate([(30e6, 180), (40e6, 240), (35e6, 200),
-                                (50e6, 300), (28e6, 170)]):
-        app._geladen[f"mbtest{i:05d}|audio"] = {"groesse": g, "dauer": d, "qualitaet": "audio"}
-    try:
-        f = app._mb_pro_min("audio")
-        assert 8 <= f <= 12                            # ~10 MB/min aus den Fixtures
-        assert app._mb_pro_min("2160p") == 60          # keine Daten -> Fallback
-        assert app._mb_pro_min("unbekannt") == 25      # unbekannte Qualitaet -> beste-Fallback
-    finally:
-        for i in range(5):
-            app._geladen.pop(f"mbtest{i:05d}|audio", None)
+def test_mb_pro_min(monkeypatch):
+    # Build 105 (JB: „wie viel lade ich ungefähr?"): Groessen-Schaetzung
+    # (Median MB/min je Qualitaet); zu wenig Datenpunkte -> ehrliche
+    # Erfahrungs-Fallbacks.
+    # ISOLIERT von JBs echter DB (Vorfall 25.07.: der Test rechnete ueber die
+    # ECHTEN Eintraege mit — als JB sechs kleine Ausschnitte erzeugte, kippte
+    # der Median von ~10 auf 2,1 und der Test wurde rot, ohne dass Code falsch
+    # war. Tests fassen nie echte Daten an — auch nicht lesend, wenn das
+    # Ergebnis davon abhaengt.)
+    fixtures = {f"mbtest{i:05d}|audio": {"groesse": g, "dauer": d, "qualitaet": "audio"}
+                for i, (g, d) in enumerate([(30e6, 180), (40e6, 240), (35e6, 200),
+                                            (50e6, 300), (28e6, 170)])}
+    # Ein Ausschnitt in den Daten darf die Schaetzung NICHT verzerren
+    # (Build 144q): er ist kein Download, erbt aber die Qualitaet.
+    fixtures["mbtest99999|clipabc"] = {"groesse": 1.4e6, "dauer": 42, "qualitaet": "audio"}
+    monkeypatch.setattr(app, "_geladen", fixtures)
+    f = app._mb_pro_min("audio")
+    assert 8 <= f <= 12                            # ~10 MB/min, Clip ignoriert
+    assert app._mb_pro_min("2160p") == 60          # keine Daten -> Fallback
+    assert app._mb_pro_min("unbekannt") == 25      # unbekannte Qualitaet -> beste-Fallback
 
 
 def test_entdecken():
@@ -1532,6 +1537,56 @@ def test_addon_knopf_braucht_gueltigen_anker():
     # sondern an den Anker (JB-Dauerregel: Masse an die POSITION koppeln).
     assert "Math.max(4," not in block, (
         "Der Knopf wird weiter an den Bildschirmrand geklemmt statt an das Video")
+
+
+def _addon_content_js():
+    import io
+    return io.open(os.path.join(os.path.dirname(__file__), "..",
+                                "browser-addon", "shared", "content.js"),
+                   encoding="utf-8").read()
+
+
+def test_addon_knopf_ankert_am_vorschaubild():
+    # JB 25.07. (zwei Bilder): "wenn ich neben den track in der Playlist gehe
+    # erscheint ein pfeil, wenn ich auf den track gehe, ist der pfeil woanders."
+    # Wurzel: je nach Treffer (Zeilen-Link mit Text vs. Thumbnail-Link) war der
+    # ANKER ein anderes Element - der Knopf sprang. Jetzt ankert er IMMER am
+    # Vorschaubild IM Link (das gibt es laut videoAnker garantiert), egal wo
+    # in der Zeile die Maus steht.
+    quelle = _addon_content_js()
+    # Kein Zeichenfenster (die Falle von heute frueh): die NEUE, eindeutige
+    # Anker-Zeile muss existieren — img-Rect, wenn brauchbar, sonst Link-Rect.
+    assert 'const img = a.querySelector("img, yt-image")' in quelle, (
+        "Der Knopf holt sich das Vorschaubild nicht als Anker")
+    assert "ankerBrauchbar(ir) ? ir : a.getBoundingClientRect()" in quelle, (
+        "Der Knopf ankert am Link statt am Vorschaubild - er springt je nach "
+        "Maus-Position (Text vs. Bild)")
+
+
+def test_addon_bibliothek_titel_zeigt_haken():
+    # JB 25.07.: "er sollte schon vorher gruen sein wenn ich den titel in der
+    # Bibliothek habe mit einem haken und wenn ich ihn anklicke wird er rot
+    # mit x." Vorher: gold mit ⬇, Klick blitzte nur rot (ohne x).
+    quelle = _addon_content_js()
+    # 1) Der hab-Zustand traegt den Haken (nicht den Download-Pfeil).
+    i = quelle.index("btn.classList.add(\"hab\")")
+    assert '"\\u2713"' in quelle[i - 400:i + 400] or '"✓"' in quelle[i - 400:i + 400], (
+        "Ein Bibliothek-Titel zeigt keinen Haken")
+    # 2) Der Klick auf einen hab-Knopf zeigt das X (nicht nur rote Farbe).
+    j = quelle.index('btn.classList.contains("hab")')
+    block = quelle[j:j + 500]
+    assert '"✗"' in block or '"\\u2717"' in block, (
+        "Der Klick auf einen Bibliothek-Titel zeigt kein X")
+    # 3) und kehrt zum Haken zurueck (nicht zum Pfeil).
+    assert block.count('"✓"') + block.count('"\\u2713"') >= 1, (
+        "Nach dem X kehrt der Knopf nicht zum Haken zurueck")
+    # 4) CSS: hab ist GRUEN (wie ok), nicht mehr gold.
+    import io
+    css = io.open(os.path.join(os.path.dirname(__file__), "..",
+                               "browser-addon", "shared", "content.css"),
+                  encoding="utf-8").read()
+    k = css.index(".ytdl-hoverbtn.hab")
+    assert "63, 122, 72" in css[k:k + 200], "hab ist nicht gruen"
 
 
 def test_klickart_zum_abspielen_einstellbar():

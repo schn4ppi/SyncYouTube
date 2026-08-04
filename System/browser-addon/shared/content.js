@@ -48,11 +48,13 @@
   function onClick(e) {
     e.stopPropagation(); e.preventDefault();
     if (!curUrl) return;
-    // v1.0.7 (JB): schon in der Bibliothek -> Klick blitzt kurz ROT („hast du
-    // schon") und laedt NICHT doppelt; anderes Format geht per Rechtsklick.
+    // v1.0.7 (JB): schon in der Bibliothek -> Klick laedt NICHT doppelt;
+    // anderes Format geht per Rechtsklick. v1.1.0 (JB): der Klick zeigt ROT
+    // mit ✗ („hast du schon") und kehrt zum gruenen Haken zurueck.
     if (btn.classList.contains("hab")) {
       btn.classList.add("nein");
-      setTimeout(() => btn.classList.remove("nein"), 600);
+      btn.textContent = "✗";
+      setTimeout(() => { btn.classList.remove("nein"); btn.textContent = "✓"; }, 600);
       return;
     }
     const url = curUrl;
@@ -110,9 +112,11 @@
     btn.style.left = l + "px";
     btn.style.top = t + "px";
     btn.classList.add("an");
-    // v1.0.6 (JB): grün, wenn das Video schon in der Bibliothek liegt
-    // (Antwort kommt aus dem Hintergrund-Cache — kein Dauerfeuer).
+    // v1.1.0 (JB): schon in der Bibliothek -> GRUEN mit Haken ✓, schon BEVOR
+    // man klickt („er sollte schon vorher gruen sein … mit einem haken").
+    // Antwort kommt aus dem Hintergrund-Cache — kein Dauerfeuer.
     btn.classList.remove("hab");
+    btn.textContent = "⬇";
     btn.title = "Zur Download-Warteschlange hinzufügen";
     const m = url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
     if (m) {
@@ -120,6 +124,7 @@
         api.runtime.sendMessage({ typ: "hab", id: m[1] }).then((res) => {
           if (res && res.da && curUrl === url) {
             btn.classList.add("hab");
+            btn.textContent = "✓";
             btn.title = "Schon in der Bibliothek — Rechtsklick lädt bewusst in anderem Format";
           }
         }, () => {});
@@ -148,7 +153,18 @@
       verstecken(); return;
     }
     const a = videoAnker(e.target);
-    if (a) { zeigen(a.getBoundingClientRect(), a.href); resetIdle(); return; }
+    if (a) {
+      // v1.1.0 (JB, zwei Bilder): "wenn ich neben den track gehe erscheint ein
+      // pfeil, wenn ich auf den track gehe, ist der pfeil woanders." Je nach
+      // Treffer (Zeilen-Link mit Text vs. Thumbnail-Link) war der ANKER ein
+      // anderes Element — der Knopf sprang. Jetzt ankert er IMMER am
+      // Vorschaubild IM Link (das videoAnker garantiert), egal wo die Maus
+      // in der Zeile steht.
+      const img = a.querySelector("img, yt-image");
+      const ir = img && img.getBoundingClientRect();
+      zeigen(ankerBrauchbar(ir) ? ir : a.getBoundingClientRect(), a.href);
+      resetIdle(); return;
+    }
     const player = e.target.closest ? e.target.closest("#movie_player, .html5-video-player") : null;
     if (player && location.href.includes("/watch")) {
       // Am echten BILD ausrichten (JB v1.0.5): der Player-Container umfasst
