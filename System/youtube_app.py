@@ -1577,9 +1577,13 @@ def _cover_holen(release_id, rg_id="", timeout=15):
             except urllib.error.HTTPError as e:
                 if e.code == 404:
                     break                             # kein Bild auf dieser Ebene
-                time.sleep(2.5)                       # Drossel/5xx: EIN Retry
+                time.sleep(8)                         # Drossel/5xx: EIN längerer Retry
             except Exception:                        # noqa: BLE001 — Netz
-                time.sleep(2.5)
+                time.sleep(8)
+    # Live gemessen (05.08., Massen-Lauf 0/35): CAA leitet auf archive.org um,
+    # und das drosselt SERIEN-Abrufe hart — Einzelabrufe kurz danach liefern
+    # dieselben Bilder problemlos. Darum der lange Retry; verpasste Cover holt
+    # der nächste Lauf über die gespeicherten mb_release/mb_rg-Ids nach.
     return None
 
 
@@ -1654,9 +1658,28 @@ def autotag_lauf(keys=None):
         return
     _autotag.update({"laeuft": True, "gesamt": 0, "erledigt": 0, "getaggt": 0})
     try:
+        # Ohne keys zwei Gruppen: (1) Musik ohne Album -> volle MB-Suche;
+        # (2) schon Getaggtes mit gespeicherten MB-Ids, dem nur das Cover
+        # fehlt -> NUR Cover nachziehen, ohne neue MB-Suche und ohne die
+        # Tags anzufassen (CAA drosselt Serien — live gemessen 0/35; so
+        # heilt sich der Rückstand bei jedem späteren Lauf von selbst).
         alle = list(keys) if keys else [k for k, e in list(_geladen.items())
                                         if _ist_musik(e) and not e.get("album")]
-        _autotag["gesamt"] = len(alle)
+        nur_cover = [] if keys else [k for k, e in list(_geladen.items())
+                                     if e.get("album") and not e.get("cover_album")
+                                     and (e.get("mb_release") or e.get("mb_rg"))
+                                     and k not in alle]
+        _autotag["gesamt"] = len(alle) + len(nur_cover)
+        for k in nur_cover:
+            e = _geladen.get(k)
+            _autotag["erledigt"] += 1
+            if not e or e.get("cover_album"):
+                continue
+            bild = _cover_holen(e.get("mb_release", ""), e.get("mb_rg", ""))
+            if bild:
+                _cover_in_datei(k, e, bild)
+                _autotag["getaggt"] += 1
+            time.sleep(2)                            # CAA-Takt (Serien-Drossel)
         for k in alle:
             e = _geladen.get(k)
             _autotag["erledigt"] += 1
@@ -1682,6 +1705,12 @@ def autotag_lauf(keys=None):
                     e["jahr"] = fund["jahr"]
                 if fund.get("genre"):                 # Etappe A: nur Belegtes
                     e["genre"] = fund["genre"]
+                # MB-Ids merken: der Cover-Nachzug (oben) braucht sie, um
+                # ohne neue MusicBrainz-Suche ans Bild zu kommen.
+                if fund.get("release_id"):
+                    e["mb_release"] = fund["release_id"]
+                if fund.get("rg_id"):
+                    e["mb_rg"] = fund["rg_id"]
                 _json_speichern(GELADEN_PFAD, _geladen)
             _autotag["getaggt"] += 1
             _tags_in_datei(k, e)

@@ -3152,3 +3152,41 @@ def test_plq_klick_ins_leere_raeumt_auswahl():
     assert "plqAuswahl.clear()" in block and "plqSel=null" in block, \
         "Klick ins Leere raeumt die Playlist-Auswahl nicht ab"
     assert "!basis.size" in block, "Strg-Klick muss die Auswahl erhalten"
+
+
+def test_cover_nachzug_ohne_neue_mb_suche(monkeypatch):
+    # Live gemessen (05.08.): der Massen-Lauf bettete 0/35 Cover ein - CAA
+    # (archive.org dahinter) drosselt SERIEN-Abrufe; Einzelabrufe kurz danach
+    # liefern dieselben Bilder. Der Lauf merkt sich darum mb_release/mb_rg
+    # und zieht fehlende Cover beim naechsten Lauf OHNE neue MB-Suche nach -
+    # die Tags bleiben dabei unangetastet.
+    aufrufe, eingebettet = [], []
+    monkeypatch.setattr(app, "_geladen", {
+        "a|mp3": {"titel": "A", "album": "X", "mb_release": "rel-1",
+                  "kuenstler": "K", "pfad": ""},
+        "b|mp3": {"titel": "B", "pfad": ""}})
+    monkeypatch.setattr(app, "_ist_musik", lambda e: True)
+    monkeypatch.setattr(app, "_autotag", {"laeuft": False, "gesamt": 0,
+                                          "erledigt": 0, "getaggt": 0})
+    monkeypatch.setattr(app, "_cover_holen",
+                        lambda rid, rg="": aufrufe.append(("cover", rid)) or b"B" * 3000)
+    monkeypatch.setattr(app, "_cover_in_datei",
+                        lambda k, e, b: (eingebettet.append(k),
+                                         e.__setitem__("cover_album", True)))
+    monkeypatch.setattr(app, "_mb_suche",
+                        lambda ku, ti, timeout=10: aufrufe.append(("mb", ti)) or None)
+    monkeypatch.setattr(app, "_titel_blank", lambda t: t)
+    monkeypatch.setattr(app, "_tag_kandidat", lambda e: ("K", e.get("titel", "")))
+    monkeypatch.setattr(app, "_json_speichern", lambda p, d: None)
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)
+    app.autotag_lauf()
+    assert eingebettet == ["a|mp3"], "Cover-Nachzug hat nicht eingebettet"
+    assert ("cover", "rel-1") in aufrufe
+    assert ("mb", "A") not in aufrufe, "Nachzug darf KEINE neue MB-Suche machen"
+    assert ("mb", "B") in aufrufe, "Musik ohne Album braucht weiter die volle Suche"
+    assert app._geladen["a|mp3"]["album"] == "X", "Tags muessen unangetastet bleiben"
+    # Und der Voll-Lauf speichert die Ids, von denen der Nachzug lebt:
+    import inspect
+    q = inspect.getsource(app.autotag_lauf)
+    assert '"mb_release"' in q and '"mb_rg"' in q, \
+        "Der Lauf speichert die MB-Ids nicht - der Nachzug haette nie Futter"
