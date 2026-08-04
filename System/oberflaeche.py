@@ -4601,6 +4601,8 @@ const COLDEF={
   kanalnr:{l:'Kanal #', t:x=>x.abo_nr?('#'+x.abo_nr)
                           :(x.kanal_von>1?('#'+x.kanal_nr+' von '+x.kanal_von):'–'),
            s:x=>x.kanal_nr||0},
+  // Etappe A (Spec Punkt 5): Genre aus MusicBrainz — Grundlage der TV-Bibliothek.
+  genre:{l:'Genre', t:x=>x.genre||'–', s:x=>(x.genre||'').toLowerCase()},
   ext:{l:'Endung', t:x=>ext(x.name), s:x=>ext(x.name)}
 };
 const COLALL=Object.keys(COLDEF);
@@ -6156,7 +6158,12 @@ function renderPlayerMedia(){
   // (Cover+Visualizer) her — statt schwarzem Video-Element (JB 14.07.).
   const istAudio=x.dateiart?x.dateiart==='audio':((x.kategorie==='MP3')||(!x.vcodec&&x.acodec));
   if(istAudio){
-    const t=x.thumb?`<img class="pl-cover" src="${esc(x.thumb)}" style="cursor:pointer" onerror="this.style.display='none'">`:'';
+    // Etappe A (Spec Punkt 5): erst das ECHTE eingebettete Album-Cover
+    // (/api/cover); gibt es keins (404), fällt das Bild aufs YouTube-Thumbnail
+    // zurück — und erst wenn auch das fehlt, verschwindet es.
+    const fb=x.thumb?`this.onerror=function(){this.style.display='none'};this.src='${esc(x.thumb)}'`
+                    :`this.style.display='none'`;
+    const t=`<img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" style="cursor:pointer" onerror="${fb}">`;
     media.innerHTML=`<canvas id="pl-viz" class="pl-viz"></canvas><div class="pl-vizwrap">${t}</div>`+
       `<div class="pl-subzeile" id="pl-sub-anzeige" style="display:none"></div>`+plBarHTML(false)+
       (uebernahme?'':`<audio id="pl-el" autoplay src="${src}"></audio>`);

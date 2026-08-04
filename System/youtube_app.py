@@ -839,6 +839,8 @@ def bibliothek_liste():
             "kapitel": e.get("kapitel") or [],
             "kuenstler": e.get("kuenstler", ""), "album": e.get("album", ""),
             "track": e.get("track", ""), "jahr": e.get("jahr", ""),
+            "genre": e.get("genre", ""),
+            "cover_album": bool(e.get("cover_album")),
             "abo_nr": e.get("abo_nr", ""),
         })
     # Build 144g (JB Punkt 4): „Videonummer je Kanal als eigenes Feld."
@@ -1317,13 +1319,16 @@ def _mb_suche(kuenstler, titel, timeout=10):
         if not recs:
             return None
         rec = next((r for r in recs if (r.get("title") or "").lower() == titel.lower()), recs[0])
-        return {"kuenstler": _mb_kuenstler(rec), "titel": rec.get("title", ""), "album": "", "jahr": ""}
+        return {"kuenstler": _mb_kuenstler(rec), "titel": rec.get("title", ""),
+                "album": "", "jahr": "", "release_id": "", "rg_id": "", "genre": ""}
     time.sleep(1.1)                                  # MusicBrainz-Takt vor dem Lookup
     try:
+        # +genres (Etappe A): Genre kommt im SELBEN Lookup mit — kein zweiter Abruf.
         det = _mb_get(f"https://musicbrainz.org/ws/2/recording/{pool[0]['id']}"
-                      "?inc=releases+release-groups+artist-credits&fmt=json", timeout)
+                      "?inc=releases+release-groups+artist-credits+genres&fmt=json", timeout)
     except Exception:                                # noqa: BLE001
-        return {"kuenstler": _mb_kuenstler(pool[0]), "titel": pool[0].get("title", ""), "album": "", "jahr": ""}
+        return {"kuenstler": _mb_kuenstler(pool[0]), "titel": pool[0].get("title", ""),
+                "album": "", "jahr": "", "release_id": "", "rg_id": "", "genre": ""}
     alben = [rel for rel in det.get("releases", [])
              if (rel.get("release-group") or {}).get("primary-type") == "Album"
              and not (rel.get("release-group") or {}).get("secondary-types")
@@ -1336,12 +1341,30 @@ def _mb_suche(kuenstler, titel, timeout=10):
         album = alben[0].get("title") or ""
         rg = alben[0].get("release-group") or {}
         jahr = ((rg.get("first-release-date") or alben[0].get("date") or ""))[:4]
+    # Genre (Etappe A): live gemessen trägt das RECORDING fast nie Genres —
+    # sie leben an der RELEASE-GROUP (Toto/Africa: Recording leer, RG „pop
+    # rock" 10×). Darum ein dritter, kleiner Abruf — nur wenn ein Album
+    # gefunden wurde, und nur das meistbestätigte Genre, hübsch geschrieben.
+    # Nur Belegtes — falsche Tags wandern beim Kopieren mit (JB-Leitsatz).
+    genres = sorted((det.get("genres") or []), key=lambda g: -(g.get("count") or 0))
+    rg_id = ((alben[0].get("release-group") or {}).get("id") or "") if alben else ""
+    if not genres and rg_id:
+        time.sleep(1.1)                              # MusicBrainz-Takt
+        try:
+            rgd = _mb_get(f"https://musicbrainz.org/ws/2/release-group/{rg_id}"
+                          "?inc=genres&fmt=json", timeout)
+            genres = sorted((rgd.get("genres") or []), key=lambda g: -(g.get("count") or 0))
+        except Exception:                            # noqa: BLE001 — dann eben ohne Genre
+            pass
+    genre = (genres[0].get("name") or "").title() if genres else ""
     # Bei un-exaktem Titel-Treffer (z.B. „… (instrumental)") den EIGENEN gesäuberten
     # Titel behalten — das Album stimmt trotzdem.
     mb_titel = det.get("title", "") or pool[0].get("title", "")
     return {"kuenstler": _mb_kuenstler(det) or _mb_kuenstler(pool[0]),
             "titel": mb_titel if exakt else titel,
-            "album": album, "jahr": jahr}
+            "album": album, "jahr": jahr,
+            "release_id": (alben[0].get("id") or "") if alben else "",
+            "rg_id": rg_id, "genre": genre}
 
 
 def _ist_musik(e):
@@ -1496,6 +1519,8 @@ def _tags_in_datei(key, e):
            "-metadata", f"album={e.get('album', '')}"]
     if e.get("jahr"):
         cmd += ["-metadata", f"date={e['jahr']}"]
+    if e.get("genre"):                                # Etappe A: nur BELEGTES Genre
+        cmd += ["-metadata", f"genre={e['genre']}"]
     cmd += [tmp]
     try:
         subprocess.run(cmd, capture_output=True, timeout=120,
@@ -1521,6 +1546,98 @@ def _tags_in_datei(key, e):
                 os.remove(tmp)
         except OSError:
             pass
+
+
+def _cover_holen(release_id, rg_id="", timeout=15):
+    """Front-Cover vom Cover Art Archive (das öffentliche Bild-Archiv zu
+    MusicBrainz — kein Key nötig). `front-500` ist groß genug für Player und
+    TV-Kacheln und klein genug fürs Einbetten.
+    Zwei Ebenen + Retry (live gemessen): direkt nach den MusicBrainz-Abrufen
+    schlug der erste CAA-Zugriff transient fehl, derselbe Abruf klappte kurz
+    darauf — und manche Releases haben kein eigenes Bild, ihre Release-GROUP
+    aber schon (Rückfall-Ebene)."""
+    import urllib.request
+    urls = ([f"https://coverartarchive.org/release/{release_id}/front-500"]
+            if release_id else [])
+    if rg_id:
+        urls.append(f"https://coverartarchive.org/release-group/{rg_id}/front-500")
+    for url in urls:
+        for versuch in (1, 2):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": MB_UA})
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    daten = r.read()
+                if 2000 < len(daten) < 10 * 1024 * 1024:   # Plausibilität: echtes Bild
+                    return daten
+                break                                 # zu klein/groß: nächste Ebene
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    break                             # kein Bild auf dieser Ebene
+                time.sleep(2.5)                       # Drossel/5xx: EIN Retry
+            except Exception:                        # noqa: BLE001 — Netz
+                time.sleep(2.5)
+    return None
+
+
+def _cover_in_datei(key, e, bild):
+    """Echtes Album-Cover IN die MP3 — ersetzt das YouTube-Thumbnail des
+    Downloads (Spec Punkt 5, Etappe A). Nicht-destruktiv wie _tags_in_datei:
+    tmp + replace, bei jedem Fehler bleibt die Originaldatei unangetastet."""
+    pfad = _pfad_zu_key(key)
+    ff = os.path.join(BIN_DIR, "ffmpeg.exe")
+    if not (bild and pfad and os.path.isfile(pfad) and os.path.exists(ff)):
+        return
+    if not pfad.lower().endswith(".mp3"):            # Videos bewusst nicht (GB-Remux)
+        return
+    cover = pfad + ".covertmp.jpg"
+    tmp = pfad + ".covertmp.mp3"
+    try:
+        with open(cover, "wb") as f:
+            f.write(bild)
+        cmd = [ff, "-y", "-i", pfad, "-i", cover,
+               "-map", "0:a", "-map", "1:0", "-c", "copy", "-id3v2_version", "3",
+               "-metadata:s:v", "title=Album cover",
+               "-metadata:s:v", "comment=Cover (front)", tmp]
+        subprocess.run(cmd, capture_output=True, timeout=120,
+                       creationflags=subprocess.CREATE_NO_WINDOW)
+        if os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
+            os.replace(tmp, pfad)
+            # Datei neu geschrieben -> Id-Tag sichern, dann fp/Größe erneuern
+            # (dieselbe Kette wie in _tags_in_datei, Bibliothek 2.0).
+            if e.get("idtag"):
+                e["idtag"] = _id_tag_schreiben(pfad, key.split("|")[0])
+            with _io_lock:
+                e["groesse"] = os.path.getsize(pfad)
+                if e.get("fp"):
+                    e["fp"] = _fp_von(pfad)
+                e["cover_album"] = True               # echtes Album-Cover eingebettet
+                _json_speichern(GELADEN_PFAD, _geladen)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    finally:
+        for t in (cover, tmp):                        # Arbeits-Reste immer wegräumen
+            try:
+                if os.path.exists(t):
+                    os.remove(t)
+            except OSError:
+                pass
+
+
+def cover_aus_datei(key):
+    """Eingebettetes Cover (APIC) aus der MP3 lesen — für /api/cover, damit
+    Player/Kacheln das ECHTE Album-Bild zeigen statt des YouTube-Thumbnails."""
+    pfad = _pfad_zu_key(key)
+    if not (pfad and os.path.isfile(pfad) and pfad.lower().endswith(".mp3")):
+        return None
+    try:
+        from mutagen.id3 import ID3
+        tags = ID3(pfad)
+        for k in tags.keys():
+            if k.startswith("APIC"):
+                return bytes(tags[k].data)
+    except Exception:                                # noqa: BLE001 — kein/valides Tag
+        pass
+    return None
 
 
 _autotag = {"laeuft": False, "gesamt": 0, "erledigt": 0, "getaggt": 0}
@@ -1559,9 +1676,18 @@ def autotag_lauf(keys=None):
                 e["track"] = fund["titel"] or ti
                 if fund.get("jahr"):
                     e["jahr"] = fund["jahr"]
+                if fund.get("genre"):                 # Etappe A: nur Belegtes
+                    e["genre"] = fund["genre"]
                 _json_speichern(GELADEN_PFAD, _geladen)
             _autotag["getaggt"] += 1
             _tags_in_datei(k, e)
+            # Etappe A: echtes Album-Cover einbetten (ersetzt das YouTube-
+            # Thumbnail in der Datei). Nur einmal je Titel; kein Cover im
+            # Archiv (404) ist kein Fehler — dann bleibt das Thumbnail.
+            if (fund.get("release_id") or fund.get("rg_id")) and not e.get("cover_album"):
+                bild = _cover_holen(fund.get("release_id", ""), fund.get("rg_id", ""))
+                if bild:
+                    _cover_in_datei(k, e, bild)
     finally:
         _autotag["laeuft"] = False
 
@@ -4369,6 +4495,13 @@ class Handler(BaseHTTPRequestHandler):
             q = parse_qs(urlparse(self.path).query)
             url = (q.get("url") or [""])[0]
             _antwort(self, 200, kanal_info(url, limit=(q.get("limit") or [None])[0]))
+        elif self.path.startswith("/api/cover"):       # eingebettetes Album-Cover (Etappe A)
+            key = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            bild = cover_aus_datei(key)
+            if bild:
+                _antwort(self, 200, bild, "image/jpeg")
+            else:
+                _antwort(self, 404, {"fehler": "kein eingebettetes Cover"})
         elif self.path.startswith("/api/addon_hab_liste"):  # Erweiterung: Playlist schon eingereiht? (v1.1.2)
             lid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, addon_hab_liste(lid))

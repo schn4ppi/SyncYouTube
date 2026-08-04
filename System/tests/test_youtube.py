@@ -1692,6 +1692,63 @@ def test_addon_popup_zeigt_version_und_update():
     assert 'id="version"' in ph, "Kein Versions-Element im Popup"
 
 
+def test_mb_suche_liefert_release_und_genre(monkeypatch):
+    # Spec Punkt 5 / Etappe A: echtes Album-Cover (Cover Art Archive braucht
+    # die Release-Id) + Genre (fuer die TV-Bibliothek) - beides kommt im
+    # SELBEN MusicBrainz-Lookup mit, kein zweiter Abruf.
+    such_antwort = {"recordings": [{
+        "id": "rec1", "score": 100, "title": "Africa",
+        "artist-credit": [{"name": "Toto"}], "first-release-date": "1982-04-08"}]}
+    # Live gemessen (Toto/Africa): das RECORDING traegt keine Genres - sie
+    # leben an der RELEASE-GROUP (pop rock 10, rock 9). Darum der dritte
+    # Abruf; er laeuft nur, wenn ein Album gefunden wurde.
+    lookup_antwort = {
+        "title": "Africa", "artist-credit": [{"name": "Toto"}],
+        "genres": [],
+        "releases": [{"id": "rel-42", "title": "Toto IV", "status": "Official",
+                      "date": "1982-04-08",
+                      "release-group": {"id": "rg-7", "primary-type": "Album",
+                                        "first-release-date": "1982-04-08"}}]}
+    rg_antwort = {"genres": [{"name": "pop rock", "count": 10},
+                             {"name": "rock", "count": 9}]}
+    antworten = [such_antwort, lookup_antwort, rg_antwort]
+    urls = []
+    def fake_get(url, timeout=10):
+        urls.append(url)
+        return antworten.pop(0)
+    monkeypatch.setattr(app, "_mb_get", fake_get)
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)
+    fund = app._mb_suche("Toto", "Africa")
+    assert fund["album"] == "Toto IV" and fund["jahr"] == "1982"
+    assert fund["release_id"] == "rel-42", "Ohne Release-Id kein Album-Cover"
+    assert fund["rg_id"] == "rg-7", "Ohne Release-Group-Id kein Cover-Rueckfall"
+    assert fund["genre"] == "Pop Rock", "Genre (aus der Release-Group) fehlt"
+    assert "release-group/rg-7" in urls[-1], "Genre kommt nicht aus der Release-Group"
+
+
+def test_cover_und_genre_wandern_in_datei_und_bibliothek():
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    # Cover: eigener Einbett-Schritt (nicht-destruktiv: tmp + replace wie die Tags).
+    assert "def _cover_in_datei" in quelle, "Kein Cover-Einbett-Schritt"
+    i = quelle.index("def _cover_in_datei")
+    block = quelle[i:quelle.index("\ndef ", i + 1)]
+    assert ".covertmp" in block and "os.replace" in block, (
+        "Cover-Einbettung ist nicht nicht-destruktiv (tmp + replace fehlt)")
+    # Genre: nur belegt schreiben (Leitsatz: falsche Tags wandern beim Kopieren mit).
+    j = quelle.index("def _tags_in_datei")
+    tblock = quelle[j:quelle.index("\ndef ", j + 1)]
+    assert "genre" in tblock, "_tags_in_datei schreibt kein Genre"
+    # Auto-Tagging zieht beides nach dem Fund.
+    k = quelle.index("def autotag_lauf")
+    ablock = quelle[k:quelle.index("\ndef ", k + 1)]
+    assert "_cover_holen" in ablock and '"genre"' in ablock, (
+        "autotag_lauf holt Cover/Genre nicht")
+    # Der Player zeigt das eingebettete Cover (Route + Fallback aufs Thumb).
+    assert '"/api/cover"' in quelle or "/api/cover" in quelle, "Keine Cover-Route"
+    ui = _oberflaeche_html()
+    assert "/api/cover" in ui, "Der Player nutzt das eingebettete Cover nicht"
+
+
 def test_testmodus_leitet_alle_daten_um(tmp_path):
     # JB (alter Plan, "finde ich gut"; go 05.08.): Proben laufen ausserhalb
     # der echten Ordner. Hintergrund-Vorfall: ein Auto-Import-Test legte eine
