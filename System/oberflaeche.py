@@ -926,6 +926,15 @@ body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
 .pl-media.viz-an .pl-viz{display:block}
 .pl-vizwrap{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden}
 .pl-cover{max-width:96%;max-height:100%;border-radius:10px;object-fit:contain}
+/* Gerät „VLC" (Etappe B): Cover + schlanke Fernbedienung statt <audio>-Leiste */
+.pl-vlc{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer}
+.pl-vlc .pl-cover{flex:0 1 auto;min-height:0;max-height:62%}
+.pl-vlchint{font-size:11.5px;color:#8a7d74}
+.pl-vlcbar{display:flex;align-items:center;gap:8px;width:min(92%,620px);cursor:default}
+.pl-vlcbar #pl-vlc-seek{flex:1;min-width:60px}
+.pl-vlcbar .pl-bvolwrap{display:flex;align-items:center;gap:4px}
+.pl-vlcbar .pl-bvol{width:74px}
+#pl-geraet.an{color:var(--akz2);border-color:var(--akz2)}
 .pl-side{display:flex;flex-direction:column;flex:none;min-height:0;min-width:0}
 /* Build 144f (JB mit Bild): „jetzt ist playlist nur noch ein kleines fenster,
    das sollte dynamisch bis zum unteren rand von playlist gehen."
@@ -1524,6 +1533,12 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
           <!-- Steuerung lebt AUF dem Video (Leiste unten, YouTube-Stil) + im
                Rechtsklick-Menü — hier bleibt nur, was die Anordnung betrifft. -->
           <button class="btn mini" onclick="playerLayoutToggle()" title="Anordnung wechseln: Video oben ↔ Video links (Playlist rechts)">⇆ Layout</button>
+          <!-- Etappe B (Spec Punkt 5): Ausgabegerät im Spotify-Connect-Muster.
+               Der Browser bleibt das Gehirn (Warteschlange, Weiterschalten) —
+               der Ton kommt wahlweise aus einer ferngesteuerten VLC-Instanz
+               auf dem PC. Ohne installiertes VLC: ehrlicher Hinweis + Browser. -->
+          <button class="btn mini" id="pl-geraet" onclick="geraetWechsel()"
+                  title="Ausgabegerät wechseln: Browser ↔ VLC auf diesem PC — VLC spielt jedes Format und läuft unabhängig vom Browser-Fenster weiter; ohne installiertes VLC bleibt der Browser-Player">🔊 Browser</button>
           <button class="btn mini" id="plq-btn" onclick="plqFenster()" title="Player-Playlist als eigenes Fenster herauslösen / wieder eingliedern — als Fenster ist sie andockbar wie jeder Tab">🎶 Playlist</button>
           <!-- Build 137 (JB Punkt 4): „⋯-Werkzeuge auch im eingebauten
                Player (gibt es bisher nur im herausgelösten Playlist-Fenster)".
@@ -2968,8 +2983,8 @@ function remoteAusfuehren(r){
   if(r.n===_remoteN)return; _remoteN=r.n;
   const el=document.getElementById('pl-el');
   if(r.cmd==='playkey'&&r.key)playerPlay([r.key]);
-  else if(r.cmd==='play'&&el){if(el.paused)el.play(); else el.pause();}   // 'play' vom Handy = togglen
-  else if(r.cmd==='pause'&&el)el.pause();
+  else if(r.cmd==='play')plTogglePlay();               // 'play' vom Handy = togglen (Browser ODER Gerät VLC)
+  else if(r.cmd==='pause'){if(plGeraet==='vlc')vlcBefehl('pause'); else if(el)el.pause();}
   else if(r.cmd==='next')playerNext();
   else if(r.cmd==='prev')playerPrev();
 }
@@ -5418,6 +5433,7 @@ function playerPlay(keys,start,quelle,plid){
   keys=(keys||[]).filter(k=>{const x=libFind(k); return x&&x.vorhanden;});
   if(!keys.length){alert('Nichts Abspielbares — die Datei fehlt (verschoben/gelöscht).');return;}
   // Genau den LAUFENDEN Titel nochmal angeklickt -> nicht neu starten, sondern Pause/Play
+  if(plGeraet==='vlc' && keys.length===1 && keys[0]===aktKey()){ vlcBefehl('toggle'); return; }
   const el=document.getElementById('pl-el');
   if(el && keys.length===1 && keys[0]===aktKey()){ if(el.paused)el.play(); else el.pause(); return; }
   radioAktiv=false;                                  // manueller Start beendet den Radio-Stream
@@ -5984,7 +6000,9 @@ function plBarHTML(istVideo){
     (istVideo?`<button class="pl-bsp nur-vollbild" id="plb-exitfs" onclick="plbFullscreen()" title="Vollbild beenden (Taste F oder Esc)">✕</button>`:'')+
    `</div></div>`;
 }
-function plTogglePlay(){const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}}
+function plTogglePlay(){
+  if(plGeraet==='vlc'){vlcBefehl('toggle'); return;}
+  const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}}
 /* ---- Springen mit sichtbarer Rückmeldung (Build 132) ----------------------
    JB: „Wenn ich Pfeiltasten drücke, dann will ich wie in YouTube sehen, dass
    ich ein paar Sekunden vorgespult habe."
@@ -6056,6 +6074,7 @@ function plbSeekEnd(v){const el=document.getElementById('pl-el');
   if(el&&el.duration)el.currentTime=v/1000*el.duration; plbSeekAktiv=false;}
 function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
   try{localStorage.setItem('ytdl_vol',plVol);}catch(e){}
+  if(plGeraet==='vlc')vlcBefehl('vol',{wert:plVol});   // Gerät VLC hört auf dieselbe Lautstärke
   const el=document.getElementById('pl-el'); if(el)el.volume=plVol/100;
   // Mini-Player- und Video-Leisten-Regler zeigen immer denselben Stand
   document.querySelectorAll('.pl-bvol').forEach(s=>{if(+s.value!==plVol)s.value=plVol;});}
@@ -6145,6 +6164,86 @@ function plBarIdleInit(media,el){                      // Leiste ruht die Maus -
   wecken();
 }
 
+/* ---- Gerät „VLC" (Spec Punkt 5, Etappe B Stufe 1) ------------------------
+   Spotify-Connect-Muster: die Oberfläche bleibt das Gehirn (Warteschlange,
+   Weiterschalten, Abspielart), der Ton kommt aus einer ferngesteuerten
+   VLC-Instanz auf dem PC (/api/vlc → python-vlc). Titelende meldet der
+   1-s-Status-Takt, dann greift dieselbe playerAdvance-Logik wie im Browser.
+   VLC nicht installiert ⇒ Hinweis (toast) + Browser-Player als Rückfall. */
+let plGeraet=localStorage.getItem('ytdl_geraet')||'browser';
+let vlcTimer=null, vlcEndeFuer='', vlcZieht=false;
+async function vlcBefehl(cmd,extra){
+  try{
+    const r=await fetch('/api/vlc',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(Object.assign({cmd:cmd},extra||{}))});
+    return await r.json();
+  }catch(e){return null;}
+}
+async function geraetWechsel(){
+  if(plGeraet==='vlc'){
+    plGeraet='browser'; try{localStorage.setItem('ytdl_geraet','browser');}catch(e){}
+    vlcBefehl('stop'); geraetMalen(); if(aktKey())renderPlayerMedia();
+    return;
+  }
+  const s=await vlcBefehl('pruefen');                 // lädt libvlc; ehrlicher Rückfall
+  if(!s||!s.verfuegbar){toast((s&&s.grund)||'VLC nicht erreichbar — der Browser-Player spielt weiter.'); return;}
+  plGeraet='vlc'; try{localStorage.setItem('ytdl_geraet','vlc');}catch(e){}
+  geraetMalen(); if(aktKey())renderPlayerMedia();
+}
+function geraetMalen(){
+  document.querySelectorAll('#pl-geraet').forEach(b=>{
+    b.textContent=plGeraet==='vlc'?'🖥 VLC':'🔊 Browser';
+    b.classList.toggle('an',plGeraet==='vlc');
+  });
+}
+function renderPlayerVlc(media,x,k){
+  const fb=x.thumb?`this.onerror=function(){this.style.display='none'};this.src='${esc(x.thumb)}'`
+                  :`this.style.display='none'`;
+  media.innerHTML=
+    `<div class="pl-vlc">`+
+      `<img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" onerror="${fb}">`+
+      `<div class="pl-vlchint">🖥 spielt über VLC auf diesem PC — läuft auch ohne dieses Fenster weiter</div>`+
+      `<div class="pl-vlcbar">`+
+        `<button class="btn mini" onclick="playerPrev()" title="Vorheriger Titel">⏮</button>`+
+        `<button class="btn mini" id="pl-vlc-pp" onclick="vlcBefehl('toggle')" title="Pause/Weiter">⏸</button>`+
+        `<button class="btn mini" onclick="playerNext()" title="Nächster Titel">⏭</button>`+
+        `<button class="btn mini" onclick="vlcBefehl('stop')" title="Wiedergabe stoppen (VLC spielt sonst auch nach dem Schließen des Browser-Fensters weiter)">⏹</button>`+
+        `<span id="pl-vlc-zeit" class="muted2">0:00 / 0:00</span>`+
+        `<input type="range" id="pl-vlc-seek" min="0" max="1000" value="0" `+
+          `oninput="vlcZieht=true" onchange="vlcSpringen(this)" title="Spulen">`+
+        `<span class="pl-bvolwrap">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
+      `</div>`+
+    `</div>`;
+  media.onclick=ev=>{                                  // Klick in die Fläche = Pause/Weiter (wie im Browser-Player)
+    if(ev.target.closest&&(ev.target.closest('.pl-vlcbar')||ev.target.closest('button')||ev.target.closest('input')))return;
+    vlcBefehl('toggle');
+  };
+  vlcEndeFuer='';
+  vlcBefehl('play',{key:k,vol:plVol}).then(s=>{
+    if(s&&!s.verfuegbar){                              // VLC unterwegs verschwunden -> Rückfall
+      toast(s.grund||'VLC nicht gefunden — der Browser-Player übernimmt.');
+      plGeraet='browser'; try{localStorage.setItem('ytdl_geraet','browser');}catch(e){}
+      geraetMalen(); renderPlayerMedia();
+    }else if(s&&s.fehler)toast('VLC: '+s.fehler);
+  });
+  if(!vlcTimer)vlcTimer=setInterval(vlcTick,1000);
+}
+function vlcSpringen(r){vlcZieht=false; const d=r._dauer||0; if(d)vlcBefehl('seek',{wert:(+r.value/1000)*d});}
+async function vlcTick(){
+  if(plGeraet!=='vlc'){clearInterval(vlcTimer); vlcTimer=null; return;}
+  const s=await vlcBefehl('status'); if(!s||!s.verfuegbar)return;
+  const pp=document.getElementById('pl-vlc-pp'), z=document.getElementById('pl-vlc-zeit'),
+        r=document.getElementById('pl-vlc-seek');
+  if(pp)pp.textContent=(s.zustand==='spielt')?'⏸':'▶';
+  if(z)z.textContent=zeit(s.pos)+' / '+zeit(s.dauer);
+  if(r&&!vlcZieht){r._dauer=s.dauer; r.value=s.dauer?Math.round(1000*s.pos/s.dauer):0;}
+  // Titelende: genau EINMAL weiterschalten (der Ended-Zustand bleibt in libvlc
+  // stehen, bis etwas Neues spielt — ohne die Merker-Variable liefe die
+  // Warteschlange bei leerem Ende im 1-s-Takt immer weiter).
+  if(s.zustand==='ende'&&s.key&&s.key===aktKey()&&vlcEndeFuer!==s.key){
+    vlcEndeFuer=s.key; playerAdvance();
+  }
+}
 function renderPlayerMedia(){
   const media=document.getElementById('pl-media'); if(!media)return;
   const k=aktKey(), x=libFind(k);
@@ -6157,7 +6256,10 @@ function renderPlayerMedia(){
   // fehlt das Video und es gibt nur die MP3, gehört die Audio-Ansicht
   // (Cover+Visualizer) her — statt schwarzem Video-Element (JB 14.07.).
   const istAudio=x.dateiart?x.dateiart==='audio':((x.kategorie==='MP3')||(!x.vcodec&&x.acodec));
-  if(istAudio){
+  if(plGeraet==='vlc'){                                // Gerät „VLC": Motor auf dem PC statt <audio>/<video>
+    xfAbbrechen();                                     // Crossfade gehört dem Browser-Element
+    renderPlayerVlc(media,x,k);
+  }else if(istAudio){
     // Etappe A (Spec Punkt 5): erst das ECHTE eingebettete Album-Cover
     // (/api/cover); gibt es keins (404), fällt das Bild aufs YouTube-Thumbnail
     // zurück — und erst wenn auch das fehlt, verschwindet es.
@@ -6205,6 +6307,7 @@ function renderPlayerMedia(){
 }
 function plQueueKlick(i){
   if(i===playerState.idx){                             // schon aktiv -> Pause/Play statt Neustart
+    if(plGeraet==='vlc'){vlcBefehl('toggle'); return;}
     const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}
     return;
   }
@@ -7291,14 +7394,14 @@ document.addEventListener('keydown',e=>{
   // Build 132: springt UND zeigt es an (JB). J/L bleiben bei 10 s wie bisher,
   // die Pfeiltasten nehmen die einstellbare Weite (Standard 5 s wie YouTube).
   const springen=s=>plbSpringen(s);
-  const playPause=()=>{if(el){if(el.paused)el.play(); else el.pause();}};
+  const playPause=()=>{plTogglePlay();};               // VLC-fähig (Gerät zählt, nicht das Element)
   if(e.ctrlKey&&e.key==='ArrowRight'){e.preventDefault();playerNext();return;}
   if(e.ctrlKey&&e.key==='ArrowLeft'){e.preventDefault();playerPrev();return;}
   if(e.ctrlKey||e.metaKey||e.altKey)return;            // keine sonstigen Strg/Cmd/Alt-Kombis kapern
   if(/^(Digit|Numpad)[0-9]$/.test(e.code)&&el&&el.duration){   // 0–9 -> zu 0–90 % springen (YouTube-Standard)
     e.preventDefault(); el.currentTime=el.duration*(+e.code.slice(-1)/10); return;}
   switch(e.code){
-    case 'Space': case 'KeyK': if(el){e.preventDefault(); playPause();} break;
+    case 'Space': case 'KeyK': if(el||plGeraet==='vlc'){e.preventDefault(); playPause();} break;
     case 'KeyJ': e.preventDefault(); springen(-10); break;
     case 'KeyL': e.preventDefault(); springen(10); break;
     case 'ArrowRight': e.preventDefault(); springen(sprungWeite()); break;
@@ -7334,6 +7437,7 @@ einstellungenModalInit();                        // Einstellungs-Karte ins Modal
 playerLayoutSet();
 transportRender();
 vizFarbeAktualisieren(); vizModeRender();
+geraetMalen();                                    // Gerät-Knopf (Browser/VLC) mit gemerktem Stand
 cmdNowRender();
 laden();
 libLaden();                                       // Bibliothek sofort laden (Player braucht sie)

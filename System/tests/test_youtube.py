@@ -2899,3 +2899,139 @@ def test_bulk_playlist_fragt_welche():
         "bulkPlaylist bietet keine Playlist-Auswahl an"
     assert "Bitte oben eine Playlist" not in block, \
         "bricht weiterhin ab, statt zu fragen"
+
+
+def test_vlc_motor_spielt_und_meldet_status(monkeypatch, tmp_path):
+    # Spec Punkt 5 / Etappe B Stufe 1: Geraet "VLC" - der Browser bleibt das
+    # Gehirn (Warteschlange/Weiterschalten), der Ton kommt aus einer
+    # ferngesteuerten libvlc-Instanz auf dem PC. Hier ein nachgebauter
+    # python-vlc, damit der Test ohne installiertes VLC laeuft.
+    import types
+    aufrufe = []
+    fake_vlc = types.ModuleType("vlc")
+    fake_vlc.State = types.SimpleNamespace(Playing="P", Paused="p", Ended="E",
+                                           Error="X", Stopped="S")
+
+    class FakeSpieler:
+        def __init__(self):
+            self.zustand, self.zeit, self.vol = "aus", 0, 100
+
+        def set_media(self, m):
+            aufrufe.append(("media", m.pfad))
+
+        def play(self):
+            aufrufe.append(("play",)); self.zustand = "spielt"
+
+        def pause(self):
+            aufrufe.append(("toggle",))
+            self.zustand = "pause" if self.zustand == "spielt" else "spielt"
+
+        def set_pause(self, x):
+            aufrufe.append(("pause", x)); self.zustand = "pause"
+
+        def stop(self):
+            aufrufe.append(("stop",)); self.zustand = "aus"
+
+        def set_time(self, ms):
+            aufrufe.append(("seek", ms)); self.zeit = ms
+
+        def audio_set_volume(self, v):
+            # Live gemessen (05.08.): libvlc verliert set_volume-Rufe, die vor
+            # dem asynchronen Aufbau des Audio-Ausgangs ankommen. Der Fake
+            # verschluckt darum die ersten zwei Rufe - der Motor muss die
+            # Wunsch-Lautstaerke nachziehen, bis sie sitzt.
+            self.vol_rufe = getattr(self, "vol_rufe", 0) + 1
+            if self.vol_rufe <= 2:
+                return
+            self.vol = v
+
+        def audio_get_volume(self):
+            return self.vol
+
+        def get_time(self):
+            return self.zeit
+
+        def get_length(self):
+            return 245000
+
+        def get_state(self):
+            return {"spielt": fake_vlc.State.Playing,
+                    "pause": fake_vlc.State.Paused}.get(self.zustand,
+                                                        fake_vlc.State.Stopped)
+
+    class FakeInstanz:
+        def media_player_new(self):
+            return FakeSpieler()
+
+        def media_new(self, pfad):
+            return types.SimpleNamespace(pfad=pfad)
+
+    fake_vlc.Instance = lambda *a: FakeInstanz()
+    monkeypatch.setitem(sys.modules, "vlc", fake_vlc)
+    monkeypatch.setattr(app, "_vlc", {"instanz": None, "spieler": None,
+                                      "key": "", "grund": ""})
+    mp3 = tmp_path / "lied.mp3"
+    mp3.write_bytes(b"x" * 10)
+    monkeypatch.setattr(app, "_geladen", {"abc|mp3": {"pfad": str(mp3)}})
+
+    st = app.vlc_kommando({"cmd": "play", "key": "abc|mp3", "vol": 80})
+    assert ("media", str(mp3)) in aufrufe and ("play",) in aufrufe
+    assert st["verfuegbar"] and st["key"] == "abc|mp3"
+    assert st["zustand"] == "spielt" and st["dauer"] == 245.0
+    assert st["vol"] == 100, "Fake muss den Lautstaerke-Race nachstellen"
+    st = app.vlc_kommando({"cmd": "status"})
+    assert st["vol"] == 80, \
+        "Wunsch-Lautstaerke wird nicht nachgezogen (libvlc-Race, live gemessen)"
+
+    st = app.vlc_kommando({"cmd": "toggle"})
+    assert st["zustand"] == "pause", "pause() muss togglen"
+    st = app.vlc_kommando({"cmd": "seek", "wert": 12.5})
+    assert ("seek", 12500) in aufrufe and st["pos"] == 12.5
+    st = app.vlc_kommando({"cmd": "stop"})
+    assert ("stop",) in aufrufe and st["key"] == "", \
+        "stop muss den gemerkten Titel loslassen"
+    st = app.vlc_kommando({"cmd": "play", "key": "gibtsnicht|mp3"})
+    assert st.get("fehler"), "Fehlende Datei muss ehrlich gemeldet werden"
+
+
+def test_vlc_fehlt_ehrlicher_rueckfall(monkeypatch):
+    # Kein VLC installiert: klare Ansage statt stummem Nichtstun - und die
+    # Oberflaeche faellt auf den Browser-Player zurueck (Spec woertlich:
+    # "VLC nicht gefunden => Hinweis + Browser-Player als Rueckfall").
+    monkeypatch.setitem(sys.modules, "vlc", None)     # import vlc -> ImportError
+    monkeypatch.setattr(app, "_vlc", {"instanz": None, "spieler": None,
+                                      "key": "", "grund": ""})
+    st = app.vlc_kommando({"cmd": "pruefen"})
+    assert st["verfuegbar"] is False
+    assert "VLC nicht gefunden" in st["grund"]
+    # Der 1-s-Status-Takt laedt libvlc NICHT nach (sonst suchte er einen
+    # fehlenden VLC im Sekundentakt): status ohne Spieler bleibt still.
+    st = app.vlc_kommando({"cmd": "status"})
+    assert st["verfuegbar"] is False
+
+    # Oberflaechen-Seite des Rueckfalls + Verkabelung (Quelle als Waechter):
+    quelle = _oberflaeche_html()
+    assert 'id="pl-geraet"' in quelle and "geraetWechsel" in quelle, \
+        "Geraete-Knopf (Browser/VLC) fehlt im Player"
+    i = quelle.index("async function geraetWechsel")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "toast(" in block and "verfuegbar" in block, \
+        "Geraete-Wechsel prueft VLC nicht ehrlich (Hinweis + Rueckfall)"
+    i = quelle.index("function renderPlayerVlc")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "vlcBefehl('play'" in block and "/api/cover" in block, \
+        "VLC-Ansicht spielt nicht ueber /api/vlc bzw. zeigt kein Cover"
+    i = quelle.index("async function vlcTick")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "playerAdvance()" in block and "vlcEndeFuer" in block, \
+        "Titelende am VLC-Motor schaltet die Warteschlange nicht (genau einmal) weiter"
+    i = quelle.index("function plTogglePlay")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "vlcBefehl('toggle')" in block, \
+        "Leertaste/Transport togglen am Geraet VLC nicht"
+
+    # Server-Route vorhanden (Quelle als Waechter):
+    import inspect
+    q = inspect.getsource(app)
+    assert '"/api/vlc"' in q and "vlc_kommando(daten)" in q, \
+        "POST /api/vlc fehlt im Server"

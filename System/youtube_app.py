@@ -2016,6 +2016,98 @@ def fernsteuerung_info():
     }
 
 
+# ---- VLC-Motor (Spec Punkt 5, Etappe B Stufe 1): VLC als Ausgabegerät ------
+# Der Browser bleibt das Gehirn (Warteschlange, Weiterschalten, Oberfläche) —
+# der Ton kommt wahlweise aus einer ferngesteuerten VLC-Instanz auf dem PC
+# (python-vlc/libvlc, Spotify-Connect-Muster). Kein VLC installiert ⇒
+# ehrlicher Hinweis, der Browser-Player spielt weiter (Rückfall).
+
+_vlc = {"instanz": None, "spieler": None, "key": "", "grund": "", "vol_wunsch": None}
+_vlc_lock = threading.Lock()
+
+
+def _vlc_spieler():
+    """libvlc lazy laden; (spieler, "") oder (None, grund). Wird bewusst bei
+    jedem Fehlversuch NEU probiert (billig — ImportError kommt sofort), damit
+    ein nachträglich installiertes VLC ohne App-Neustart greift."""
+    if _vlc["spieler"] is not None:
+        return _vlc["spieler"], ""
+    try:
+        import vlc                       # python-vlc findet libvlc über die VLC-Installation
+        inst = vlc.Instance("--intf", "dummy", "--quiet")
+        sp = inst.media_player_new() if inst else None
+        if sp is None:
+            raise RuntimeError("libvlc lieferte keinen Player")
+        _vlc.update(instanz=inst, spieler=sp, grund="")
+        return sp, ""
+    except Exception:                    # noqa: BLE001 — fehlendes VLC ist der Normalfall
+        _vlc["grund"] = ("VLC nicht gefunden — bitte VLC installieren (videolan.org), "
+                         "bis dahin spielt der Browser-Player weiter.")
+        return None, _vlc["grund"]
+
+
+def vlc_status():
+    """Status-Häppchen für die Oberfläche (1-s-Takt, solange Gerät VLC aktiv)."""
+    sp = _vlc["spieler"]
+    if sp is None:
+        return {"verfuegbar": False, "grund": _vlc["grund"], "key": "", "zustand": "aus"}
+    import vlc
+    zustand = {vlc.State.Playing: "spielt", vlc.State.Paused: "pause",
+               vlc.State.Ended: "ende", vlc.State.Error: "fehler"}.get(sp.get_state(), "aus")
+    return {"verfuegbar": True, "grund": "", "key": _vlc["key"], "zustand": zustand,
+            "pos": max(0, sp.get_time()) / 1000.0,
+            "dauer": max(0, sp.get_length()) / 1000.0,
+            "vol": max(0, sp.audio_get_volume())}
+
+
+def vlc_kommando(daten):
+    """Befehl vom Browser an den VLC-Motor; Antwort ist immer der Status.
+    'status' lädt libvlc bewusst NICHT nach (der 1-s-Takt soll einen fehlenden
+    VLC nicht dauernd neu suchen) — laden tun 'pruefen' (Geräte-Wechsel) und
+    'play'."""
+    cmd = daten.get("cmd") or "status"
+    with _vlc_lock:
+        if cmd == "status" and _vlc["spieler"] is None:
+            return vlc_status()
+        sp, grund = _vlc_spieler()
+        if sp is None:
+            return {"verfuegbar": False, "grund": grund, "key": "", "zustand": "aus"}
+        try:
+            if cmd == "play":
+                pfad = _pfad_zu_key(daten.get("key") or "")
+                if not (pfad and os.path.isfile(pfad)):
+                    return {**vlc_status(), "fehler": "Datei nicht gefunden"}
+                sp.set_media(_vlc["instanz"].media_new(pfad))
+                sp.play()
+                _vlc["key"] = daten.get("key") or ""
+                if isinstance(daten.get("vol"), (int, float)):
+                    _vlc["vol_wunsch"] = max(0, min(125, int(daten["vol"])))
+                    sp.audio_set_volume(_vlc["vol_wunsch"])
+            elif cmd == "toggle":
+                sp.pause()               # libvlc: pause() wechselt Pause↔Weiter
+            elif cmd == "pause":
+                sp.set_pause(1)          # hart pausieren (Handy-Fernsteuerung)
+            elif cmd == "stop":
+                sp.stop()
+                _vlc["key"] = ""
+            elif cmd == "seek":
+                sp.set_time(int(float(daten.get("wert") or 0) * 1000))
+            elif cmd == "vol":
+                _vlc["vol_wunsch"] = max(0, min(125, int(daten.get("wert") or 0)))
+                sp.audio_set_volume(_vlc["vol_wunsch"])
+            # Live gemessen (05.08.): ein audio_set_volume, das ankommt, BEVOR
+            # libvlc den Audio-Ausgang aufgebaut hat (play startet asynchron),
+            # geht verloren — der Titel spielte mit 100 statt der gewünschten
+            # Lautstärke. Darum die Wunsch-Lautstärke merken und in jedem
+            # Takt nachziehen, bis sie sitzt.
+            w = _vlc.get("vol_wunsch")
+            if w is not None and sp.audio_get_volume() != w:
+                sp.audio_set_volume(w)
+        except Exception as e:           # noqa: BLE001 — libvlc-Fehler ehrlich melden
+            return {**vlc_status(), "fehler": str(e)[:200]}
+        return vlc_status()
+
+
 def _datei_fp(pfad):
     """Content-Fingerabdruck (Bibliothek 2.0, JBs „Magnet"-Idee): sha1 über
     erste + letzte 64 KB + Dateigröße (OpenSubtitles-Stil, 2 schnelle Reads).
@@ -4607,6 +4699,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/remote":            # Befehl vom Handy an den PC-Player
                 return _antwort(self, 200, remote_befehl(daten))
+            if self.path == "/api/vlc":               # Gerät „VLC": Befehl an den VLC-Motor
+                return _antwort(self, 200, vlc_kommando(daten))
             if self.path == "/api/beenden":
                 # Sauberes Beenden aus der Suite (JB 14.07.2026: im Suite-Betrieb gibt es
                 # kein eigenes Tray mehr — Steuerung über SyncDashTray/Dashboard). Nur vom
