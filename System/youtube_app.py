@@ -556,15 +556,17 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
     opts = _ydl_basis_opts()
     # Mixe (list=RD…) sind endlos — Wunsch-Anzahl (Build 98, Default 50),
     # damit nicht tausende Einträge entstehen; echte Playlists laufen unbegrenzt.
-    if ganze_liste and _ist_mix(url):
-        opts["playlistend"] = _mix_limit(limit)
     # Von–bis-Bereich (v1.1.1, JB übers Addon: „von was bis was") — schneidet
-    # schon bei der Auslese, nicht erst danach; bei Mixen ersetzt `bis` die
-    # Standard-Anzahl. Werte kommen geprüft aus _add (>=1, bis>=von).
+    # schon bei der Auslese. Review-Finding 4: bei Mixen geht auch `bis` durch
+    # die 1..500-Klemme (_mix_limit), sonst hebelte ein getipptes bis=99999
+    # genau den Deckel aus, den _mix_limit gegen endlose Listen aufstellt.
+    # Ohne bis, aber mit von: 50 Stück ab von (statt Start>Ende=leer).
+    if ganze_liste and _ist_mix(url):
+        opts["playlistend"] = _mix_limit(bis or ((von + 49) if von else None) or limit)
+    elif bis:
+        opts["playlistend"] = bis
     if von:
         opts["playliststart"] = von
-    if bis:
-        opts["playlistend"] = bis
     opts.update({"extract_flat": "in_playlist", "skip_download": True,
                  "noplaylist": (not ganze_liste) and ist_einzelvideo(url)})
     try:
@@ -592,7 +594,14 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
     with Q.lock:
         if platzhalter not in Q.items:               # Nutzer hat ihn derweil entfernt
             return
-        if eintraege is not None:
+        if eintraege is not None and not eintraege and (von or bis):
+            # Review-Finding 7: ein leerer von/bis-Bereich verschwand STUMM —
+            # Platzhalter weg, kein Fehler, das Addon meldete „✓ eingereiht".
+            # Jetzt bleibt ein ehrlicher Fehler-Eintrag stehen.
+            platzhalter["status"] = "fehler"
+            platzhalter["fehler"] = ("Der Bereich von/bis ergab keine Videos — "
+                                     "liegt „von“ hinter dem Listenende?")
+        elif eintraege is not None:
             Q.items.remove(platzhalter)
             eintraege = _liste_zuschneiden(eintraege, menge, richtung)   # Build 127: JB-Regler
             for e in eintraege:

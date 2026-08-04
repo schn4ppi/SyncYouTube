@@ -84,7 +84,15 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     habVideo(msg.id).then((da) => sendResponse({ da }));
     return true;
   }
-  if (msg && msg.typ === "add_liste" && /youtube\.com\/playlist\?list=/.test(msg.url || "")) {
+  if (msg && msg.typ === "add_liste") {
+    // Review-Finding 1/5: Mixe kommen als watch?v=…&list=RD… (die
+    // playlist?list=RD…-Form ist bei YouTube „unviewable") — beide Formen
+    // zulassen; und bei einer fremden URL EHRLICH antworten statt den
+    // Dialog ohne Antwort haengen zu lassen.
+    if (!/youtube\.com\/(?:playlist\?list=|watch\?\S*[?&]list=)/.test(msg.url || "")) {
+      sendResponse({ ok: false, fehler: "keine Playlist-Adresse" });
+      return true;
+    }
     // v1.1.1 (JB): ganze Playlist/Mix — von/bis reisen bis zur App
     // (/api/add versteht sie seit v1.1.1 als playliststart/playlistend).
     const body = { urls: msg.url, ganze_liste: true };

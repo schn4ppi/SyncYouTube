@@ -9,7 +9,12 @@
   // Hab-Antwort aus dem Hintergrund — der Haken flackerte. Dieser lokale
   // Speicher (Video-Id -> schon da?) setzt den Zustand SOFORT; die Antwort
   // frischt ihn nur noch auf.
-  const habLokal = new Map();
+  // Review-Finding 8: NIE für immer merken — ein per Rechtsklick/App geladenes
+  // Video muss binnen 60 s auch hier grün werden (und umgekehrt).
+  const habLokal = new Map();                          // id -> {da, ts}
+  function habSetzen(id, da) { habLokal.set(id, { da: !!da, ts: Date.now() }); }
+  function habWert(id) { const e = habLokal.get(id); return !!(e && e.da); }
+  function habVeraltet(id) { const e = habLokal.get(id); return !e || Date.now() - e.ts > 60000; }
 
   // Hover-Knopf abschaltbar (JB v1.0.5, Popup-Schalter; Standard AN) —
   // wirkt sofort über storage.onChanged, das Rechtsklick-Menü bleibt immer.
@@ -64,23 +69,36 @@
     if (btn.classList.contains("hab")) {
       btn.classList.add("nein");
       btn.textContent = "✗";
-      setTimeout(() => { btn.classList.remove("nein"); btn.textContent = "✓"; }, 600);
+      // Review-Finding 2/9: der Rücksetzer prüft, ob der Knopf noch DIESEM
+      // Video gehört — sonst malt er ein ✓ auf einen fremden Anker.
+      const u = curUrl;
+      setTimeout(() => { if (curUrl !== u || curListe) return;
+                         btn.classList.remove("nein"); btn.textContent = "✓"; }, 600);
       return;
     }
     const url = curUrl;
     btn.textContent = "…";                             // ehrlich: erst nach Antwort ✓ oder ✗
     const fertig = (res) => {
       const ok = !!(res && res.ok);
-      if (ok) {                                        // v1.1.1: sofort als „hab" merken
-        const mv = url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
-        if (mv) habLokal.set(mv[1], true);
-      }
+      const mv = url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
+      if (ok && mv) habSetzen(mv[1], true);            // v1.1.1: sofort als „hab" merken
       btn.classList.add(ok ? "ok" : "fehl");
       btn.textContent = ok ? "✓" : "✗";
       btn.title = ok ? "In der Warteschlange"
                      : "Fehler: " + ((res && res.fehler) || "keine Antwort — läuft die App?");
-      setTimeout(() => { btn.classList.remove("ok", "fehl"); btn.textContent = "⬇";
-                         btn.title = "Zur Download-Warteschlange hinzufügen"; }, 1800);
+      setTimeout(() => {
+        btn.classList.remove("ok", "fehl");
+        // Review-Finding 2/9: gehört der Knopf inzwischen einem anderen
+        // Video oder einer Liste, hat DEREN zeigen() den Zustand gesetzt —
+        // nichts überschreiben. Sonst zurück in den ehrlichen Ruhezustand
+        // (✓ wenn geladen, ⬇ wenn nicht).
+        if (curUrl !== url || curListe) return;
+        const da = mv && habWert(mv[1]);
+        btn.classList.toggle("hab", !!da);
+        btn.textContent = da ? "✓" : "⬇";
+        btn.title = da ? "Schon in der Bibliothek — Rechtsklick lädt bewusst in anderem Format"
+                       : "Zur Download-Warteschlange hinzufügen";
+      }, 1800);
     };
     api.storage.local.get("ytdl_quali").then((o) => {
       const q = o && o.ytdl_quali;
@@ -115,8 +133,12 @@
 
   function zeigen(rect, url) {
     if (!ankerBrauchbar(rect)) { verstecken(); return; }
+    // Review-Finding 9: beim ANKER-WECHSEL alle Rückmelde-Klassen abräumen —
+    // ok/fehl/nein gehören zum vorherigen Video, nicht zu diesem.
+    const wechsel = url !== curUrl || !!curListe;
     curUrl = url;
     curListe = null; btn.classList.remove("liste");    // Video-Knopf, kein Listen-Pfeil
+    if (wechsel) btn.classList.remove("ok", "fehl", "nein");
     // Oben LINKS statt oben rechts (JB 22.07.): oben rechts liegen YouTubes
     // eigene Hover-Knöpfe (Später ansehen / ⋮) — die dürfen wir nie verdecken.
     // Geklemmt wird an den ANKER, nicht an den Bildschirm (JB-Dauerregel:
@@ -136,13 +158,18 @@
       btn.title = da ? "Schon in der Bibliothek — Rechtsklick lädt bewusst in anderem Format"
                      : "Zur Download-Warteschlange hinzufügen";
     };
+    // Läuft auf DIESEM Video gerade eine Klick-Rückmeldung (…/✓/✗), nicht
+    // übermalen — sie endet über ihren eigenen (bewachten) Timer.
+    const rueckmeldung = () => !wechsel && (btn.classList.contains("ok")
+      || btn.classList.contains("fehl") || btn.classList.contains("nein")
+      || btn.textContent === "…");
     const m = url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
-    habAnwenden(m ? habLokal.get(m[1]) : false);
-    if (m && !habLokal.has(m[1])) {
+    if (!rueckmeldung()) habAnwenden(m ? habWert(m[1]) : false);
+    if (m && habVeraltet(m[1])) {
       try {
         api.runtime.sendMessage({ typ: "hab", id: m[1] }).then((res) => {
-          habLokal.set(m[1], !!(res && res.da));
-          if (curUrl === url) habAnwenden(res && res.da);
+          habSetzen(m[1], res && res.da);
+          if (curUrl === url && !curListe && !rueckmeldung()) habAnwenden(res && res.da);
         }, () => {});
       } catch (e) { /* Hintergrund nicht erreichbar -> Knopf bleibt neutral */ }
     }
@@ -166,8 +193,15 @@
       const kopf = panel.querySelector(".header, h3.title, .title");
       const liste = (location.search.match(/[?&]list=([\w-]+)/) || [])[1];
       if (kopf && liste && el.closest(".header, h3.title, .title, .publisher, .index-message-wrapper")) {
-        return { rect: kopf.getBoundingClientRect(),
-                 url: "https://www.youtube.com/playlist?list=" + liste };
+        // Review-Finding 1/5: Mixe (RD…) hängen an ihrem START-VIDEO. Die Form
+        // playlist?list=RD… liefert YouTube nicht aus („This playlist type is
+        // unviewable", live gemessen) — für Mixe MUSS die watch-Form mit v=
+        // reisen; echte Playlists bleiben bei der sauberen playlist-Form.
+        const v = (location.search.match(/[?&]v=([\w-]+)/) || [])[1];
+        const url = (/^RD/.test(liste) && v)
+          ? "https://www.youtube.com/watch?v=" + v + "&list=" + liste
+          : "https://www.youtube.com/playlist?list=" + liste;
+        return { rect: kopf.getBoundingClientRect(), url };
       }
     }
     return null;
@@ -181,7 +215,7 @@
     const b = 30;
     btn.style.left = Math.min(anker.rect.left + 6, anker.rect.right - b) + "px";
     btn.style.top = Math.min(anker.rect.top + 8, anker.rect.bottom - b) + "px";
-    btn.classList.remove("hab", "ok", "fehl");
+    btn.classList.remove("hab", "ok", "fehl", "nein");
     btn.classList.add("an", "liste");
     btn.textContent = "⬇";
     btn.title = curListe.mix ? "Diesen Mix laden — Klick fragt, wie viele"
@@ -205,15 +239,22 @@
       '<button id="ytdl-ld-ja">⬇ Laden</button></div>';
     document.body.appendChild(box);
     const br = btn.getBoundingClientRect();
-    box.style.left = Math.max(8, Math.min(br.left, innerWidth - 240)) + "px";
+    box.style.left = Math.max(8, Math.min(br.left, innerWidth - 250)) + "px";
     box.style.top = Math.min(br.bottom + 6, innerHeight - 190) + "px";
-    const zu = () => box.remove();
+    // Review-Finding 3: Escape am DOKUMENT abfangen (capture) — der Dialog-div
+    // ist nicht fokussierbar, ein Listener an ihm hört nur, solange der Fokus
+    // in einem Eingabefeld steht. stopPropagation, damit YouTubes eigene
+    // Escape-Handler (Vollbild!) nicht mit auslösen.
+    const esc = (ev) => { if (ev.key === "Escape") { ev.stopPropagation(); zu(); } };
+    const zu = () => { document.removeEventListener("keydown", esc, true); box.remove(); };
+    document.addEventListener("keydown", esc, true);
     box.querySelector("#ytdl-ld-nein").onclick = zu;
-    box.addEventListener("keydown", (ev) => { if (ev.key === "Escape") zu(); });
     box.querySelector("#ytdl-ld-ja").onclick = () => {
       const von = parseInt(box.querySelector("#ytdl-ld-von").value, 10) || null;
       let bis = parseInt(box.querySelector("#ytdl-ld-bis").value, 10) || null;
-      if (liste.mix && !bis) bis = 50;                 // endlos braucht IMMER eine Grenze
+      // Review-Finding 6: „Von 60" ohne Bis hieß vorher bis=50 — und die
+      // Tausch-Regel der App machte daraus 50..60 statt „50 Stück ab 60".
+      if (liste.mix && !bis) bis = (von || 1) + 49;    // endlos braucht IMMER eine Grenze
       const ja = box.querySelector("#ytdl-ld-ja");
       ja.textContent = "…"; ja.disabled = true;
       api.storage.local.get("ytdl_quali").then((o) => {

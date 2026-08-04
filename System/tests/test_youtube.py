@@ -1673,7 +1673,11 @@ def test_addon_hab_cache_gegen_flackern():
     js = _addon_content_js()
     i = js.index("function zeigen(")
     block = js[i:js.index("\n  function ", i + 1)]
-    assert "habLokal" in block, "Kein lokaler Hab-Speicher - der Knopf flackert"
+    assert "habWert" in block, "Kein lokaler Hab-Speicher - der Knopf flackert"
+    # Review-Finding 8: nie fuer immer merken - sonst bleibt ein per
+    # Rechtsklick/App geladenes Video die ganze Sitzung lang ⬇ und der
+    # Doppel-Lade-Schutz faellt aus.
+    assert "habVeraltet" in block, "Der Hab-Speicher altert nicht (Doppel-Lade-Schutz faellt aus)"
 
 
 def test_addon_popup_zeigt_version_und_update():
@@ -1686,6 +1690,46 @@ def test_addon_popup_zeigt_version_und_update():
     assert "addon_update" in pj, "Popup prueft nicht auf Updates"
     assert "tabs.create" in pj, "Kein 1-Klick-Weg zur Installation"
     assert 'id="version"' in ph, "Kein Versions-Element im Popup"
+
+
+def test_review_fixes_v111():
+    # 9 bestaetigte Findings der adversarialen Pruefrunde (28 Agenten) vor der
+    # Signierung - die Kerne als Waechter, damit keiner zurueckrutscht.
+    js = _addon_content_js()
+    bg = _addon_datei("background.js")
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    # F1/5: Mix vom Panel-Kopf MUSS als watch?v=…&list=RD reisen - die
+    # playlist?list=RD-Form ist bei YouTube "unviewable" (live gemessen).
+    assert '"https://www.youtube.com/watch?v=" + v + "&list=" + liste' in js, (
+        "Mix vom Panel-Kopf wirft das Start-Video weg - yt-dlp kann die URL nicht aufloesen")
+    assert "watch\\?\\S*[?&]list=" in bg, (
+        "background laesst die watch-Form nicht durch - der Mix-Weg ist tot")
+    assert '"keine Playlist-Adresse"' in bg, (
+        "Bei fremder URL haengt der Dialog ohne Antwort")
+    # F2/9: Klick-Timer pruefen den Anker, bevor sie den Knopf beschreiben.
+    i = js.index("const fertig")
+    assert "curUrl !== url || curListe" in js[i:i + 1400], (
+        "Der 1,8-s-Ruecksetzer uebermalt fremde Anker")
+    j = js.index('btn.classList.contains("hab")')
+    assert "curUrl !== u || curListe" in js[j:j + 600], (
+        "Der 600-ms-Ruecksetzer malt ein ✓ auf fremde Anker")
+    # F3: Escape am Dokument (capture) + stopPropagation (YouTubes Vollbild!).
+    d = js[js.index("function listeDialog"):]
+    assert 'document.addEventListener("keydown", esc, true)' in d, (
+        "Escape haengt am nicht fokussierbaren Dialog-div")
+    assert "stopPropagation" in d[:d.index("setTimeout")], (
+        "Escape blubbert zu YouTubes eigenen Handlern durch")
+    # F4: bis geht bei Mixen durch die 1..500-Klemme.
+    a = quelle.index("def aufloesen")
+    block = quelle[a:quelle.index("\ndef ", a + 1)]
+    assert "_mix_limit(bis or ((von + 49) if von else None) or limit)" in block, (
+        "bis hebelt den Mix-Deckel aus / von ohne bis ergibt einen leeren Bereich")
+    # F6: Mix ohne Bis nimmt 50 Stueck AB von, nicht 1..50.
+    assert "bis = (von || 1) + 49" in js, (
+        "Von 60 ohne Bis wird zu Bereich 50..60 statt 50 Stueck ab 60")
+    # F7: leerer Bereich hinterlaesst einen ehrlichen Fehler-Eintrag.
+    assert "Der Bereich von/bis ergab keine Videos" in quelle, (
+        "Ein leerer von/bis-Bereich verschwindet stumm")
 
 
 def test_klickart_zum_abspielen_einstellbar():
