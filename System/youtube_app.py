@@ -400,10 +400,13 @@ def _technik(pfad):
 
 
 def _sidecars_mit(alt, neu):
-    """Untertitel-Dateien (stem.<lang>.vtt) mit der Mediendatei mitnehmen."""
+    """Untertitel-Dateien (stem.<lang>.vtt/.srt) mit der Mediendatei mitnehmen.
+    Auch .srt: yt-dlp liefert je nach Quelle SubRip — genau so verwaiste ein
+    Grim-Dawn-Untertitel beim Verschieben (JB-Fund, 05.08.)."""
     alt_stem = os.path.splitext(alt)[0]
     neu_stem = os.path.splitext(neu)[0]
-    for f in glob.glob(glob.escape(alt_stem) + ".*.vtt"):
+    for f in (glob.glob(glob.escape(alt_stem) + ".*.vtt")
+              + glob.glob(glob.escape(alt_stem) + ".*.srt")):
         try:
             os.replace(f, neu_stem + f[len(alt_stem):])
         except OSError:
@@ -1718,8 +1721,15 @@ def _untertitel_sprachen():
 # ---- Untertitel: .vtt neben der Mediendatei finden bzw. nachladen ----
 
 def _vtt_sprache(pfad):
-    m = re.search(r"\.([A-Za-z0-9-]+)\.vtt$", pfad)
+    m = re.search(r"\.([A-Za-z0-9-]+)\.(?:vtt|srt)$", pfad)
     return m.group(1) if m else ""
+
+
+def _srt_zu_vtt(text):
+    """SubRip → WebVTT: Kopfzeile dazu, Komma-Millisekunden → Punkt. Mehr
+    unterscheidet die Formate für unseren Player-Parser nicht."""
+    text = re.sub(r"(\d{2}:\d{2}:\d{2}),(\d{3})", r"\1.\2", text)
+    return "WEBVTT\n\n" + text.lstrip("﻿")
 
 
 def untertitel_ordner():
@@ -1762,7 +1772,8 @@ def untertitel_einsortieren():
         if os.path.normcase(wurzel) == os.path.normcase(ziel):
             continue                                  # den Zielordner selbst überspringen
         for d in dateien:
-            if not d.lower().endswith(".vtt"):
+            unten = d.lower()
+            if not unten.endswith((".vtt", ".srt")):
                 continue
             m = re.search(r"\[([\w-]{6,})\]", d)
             if not m:
@@ -1772,6 +1783,14 @@ def untertitel_einsortieren():
             try:
                 if os.path.exists(zdatei):
                     _in_papierkorb(quelle)            # Dublette -> Papierkorb (nicht hart löschen)
+                elif unten.endswith(".srt"):
+                    # SubRip unterwegs nach WebVTT wandeln (der Player liest
+                    # VTT); das Original geht rückholbar in den Papierkorb.
+                    with open(quelle, encoding="utf-8", errors="replace") as f:
+                        text = f.read()
+                    with open(zdatei, "w", encoding="utf-8") as f:
+                        f.write(_srt_zu_vtt(text))
+                    _in_papierkorb(quelle)
                 else:
                     os.replace(quelle, zdatei)
                 n += 1
@@ -3495,10 +3514,15 @@ def _migrations_ziel(pfad, e=None, schema=None):
 
 def _vtt_geschwister(pfad):
     """Untertitel NEBEN der Mediendatei, die deren Stamm teilen — sie müssen
-    bei einer Umbenennung MIT wandern (Stamm-Kopplung, sonst verwaisen sie)."""
+    bei einer Umbenennung MIT wandern (Stamm-Kopplung, sonst verwaisen sie).
+    Auch .srt: yt-dlp liefert je nach Quelle SubRip statt WebVTT — genau so
+    verwaiste ein Grim-Dawn-Untertitel (JB-Fund, Kleinkram 05.08.)."""
     stamm = os.path.splitext(pfad)[0]
-    return sorted(glob.glob(glob.escape(stamm) + ".*.vtt")
-                  + glob.glob(glob.escape(stamm) + ".vtt"))
+    treffer = []
+    for endung in (".vtt", ".srt"):
+        treffer += glob.glob(glob.escape(stamm) + ".*" + endung)
+        treffer += glob.glob(glob.escape(stamm) + endung)
+    return sorted(treffer)
 
 
 PROTOKOLL_PFAD = os.path.join(DATEN_DIR, "migration_protokoll.json")

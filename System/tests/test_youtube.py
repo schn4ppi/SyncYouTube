@@ -3110,3 +3110,45 @@ def test_hotkey_editor():
         "Die Legende liest nicht die echte Belegung"
     assert "case 'KeyJ'" not in quelle and "case 'Space'" not in quelle, \
         "Alte harte Tasten-Faelle leben noch - zwei Wahrheiten"
+
+
+def test_srt_untertitel_gekoppelt_und_gewandelt(monkeypatch, tmp_path):
+    # JB-Fund 05.08.: ein Grim-Dawn-.srt verwaiste beim Verschieben des
+    # Videos - die Stamm-Kopplung kannte nur .vtt (yt-dlp liefert je nach
+    # Quelle SubRip). Alle Wege muessen .srt mitnehmen, und das Einsortieren
+    # wandelt nach WebVTT, weil der Player nur VTT liest.
+    import inspect
+    q = inspect.getsource(app)
+    for fn in ("_vtt_geschwister", "_sidecars_mit"):
+        i = q.index(f"def {fn}")
+        assert ".srt" in q[i:q.index("\ndef ", i + 1)], f"{fn} kennt .srt nicht"
+    assert app._vtt_sprache("x [abc].en.srt") == "en", \
+        "Sprache muss auch aus .srt-Namen lesbar sein"
+
+    (tmp_path / "Untertitel").mkdir()
+    v = tmp_path / "Video"; v.mkdir()
+    srt = v / "Clip [abcdef12345].en.srt"
+    srt.write_text("1\n00:00:01,000 --> 00:00:02,500\nHallo\n", encoding="utf-8")
+    monkeypatch.setattr(app, "ziel_ordner", lambda: str(tmp_path))
+    korb = []
+    monkeypatch.setattr(app, "_in_papierkorb", lambda p: korb.append(p))
+    monkeypatch.setattr(app, "_sag", lambda *a, **kw: None)
+    n = app.untertitel_einsortieren()
+    ziel = tmp_path / "Untertitel" / "abcdef12345.en.vtt"
+    assert n == 1 and ziel.is_file(), "SubRip wurde nicht einsortiert"
+    t = ziel.read_text(encoding="utf-8")
+    assert t.startswith("WEBVTT") and "00:00:01.000 --> 00:00:02.500" in t, \
+        "SubRip-Zeiten (Komma) wurden nicht nach WebVTT (Punkt) gewandelt"
+    assert korb == [str(srt)], "Original-.srt muss rueckholbar in den Papierkorb"
+
+
+def test_plq_klick_ins_leere_raeumt_auswahl():
+    # JB-Kleinkram 05.08.: wie in der Bibliothek (Build 142) raeumt ein Klick
+    # auf freie Flaeche der Player-Playlist die Auswahl ab (Explorer-Muster);
+    # mit Strg bleibt sie stehen.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function plqBandStart")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "plqAuswahl.clear()" in block and "plqSel=null" in block, \
+        "Klick ins Leere raeumt die Playlist-Auswahl nicht ab"
+    assert "!basis.size" in block, "Strg-Klick muss die Auswahl erhalten"

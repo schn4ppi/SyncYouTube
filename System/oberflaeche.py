@@ -6516,6 +6516,12 @@ function plqBandStart(ev){
     document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up);
     document.body.classList.remove('nosel'); plqBandModus=false; plqZugLaeuft=false;
     if(band){band.remove(); plqBandLief=true; setTimeout(()=>{plqBandLief=false;},0); plqMark();}
+    else if(!zeile&&!basis.size&&(plqAuswahl.size||plqSel!==null)){
+      // JB-Kleinkram 05.08. (wie Bibliothek Build 142): ein KLICK auf freie
+      // Fläche (kein Zug) räumt die Playlist-Auswahl ab — Explorer-Muster.
+      // Mit Strg (basis gefüllt) bleibt sie erhalten.
+      plqAuswahl.clear(); plqSel=null; plqMark();
+    }
   }
   document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
 }
