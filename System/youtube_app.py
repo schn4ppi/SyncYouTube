@@ -2715,6 +2715,21 @@ def _wiedergabe_saeubern(daten, merge_mit=None):
             w["ton"] = ton
         else:
             w.pop("ton", None)
+    if "sub_groesse" in daten:                        # Untertitel-Größe (global, JB 05.08.:
+        try:                                          # „für alle Videos, versionsunabhängig")
+            gr = round(float(daten.get("sub_groesse") or 0), 2)
+        except (TypeError, ValueError):
+            gr = 0
+        if 0.5 <= gr <= 3:
+            w["sub_groesse"] = gr
+        else:
+            w.pop("sub_groesse", None)
+    if "sub_stil" in daten:
+        stil = str(daten.get("sub_stil") or "").strip().lower()
+        if stil in ("dunkel", "hell", "gelb", "kontur"):
+            w["sub_stil"] = stil
+        else:
+            w.pop("sub_stil", None)
     if "sub_offset" in daten:                         # Untertitel-Versatz in Sekunden (JB 05.08.)
         try:
             off = round(float(daten.get("sub_offset") or 0), 1)

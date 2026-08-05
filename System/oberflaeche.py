@@ -936,6 +936,13 @@ body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
    nutzt dieselben Bausteine wie die Audio-Ansicht (pl-vizwrap + pl-bar) —
    eigenes CSS braucht nur noch der leuchtende Geräte-Knopf. */
 #pl-geraet.an{color:var(--akz2);border-color:var(--akz2)}
+/* Untertitel-Panel (JB 05.08., Netflix-Bild): Zeilen klar getrennt, Knöpfe
+   rechtsbündig; die Aa-Knöpfe zeigen ihre Wahl im EIGENEN Look. */
+#subfly .subm-zeile{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 6px;border-bottom:1px solid rgba(255,255,255,.09)}
+#subfly .subm-zeile:last-child{border-bottom:none}
+#subfly .subm-knoepfe{display:flex;gap:4px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+#subfly .btn.an{outline:2px solid var(--akz2);outline-offset:1px}
 .pl-side{display:flex;flex-direction:column;flex:none;min-height:0;min-width:0}
 /* Build 144f (JB mit Bild): „jetzt ist playlist nur noch ein kleines fenster,
    das sollte dynamisch bis zum unteren rand von playlist gehen."
@@ -1959,6 +1966,11 @@ function optionenToggle(ev){
       (canvasAn?'checked':'')+' onchange="setCanvas(this.checked)"> animiertes Cover</label></div>'+
     // Untertitel-Stil (JB 05.08., wie Amazon/Netflix): Größe fürs Sofa/TV,
     // Preset für die Optik — gilt für Untertitel-Zeilen UND Karaoke-Größe.
+    // Modus inkl. TRANSKRIPT lebt hier (JB 05.08.: im Player-Panel nur noch
+    // aus/Untertitel/Karaoke — Taste S wechselt weiter durch alle vier).
+    '<div class="optrow"><span>Untertitel-Modus</span><select id="opt_submode" onchange="subModusSetzen(this.value)">'+
+      '<option value="aus">aus</option><option value="zeilen">Untertitel</option>'+
+      '<option value="karaoke">Karaoke</option><option value="transkript">Transkript</option></select></div>'+
     '<div class="optrow"><span>Untertitel-Stil</span><span style="display:flex;gap:6px">'+
       '<select id="opt_subgr" onchange="subStilSetzen(\\'groesse\\',this.value)" title="Untertitel-Größe (riesig = fürs Sofa/TV)">'+
         '<option value="0.8">klein</option><option value="1">mittel</option>'+
@@ -3035,6 +3047,7 @@ async function laden(){
     apiStatus(true); configFuellen(); malen();
     remoteAusfuehren(daten.remote);                    // Befehle vom Handy ausführen
     nachschubMelden(daten.addon_nachschub);            // Addon-Vormerkungen (v1.2.0)
+    subStilVomServer();                                // Untertitel-Stil: Server-Stand gewinnt
   }catch(e){apiStatus(false);}
 }
 /* Addon-Nachschub (v1.2.0, JB): „eine kurze Info, dass jetzt x Downloads
@@ -5679,27 +5692,61 @@ function subMenu(ev){
   ev.stopPropagation();
   document.querySelectorAll('#subfly').forEach(x=>x.remove());
   const m=document.createElement('div'); m.className='panelmenu'; m.id='subfly';
-  m.style.minWidth='250px';
-  const reihe=(name,knoepfe)=>'<div class="mzeile"><span>'+name+'</span><span style="display:flex;gap:4px;flex-wrap:wrap">'+knoepfe+'</span></div>';
-  const kn=(label,aktiv,js,titel)=>'<button class="btn mini'+(aktiv?' an':'')+'" '+(titel?'title="'+titel+'" ':'')+
-    'onclick="'+js+';subMenuFuellen()">'+label+'</button>';
-  function fuellen(){
-    let h='<div style="font-size:11.5px;color:#8a7d74;padding:2px 6px 7px">💬 Untertitel</div>';
-    h+=reihe('Modus', SUBMODES.map(md=>kn(md[2].split(' ')[0]==='aus'?'aus':md[2].split('—')[0].split('(')[0].trim(),
-      subMode===md[0], "subModusSetzen('"+md[0]+"')")).join(''));
-    if(subSprachen.length>1)
-      h+=reihe('Sprache', subSprachen.map(l=>kn(l, l===subLang, "subSpracheSetzen('"+l+"')")).join(''));
-    h+=reihe('Größe', [['0.8','klein'],['1','mittel'],['1.35','groß'],['1.8','riesig']]
-      .map(g=>kn(g[1], String(subStil.groesse)===g[0], "subStilSetzen('groesse','"+g[0]+"')")).join(''));
-    h+=reihe('Stil', [['dunkel','Aa dunkel'],['hell','Aa hell'],['gelb','Aa gelb'],['kontur','Aa Kontur']]
-      .map(p=>kn(p[1], subStil.preset===p[0], "subStilSetzen('preset','"+p[0]+"')")).join(''));
-    h+=reihe('Versatz', kn('−0,5 s', false, 'subOffsetSchieben(-0.5)', 'Text kommt später')+
-      '<b style="min-width:44px;text-align:center;color:var(--akz2)">'+
-      (subOffset>0?'+':'')+subOffset.toFixed(1).replace('.',',')+' s</b>'+
-      kn('+0,5 s', false, 'subOffsetSchieben(0.5)', 'Text kommt früher — je Titel gemerkt'));
-    m.innerHTML=h;
-  }
-  window.subMenuFuellen=()=>{if(document.getElementById('subfly'))fuellen();};
+  m.style.minWidth='280px';
+  // Robust gegen fremde Schließer/Capture-Listener: eigene pointerdowns
+  // verlassen das Panel nie (JB: „kann eh nichts anklicken").
+  m.addEventListener('pointerdown',e=>e.stopPropagation());
+  const fuellen=()=>{
+    m.innerHTML='';
+    const kopf=document.createElement('div');
+    kopf.style.cssText='font-size:11.5px;color:#8a7d74;padding:2px 6px 6px';
+    kopf.textContent='💬 Untertitel';
+    m.appendChild(kopf);
+    const reihe=(name)=>{
+      const z=document.createElement('div'); z.className='subm-zeile';
+      const s=document.createElement('span'); s.textContent=name; z.appendChild(s);
+      const w=document.createElement('span'); w.className='subm-knoepfe'; z.appendChild(w);
+      m.appendChild(z); return w;};
+    const kn=(wrap,label,aktiv,tun,stil,titel)=>{
+      const b=document.createElement('button'); b.className='btn mini'+(aktiv?' an':'');
+      b.textContent=label; if(stil)b.style.cssText=stil; if(titel)b.title=titel;
+      b.addEventListener('click',e=>{e.stopPropagation(); tun(); fuellen();});
+      wrap.appendChild(b);};
+    // Modus — OHNE Transkript (JB 05.08.: „die Option kann man im Player-
+    // Modus rausnehmen"); es bleibt über Taste S und die ⚙-Optionen.
+    let w=reihe('Modus');
+    [['aus','aus'],['zeilen','Untertitel'],['karaoke','Karaoke']]
+      .forEach(md=>kn(w,md[1],subMode===md[0],()=>subModusSetzen(md[0])));
+    // Sprache dedupliziert (JB: „warum ist en da, wenn en-orig schon da?"):
+    // gibt es „xx-orig" UND „xx", zeigt das Panel nur die Original-Fassung.
+    const sichtbar=subSprachen.filter(l=>!subSprachen.includes(l+'-orig'));
+    if(sichtbar.length>1){
+      w=reihe('Sprache');
+      sichtbar.forEach(l=>kn(w,l,l===subLang||(l===subLang+'-orig'),()=>subSpracheSetzen(l)));
+    }
+    // Größe als gestaffelte Aa (Amazon-Muster: man SIEHT die Wahl)
+    w=reihe('Größe');
+    [['0.8',10,'klein'],['1',13,'mittel'],['1.35',16,'groß'],['1.8',19,'riesig (TV)']]
+      .forEach(g=>kn(w,'Aa',String(subStil.groesse)===g[0],
+        ()=>subStilSetzen('groesse',g[0]),'font-size:'+g[1]+'px;padding:1px 7px',g[2]));
+    // Stil-Presets IM eigenen Look
+    w=reihe('Stil');
+    [['dunkel','background:rgba(0,0,0,.82);color:#fff;border-color:#555','weiß auf dunkel'],
+     ['hell','background:rgba(255,255,255,.92);color:#111','schwarz auf hell'],
+     ['gelb','background:rgba(0,0,0,.82);color:#ffe94a;border-color:#555','gelb (klassisch)'],
+     ['kontur','background:transparent;color:#fff;text-shadow:0 0 4px #000,0 1px 2px #000','nur Kontur']]
+      .forEach(p=>kn(w,'Aa',subStil.preset===p[0],()=>subStilSetzen('preset',p[0]),p[1],p[2]));
+    // Versatz: fein bis grob (JB: ±0,1 / ±0,5 / ±1 / ±5 s), je Titel gemerkt
+    w=reihe('Versatz');
+    [-5,-1,-0.5,-0.1].forEach(d=>kn(w,String(d).replace('.',','),false,
+      ()=>subOffsetSchieben(d),'padding:2px 6px','Text kommt später'));
+    const anz=document.createElement('b');
+    anz.style.cssText='min-width:46px;text-align:center;color:var(--akz2)';
+    anz.textContent=(subOffset>0?'+':'')+subOffset.toFixed(1).replace('.',',')+' s';
+    w.appendChild(anz);
+    [0.1,0.5,1,5].forEach(d=>kn(w,'+'+String(d).replace('.',','),false,
+      ()=>subOffsetSchieben(d),'padding:2px 6px','Text kommt früher — je Titel gemerkt'));
+  };
   fuellen();
   document.body.appendChild(m);
   popoverBei(m, ev.currentTarget.getBoundingClientRect());
@@ -5725,11 +5772,28 @@ function subStilAnwenden(){
 function subStilSetzen(feld,wert){
   subStil[feld]=(feld==='groesse')?(parseFloat(wert)||1):wert;
   try{localStorage.setItem('ytdl_substil',JSON.stringify(subStil));}catch(e){}
+  // JB 05.08.: Untertitel-Einstellungen gelten für ALLE Videos und überleben
+  // jede Version — darum zusätzlich in die globale Wiedergabe-Regel (Server).
+  fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({global:1,merge:1,
+      [feld==='groesse'?'sub_groesse':'sub_stil']:subStil[feld]})}).catch(()=>{});
+  subStilAnwenden();
+}
+/* Beim Seitenstart gewinnt der SERVER-Stand (überlebt Versionen/Browser);
+   localStorage bleibt der schnelle Zwischenspeicher. */
+let _subStilServer=false;
+function subStilVomServer(){
+  if(_subStilServer||!daten||!daten.config)return;
+  _subStilServer=true;
+  const g=(daten.config.wiedergabe)||{};
+  if(g.sub_groesse)subStil.groesse=parseFloat(g.sub_groesse)||subStil.groesse;
+  if(g.sub_stil)subStil.preset=g.sub_stil;
   subStilAnwenden();
 }
 function subStilInit(){
   const g=document.getElementById('opt_subgr'); if(g)g.value=String(subStil.groesse);
   const p=document.getElementById('opt_subpre'); if(p)p.value=subStil.preset;
+  const md=document.getElementById('opt_submode'); if(md)md.value=subMode;
 }
 function subAnzeigen(){
   subStilAnwenden();                                   // Stil folgt jedem Neuaufbau des Elements
