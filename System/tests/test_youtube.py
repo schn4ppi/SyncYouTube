@@ -1696,19 +1696,30 @@ def test_mb_suche_liefert_release_und_genre(monkeypatch):
     # Spec Punkt 5 / Etappe A: echtes Album-Cover (Cover Art Archive braucht
     # die Release-Id) + Genre (fuer die TV-Bibliothek) - beides kommt im
     # SELBEN MusicBrainz-Lookup mit, kein zweiter Abruf.
-    such_antwort = {"recordings": [{
-        "id": "rec1", "score": 100, "title": "Africa",
-        "artist-credit": [{"name": "Toto"}], "first-release-date": "1982-04-08"}]}
+    # Album-zentrierte Wahl (JB-Go 05.08.): die SUCHE liefert je Recording
+    # seine Releases samt Release-Group mit - daraus faellt die Album-Wahl,
+    # der Lookup holt nur noch Kuenstler-Schreibweise + Genres. Das zweite
+    # Recording stellt ein Compilation-Duplikat nach (frueher gewann so ein
+    # obskures Album); das dritte den Sonderzeichen-Fall ("Heroes"-Falle).
+    such_antwort = {"recordings": [
+        {"id": "rec-dupl", "score": 100, "title": "Africa",
+         "artist-credit": [{"name": "Toto"}], "first-release-date": "1992",
+         "releases": [{"id": "rel-comp", "title": "Rock Anthems",
+                       "status": "Official", "date": "1992",
+                       "release-group": {"id": "rg-comp", "primary-type": "Album",
+                                         "secondary-types": ["Compilation"],
+                                         "first-release-date": "1992"}}]},
+        {"id": "rec1", "score": 100, "title": "„Africa“",
+         "artist-credit": [{"name": "Toto"}], "first-release-date": "1982-04-08",
+         "releases": [{"id": "rel-42", "title": "Toto IV", "status": "Official",
+                       "date": "1982-04-08",
+                       "release-group": {"id": "rg-7", "primary-type": "Album",
+                                         "first-release-date": "1982-04-08"}}]}]}
     # Live gemessen (Toto/Africa): das RECORDING traegt keine Genres - sie
-    # leben an der RELEASE-GROUP (pop rock 10, rock 9). Darum der dritte
-    # Abruf; er laeuft nur, wenn ein Album gefunden wurde.
-    lookup_antwort = {
-        "title": "Africa", "artist-credit": [{"name": "Toto"}],
-        "genres": [],
-        "releases": [{"id": "rel-42", "title": "Toto IV", "status": "Official",
-                      "date": "1982-04-08",
-                      "release-group": {"id": "rg-7", "primary-type": "Album",
-                                        "first-release-date": "1982-04-08"}}]}
+    # leben an der RELEASE-GROUP (pop rock 10, rock 9). Darum der Nachschlag;
+    # er laeuft nur, wenn ein Album gefunden wurde.
+    lookup_antwort = {"title": "Africa", "artist-credit": [{"name": "Toto"}],
+                      "genres": []}
     rg_antwort = {"genres": [{"name": "pop rock", "count": 10},
                              {"name": "rock", "count": 9}]}
     antworten = [such_antwort, lookup_antwort, rg_antwort]
@@ -1723,6 +1734,11 @@ def test_mb_suche_liefert_release_und_genre(monkeypatch):
     assert fund["release_id"] == "rel-42", "Ohne Release-Id kein Album-Cover"
     assert fund["rg_id"] == "rg-7", "Ohne Release-Group-Id kein Cover-Rueckfall"
     assert fund["genre"] == "Pop Rock", "Genre (aus der Release-Group) fehlt"
+    assert fund["album"] != "Rock Anthems", "Compilation-Duplikat darf nicht gewinnen"
+    # Sonderzeichen-Normalisierung (die "Heroes"-Falle): typografische
+    # Anfuehrungszeichen/Striche duerfen den Exakt-Treffer nicht kosten.
+    assert app._mb_norm_titel("“Heroes”") == app._mb_norm_titel("Heroes")
+    assert app._mb_norm_titel("Rock’n–Roll") == app._mb_norm_titel("Rockn-Roll")
     assert "release-group/rg-7" in urls[-1], "Genre kommt nicht aus der Release-Group"
 
 

@@ -1291,6 +1291,19 @@ def _artist_passt(rec, kuenstler):
     return a == k or difflib.SequenceMatcher(None, a, k).ratio() >= 0.85
 
 
+def _mb_norm_titel(t):
+    """Titel für den Exakt-Vergleich normalisieren (JB-Go 05.08.): MusicBrainz
+    schreibt Titel mit TYPOGRAFISCHEN Zeichen („“Heroes“", ’, –, …) — der
+    YouTube-Name kommt mit geraden. Ohne Angleich fiel der Exakt-Treffer aus
+    und die Datums-Sortierung wählte ein obskures Fremd-Release (live: Bowies
+    „Heroes" bekam „Turn On the Lights", 2008)."""
+    t = (t or "").casefold()
+    for z in "\"'“”„‚‘’‛′″«»‹›":
+        t = t.replace(z, "")
+    t = t.replace("–", "-").replace("—", "-").replace("…", "...")
+    return " ".join(t.replace(" ", " ").split())
+
+
 def _mb_suche(kuenstler, titel, timeout=10):
     """Künstler/Titel/Album via MusicBrainz. Zwei Stufen (die Recording-Suche allein
     ist voller gleichnamiger Live-Bootlegs — live ausgetestet 09.07.2026):
@@ -1309,10 +1322,15 @@ def _mb_suche(kuenstler, titel, timeout=10):
                 {"query": q, "fmt": "json", "limit": str(limit)}), timeout)
         except Exception:                            # noqa: BLE001 — Netz: kein Fund
             return {}
-    data = suche(basis + " AND status:official AND primarytype:album NOT secondarytype:*", 15)
+    # KEIN "NOT secondarytype:*" mehr (JB-Go 05.08., live gemessen): das
+    # schloss ein Recording aus, sobald es auf IRGENDEINER Compilation liegt —
+    # also gerade die Originale (Bowies 1977er "Heroes" liegt auf zig
+    # Best-ofs), während obskure Ein-Album-Duplikate überlebten. Der
+    # Compilation-Schutz sitzt weiter in der RELEASE-Auswahl unten.
+    data = suche(basis + " AND status:official AND primarytype:album", 100)
     recs = [r for r in data.get("recordings", []) if int(r.get("score", 0)) >= 85
             and not r.get("video") and _artist_passt(r, kuenstler)]
-    exakt = [r for r in recs if (r.get("title") or "").lower() == titel.lower()]
+    exakt = [r for r in recs if _mb_norm_titel(r.get("title")) == _mb_norm_titel(titel)]
     pool = exakt or recs
     pool.sort(key=lambda r: r.get("first-release-date") or "9999")
     if not pool:                                     # kein Studio-Album: nur Künstler/Titel säubern
@@ -1322,36 +1340,57 @@ def _mb_suche(kuenstler, titel, timeout=10):
                 and _artist_passt(r, kuenstler)]
         if not recs:
             return None
-        rec = next((r for r in recs if (r.get("title") or "").lower() == titel.lower()), recs[0])
+        rec = next((r for r in recs
+                    if _mb_norm_titel(r.get("title")) == _mb_norm_titel(titel)), recs[0])
         return {"kuenstler": _mb_kuenstler(rec), "titel": rec.get("title", ""),
                 "album": "", "jahr": "", "release_id": "", "rg_id": "", "genre": ""}
+    # ALBUM-zentrierte Wahl (JB-Go 05.08., dreifach live gemessen): MusicBrainz
+    # führt denselben Song als VIELE Recordings (Original, Remaster je
+    # Compilation, …). Wer erst EIN Recording wählt und dann dessen Releases
+    # ansieht, greift daneben — die Duplikate hängen an obskuren Alben.
+    # Die SUCHE liefert je Recording seine Releases samt Release-Group mit:
+    # also über ALLE exakten Treffer das früheste echte Album wählen und das
+    # zugehörige Recording nehmen. Compilation-Schutz sitzt HIER: keine
+    # secondary-types — außer Soundtrack, denn der IST das kanonische Album
+    # (Purple Rain). Undatierte „Alben" sind fast immer Box-Sets/Datenmüll.
+    def _album_ok(rel):
+        rg = rel.get("release-group") or {}
+        sec = rg.get("secondary-types") or []
+        return (rg.get("primary-type") == "Album"
+                and (not sec or sec == ["Soundtrack"])
+                and (rel.get("status") or "Official") == "Official"
+                and (rel.get("date") or rg.get("first-release-date")))
+    kandidaten = []                                  # (datum, recording, release)
+    for r in pool:
+        for rel in (r.get("releases") or []):
+            if _album_ok(rel):
+                rg = rel.get("release-group") or {}
+                kandidaten.append((rel.get("date") or rg.get("first-release-date") or "9999",
+                                   r, rel))
+    kandidaten.sort(key=lambda x: x[0])
+    rec = kandidaten[0][1] if kandidaten else pool[0]
+    rel = kandidaten[0][2] if kandidaten else None
+    album = (rel.get("title") or "") if rel else ""
+    rg = (rel.get("release-group") or {}) if rel else {}
+    jahr = ((rg.get("first-release-date") or (rel.get("date") if rel else "") or ""))[:4]
+    release_id = (rel.get("id") or "") if rel else ""
+    rg_id = rg.get("id") or ""
     time.sleep(1.1)                                  # MusicBrainz-Takt vor dem Lookup
     try:
-        # +genres (Etappe A): Genre kommt im SELBEN Lookup mit — kein zweiter Abruf.
-        det = _mb_get(f"https://musicbrainz.org/ws/2/recording/{pool[0]['id']}"
-                      "?inc=releases+release-groups+artist-credits+genres&fmt=json", timeout)
-    except Exception:                                # noqa: BLE001
-        return {"kuenstler": _mb_kuenstler(pool[0]), "titel": pool[0].get("title", ""),
-                "album": "", "jahr": "", "release_id": "", "rg_id": "", "genre": ""}
-    alben = [rel for rel in det.get("releases", [])
-             if (rel.get("release-group") or {}).get("primary-type") == "Album"
-             and not (rel.get("release-group") or {}).get("secondary-types")
-             and rel.get("status") == "Official"
-             # undatierte „Alben" sind fast immer Box-Sets/Datenmüll -> nur Datiertes zählt
-             and (rel.get("date") or (rel.get("release-group") or {}).get("first-release-date"))]
-    alben.sort(key=lambda r: r.get("date") or "9999")
-    album, jahr = "", ""
-    if alben:
-        album = alben[0].get("title") or ""
-        rg = alben[0].get("release-group") or {}
-        jahr = ((rg.get("first-release-date") or alben[0].get("date") or ""))[:4]
+        # Lookup nur noch für Künstler-Schreibweise + Genres — die Album-Wahl
+        # ist oben schon gefallen (aus der Suche, ohne Extra-Abruf).
+        det = _mb_get(f"https://musicbrainz.org/ws/2/recording/{rec['id']}"
+                      "?inc=artist-credits+genres&fmt=json", timeout)
+    except Exception:                                # noqa: BLE001 — Album ist trotzdem belegt
+        return {"kuenstler": _mb_kuenstler(rec), "titel": rec.get("title", ""),
+                "album": album, "jahr": jahr,
+                "release_id": release_id, "rg_id": rg_id, "genre": ""}
     # Genre (Etappe A): live gemessen trägt das RECORDING fast nie Genres —
     # sie leben an der RELEASE-GROUP (Toto/Africa: Recording leer, RG „pop
-    # rock" 10×). Darum ein dritter, kleiner Abruf — nur wenn ein Album
-    # gefunden wurde, und nur das meistbestätigte Genre, hübsch geschrieben.
+    # rock" 10×). Darum ein Nachschlag — nur wenn ein Album gefunden wurde,
+    # und nur das meistbestätigte Genre, hübsch geschrieben.
     # Nur Belegtes — falsche Tags wandern beim Kopieren mit (JB-Leitsatz).
     genres = sorted((det.get("genres") or []), key=lambda g: -(g.get("count") or 0))
-    rg_id = ((alben[0].get("release-group") or {}).get("id") or "") if alben else ""
     if not genres and rg_id:
         time.sleep(1.1)                              # MusicBrainz-Takt
         try:
@@ -1363,12 +1402,11 @@ def _mb_suche(kuenstler, titel, timeout=10):
     genre = (genres[0].get("name") or "").title() if genres else ""
     # Bei un-exaktem Titel-Treffer (z.B. „… (instrumental)") den EIGENEN gesäuberten
     # Titel behalten — das Album stimmt trotzdem.
-    mb_titel = det.get("title", "") or pool[0].get("title", "")
-    return {"kuenstler": _mb_kuenstler(det) or _mb_kuenstler(pool[0]),
+    mb_titel = det.get("title", "") or rec.get("title", "")
+    return {"kuenstler": _mb_kuenstler(det) or _mb_kuenstler(rec),
             "titel": mb_titel if exakt else titel,
             "album": album, "jahr": jahr,
-            "release_id": (alben[0].get("id") or "") if alben else "",
-            "rg_id": rg_id, "genre": genre}
+            "release_id": release_id, "rg_id": rg_id, "genre": genre}
 
 
 def _ist_musik(e):
