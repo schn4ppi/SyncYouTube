@@ -2608,6 +2608,15 @@ def _wiedergabe_saeubern(daten, merge_mit=None):
             w["ton"] = ton
         else:
             w.pop("ton", None)
+    if "sub_offset" in daten:                         # Untertitel-Versatz in Sekunden (JB 05.08.)
+        try:
+            off = round(float(daten.get("sub_offset") or 0), 1)
+        except (TypeError, ValueError):
+            off = 0
+        if off and -30 <= off <= 30:
+            w["sub_offset"] = off
+        else:
+            w.pop("sub_offset", None)                 # 0 = Versatz aus
     return w
 
 

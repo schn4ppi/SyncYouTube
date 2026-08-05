@@ -5781,9 +5781,21 @@ function karLauf(el){
   };
   karRAF=requestAnimationFrame(schritt);
 }
+/* Untertitel-/Karaoke-Versatz (JB 05.08., House-of-the-Rising-Sun-Fall:
+   „der karaoke text ist nicht exakt"): ±0,5-s-Schritte über , und . —
+   je Titel ABSOLUT gemerkt (Wiedergabe-Regel sub_offset, Etappe-C-Speicher).
+   Positiv = Text kommt früher, negativ = später. */
+let subOffset=0;
+function subOffsetSchieben(d){
+  subOffset=Math.max(-30,Math.min(30,Math.round((subOffset+d)*10)/10));
+  toast('💬 Untertitel-Versatz '+(subOffset>0?'+':'')+subOffset.toFixed(1).replace('.',',')+' s'+
+        (subOffset===0?' (aus)':''));
+  wiedergabeMerken({sub_offset:subOffset});
+  subIdx=-1;                                           // Zeile neu suchen
+}
 function subTick(el){
   if(!subCues||subMode==='aus')return;
-  const t=el.currentTime;
+  const t=el.currentTime+(subOffset||0);
   let i=subIdx;
   if(i<0||i>=subCues.length||t<subCues[i].start||t>=subCues[i].ende)
     i=subCues.findIndex(c=>t>=c.start&&t<c.ende);
@@ -6436,12 +6448,14 @@ function wiedergabeFuer(x){
   const p=(playerState.plid&&((plState.find(q=>q.id===playerState.plid)||{}).wiedergabe))||{};
   const g=(daten&&daten.config&&daten.config.wiedergabe)||{};
   const t=(x&&x.wiedergabe)||{};
-  return {sub:t.sub||p.sub||g.sub||'', speed:t.speed||p.speed||g.speed||0, ton:t.ton||p.ton||g.ton||''};
+  return {sub:t.sub||p.sub||g.sub||'', speed:t.speed||p.speed||g.speed||0, ton:t.ton||p.ton||g.ton||'',
+          sub_offset:t.sub_offset||p.sub_offset||g.sub_offset||0};
 }
 function wiedergabeAnwenden(x,el){
   const w=wiedergabeFuer(x);
   const sub=w.sub||subModeSitzung;                     // keine Regel -> Sitzungs-Standard
   if(sub!==subMode){subMode=sub; subAnzeigen();}
+  subOffset=w.sub_offset||0;                           // gemerkter Untertitel-Versatz je Titel
   const sp=w.speed||playSpeed;
   if(el)el.playbackRate=sp;
   const b=document.getElementById('plb-speed'); if(b)b.textContent=sp+'×';
@@ -7634,7 +7648,7 @@ function tastenLegende(){
     ['Abspielen', t('playpause')+' Play·Pause · '+t('naechster')+'/'+t('voriger')+' nächster/voriger Titel · '+t('wiederholen')+' Wiederholen'],
     ['Springen',  t('rueck10')+'/'+t('vor10')+' −/+10 s · '+t('sprungzurueck')+'/'+t('sprungvor')+' −/+'+sprungWeite()+' s · 0–9 zu 0–90 % · '+t('anfang')+'/'+t('ende')+' Anfang/Ende'],
     ['Ton',       t('lauter')+'/'+t('leiser')+' Lautstärke · '+t('stumm')+' stumm · '+t('langsamer')+'/'+t('schneller')+' Tempo'],
-    ['Bild',      t('vollbild')+' Vollbild · '+t('pip')+' Bild-in-Bild · '+t('untertitel')+' Untertitel'],
+    ['Bild',      t('vollbild')+' Vollbild · '+t('pip')+' Bild-in-Bild · '+t('untertitel')+' Untertitel · '+t('subfrueher')+'/'+t('subspaeter')+' Untertitel-Versatz'],
     ['Playlist',  'Klick wählt · Doppelklick/Enter spielt · Entf löscht · ↑/↓ Auswahl']];
   toastHTML('<div style="font-size:11px;color:#8a7d74;margin-bottom:5px">Tastenkürzel</div>'+
     gruppen.map(([k,v])=>'<div style="display:flex;gap:10px;padding:2px 0;line-height:1.5">'+
@@ -7667,12 +7681,14 @@ const HK_DEF={playpause:['Space','KeyK'],rueck10:['KeyJ'],vor10:['KeyL'],
   sprungzurueck:['ArrowLeft'],sprungvor:['ArrowRight'],lauter:['ArrowUp'],leiser:['ArrowDown'],
   naechster:['KeyN'],voriger:['KeyP'],stumm:['KeyM'],vollbild:['KeyF'],pip:['KeyI'],
   untertitel:['KeyS'],anfang:['Home'],ende:['End'],wiederholen:['KeyR'],
-  langsamer:['Shift+Comma'],schneller:['Shift+Period']};
+  langsamer:['Shift+Comma'],schneller:['Shift+Period'],
+  subfrueher:['Comma'],subspaeter:['Period']};
 const HK_NAMEN={playpause:'Play / Pause',rueck10:'10 s zurück',vor10:'10 s vor',
   sprungzurueck:'Sprung zurück (←)',sprungvor:'Sprung vor (→)',lauter:'Lauter',leiser:'Leiser',
   naechster:'Nächster Titel',voriger:'Voriger Titel',stumm:'Stumm',vollbild:'Vollbild',
   pip:'Bild-in-Bild',untertitel:'Untertitel wechseln',anfang:'Zum Anfang',ende:'Zum Ende',
-  wiederholen:'Wiederholen (Titel)',langsamer:'Tempo −',schneller:'Tempo +'};
+  wiederholen:'Wiederholen (Titel)',langsamer:'Tempo −',schneller:'Tempo +',
+  subfrueher:'Untertitel früher (−0,5 s)',subspaeter:'Untertitel später (+0,5 s)'};
 let HK={};
 (function(){let g={}; try{g=JSON.parse(localStorage.getItem('ytdl_hotkeys')||'{}')||{};}catch(e){}
   for(const a in HK_DEF)HK[a]=(Array.isArray(g[a])&&g[a].length)?g[a].slice():HK_DEF[a].slice();})();
@@ -7763,7 +7779,8 @@ document.addEventListener('keydown',e=>{
     anfang:()=>{if(el)el.currentTime=0;},
     ende:()=>{if(el&&el.duration)el.currentTime=el.duration;},
     wiederholen:()=>{if(el){el.loop=!el.loop; toast(el.loop?'🔁 Wiederholen an':'▶ Wiederholen aus');}},
-    langsamer:()=>{if(el)_rate(-0.25);}, schneller:()=>{if(el)_rate(0.25);}
+    langsamer:()=>{if(el)_rate(-0.25);}, schneller:()=>{if(el)_rate(0.25);},
+    subfrueher:()=>subOffsetSchieben(-0.5), subspaeter:()=>subOffsetSchieben(0.5)
   };
   const tu=HK_TUN[hkAktionFuer(hkCode(e))];
   if(tu){e.preventDefault(); tu(); return;}

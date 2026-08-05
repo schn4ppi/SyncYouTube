@@ -3429,3 +3429,25 @@ def test_live_titel_regel(monkeypatch):
     assert app._ist_live_titel("X (Live On MTV Unplugged)") is True
     assert app._ist_live_titel("Unplugged Session") is True
     assert app._ist_live_titel("Staying Alive") is False, "Wortgrenze: 'Alive' ist nicht live"
+
+
+def test_untertitel_versatz(monkeypatch):
+    # JB 05.08. (House of the Rising Sun): "der karaoke text ist nicht exakt"
+    # -> Versatz in 0,5-s-Schritten (Tasten , und .), je Titel ABSOLUT gemerkt
+    # ueber die Wiedergabe-Regeln; subTick rechnet ihn auf die Zeit.
+    w = app._wiedergabe_saeubern({"sub_offset": 1.5})
+    assert w == {"sub_offset": 1.5}
+    assert app._wiedergabe_saeubern({"sub_offset": 0}) == {}, "0 = Versatz aus"
+    assert app._wiedergabe_saeubern({"sub_offset": 99}) == {}, "Klemme fehlt"
+    quelle = _oberflaeche_html()
+    i = quelle.index("function subOffsetSchieben")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "wiedergabeMerken({sub_offset:" in block, "Versatz wird nicht je Titel gemerkt"
+    i = quelle.index("function subTick")
+    assert "subOffset" in quelle[i:quelle.index("let i=subIdx", i)], \
+        "subTick rechnet den Versatz nicht ein"
+    assert "subfrueher:['Comma']" in quelle and "subspaeter:['Period']" in quelle, \
+        "Hotkeys , und . fehlen"
+    i = quelle.index("function wiedergabeAnwenden")
+    assert "subOffset=w.sub_offset" in quelle[i:_funktionsende(quelle, i)], \
+        "Gemerkter Versatz wird beim Titelstart nicht angewendet"
