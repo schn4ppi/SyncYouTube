@@ -4953,11 +4953,13 @@ def _cors(handler):
         handler.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 
 
-def _antwort(handler, code, daten, ctype="application/json"):
+def _antwort(handler, code, daten, ctype="application/json", cache=None):
     body = daten if isinstance(daten, bytes) else json.dumps(daten, ensure_ascii=False).encode("utf-8")
     handler.send_response(code)
     handler.send_header("Content-Type", ctype + "; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
+    if cache:                                         # z. B. Cover: Browser darf behalten
+        handler.send_header("Cache-Control", f"max-age={int(cache)}")
     _cors(handler)
     handler.end_headers()
     handler.wfile.write(body)
@@ -5058,7 +5060,11 @@ class Handler(BaseHTTPRequestHandler):
             key = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             bild = cover_aus_datei(key)
             if bild:
-                _antwort(self, 200, bild, "image/jpeg")
+                # 1 h Browser-Cache: die Bibliothek malt sich oft neu, das
+                # Cover in der Datei ändert sich praktisch nie (JB 05.08.:
+                # Kacheln zeigen jetzt das echte Cover — ohne Cache läse der
+                # Server bei jedem Filter/Sortieren alle MP3s neu).
+                _antwort(self, 200, bild, "image/jpeg", cache=3600)
             else:
                 _antwort(self, 404, {"fehler": "kein eingebettetes Cover"})
         elif self.path.startswith("/api/addon_hab_liste"):  # Erweiterung: Playlist schon eingereiht? (v1.1.2)

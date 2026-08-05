@@ -3611,3 +3611,45 @@ def test_vlc_einbettung_hwnd(monkeypatch, tmp_path):
     assert "pywebview" in block and "devicePixelRatio" in block
     assert "bar.getBoundingClientRect" in block, "Die Leiste muss frei bleiben (Airspace)"
     assert "huelleVideoRect(s)" in ui, "vlcTick meldet die Flaeche nicht"
+
+
+def test_kachel_zeigt_album_cover():
+    # JB 05.08.: "die ganzen Lieder haben in der Bibliothek immer noch das
+    # thumbnail von youtube als Bild. Warum nicht das Albumcover stattdessen?"
+    # Kacheln laden bei cover_album das echte Cover (/api/cover), das
+    # YouTube-Thumbnail ist nur noch der Rueckfall bei Fehler/404.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function kachel(")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "x.cover_album?`/api/cover?id=" in block, \
+        "Kachel fragt das echte Album-Cover nicht an"
+    assert "this.src='${esc(x.thumb)}'" in block, \
+        "Ohne Cover-Rueckfall bliebe die Kachel bei totem Cover leer"
+    assert 'class="thumb"' in block
+
+
+def test_spulen_am_fernseher():
+    # JB 05.08.: "im videoplayer im fernseher ist vor und zurueckspulen mit
+    # hoeherer geschwindigkeit als 10 sec vor und zurueck schon << und >>.
+    # Am PC sollte es jedoch naechster und vorheriger Track sein."
+    quelle = _oberflaeche_html()
+    # PC-Paar verschwindet im Vollbild, Spul-Paar erscheint dort:
+    assert 'class="mp-btn weg-im-vollbild" id="plb-prev"' in quelle
+    assert 'class="mp-btn weg-im-vollbild" id="plb-next"' in quelle
+    assert 'class="mp-btn nur-vollbild" id="plb-rew" onclick="spulen(-1)"' in quelle
+    assert 'class="mp-btn nur-vollbild" id="plb-ffw" onclick="spulen(1)"' in quelle
+    # Spul-Motor: Stufen steigen je Druck, Takt springt ueber plbSpringen
+    # (ein Weg fuer <video> UND Geraet VLC), Ende/Anfang stoppt.
+    i = quelle.index("const SPUL_FAKTOREN")
+    assert "[0,4,8,16,32]" in quelle[i:i + 60], "Spul-Stufen fehlen"
+    i = quelle.index("function spulTick")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "plbSpringen(spulWeg*SPUL_FAKTOREN[spulStufe]*0.5, true)" in block
+    assert "vlcAktiv()" in block, "Spulen kennt das Geraet VLC nicht"
+    # Play/OK beendet NUR das Spulen (Streamer-Muster) ...
+    i = quelle.index("function plTogglePlay")
+    assert "spulStopp()" in quelle[i:_funktionsende(quelle, i)]
+    # ... und Vollbild-Ende sowie Titelwechsel raeumen den Takt ebenfalls weg.
+    assert "fullscreenchange" in quelle
+    i = quelle.index("function renderPlayerMedia")
+    assert "spulStopp()" in quelle[i:_funktionsende(quelle, i)]

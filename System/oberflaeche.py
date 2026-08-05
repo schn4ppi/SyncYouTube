@@ -1066,6 +1066,13 @@ body.embed.plq-extern #view-player .card:not(.pl-horizontal) .pl-media{flex:1 1 
   18%{opacity:1;transform:translateY(-50%) scale(1)}
   70%{opacity:1}100%{opacity:0}}
 @media (prefers-reduced-motion:reduce){.pl-sprung{animation:none;opacity:.9}}
+/* Spul-Anzeige am Fernseher (JB 05.08.): ⏪/⏩ + Geschwindigkeit, oben mittig
+   wie bei den Streamern — reine Rückmeldung, nimmt keine Klicks an. */
+#pl-spul{position:absolute;top:10%;left:50%;transform:translateX(-50%);z-index:7;
+  pointer-events:none;display:flex;align-items:center;gap:10px;color:#fff;
+  background:rgba(0,0,0,.55);border-radius:999px;padding:10px 20px;
+  font-size:20px;font-weight:700}
+#pl-spul svg{width:30px;height:30px;fill:currentColor}
 .nur-vollbild{display:none}
 .pl-media:fullscreen .nur-vollbild{display:inline-flex;align-items:center;justify-content:center}
 .pl-media:fullscreen .weg-im-vollbild{display:none}
@@ -5460,7 +5467,16 @@ function kachelKontext(ev,id){
 function kachel(x){
   const dauer=x.dauer?`<span class="kdauer">${zeit(x.dauer)}</span>`:'';
   const weg=x.vorhanden?'':'<span class="wegbadge">verschoben</span>';
-  const thumb=x.thumb?`<img class="thumb" src="${esc(x.thumb)}" loading="lazy" draggable="false" onerror="this.style.display='none';this.parentNode.classList.add('platzhalter')">`:'';
+  // JB 05.08.: „die ganzen Lieder haben in der Bibliothek immer noch das
+  // thumbnail von youtube als Bild. Warum nicht das Albumcover?" — Kacheln
+  // zeigen das ECHTE Album-Cover (/api/cover), sobald eins getaggt ist;
+  // scheitert der Abruf, fällt das Bild aufs Thumbnail zurück (Player-Muster).
+  const kaputt="this.style.display='none';this.parentNode.classList.add('platzhalter')";
+  const rueckfall=(x.cover_album&&x.thumb)
+    ?`this.onerror=function(){${kaputt}};this.src='${esc(x.thumb)}'`
+    :kaputt;
+  const quelle=x.cover_album?`/api/cover?id=${encodeURIComponent(x.id)}`:(x.thumb?esc(x.thumb):'');
+  const thumb=quelle?`<img class="thumb" src="${quelle}" loading="lazy" draggable="false" onerror="${rueckfall}">`:'';
   // Build 144o (JB): kleine ✂ oben rechts, wenn diese Kachel ein Ausschnitt ist
   // (der Hauptsong liegt dann im Rechtsklick) — damit man es auf einen Blick sieht.
   const schere=x.clip?'<span class="clip-schere" title="Ausschnitt — der Hauptsong liegt im Rechtsklick">✂</span>':'';
@@ -5469,7 +5485,7 @@ function kachel(x){
   const det=[COLDEF.kategorie.t(x),COLDEF.qualitaet.t(x),technikText(x),mb(x.groesse),
              x.dauer?zeit(x.dauer):'',x.uploader||'',ytdatum(x.upload_date)].filter(Boolean).join('  ·  ');
   return `<div class="kachel ${x.vorhanden?'':'weg'}${sel}" data-id="${x.id}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}>
-    <div class="thumbwrap ${x.thumb?'':'platzhalter'}" onclick="thumbClick(event,'${x.id}')" title="Abspielen">${thumb}${dauer}${weg}${schere}</div>
+    <div class="thumbwrap ${quelle?'':'platzhalter'}" onclick="thumbClick(event,'${x.id}')" title="Abspielen">${thumb}${dauer}${weg}${schere}</div>
     <div class="kbody">
       <div class="ktitel" title="${esc(x.titel)}">${esc(x.titel)}</div>
       <div class="kinfo" title="${esc(det)}">${kachelInfo(x)}</div>
@@ -6329,11 +6345,17 @@ function plBarHTML(istVideo){
     // fehlt die Steuerzentrale oben, die das sonst übernimmt.
     // JB 05.08. (Disney/Netflix-Bilder): ±10 s gehören IMMER in die Leiste,
     // nicht nur im Vollbild — fürs Sofa sind die Pfeiltasten zu weit weg.
-    `<button class="mp-btn" id="plb-prev" onclick="playerPrev()" title="Voriger Titel — läuft der Titel schon, erst an den Anfang (Taste P)">${ico('prev')}</button>`+
+    // JB 05.08.: „im videoplayer im fernseher ist vor und zurückspulen mit
+    // höherer geschwindigkeit … schon << und >>. Am PC sollte es jedoch
+    // nächster und vorheriger Track sein. PC ist halt anders als fernseher."
+    // — Beide Paare stehen in der Leiste, CSS tauscht sie im Vollbild.
+    `<button class="mp-btn weg-im-vollbild" id="plb-prev" onclick="playerPrev()" title="Voriger Titel — läuft der Titel schon, erst an den Anfang (Taste P)">${ico('prev')}</button>`+
+    `<button class="mp-btn nur-vollbild" id="plb-rew" onclick="spulen(-1)" title="Zurückspulen — nochmal drücken: schneller (bis 32×), Play hält an der Stelle">${ico('back')}</button>`+
     `<button class="mp-btn" id="plb-back10" onclick="plbSpringen(-10)" title="10 Sekunden zurück (Taste J)">${ico('r10')}</button>`+
     `<button class="mp-btn" data-tr="pp" onclick="plTogglePlay()">${ico('play')}</button>`+
     `<button class="mp-btn" id="plb-fwd10" onclick="plbSpringen(10)" title="10 Sekunden vor (Taste L)">${ico('f10')}</button>`+
-    `<button class="mp-btn" id="plb-next" onclick="playerNext()" title="Nächster Titel (Taste N)">${ico('next')}</button>`+
+    `<button class="mp-btn nur-vollbild" id="plb-ffw" onclick="spulen(1)" title="Vorspulen — nochmal drücken: schneller (bis 32×), Play hält an der Stelle">${ico('fwd')}</button>`+
+    `<button class="mp-btn weg-im-vollbild" id="plb-next" onclick="playerNext()" title="Nächster Titel (Taste N)">${ico('next')}</button>`+
     `<span class="pl-bspacer"></span>`+
     // JB 05.08. (Netflix/YouTube-Muster): Untertitel + Lautstärke gehören zum
     // KERN — sie überleben jede Player-Größe (keine bo-Ausblende-Klasse).
@@ -6354,6 +6376,9 @@ function plBarHTML(istVideo){
    `</div></div>`;
 }
 function plTogglePlay(){
+  // Streamer-Muster: Läuft gerade der Spul-Modus, beendet Play/OK NUR das
+  // Spulen — es läuft an der Stelle weiter (pausiert wurde ja nie).
+  if(spulWeg){spulStopp(); return;}
   if(vlcAktiv()){
     // JB 05.08.: das Symbol muss SOFORT umspringen — nicht erst mit dem
     // nächsten 1-s-Status (der korrigiert, falls der Befehl scheiterte).
@@ -6400,6 +6425,49 @@ function plbSpringen(s,leise){                         // Build 130: ±x s im Vo
   el.currentTime=Math.max(0,Math.min(el.duration,el.currentTime+s));
   if(!leise)sprungZeigen(s);
 }
+/* ---- Spulen am Fernseher (JB 05.08.) --------------------------------------
+   „im videoplayer im fernseher ist vor und zurückspulen mit höherer
+   geschwindigkeit als 10 sec vor und zurück schon << und >>." — Im Vollbild
+   sind ⏪/⏩ deshalb ein Spul-Modus wie bei den Streamern: jeder Druck in
+   dieselbe Richtung erhöht die Geschwindigkeit (4× → 8× → 16× → 32×), die
+   Gegenrichtung dreht um, Play/OK beendet das Spulen und es läuft an der
+   Stelle normal weiter. Technisch springt ein Halbsekunden-Takt über
+   plbSpringen — das funktioniert für <video> UND das Gerät VLC identisch
+   (echtes Rückwärts-Abspielen kann keiner von beiden), und man hört beim
+   Spulen kurze Schnipsel, wie am Videorekorder — man weiß, wo man ist. */
+let spulWeg=0, spulStufe=0, spulTimer=null;
+const SPUL_FAKTOREN=[0,4,8,16,32];
+function spulAnzeige(){
+  const m=document.getElementById('pl-media'); if(!m)return;
+  let d=document.getElementById('pl-spul');
+  if(!spulWeg){ if(d)d.remove(); return; }
+  if(!d){ d=document.createElement('div'); d.id='pl-spul'; m.appendChild(d); }
+  d.innerHTML=ico(spulWeg<0?'back':'fwd')+'<span>'+SPUL_FAKTOREN[spulStufe]+'×</span>';
+}
+function spulStopp(){
+  if(spulTimer){clearInterval(spulTimer); spulTimer=null;}
+  spulWeg=0; spulStufe=0; spulAnzeige();
+}
+function spulTick(){
+  if(!spulWeg)return spulStopp();
+  plbSpringen(spulWeg*SPUL_FAKTOREN[spulStufe]*0.5, true);
+  // Am Anfang bzw. Ende des Titels ist Schluss (das Titel-Ende selbst
+  // behandelt weiter der normale Weiterschalt-Weg, nicht das Spulen).
+  if(vlcAktiv()){
+    if(spulWeg<0 ? vlcPosLetzte<=0.5 : (vlcDauerLetzte&&vlcPosLetzte>=vlcDauerLetzte-1)) spulStopp();
+  }else{
+    const el=document.getElementById('pl-el');
+    if(!el||!el.duration||(spulWeg<0?el.currentTime<=0.5:el.currentTime>=el.duration-1)) spulStopp();
+  }
+}
+function spulen(richtung){
+  if(spulWeg===richtung) spulStufe=Math.min(spulStufe+1, SPUL_FAKTOREN.length-1);
+  else { spulWeg=richtung; spulStufe=1; }
+  spulAnzeige();
+  if(!spulTimer)spulTimer=setInterval(spulTick, 500);
+}
+// Vollbild verlassen = Spulen beenden (die Knöpfe dafür sind dann weg).
+document.addEventListener('fullscreenchange', ()=>{ if(!document.fullscreenElement) spulStopp(); });
 /* Sprungweite der Pfeiltasten (JB-Wunsch: einstellbar). YouTube nimmt 5 s —
    das bleibt der Standard, damit sich die Tasten vertraut anfühlen. */
 function sprungWeite(){
@@ -6794,6 +6862,7 @@ async function wgSpeichern(){
 }
 function renderPlayerMedia(){
   const media=document.getElementById('pl-media'); if(!media)return;
+  spulStopp();                                         // Titelwechsel beendet den Spul-Modus
   const k=aktKey(), x=libFind(k);
   if(!x){media.innerHTML='<div class="pl-leer">Kein Titel.</div>'; return;}
   const uebernahme=(adoptEl&&adoptEl._key===k)?adoptEl:null; adoptEl=null;
