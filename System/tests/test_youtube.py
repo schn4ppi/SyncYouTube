@@ -3292,11 +3292,11 @@ def test_untertitel_stil_und_kern_knoepfe():
     # einstellbar; (b) Kern-Knoepfe (Untertitel, Lautstaerke) ueberleben JEDE
     # Player-Groesse; (c) im Vollbild sind die Knoepfe Sofa-/TV-gross.
     quelle = _oberflaeche_html()
-    assert "--sub-skala" in quelle and "sub-kontur" in quelle, \
-        "Untertitel-Skala/Presets fehlen im CSS"
-    assert 'id="opt_subgr"' in quelle and 'id="opt_subpre"' in quelle, \
-        "Untertitel-Stil-Auswahl fehlt in den Optionen"
-    i = quelle.index("function subStilAnwenden")
+    assert "--sub-skala" in quelle and "--sub-farbe" in quelle, \
+        "Untertitel-Look-Variablen fehlen im CSS"
+    assert 'onclick="subMenu(event)"' in quelle, \
+        "Untertitel-Einstellungen fehlen (Player-Knopf/Optionen)"
+    i = quelle.index("function subLookAuf")
     assert "--sub-skala" in quelle[i:_funktionsende(quelle, i)]
     i = quelle.index("function plBarHTML")
     leiste = quelle[i:_funktionsende(quelle, i)]
@@ -3534,8 +3534,11 @@ def test_untertitel_panel_im_player():
     i = quelle.index("function subMenu")
     block = quelle[i:_funktionsende(quelle, i)]
     for teil in ("subModusSetzen", "subSpracheSetzen", "subStilSetzen('groesse'",
-                 "subStilSetzen('preset'", "subOffsetSchieben"):
-        assert teil in block, f"Panel-Baustein {teil} fehlt"
+                 "subStilSetzen('schrift'", "subStilSetzen('farbe'",
+                 "subStilSetzen('deckkraft'", "subStilSetzen('hg'",
+                 "subOffsetSchieben", "subStilReset", "So sehen Untertitel aus",
+                 "ArrowRight"):
+        assert teil in block, f"Panel-Baustein {teil} fehlt (Disney-Muster/Fernbedienung)"
 
 
 def test_huelle_grundstein():

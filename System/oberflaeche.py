@@ -754,13 +754,14 @@ html.light .logrow{border-color:#ece3d9}html.light .logt{color:#a89a8e}html.ligh
 html.light .kap:hover{color:#8a5a1e}html.light .pl-kapitel{border-color:#ece3d9}
 /* Untertitel-Overlay (Zeile) + Karaoke + Transkript */
 .pl-subzeile{position:absolute;left:6%;right:6%;bottom:58px;z-index:3;text-align:center;pointer-events:none}
-/* Untertitel-Stil (JB 05.08., Amazon/Netflix-Muster): --sub-skala skaliert
-   die Größe (auch Karaoke, auch fürs TV), die sub-*-Presets färben die
-   Untertitel-Box — Karaoke behält seine Wischer-Farben. */
-.pl-subzeile .subtxt{display:inline-block;background:rgba(0,0,0,.68);color:#fff;padding:4px 12px;border-radius:8px;font-size:calc(15px*var(--sub-skala,1));line-height:1.4}
-.pl-subzeile.sub-hell .subtxt{background:rgba(255,255,255,.88);color:#111}
-.pl-subzeile.sub-gelb .subtxt{background:rgba(0,0,0,.78);color:#ffe94a}
-.pl-subzeile.sub-kontur .subtxt{background:none;color:#fff;text-shadow:0 0 5px #000,0 2px 3px #000,-1px -1px 2px #000,1px -1px 2px #000}
+/* Untertitel-Look (JB 05.08., Disney-Muster): ALLE Optionen als CSS-Variablen
+   — Größe (--sub-skala, auch Karaoke/TV), Schrift, Textfarbe+Deckkraft,
+   Hintergrund, Schatten. Gesetzt von subLookAuf(); Karaoke behält seine
+   Wischer-Farben. */
+.pl-subzeile .subtxt{display:inline-block;background:var(--sub-hg,rgba(0,0,0,.68));
+  color:var(--sub-farbe,#fff);padding:4px 12px;border-radius:8px;
+  font-size:calc(15px*var(--sub-skala,1));line-height:1.4;
+  font-family:var(--sub-schrift,inherit);text-shadow:var(--sub-schatten,none)}
 .pl-subzeile.karaoke{top:6%;bottom:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
 .kar-neben{color:rgba(255,255,255,.45);font-size:calc(15px*var(--sub-skala,1));max-width:92%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kar-akt{color:var(--akz2);font-size:calc(23px*var(--sub-skala,1));font-weight:700;text-align:center;max-width:94%;line-height:1.3}
@@ -1971,14 +1972,8 @@ function optionenToggle(ev){
     '<div class="optrow"><span>Untertitel-Modus</span><select id="opt_submode" onchange="subModusSetzen(this.value)">'+
       '<option value="aus">aus</option><option value="zeilen">Untertitel</option>'+
       '<option value="karaoke">Karaoke</option><option value="transkript">Transkript</option></select></div>'+
-    '<div class="optrow"><span>Untertitel-Stil</span><span style="display:flex;gap:6px">'+
-      '<select id="opt_subgr" onchange="subStilSetzen(\\'groesse\\',this.value)" title="Untertitel-Größe (riesig = fürs Sofa/TV)">'+
-        '<option value="0.8">klein</option><option value="1">mittel</option>'+
-        '<option value="1.35">groß</option><option value="1.8">riesig (TV)</option></select>'+
-      '<select id="opt_subpre" onchange="subStilSetzen(\\'preset\\',this.value)" title="Untertitel-Optik (Preset)">'+
-        '<option value="dunkel">weiß auf dunkel</option><option value="hell">schwarz auf hell</option>'+
-        '<option value="gelb">gelb (klassisch)</option><option value="kontur">nur Kontur</option></select>'+
-    '</span></div>'+
+    '<div class="optrow"><span>Untertitel-Darstellung</span><button class="btn mini" onclick="subMenu(event)" '+
+      'title="Größe, Schrift, Farben, Schatten, Hintergrund, Versatz — mit Live-Vorschau (Disney-Muster)">💬 einstellen…</button></div>'+
     '<div class="optrow"><span>Sleep-Timer</span><span><select id="opt_sleep" onchange="sleepSetzen(this.value)">'+
       '<option value="0">aus</option><option value="15">15 min</option><option value="30">30 min</option>'+
       '<option value="60">60 min</option><option value="titel">nach diesem Titel</option></select>'+
@@ -5698,10 +5693,13 @@ function subMenu(ev){
   m.addEventListener('pointerdown',e=>e.stopPropagation());
   const fuellen=()=>{
     m.innerHTML='';
-    const kopf=document.createElement('div');
-    kopf.style.cssText='font-size:11.5px;color:#8a7d74;padding:2px 6px 6px';
-    kopf.textContent='💬 Untertitel';
-    m.appendChild(kopf);
+    // Live-VORSCHAU (Disney: „Subtitles will appear like this") — dieselben
+    // CSS-Variablen wie die echte Anzeige, jede Wahl wirkt sofort sichtbar.
+    const vs=document.createElement('div');
+    vs.className='pl-subzeile'; vs.style.cssText='position:static;text-align:center;padding:4px 6px 10px;pointer-events:none';
+    const vspan=document.createElement('span'); vspan.className='subtxt';
+    vspan.textContent='So sehen Untertitel aus';
+    vs.appendChild(vspan); subLookAuf(vs); m.appendChild(vs);
     const reihe=(name)=>{
       const z=document.createElement('div'); z.className='subm-zeile';
       const s=document.createElement('span'); s.textContent=name; z.appendChild(s);
@@ -5710,35 +5708,51 @@ function subMenu(ev){
     const kn=(wrap,label,aktiv,tun,stil,titel)=>{
       const b=document.createElement('button'); b.className='btn mini'+(aktiv?' an':'');
       b.textContent=label; if(stil)b.style.cssText=stil; if(titel)b.title=titel;
-      b.addEventListener('click',e=>{e.stopPropagation(); tun(); fuellen();});
+      b.addEventListener('click',e=>{e.stopPropagation();
+        const idx=[...m.querySelectorAll('button')].indexOf(b);
+        tun(); fuellen();
+        const alle=[...m.querySelectorAll('button')];   // Fokus überlebt das Neu-Malen (Fernbedienung)
+        (alle[Math.min(idx,alle.length-1)]||alle[0]).focus();});
       wrap.appendChild(b);};
-    // Modus — OHNE Transkript (JB 05.08.: „die Option kann man im Player-
-    // Modus rausnehmen"); es bleibt über Taste S und die ⚙-Optionen.
+    const punkt=(wrap,farbe,aktiv,tun,titel)=>kn(wrap,'',aktiv,tun,
+      'width:18px;height:18px;border-radius:50%;padding:0;background:'+farbe+
+      ';border:1px solid #777',titel);
+    // Modus — OHNE Transkript (JB: lebt in den Optionen; Taste S kann alles)
     let w=reihe('Modus');
     [['aus','aus'],['zeilen','Untertitel'],['karaoke','Karaoke']]
       .forEach(md=>kn(w,md[1],subMode===md[0],()=>subModusSetzen(md[0])));
-    // Sprache dedupliziert (JB: „warum ist en da, wenn en-orig schon da?"):
-    // gibt es „xx-orig" UND „xx", zeigt das Panel nur die Original-Fassung.
+    // Sprache dedupliziert (xx-orig verdeckt xx)
     const sichtbar=subSprachen.filter(l=>!subSprachen.includes(l+'-orig'));
     if(sichtbar.length>1){
       w=reihe('Sprache');
       sichtbar.forEach(l=>kn(w,l,l===subLang||(l===subLang+'-orig'),()=>subSpracheSetzen(l)));
     }
-    // Größe als gestaffelte Aa (Amazon-Muster: man SIEHT die Wahl)
+    // Größe (gestaffelte Aa)
     w=reihe('Größe');
     [['0.8',10,'klein'],['1',13,'mittel'],['1.35',16,'groß'],['1.8',19,'riesig (TV)']]
       .forEach(g=>kn(w,'Aa',String(subStil.groesse)===g[0],
         ()=>subStilSetzen('groesse',g[0]),'font-size:'+g[1]+'px;padding:1px 7px',g[2]));
-    // Stil-Presets IM eigenen Look
-    w=reihe('Stil');
-    [['dunkel','background:rgba(0,0,0,.82);color:#fff;border-color:#555','weiß auf dunkel'],
-     ['hell','background:rgba(255,255,255,.92);color:#111','schwarz auf hell'],
-     ['gelb','background:rgba(0,0,0,.82);color:#ffe94a;border-color:#555','gelb (klassisch)'],
-     ['kontur','background:transparent;color:#fff;text-shadow:0 0 4px #000,0 1px 2px #000','nur Kontur']]
-      .forEach(p=>kn(w,'Aa',subStil.preset===p[0],()=>subStilSetzen('preset',p[0]),p[1],p[2]));
-    // Versatz kompakt (JB 05.08.: „dynamischer, weniger Fläche"): ‹ und ›
-    // schieben um die SCHRITTWEITE, der kleine Knopf dazwischen wechselt sie
-    // (0,1 → 0,5 → 1 → 5 s). Je Titel gemerkt.
+    // Schriftarten (Disney: „unterschiedliche Schriftzüge") — Aa im echten Font
+    w=reihe('Schrift');
+    Object.keys(SUB_SCHRIFTEN).forEach(s=>kn(w,'Aa',subStil.schrift===s,
+      ()=>subStilSetzen('schrift',s),
+      "font-family:"+SUB_SCHRIFTEN[s].replace(/"/g,"'")+';padding:1px 7px',s));
+    // Textfarbe (Punkte) + Deckkraft + Schatten
+    w=reihe('Farbe');
+    ['#ffffff','#111111','#3b6df0','#38d1c8','#59c93c','#ffe94a','#e04343','#c94fc9']
+      .forEach(f=>punkt(w,f,subStil.farbe===f,()=>subStilSetzen('farbe',f),f));
+    w=reihe('Deckkraft');
+    [[0.5,'50%'],[0.75,'75%'],[1,'100%']].forEach(d=>
+      kn(w,d[1],subStil.deckkraft===d[0],()=>subStilSetzen('deckkraft',d[0])));
+    kn(w,'Schatten',subStil.schatten,()=>subStilSetzen('schatten',!subStil.schatten),
+       'margin-left:8px','Schlagschatten hinter der Schrift');
+    // Hintergrund: Farbe + Deckkraft (aus = nur Schrift)
+    w=reihe('Hintergrund');
+    punkt(w,'#000',subStil.hg==='schwarz',()=>subStilSetzen('hg','schwarz'),'schwarz');
+    punkt(w,'#fff',subStil.hg==='weiss',()=>subStilSetzen('hg','weiss'),'weiß');
+    [[0,'aus'],[0.25,'25%'],[0.5,'50%'],[0.75,'75%'],[1,'100%']].forEach(d=>
+      kn(w,d[1],subStil.hg_deckkraft===d[0],()=>subStilSetzen('hg_deckkraft',d[0])));
+    // Versatz kompakt: ‹ Wert › + Schrittweiten-Knopf (0,1/0,5/1/5)
     w=reihe('Versatz');
     const st=String(subSchritt).replace('.',',');
     kn(w,'‹',false,()=>subOffsetSchieben(-subSchritt),'padding:2px 11px',
@@ -5753,10 +5767,29 @@ function subMenu(ev){
       const stufen=[0.1,0.5,1,5];
       subSchritt=stufen[(stufen.indexOf(subSchritt)+1)%stufen.length];
     },'padding:2px 7px;opacity:.8','Schrittweite wechseln: 0,1 → 0,5 → 1 → 5 s');
+    // Reset — dezent unten (Disney-Muster)
+    const rz=document.createElement('div');
+    rz.style.cssText='text-align:center;padding:9px 0 3px';
+    const rb=document.createElement('button'); rb.className='btn mini';
+    rb.style.opacity='.7'; rb.textContent='Zurücksetzen';
+    rb.title='Alle Untertitel-Darstellungs-Optionen auf den Standard';
+    rb.addEventListener('click',e=>{e.stopPropagation(); subStilReset(); fuellen();});
+    rz.appendChild(rb); m.appendChild(rz);
   };
   fuellen();
+  // Fernbedienung/Tastatur (JB: „für eine Fernbedienung kompatibel"):
+  // Pfeile bewegen den Fokus durch die Knöpfe, Enter wählt, Esc schließt.
+  m.addEventListener('keydown',e=>{
+    const alle=[...m.querySelectorAll('button')];
+    const i=alle.indexOf(document.activeElement);
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'){
+      e.preventDefault(); e.stopPropagation(); (alle[i+1]||alle[0]).focus();}
+    else if(e.key==='ArrowLeft'||e.key==='ArrowUp'){
+      e.preventDefault(); e.stopPropagation(); (alle[i-1]||alle[alle.length-1]).focus();}
+  });
   document.body.appendChild(m);
   popoverBei(m, ev.currentTarget.getBoundingClientRect());
+  setTimeout(()=>{const b1=m.querySelector('button'); if(b1)b1.focus();},0);
   menuSchliesser(m);
 }
 function subRomajiToggle(){
@@ -5765,25 +5798,59 @@ function subRomajiToggle(){
   const k=aktKey(); if(k)subLaden(k);
 }
 let subLaedt=false;                                    // läuft gerade ein Untertitel-Download?
-/* Untertitel-Stil (JB 05.08.): Größe + Preset, gemerkt je Browser. */
-let subStil={groesse:1, preset:'dunkel'};
-try{const v=JSON.parse(localStorage.getItem('ytdl_substil')||'{}');
-  if(v&&v.groesse)subStil.groesse=parseFloat(v.groesse)||1;
-  if(v&&v.preset)subStil.preset=v.preset;}catch(e){}
+/* Untertitel-Look (JB 05.08., Disney-Muster: „alle Optionen, unterschiedliche
+   Schriftzüge"): Größe, Schriftart, Textfarbe+Deckkraft, Schatten,
+   Hintergrund+Deckkraft — gemerkt je Browser UND Server-global (versionsfest).
+   Die alten 4 Presets werden beim Laden in Look-Felder übersetzt. */
+const SUB_STANDARD={groesse:1, schrift:'standard', farbe:'#ffffff', deckkraft:1,
+                    schatten:false, hg:'schwarz', hg_deckkraft:0.7};
+const SUB_SCHRIFTEN={standard:'system-ui,"Segoe UI",sans-serif', serif:'Georgia,"Times New Roman",serif',
+                     mono:'Consolas,"Courier New",monospace', casual:'"Comic Sans MS","Segoe Print",cursive',
+                     kursiv:'"Segoe Script","Brush Script MT",cursive', breit:'"Arial Black","Segoe UI",sans-serif'};
+let subStil=Object.assign({},SUB_STANDARD);
+function subPresetZuLook(p){
+  return {dunkel:{}, hell:{farbe:'#111111',hg:'weiss',hg_deckkraft:0.9},
+          gelb:{farbe:'#ffe94a',hg_deckkraft:0.78},
+          kontur:{schatten:true,hg_deckkraft:0}}[p]||{};
+}
+try{const v=JSON.parse(localStorage.getItem('ytdl_substil')||'{}')||{};
+  if(v.preset)Object.assign(subStil, subPresetZuLook(v.preset));   // Alt-Migration
+  for(const f in SUB_STANDARD)if(v[f]!==undefined)subStil[f]=v[f];
+  subStil.groesse=parseFloat(subStil.groesse)||1;}catch(e){}
+function _hexRgba(hex,a){
+  const n=parseInt((hex||'#ffffff').slice(1),16);
+  return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';
+}
 function subStilAnwenden(){
   const ov=document.getElementById('pl-sub-anzeige'); if(!ov)return;
-  ov.style.setProperty('--sub-skala', subStil.groesse);
-  ov.classList.remove('sub-hell','sub-gelb','sub-kontur');
-  if(subStil.preset&&subStil.preset!=='dunkel')ov.classList.add('sub-'+subStil.preset);
+  subLookAuf(ov);
+}
+function subLookAuf(el){                               // Look als CSS-Variablen (auch Vorschau)
+  el.style.setProperty('--sub-skala', subStil.groesse);
+  el.style.setProperty('--sub-farbe', _hexRgba(subStil.farbe, subStil.deckkraft));
+  el.style.setProperty('--sub-hg', subStil.hg_deckkraft<=0?'transparent'
+    :(subStil.hg==='weiss'?'rgba(255,255,255,'+subStil.hg_deckkraft+')'
+                          :'rgba(0,0,0,'+subStil.hg_deckkraft+')'));
+  el.style.setProperty('--sub-schrift', SUB_SCHRIFTEN[subStil.schrift]||SUB_SCHRIFTEN.standard);
+  el.style.setProperty('--sub-schatten', subStil.schatten
+    ?'0 0 5px #000,0 2px 3px #000,-1px -1px 2px #000,1px -1px 2px #000':'none');
 }
 function subStilSetzen(feld,wert){
-  subStil[feld]=(feld==='groesse')?(parseFloat(wert)||1):wert;
+  if(feld==='groesse'||feld==='deckkraft'||feld==='hg_deckkraft')wert=parseFloat(wert)||0;
+  if(feld==='groesse'&&!wert)wert=1;
+  if(feld==='schatten')wert=!!wert;
+  subStil[feld]=wert;
   try{localStorage.setItem('ytdl_substil',JSON.stringify(subStil));}catch(e){}
-  // JB 05.08.: Untertitel-Einstellungen gelten für ALLE Videos und überleben
-  // jede Version — darum zusätzlich in die globale Wiedergabe-Regel (Server).
+  // Server-global (JB: gilt für alle Videos, überlebt jede Version).
   fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({global:1,merge:1,
-      [feld==='groesse'?'sub_groesse':'sub_stil']:subStil[feld]})}).catch(()=>{});
+    body:JSON.stringify({global:1,merge:1,sub_look:subStil})}).catch(()=>{});
+  subStilAnwenden();
+}
+function subStilReset(){
+  subStil=Object.assign({},SUB_STANDARD);
+  try{localStorage.setItem('ytdl_substil',JSON.stringify(subStil));}catch(e){}
+  fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({global:1,merge:1,sub_look:''})}).catch(()=>{});
   subStilAnwenden();
 }
 /* Beim Seitenstart gewinnt der SERVER-Stand (überlebt Versionen/Browser);
@@ -5793,13 +5860,16 @@ function subStilVomServer(){
   if(_subStilServer||!daten||!daten.config)return;
   _subStilServer=true;
   const g=(daten.config.wiedergabe)||{};
-  if(g.sub_groesse)subStil.groesse=parseFloat(g.sub_groesse)||subStil.groesse;
-  if(g.sub_stil)subStil.preset=g.sub_stil;
+  if(g.sub_look&&typeof g.sub_look==='object'){       // neuer Look gewinnt
+    for(const f in SUB_STANDARD)if(g.sub_look[f]!==undefined)subStil[f]=g.sub_look[f];
+    subStil.groesse=parseFloat(subStil.groesse)||1;
+  }else{                                              // Alt-Felder migrieren
+    if(g.sub_groesse)subStil.groesse=parseFloat(g.sub_groesse)||subStil.groesse;
+    if(g.sub_stil)Object.assign(subStil, subPresetZuLook(g.sub_stil));
+  }
   subStilAnwenden();
 }
 function subStilInit(){
-  const g=document.getElementById('opt_subgr'); if(g)g.value=String(subStil.groesse);
-  const p=document.getElementById('opt_subpre'); if(p)p.value=subStil.preset;
   const md=document.getElementById('opt_submode'); if(md)md.value=subMode;
 }
 function subAnzeigen(){
@@ -5930,7 +6000,13 @@ function subTick(el){
     // auf die Wörter verteilt, sondern nach WORTLÄNGE gewichtet — lange
     // Wörter brauchen länger, das trifft den Silben-Rhythmus deutlich besser
     // (echte Silben-Zeiten liefert die Textquelle leider nicht mit).
-    const c=subCues[i], dauer=(c.ende-c.start)||1;
+    // JB 05.08.: LRC kennt keine Endzeiten — „ende" ist der Start der
+    // NÄCHSTEN Zeile. Bei langen Instrumental-Beats kroch der Wischer über
+    // die ganze Lücke. Deckel: realistische Sing-Dauer aus der Zeilenlänge
+    // (~90 ms je Zeichen, mind. 1,5 s); danach bleibt die Zeile fertig
+    // gefärbt stehen, bis die nächste beginnt.
+    const c=subCues[i],
+          dauer=Math.min((c.ende-c.start)||1, Math.max(1.5, (c.text||'').length*0.09));
     const p=Math.max(0,Math.min(1,(t-c.start)/dauer));
     const kw=ov.querySelectorAll('.kar-akt .kw');
     if(kw.length){
@@ -6213,9 +6289,11 @@ function plBarHTML(istVideo){
     // stehen oben in der Steuerzentrale, die nie verschwindet.
     // Build 130: ±10 s und „nächster Titel" gibt es NUR im Vollbild — dort
     // fehlt die Steuerzentrale oben, die das sonst übernimmt.
-    `<button class="mp-btn nur-vollbild" id="plb-back10" onclick="plbSpringen(-10)" title="10 Sekunden zurück (Taste J)">${ico('back')}</button>`+
+    // JB 05.08. (Disney/Netflix-Bilder): ±10 s gehören IMMER in die Leiste,
+    // nicht nur im Vollbild — fürs Sofa sind die Pfeiltasten zu weit weg.
+    `<button class="mp-btn" id="plb-back10" onclick="plbSpringen(-10)" title="10 Sekunden zurück (Taste J)">${ico('back')}</button>`+
     `<button class="mp-btn" data-tr="pp" onclick="plTogglePlay()">${ico('play')}</button>`+
-    `<button class="mp-btn nur-vollbild" id="plb-fwd10" onclick="plbSpringen(10)" title="10 Sekunden vor (Taste L)">${ico('fwd')}</button>`+
+    `<button class="mp-btn" id="plb-fwd10" onclick="plbSpringen(10)" title="10 Sekunden vor (Taste L)">${ico('fwd')}</button>`+
     `<button class="mp-btn nur-vollbild" id="plb-next" onclick="playerNext()" title="Nächster Titel (Taste N)">${ico('next')}</button>`+
     `<span class="pl-bspacer"></span>`+
     // JB 05.08. (Netflix/YouTube-Muster): Untertitel + Lautstärke gehören zum
@@ -6234,7 +6312,14 @@ function plBarHTML(istVideo){
    `</div></div>`;
 }
 function plTogglePlay(){
-  if(plGeraet==='vlc'){vlcBefehl('toggle'); return;}
+  if(plGeraet==='vlc'){
+    // JB 05.08.: das Symbol muss SOFORT umspringen — nicht erst mit dem
+    // nächsten 1-s-Status (der korrigiert, falls der Befehl scheiterte).
+    vlcSpielt=!vlcSpielt;
+    document.querySelectorAll('[data-tr="pp"]').forEach(b=>{
+      b.innerHTML=ico(vlcSpielt?'pause':'play');
+      b.title=vlcSpielt?'Pause':'Abspielen';});
+    vlcBefehl('toggle'); return;}
   const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}}
 /* ---- Springen mit sichtbarer Rückmeldung (Build 132) ----------------------
    JB: „Wenn ich Pfeiltasten drücke, dann will ich wie in YouTube sehen, dass
@@ -6661,7 +6746,10 @@ function renderPlayerMedia(){
   if(el){
     // Ende: wenn schon ein Crossfade läuft, das nächste Element übernehmen, sonst normal weiter
     el.addEventListener('ended',()=>{ if(xfNext)xfUebernehmen(); else playerAdvance(); });
-    el.addEventListener('play',cmdNowRender); el.addEventListener('pause',cmdNowRender);
+    // Play/Pause-Symbol überall sofort nachziehen (JB 05.08.) — cmdNow malt
+    // die Kopfzeile, transportRender die data-tr-Knöpfe der Player-Leiste.
+    el.addEventListener('play',()=>{cmdNowRender(); transportRender();});
+    el.addEventListener('pause',()=>{cmdNowRender(); transportRender();});
     el.addEventListener('timeupdate',()=>subTick(el));   // Untertitel/Karaoke mitlaufen lassen
     el.addEventListener('play',()=>karLauf(el));         // Karaoke-Wischer im Bildtakt (Build 115)
     if(istAudio)el.addEventListener('timeupdate',()=>uebergangTick(el));   // Gapless/Crossfade/Automix

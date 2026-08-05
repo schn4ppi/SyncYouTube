@@ -2730,6 +2730,38 @@ def _wiedergabe_saeubern(daten, merge_mit=None):
             w["sub_stil"] = stil
         else:
             w.pop("sub_stil", None)
+    if "sub_look" in daten:                           # Disney-Look (JB 05.08.): ein Dict,
+        look = daten.get("sub_look")                  # streng geprüft — nur Belegtes
+        if isinstance(look, dict):
+            sauber = {}
+            try:
+                g = float(look.get("groesse") or 0)
+                if 0.5 <= g <= 3:
+                    sauber["groesse"] = round(g, 2)
+            except (TypeError, ValueError):
+                pass
+            if look.get("schrift") in ("standard", "serif", "mono", "casual", "kursiv", "breit"):
+                sauber["schrift"] = look["schrift"]
+            farbe = str(look.get("farbe") or "")
+            if re.fullmatch(r"#[0-9a-fA-F]{6}", farbe):
+                sauber["farbe"] = farbe.lower()
+            for feld in ("deckkraft", "hg_deckkraft"):
+                try:
+                    v = float(look.get(feld))
+                    if 0 <= v <= 1:
+                        sauber[feld] = round(v, 2)
+                except (TypeError, ValueError):
+                    pass
+            if isinstance(look.get("schatten"), bool):
+                sauber["schatten"] = look["schatten"]
+            if look.get("hg") in ("schwarz", "weiss"):
+                sauber["hg"] = look["hg"]
+            if sauber:
+                w["sub_look"] = sauber
+            else:
+                w.pop("sub_look", None)
+        else:
+            w.pop("sub_look", None)                   # '' = Reset
     if "sub_offset" in daten:                         # Untertitel-Versatz in Sekunden (JB 05.08.)
         try:
             off = round(float(daten.get("sub_offset") or 0), 1)
