@@ -3506,3 +3506,21 @@ def test_titel_kern_und_kandidaten_heilung():
     assert '_ist_live_titel(e.get("titel")' in q, \
         "Live-Hinweis muss vom ORIGINAL-Titel kommen (Relauf-Falle)"
     assert q.count("_itunes_suche") >= 2, "Der vertauschte Zweitversuch fehlt"
+
+
+def test_vlc_ansicht_identisch_zum_player():
+    # JB 05.08. (zwei Bilder): "Ich will dass die identisch aussehen und kein
+    # Info Text." Die VLC-Ansicht nutzt EXAKT die normale Player-Leiste; die
+    # Leisten-Funktionen lesen am Geraet VLC den 1-s-Status statt des
+    # <audio>-Elements.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function renderPlayerVlc")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "plBarHTML(false)" in block, "VLC-Ansicht nutzt nicht die normale Leiste"
+    assert "pl-vizwrap" in block, "VLC-Cover nutzt nicht den normalen Wrap"
+    assert "spielt über VLC" not in block, "Der Info-Text sollte weg sein (Tooltip reicht)"
+    assert "pl-vlcbar" not in quelle, "Die alte Sonder-Leiste lebt noch"
+    for fn in ("plbTick", "posMerkerMalen", "plbSpringen", "plbSeekEnd"):
+        i = quelle.index("function " + fn)
+        assert "vlc" in quelle[i:_funktionsende(quelle, i)].lower(), \
+            f"{fn} kennt das Geraet VLC nicht - die Leiste waere dort tot"
