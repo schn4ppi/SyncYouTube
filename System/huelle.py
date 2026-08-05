@@ -52,6 +52,94 @@ def server_starten():
     return False
 
 
+class VideoFenster:
+    """Etappe set_hwnd (JB-Go 05.08.): ein natives Kind-Fenster IM
+    Hüllen-Fenster, in das der Server-VLC sein Video rendert — das Video ist
+    damit Teil des Players statt eines separaten VLC-Fensters (Fernseher!).
+    Die Oberfläche meldet die Ziel-Fläche über die js_api (video_rect)."""
+
+    def __init__(self):
+        self.hwnd = 0
+        self.panel = None
+        self.gemeldet = False                        # hwnd schon an den Server?
+
+    def _anlegen(self, form):
+        # WICHTIG (live gemessen): ein rohes CreateWindowExW aus dem js_api-
+        # Worker-Thread stirbt mit seinem Thread — ein Fenster gehört seinem
+        # Erzeuger-Thread. Darum ein WinForms-Panel, per Invoke im UI-Thread
+        # des Formulars angelegt: es lebt so lange wie das Hüllen-Fenster.
+        from System import Action                    # pythonnet (pywebview[winforms])
+        from System.Drawing import Color
+
+        def tu():
+            from System.Windows.Forms import Panel
+            p = Panel()
+            p.BackColor = Color.Black
+            p.Visible = False
+            form.Controls.Add(p)
+            p.BringToFront()                         # ÜBER der WebView (Video-Fläche)
+            self.panel = p
+            self.hwnd = int(p.Handle.ToInt64())
+        form.Invoke(Action(tu))
+        return self.hwnd
+
+    def melden(self):
+        """Das Handle EINMAL an den Server geben (überlebt dort auch die
+        VLC-Selbstheilung); scheitert der Abruf, beim nächsten Rect erneut."""
+        if self.gemeldet or not self.hwnd:
+            return
+        try:
+            import json as _json
+            req = urllib.request.Request(
+                f"{ADRESSE}/api/vlc",
+                data=_json.dumps({"cmd": "fenster", "hwnd": self.hwnd}).encode("utf-8"),
+                method="POST")
+            with urllib.request.urlopen(req, timeout=3):
+                self.gemeldet = True
+        except Exception:                            # noqa: BLE001 — nächster Versuch folgt
+            pass
+
+    def setzen(self, form, x, y, w, h, an):
+        if not self.hwnd:
+            if not (an and form is not None):
+                return
+            self._anlegen(form)
+        self.melden()
+        from System import Action
+
+        def tu():
+            p = self.panel
+            if p is None:
+                return
+            if an and w > 0 and h > 0:
+                from System.Drawing import Point, Size
+                p.Location = Point(int(x), int(y))
+                p.Size = Size(int(w), int(h))
+                p.Visible = True
+                p.BringToFront()
+            else:
+                p.Visible = False
+        form.Invoke(Action(tu))
+
+
+class Bruecke:
+    """js_api der Hülle — die Oberfläche ruft window.pywebview.api.*"""
+
+    def __init__(self):
+        self.video = VideoFenster()
+        self._fenster = None
+
+    def video_rect(self, x, y, w, h, an):
+        """Ziel-Fläche fürs eingebettete VLC-Video (Geräte-Pixel, von der
+        Oberfläche mit devicePixelRatio vorgerechnet). an=False versteckt."""
+        try:
+            form = self._fenster.native if self._fenster else None
+            self.video.setzen(form, x, y, w, h, bool(an))
+            return True
+        except Exception:                            # noqa: BLE001 — Einbettung ist Kür
+            return False
+
+
 def main():
     import webview
     if not server_starten():
@@ -62,9 +150,11 @@ def main():
                   "Bitte einmal über YouTube-Downloader.bat starten.",
             "SyncYouTube", 0x10)
         return 1
-    webview.create_window(
+    api = Bruecke()
+    fenster = webview.create_window(
         "SyncYouTube", ADRESSE, width=1360, height=860,
-        background_color="#171310", min_size=(560, 420))
+        background_color="#171310", min_size=(560, 420), js_api=api)
+    api._fenster = fenster
     # Vollbild (TV): der ⛶-Knopf der Oberfläche nutzt die Fullscreen-API —
     # die trägt im WebView2 genauso wie im Browser; kein Sonderweg nötig.
     webview.start(private_mode=False)

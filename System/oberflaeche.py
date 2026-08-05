@@ -6602,9 +6602,38 @@ function vlcNeustart(){
   vlcBefehl('play',{key:k,vol:plVol,rate:(w.speed||playSpeed||1),sub:subMode!=='aus',pos});
   toast('↻ VLC neu verbunden'+(pos>0?' — weiter bei '+zeit(pos):''));
 }
+/* Etappe set_hwnd (JB-Go): läuft die Oberfläche in der PROGRAMM-HÜLLE
+   (window.pywebview), meldet sie die Player-Fläche — der Server-VLC rendert
+   sein Video dann IN das Hüllen-Fenster statt in ein eigenes. Die Leiste
+   bleibt frei (Fläche endet an ihrer Oberkante); Geräte-Pixel via dpr. */
+let _hRectSig='';
+function huelleVideoRect(s){
+  const api=window.pywebview&&window.pywebview.api;
+  if(!api||!api.video_rect)return;
+  const x=libFind(aktKey());
+  const video=x&&(x.dateiart?x.dateiart!=='audio':(x.kategorie!=='MP3'));
+  const wrap=document.querySelector('#pl-media .pl-vizwrap');
+  const an=!!(plGeraet==='vlc'&&video&&wrap&&s&&s.verfuegbar&&s.zustand!=='aus');
+  let sig='aus', args=[0,0,0,0,false];
+  if(an){
+    const r=wrap.getBoundingClientRect();
+    const bar=document.querySelector('#pl-media .pl-bar');
+    let unten=r.bottom;
+    if(bar){const br=bar.getBoundingClientRect();
+      if(br.height>0&&br.top<unten)unten=Math.max(r.top,br.top);}
+    const dpr=window.devicePixelRatio||1;
+    args=[Math.round(r.left*dpr),Math.round(r.top*dpr),
+          Math.round(r.width*dpr),Math.round(Math.max(0,unten-r.top)*dpr),true];
+    sig=args.join(',');
+  }
+  if(sig===_hRectSig)return;                          // nur Änderungen melden
+  _hRectSig=sig;
+  try{api.video_rect(args[0],args[1],args[2],args[3],args[4]);}catch(e){}
+}
 async function vlcTick(){
-  if(plGeraet!=='vlc'){clearInterval(vlcTimer); vlcTimer=null; return;}
+  if(plGeraet!=='vlc'){clearInterval(vlcTimer); vlcTimer=null; huelleVideoRect(null); return;}
   const s=await vlcBefehl('status'); if(!s||!s.verfuegbar)return;
+  huelleVideoRect(s);
   if(s.rate)vlcRateLetzte=s.rate;
   if(s.dauer)vlcDauerLetzte=s.dauer;
   vlcSpielt=(s.zustand==='spielt');

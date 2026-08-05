@@ -2287,7 +2287,8 @@ def fernsteuerung_info():
 # (python-vlc/libvlc, Spotify-Connect-Muster). Kein VLC installiert ⇒
 # ehrlicher Hinweis, der Browser-Player spielt weiter (Rückfall).
 
-_vlc = {"instanz": None, "spieler": None, "key": "", "grund": "", "vol_wunsch": None}
+_vlc = {"instanz": None, "spieler": None, "key": "", "grund": "", "vol_wunsch": None,
+        "hwnd": 0}                                   # Hüllen-Fenster (set_hwnd, Etappe set_hwnd)
 _vlc_lock = threading.RLock()   # RLock: die Selbstheilung wiederholt den Befehl im Lock
 
 
@@ -2318,6 +2319,11 @@ def _vlc_spieler():
         if sp is None:
             raise RuntimeError("libvlc lieferte keinen Player")
         _vlc.update(instanz=inst, spieler=sp, grund="")
+        if _vlc.get("hwnd"):                         # Hüllen-Einbettung überlebt den Neuaufbau
+            try:
+                sp.set_hwnd(_vlc["hwnd"])
+            except Exception:                        # noqa: BLE001 — dann eigenes Fenster
+                pass
         return sp, ""
     except Exception:                    # noqa: BLE001 — fehlendes VLC ist der Normalfall
         _vlc["grund"] = ("VLC nicht gefunden — bitte VLC installieren (videolan.org), "
@@ -2337,7 +2343,8 @@ def vlc_status():
             "pos": max(0, sp.get_time()) / 1000.0,
             "dauer": max(0, sp.get_length()) / 1000.0,
             "vol": max(0, sp.audio_get_volume()),
-            "rate": round(sp.get_rate() or 1.0, 2)}
+            "rate": round(sp.get_rate() or 1.0, 2),
+            "eingebettet": bool(_vlc.get("hwnd"))}
 
 
 def vlc_kommando(daten):
@@ -2405,6 +2412,15 @@ def vlc_kommando(daten):
                     sp.set_rate(max(0.25, min(4.0, float(daten.get("wert") or 1))))
                 except (TypeError, ValueError):
                     pass
+            elif cmd == "fenster":
+                # Hüllen-Einbettung (Etappe set_hwnd, JB-Go): das Video
+                # rendert IN das übergebene Fenster statt in ein eigenes.
+                # hwnd=0 löst die Bindung (Rückweg: separates VLC-Fenster).
+                try:
+                    _vlc["hwnd"] = int(daten.get("hwnd") or 0)
+                except (TypeError, ValueError):
+                    _vlc["hwnd"] = 0
+                sp.set_hwnd(_vlc["hwnd"])
             # Live gemessen (05.08.): ein audio_set_volume, das ankommt, BEVOR
             # libvlc den Audio-Ausgang aufgebaut hat (play startet asynchron),
             # geht verloren — der Titel spielte mit 100 statt der gewünschten

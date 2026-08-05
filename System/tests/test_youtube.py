@@ -3555,3 +3555,59 @@ def test_huelle_grundstein():
                                "SyncYouTube-Fenster.bat"), "rb").read()
     assert b"\r\n" in bat and b"huelle.py" in bat and b"pythonw.exe" in bat, \
         "Startdatei fehlt/kaputt (CRLF-Regel!)"
+
+
+def test_vlc_einbettung_hwnd(monkeypatch, tmp_path):
+    # Etappe set_hwnd (JB-Go): der Server nimmt das Huellen-Fenster an
+    # (cmd 'fenster'), und die Bindung UEBERLEBT die Selbstheilung.
+    import types
+    fake_vlc = types.ModuleType("vlc")
+    fake_vlc.State = types.SimpleNamespace(Playing="P", Paused="p", Ended="E",
+                                           Error="X", Stopped="S")
+    hwnds = []
+
+    class Sp:
+        def set_hwnd(self, h): hwnds.append(h)
+        def set_media(self, m): pass
+        def play(self): pass
+        def stop(self): pass
+        def release(self): pass
+        def get_state(self): return fake_vlc.State.Playing
+        def get_time(self): return 0
+        def get_length(self): return 1000
+        def audio_get_volume(self): return 100
+        def get_rate(self): return 1.0
+
+    class Inst:
+        def media_player_new(self): return Sp()
+        def media_new(self, p): return types.SimpleNamespace(pfad=p)
+        def release(self): pass
+    fake_vlc.Instance = lambda *a: Inst()
+    monkeypatch.setitem(sys.modules, "vlc", fake_vlc)
+    monkeypatch.setattr(app, "_vlc", {"instanz": None, "spieler": None, "key": "",
+                                      "grund": "", "vol_wunsch": None, "hwnd": 0})
+    st = app.vlc_kommando({"cmd": "fenster", "hwnd": 4242})
+    assert hwnds == [4242] and st["eingebettet"] is True
+    app._vlc_reset()
+    app.vlc_kommando({"cmd": "status"})              # status laedt nicht nach
+    mp3 = tmp_path / "x.mp3"; mp3.write_bytes(b"x")
+    monkeypatch.setattr(app, "_geladen", {"k|mp3": {"pfad": str(mp3)}})
+    app.vlc_kommando({"cmd": "play", "key": "k|mp3"})
+    assert 4242 in hwnds[1:], "Nach der Selbstheilung muss die Einbettung wiederkommen"
+    st = app.vlc_kommando({"cmd": "fenster", "hwnd": 0})
+    assert st["eingebettet"] is False, "hwnd=0 muss die Bindung loesen (Rueckweg)"
+    # Huelle + Oberflaeche verkabelt (Quelltext als Waechter):
+    import inspect, importlib
+    sys.path.insert(0, os.path.dirname(app.__file__))
+    import huelle
+    importlib.reload(huelle)
+    q = inspect.getsource(huelle)
+    # WinForms-Panel per Invoke im UI-Thread (live gemessen: ein rohes
+    # CreateWindowExW aus dem js_api-Worker stirbt mit seinem Thread)
+    assert "form.Invoke" in q and "video_rect" in q and '"cmd": "fenster"' in q
+    ui = _oberflaeche_html()
+    i = ui.index("function huelleVideoRect")
+    block = ui[i:_funktionsende(ui, i)]
+    assert "pywebview" in block and "devicePixelRatio" in block
+    assert "bar.getBoundingClientRect" in block, "Die Leiste muss frei bleiben (Airspace)"
+    assert "huelleVideoRect(s)" in ui, "vlcTick meldet die Flaeche nicht"
