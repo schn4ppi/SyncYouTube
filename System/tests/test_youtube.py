@@ -3536,3 +3536,19 @@ def test_untertitel_panel_im_player():
     for teil in ("subModusSetzen", "subSpracheSetzen", "subStilSetzen('groesse'",
                  "subStilSetzen('preset'", "subOffsetSchieben"):
         assert teil in block, f"Panel-Baustein {teil} fehlt"
+
+
+def test_huelle_grundstein():
+    # Programm-Huelle (Spec Stufe 2, JB-Go 05.08.): eigenes Fenster laedt die
+    # Oberflaeche vom lokalen Server; Server-Start bei Bedarf; CRLF-Startdatei.
+    import io, inspect
+    sys.path.insert(0, os.path.dirname(app.__file__))
+    import huelle
+    assert callable(huelle.server_laeuft) and callable(huelle.server_starten)
+    q = inspect.getsource(huelle)
+    assert "webview.create_window" in q and "8776" in q
+    assert "--no-browser" in q, "Die Huelle darf keinen Browser-Tab aufreissen"
+    bat = io.open(os.path.join(os.path.dirname(os.path.dirname(app.__file__)),
+                               "SyncYouTube-Fenster.bat"), "rb").read()
+    assert b"\r\n" in bat and b"huelle.py" in bat and b"pythonw.exe" in bat, \
+        "Startdatei fehlt/kaputt (CRLF-Regel!)"

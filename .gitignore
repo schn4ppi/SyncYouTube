@@ -13,12 +13,14 @@
 !screenshot.png
 !_LIESMICH.txt
 !SyncYouTube.bat
+!SyncYouTube-Fenster.bat
 !SyncYouTube (ohne Fenster).vbs
 !System/_ARCHITEKTUR.md
 !System/MODULE.md
 !System/familie.py
 !System/layout_kern.js
 !System/youtube_app.py
+!System/huelle.py
 !System/update.py
 !System/oberflaeche.py
 !System/handy.py

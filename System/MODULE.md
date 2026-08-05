@@ -13,6 +13,7 @@
 
 | Datei | Zweck | Verknüpfung |
 |---|---|---|
+| `huelle.py` | Programm-Hülle (Spec Stufe 2, JB-Go 05.08.): eigenes Fenster (pywebview) lädt die Oberfläche vom lokalen Server; startet den Server selbst, falls er aus ist | Start über `SyncYouTube-Fenster.bat`; ruft `youtube_app.py` als Subprozess |
 | `youtube_app.py` | Das Herzstück: Warteschlange + Worker, HTTP-Server (Port 8776), Download-Logik (yt-dlp), „Schon-geladen"-DB, Bibliothek, Playlists, Abos, Tray, `main()` | importiert `geo`, `oberflaeche`, `handy`; **Einbahn-Regel:** importiert NIE `vpn` direkt |
 | `geo.py` | Gestufte Geo-Umgehung (Header-Trick → eigene Proxys → Gratis-Proxys → VPN-Adapter); erkennt und parst Geo-Fehler **provider-unabhängig** | von `youtube_app` gerufen; ruft `vpn` |
 | `vpn.py` | Ausschließlich NordVPN-Steuerung (CLI + Insights-Status) — NordVPN-Interna leben nur hier | nur von `geo.py` gerufen (Einbahn-Abhängigkeit seit 09.07.2026) |
