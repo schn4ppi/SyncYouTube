@@ -754,10 +754,16 @@ html.light .logrow{border-color:#ece3d9}html.light .logt{color:#a89a8e}html.ligh
 html.light .kap:hover{color:#8a5a1e}html.light .pl-kapitel{border-color:#ece3d9}
 /* Untertitel-Overlay (Zeile) + Karaoke + Transkript */
 .pl-subzeile{position:absolute;left:6%;right:6%;bottom:58px;z-index:3;text-align:center;pointer-events:none}
-.pl-subzeile .subtxt{display:inline-block;background:rgba(0,0,0,.68);color:#fff;padding:4px 12px;border-radius:8px;font-size:15px;line-height:1.4}
+/* Untertitel-Stil (JB 05.08., Amazon/Netflix-Muster): --sub-skala skaliert
+   die Größe (auch Karaoke, auch fürs TV), die sub-*-Presets färben die
+   Untertitel-Box — Karaoke behält seine Wischer-Farben. */
+.pl-subzeile .subtxt{display:inline-block;background:rgba(0,0,0,.68);color:#fff;padding:4px 12px;border-radius:8px;font-size:calc(15px*var(--sub-skala,1));line-height:1.4}
+.pl-subzeile.sub-hell .subtxt{background:rgba(255,255,255,.88);color:#111}
+.pl-subzeile.sub-gelb .subtxt{background:rgba(0,0,0,.78);color:#ffe94a}
+.pl-subzeile.sub-kontur .subtxt{background:none;color:#fff;text-shadow:0 0 5px #000,0 2px 3px #000,-1px -1px 2px #000,1px -1px 2px #000}
 .pl-subzeile.karaoke{top:6%;bottom:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
-.kar-neben{color:rgba(255,255,255,.45);font-size:15px;max-width:92%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kar-akt{color:var(--akz2);font-size:23px;font-weight:700;text-align:center;max-width:94%;line-height:1.3}
+.kar-neben{color:rgba(255,255,255,.45);font-size:calc(15px*var(--sub-skala,1));max-width:92%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kar-akt{color:var(--akz2);font-size:calc(23px*var(--sub-skala,1));font-weight:700;text-align:center;max-width:94%;line-height:1.3}
 /* Karaoke-Mitleuchten (nur LRCLIB): schon gesungene Wörter hell/akzentuiert,
    kommende gedimmt — der Fortschritt „läuft" durch die Zeile (JB 21.07.). */
 /* Build 115 (JB): echte Karaoke-Maschine — die Farbe LÄUFT durch das Wort
@@ -1058,6 +1064,14 @@ body.embed.plq-extern #view-player .card:not(.pl-horizontal) .pl-media{flex:1 1 
 .pl-media:fullscreen .nur-vollbild{display:inline-flex;align-items:center;justify-content:center}
 .pl-media:fullscreen .weg-im-vollbild{display:none}
 .pl-media:fullscreen .pl-bar{padding-bottom:14px}      /* Daumenbreite zum Bildrand */
+/* Vollbild = Sofa-/TV-Abstand (JB 05.08., Netflix-Muster): Kern-Knöpfe,
+   Zeit und Spul-Leiste deutlich größer, damit man sie von weitem trifft. */
+.pl-media:fullscreen .pl-barrow .mp-btn{width:46px;height:46px}
+.pl-media:fullscreen .pl-barrow .mp-btn svg{width:32px;height:32px}
+.pl-media:fullscreen .pl-bsp{font-size:24px;padding:6px 10px}
+.pl-media:fullscreen .pl-btime{font-size:18px}
+.pl-media:fullscreen .pl-barseek input{height:18px}
+.pl-media:fullscreen .pl-bvol{width:120px}
 .pl-media:fullscreen video{border-radius:0}
 .pl-barseek{display:flex;align-items:center;gap:8px}
 .pl-barseek input{flex:1;height:12px;accent-color:var(--akz);cursor:pointer;margin:0;min-width:40px}
@@ -1917,6 +1931,16 @@ function optionenToggle(ev){
       PL_AR.map(a=>'<option value="'+a[0]+'">'+a[1]+'</option>').join('')+'</select></div>'+
     '<div class="optrow"><span>Canvas-Hintergrund</span><label class="chk"><input type="checkbox" id="opt_canvas" '+
       (canvasAn?'checked':'')+' onchange="setCanvas(this.checked)"> animiertes Cover</label></div>'+
+    // Untertitel-Stil (JB 05.08., wie Amazon/Netflix): Größe fürs Sofa/TV,
+    // Preset für die Optik — gilt für Untertitel-Zeilen UND Karaoke-Größe.
+    '<div class="optrow"><span>Untertitel-Stil</span><span style="display:flex;gap:6px">'+
+      '<select id="opt_subgr" onchange="subStilSetzen(\\'groesse\\',this.value)" title="Untertitel-Größe (riesig = fürs Sofa/TV)">'+
+        '<option value="0.8">klein</option><option value="1">mittel</option>'+
+        '<option value="1.35">groß</option><option value="1.8">riesig (TV)</option></select>'+
+      '<select id="opt_subpre" onchange="subStilSetzen(\\'preset\\',this.value)" title="Untertitel-Optik (Preset)">'+
+        '<option value="dunkel">weiß auf dunkel</option><option value="hell">schwarz auf hell</option>'+
+        '<option value="gelb">gelb (klassisch)</option><option value="kontur">nur Kontur</option></select>'+
+    '</span></div>'+
     '<div class="optrow"><span>Sleep-Timer</span><span><select id="opt_sleep" onchange="sleepSetzen(this.value)">'+
       '<option value="0">aus</option><option value="15">15 min</option><option value="30">30 min</option>'+
       '<option value="60">60 min</option><option value="titel">nach diesem Titel</option></select>'+
@@ -1949,6 +1973,7 @@ function optionenToggle(ev){
   const sk=m.querySelector('#opt_skin'); if(sk)sk.value=aktuellerSkin();
   const slp=m.querySelector('#opt_sleep'); if(slp)slp.value=sleepTitelende?'titel':'0'; sleepLabel();
   const ub=m.querySelector('#opt_ueb'); if(ub)ub.value=uebergang;
+  subStilInit();                                       // Untertitel-Stil-Selects mit gemerktem Stand
   fernInfoMalen();
   popoverBei(m, ev.currentTarget.getBoundingClientRect());
   setTimeout(()=>document.addEventListener('pointerdown',function zu(e2){
@@ -5600,7 +5625,28 @@ function subRomajiToggle(){
   const k=aktKey(); if(k)subLaden(k);
 }
 let subLaedt=false;                                    // läuft gerade ein Untertitel-Download?
+/* Untertitel-Stil (JB 05.08.): Größe + Preset, gemerkt je Browser. */
+let subStil={groesse:1, preset:'dunkel'};
+try{const v=JSON.parse(localStorage.getItem('ytdl_substil')||'{}');
+  if(v&&v.groesse)subStil.groesse=parseFloat(v.groesse)||1;
+  if(v&&v.preset)subStil.preset=v.preset;}catch(e){}
+function subStilAnwenden(){
+  const ov=document.getElementById('pl-sub-anzeige'); if(!ov)return;
+  ov.style.setProperty('--sub-skala', subStil.groesse);
+  ov.classList.remove('sub-hell','sub-gelb','sub-kontur');
+  if(subStil.preset&&subStil.preset!=='dunkel')ov.classList.add('sub-'+subStil.preset);
+}
+function subStilSetzen(feld,wert){
+  subStil[feld]=(feld==='groesse')?(parseFloat(wert)||1):wert;
+  try{localStorage.setItem('ytdl_substil',JSON.stringify(subStil));}catch(e){}
+  subStilAnwenden();
+}
+function subStilInit(){
+  const g=document.getElementById('opt_subgr'); if(g)g.value=String(subStil.groesse);
+  const p=document.getElementById('opt_subpre'); if(p)p.value=subStil.preset;
+}
 function subAnzeigen(){
+  subStilAnwenden();                                   // Stil folgt jedem Neuaufbau des Elements
   const m=SUBMODES.find(x=>x[0]===subMode)||SUBMODES[0];
   const b=document.getElementById('plb-sub');           // Knopf in der Leiste auf dem Video
   if(b){b.textContent=m[1];
@@ -6001,10 +6047,12 @@ function plBarHTML(istVideo){
     `<button class="mp-btn nur-vollbild" id="plb-fwd10" onclick="plbSpringen(10)" title="10 Sekunden vor (Taste L)">${ico('fwd')}</button>`+
     `<button class="mp-btn nur-vollbild" id="plb-next" onclick="playerNext()" title="Nächster Titel (Taste N)">${ico('next')}</button>`+
     `<span class="pl-bspacer"></span>`+
-    `<button class="pl-bsp bo3" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
+    // JB 05.08. (Netflix/YouTube-Muster): Untertitel + Lautstärke gehören zum
+    // KERN — sie überleben jede Player-Größe (keine bo-Ausblende-Klasse).
+    `<button class="pl-bsp" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
     `<button class="pl-bsp bo3 weg-im-vollbild" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
     `<button class="pl-bsp bo3 weg-im-vollbild" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
-    `<span class="pl-bvolwrap bo2">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
+    `<span class="pl-bvolwrap">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
     // YouTube-Öffnen und Link-Kopieren beziehen sich auf den TITEL, nicht auf
     // die Darstellung ⇒ sie stehen oben in der Steuerzentrale (Build 121).
     (istVideo?`<button class="pl-bsp bo2 weg-im-vollbild" onclick="plbPip()" title="Bild-in-Bild: Video schwebt über allen Fenstern (Taste I)">⧉</button>`:'')+
@@ -6719,8 +6767,23 @@ function eigKopiere(key){const x=libFind(key); try{navigator.clipboard&&navigato
 function eigenschaften(key){
   const x=libFind(key); if(!x){toast('Keine Infos zu diesem Titel.');return;}
   const vid=(String(key).split('|')[0])||key;
+  // JB 05.08.: „unter Eigenschaften die Metadaten sehen (wie in iTunes)" —
+  // erst der Musik-Block (Künstler/Album/…), dann Datei und Technik.
+  const wg=x.wiedergabe||{};
+  const wgText=[wg.sub?('Untertitel: '+wg.sub):'', wg.speed?('Tempo '+wg.speed+'×'):'',
+                wg.ton?('Ton: '+wg.ton):''].filter(Boolean).join(' · ');
+  const musikText={belegt:'belegt (MusicBrainz)', wahrscheinlich:'wahrscheinlich',
+                   nein:'kein Lied'}[x.musik]||'unbestimmt';
   const zeilen=[
     ['Titel', x.titel||key],
+    ['Künstler', x.kuenstler||'–'],
+    ['Song', x.track||'–'],
+    ['Album', x.album||'–'],
+    ['Jahr', x.jahr||'–'],
+    ['Genre', x.genre||'–'],
+    ['Musik-Erkennung', musikText],
+    ['Album-Cover', x.cover_album?(x.kategorie==='MP3'?'echtes Cover, eingebettet':'echtes Cover (Beilage)'):'YouTube-Thumbnail'],
+    ['Wiedergabe-Regel', wgText||'– (erbt von Playlist/global)'],
     ['Kanal / Uploader', x.uploader||'–'],
     ['Kategorie', x.kategorie||'–'],
     ['Qualität', x.qualitaet||'–'],
@@ -6735,7 +6798,10 @@ function eigenschaften(key){
   ];
   const rows=zeilen.map(z=>`<tr><td class="k">${esc(z[0])}</td><td class="v">${esc(String(z[1]))}</td></tr>`).join('');
   const yt=x.url?`<tr><td class="k">YouTube</td><td class="v"><a href="${esc(x.url)}" target="_blank" rel="noreferrer">${esc(x.url)}</a></td></tr>`:'';
-  const cover=x.thumb?`<img src="${esc(x.thumb)}" style="max-width:190px;width:40%;border-radius:8px;float:right;margin:0 0 8px 12px" onerror="this.style.display='none'">`:'';
+  // Erst das ECHTE Album-Cover (/api/cover), Thumbnail nur als Rückfall.
+  const cfb=x.thumb?`this.onerror=function(){this.style.display='none'};this.src='${esc(x.thumb)}'`
+                   :`this.style.display='none'`;
+  const cover=`<img src="/api/cover?id=${encodeURIComponent(key)}" style="max-width:190px;width:40%;border-radius:8px;float:right;margin:0 0 8px 12px" onerror="${cfb}">`;
   const ov=document.createElement('div'); ov.className='modal';
   ov.innerHTML=`<div class="modal-box" style="max-width:560px"><div class="modal-head"><b>ℹ Eigenschaften</b>`+
     `<button class="ib" title="Schließen" onclick="this.closest('.modal').remove()">✕</button></div>`+

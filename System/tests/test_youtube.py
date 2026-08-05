@@ -3271,3 +3271,37 @@ def test_video_cover_sidecar(monkeypatch, tmp_path):
     q = inspect.getsource(app.autotag_lauf)
     assert '"mb_release"' in q and '"mb_rg"' in q, \
         "Der Lauf speichert die MB-Ids nicht - der Nachzug haette nie Futter"
+
+
+def test_eigenschaften_zeigt_musik_metadaten():
+    # JB 05.08.: "unter Eigenschaften die Metadaten sehen (wie in iTunes)".
+    quelle = _oberflaeche_html()
+    i = quelle.index("function eigenschaften(key)")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for feld in ("Künstler", "Album", "Genre", "Musik-Erkennung", "Wiedergabe-Regel"):
+        assert feld in block, f"Eigenschaften zeigen '{feld}' nicht"
+    assert "/api/cover" in block, "Eigenschaften zeigen nicht das ECHTE Cover zuerst"
+
+
+def test_untertitel_stil_und_kern_knoepfe():
+    # JB 05.08. (Amazon/Netflix-Bilder): (a) Untertitel-Groesse + Stil-Presets
+    # einstellbar; (b) Kern-Knoepfe (Untertitel, Lautstaerke) ueberleben JEDE
+    # Player-Groesse; (c) im Vollbild sind die Knoepfe Sofa-/TV-gross.
+    quelle = _oberflaeche_html()
+    assert "--sub-skala" in quelle and "sub-kontur" in quelle, \
+        "Untertitel-Skala/Presets fehlen im CSS"
+    assert 'id="opt_subgr"' in quelle and 'id="opt_subpre"' in quelle, \
+        "Untertitel-Stil-Auswahl fehlt in den Optionen"
+    i = quelle.index("function subStilAnwenden")
+    assert "--sub-skala" in quelle[i:_funktionsende(quelle, i)]
+    i = quelle.index("function plBarHTML")
+    leiste = quelle[i:_funktionsende(quelle, i)]
+    import re as _re
+    sub_knopf = _re.search(r'<button class="([^"]*)" id="plb-sub"', leiste)
+    assert sub_knopf and "bo3" not in sub_knopf.group(1), \
+        "Untertitel-Knopf haengt noch in der Ausblende-Kaskade (bo3)"
+    vol = _re.search(r'<span class="(pl-bvolwrap[^"]*)">🔊<input type="range" class="pl-bvol"[^>]*oninput="plbVol', leiste)
+    assert vol and "bo2" not in vol.group(1), \
+        "Lautstaerke haengt noch in der Ausblende-Kaskade (bo2)"
+    assert ":fullscreen .pl-barrow .mp-btn{width:46px" in quelle, \
+        "Vollbild-Knoepfe sind nicht Sofa-gross"
