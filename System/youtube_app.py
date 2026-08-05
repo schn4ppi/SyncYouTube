@@ -1630,11 +1630,25 @@ def _cover_in_datei(key, e, bild):
     Downloads (Spec Punkt 5, Etappe A). Nicht-destruktiv wie _tags_in_datei:
     tmp + replace, bei jedem Fehler bleibt die Originaldatei unangetastet."""
     pfad = _pfad_zu_key(key)
+    if not (bild and pfad and os.path.isfile(pfad)):
+        return
+    if not pfad.lower().endswith(".mp3"):
+        # JB 05.08.: „Videos können Lieder sein" — Dateiart ist KEIN
+        # Ausschluss. Remux wäre GB-teuer, darum Sidecar statt Einbetten.
+        try:
+            sc = _cover_sidecar(key)
+            os.makedirs(os.path.dirname(sc), exist_ok=True)
+            with open(sc, "wb") as f:
+                f.write(bild)
+            with _io_lock:
+                e["cover_album"] = True              # echtes Album-Cover liegt bereit
+                _json_speichern(GELADEN_PFAD, _geladen)
+        except OSError:
+            pass
+        return
     ff = os.path.join(BIN_DIR, "ffmpeg.exe")
-    if not (bild and pfad and os.path.isfile(pfad) and os.path.exists(ff)):
-        return
-    if not pfad.lower().endswith(".mp3"):            # Videos bewusst nicht (GB-Remux)
-        return
+    if not os.path.exists(ff):
+        return                                       # ohne ffmpeg kein Einbetten
     cover = pfad + ".covertmp.jpg"
     tmp = pfad + ".covertmp.mp3"
     try:
@@ -1669,20 +1683,36 @@ def _cover_in_datei(key, e, bild):
                 pass
 
 
+def _cover_sidecar(key):
+    """Sidecar-Pfad fürs Album-Cover eines VIDEOS (JB 05.08.: „Videos können
+    Lieder sein" — die Dateiart ist kein Ausschluss). In die Videodatei
+    remuxen wäre GB-teuer; das Bild liegt darum als `<video-id>.jpg` im
+    Cover-Ordner — magnetisch über die Id, wie die Untertitel."""
+    d = os.path.join(ziel_ordner(), "Cover")
+    return os.path.join(d, f"{key.split('|')[0]}.jpg")
+
+
 def cover_aus_datei(key):
-    """Eingebettetes Cover (APIC) aus der MP3 lesen — für /api/cover, damit
-    Player/Kacheln das ECHTE Album-Bild zeigen statt des YouTube-Thumbnails."""
+    """Echtes Album-Cover für /api/cover: aus der MP3 (APIC) oder — bei
+    Videos — aus dem Sidecar; Player/Kacheln zeigen es statt des Thumbnails."""
     pfad = _pfad_zu_key(key)
-    if not (pfad and os.path.isfile(pfad) and pfad.lower().endswith(".mp3")):
+    if pfad and os.path.isfile(pfad) and pfad.lower().endswith(".mp3"):
+        try:
+            from mutagen.id3 import ID3
+            tags = ID3(pfad)
+            for k in tags.keys():
+                if k.startswith("APIC"):
+                    return bytes(tags[k].data)
+        except Exception:                            # noqa: BLE001 — kein/valides Tag
+            pass
         return None
-    try:
-        from mutagen.id3 import ID3
-        tags = ID3(pfad)
-        for k in tags.keys():
-            if k.startswith("APIC"):
-                return bytes(tags[k].data)
-    except Exception:                                # noqa: BLE001 — kein/valides Tag
-        pass
+    sc = _cover_sidecar(key)
+    if os.path.isfile(sc):
+        try:
+            with open(sc, "rb") as f:
+                return f.read()
+        except OSError:
+            pass
     return None
 
 
@@ -1703,13 +1733,11 @@ def autotag_lauf(keys=None):
         # heilt sich der Rückstand bei jedem späteren Lauf von selbst).
         alle = list(keys) if keys else [k for k, e in list(_geladen.items())
                                         if _ist_musik(e) and not e.get("album")]
-        # NUR MP3s: _cover_in_datei bettet bewusst nur in MP3s ein (Videos =
-        # GB-Remux) — ohne den Filter holte der Zweig bei JEDEM Lauf ~26
-        # Video-Cover vom CAA und warf sie weg (live gemessen 05.08.).
+        # Auch Videos (JB 05.08.: „Videos können Lieder sein") — ihr Cover
+        # landet als Sidecar; cover_album=True stoppt Wiederholungen.
         nur_cover = [] if keys else [k for k, e in list(_geladen.items())
                                      if e.get("album") and not e.get("cover_album")
                                      and (e.get("mb_release") or e.get("mb_rg"))
-                                     and (_pfad_zu_key(k) or "").lower().endswith(".mp3")
                                      and k not in alle]
         _autotag["gesamt"] = len(alle) + len(nur_cover)
         for k in nur_cover:
@@ -1757,13 +1785,10 @@ def autotag_lauf(keys=None):
                 _json_speichern(GELADEN_PFAD, _geladen)
             _autotag["getaggt"] += 1
             _tags_in_datei(k, e)
-            # Etappe A: echtes Album-Cover einbetten (ersetzt das YouTube-
-            # Thumbnail in der Datei). Nur einmal je Titel und NUR für MP3s
-            # (_cover_in_datei lässt Videos bewusst aus — der Abruf wäre
-            # weggeworfene CAA-Last); kein Cover im Archiv (404) ist kein
-            # Fehler — dann bleibt das Thumbnail.
-            if ((fund.get("release_id") or fund.get("rg_id")) and not e.get("cover_album")
-                    and (_pfad_zu_key(k) or "").lower().endswith(".mp3")):
+            # Etappe A: echtes Album-Cover (MP3: eingebettet, Video: Sidecar —
+            # JB 05.08.: Dateiart ist kein Ausschluss). Nur einmal je Titel;
+            # kein Cover im Archiv (404) ist kein Fehler — Thumbnail bleibt.
+            if (fund.get("release_id") or fund.get("rg_id")) and not e.get("cover_album"):
                 bild = _cover_holen(fund.get("release_id", ""), fund.get("rg_id", ""))
                 if bild:
                     _cover_in_datei(k, e, bild)

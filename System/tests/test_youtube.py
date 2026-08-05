@@ -3236,15 +3236,36 @@ def test_cover_nachzug_ohne_neue_mb_suche(monkeypatch):
     monkeypatch.setattr(app, "_json_speichern", lambda p, d: None)
     monkeypatch.setattr(app.time, "sleep", lambda s: None)
     app.autotag_lauf()
-    assert eingebettet == ["a|mp3"], "Cover-Nachzug hat nicht eingebettet"
+    assert eingebettet == ["a|mp3", "c|beste"], "Cover-Nachzug hat nicht eingebettet"
+    # JB 05.08.: "Videos koennen Lieder sein" - die Dateiart ist KEIN
+    # Ausschluss; das Video-Cover landet als Sidecar (test_video_cover_sidecar).
+    assert ("cover", "rel-video") in aufrufe, \
+        "Videos muessen ihr Album-Cover bekommen (Sidecar)"
     assert ("cover", "rel-1") in aufrufe
-    assert ("cover", "rel-video") not in aufrufe, \
-        "Fuer Videos darf der Zweig kein CAA-Bild holen (wird eh verworfen)"
     assert ("mb", "A") not in aufrufe, "Nachzug darf KEINE neue MB-Suche machen"
     assert ("mb", "B") in aufrufe, "Musik ohne Album braucht weiter die volle Suche"
     assert app._geladen["a|mp3"]["album"] == "X", "Tags muessen unangetastet bleiben"
-    assert app._autotag["getaggt"] == 1, \
+    assert app._autotag["getaggt"] == 2, \
         "getaggt zaehlt nur EINGEBETTETE Cover (nicht bloss geholte Bilder)"
+
+
+def test_video_cover_sidecar(monkeypatch, tmp_path):
+    # JB 05.08.: "Videos koennen Lieder sein, MP3 muessen keine Lieder sein,
+    # das darf kein Ausschlusskriterium sein." In die Videodatei remuxen
+    # waere GB-teuer - das Cover liegt als Sidecar Cover/<video-id>.jpg
+    # (magnetisch ueber die Id wie die Untertitel), /api/cover liefert es.
+    mp4 = tmp_path / "clip.mp4"
+    mp4.write_bytes(b"v" * 10)
+    monkeypatch.setattr(app, "ziel_ordner", lambda: str(tmp_path))
+    monkeypatch.setattr(app, "_geladen", {"vid123abc45|beste": {"pfad": str(mp4)}})
+    monkeypatch.setattr(app, "_json_speichern", lambda p, d: None)
+    e = app._geladen["vid123abc45|beste"]
+    app._cover_in_datei("vid123abc45|beste", e, b"B" * 3000)
+    sc = tmp_path / "Cover" / "vid123abc45.jpg"
+    assert sc.is_file() and sc.read_bytes() == b"B" * 3000, "Sidecar fehlt"
+    assert e.get("cover_album") is True
+    assert app.cover_aus_datei("vid123abc45|beste") == b"B" * 3000, \
+        "/api/cover muss das Video-Cover aus dem Sidecar liefern"
     # Und der Voll-Lauf speichert die Ids, von denen der Nachzug lebt:
     import inspect
     q = inspect.getsource(app.autotag_lauf)
