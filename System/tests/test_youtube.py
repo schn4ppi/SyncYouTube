@@ -4119,3 +4119,18 @@ def test_reihen_blaettern_und_alle_az():
     assert 'onclick="tvKachelKlick(event' in quelle, "Kacheln nutzen den Blaetter-Klick nicht"
     assert "Alle von A bis Z" in quelle and "tvKatalogLaden" in quelle
     assert "tv-band.wrap" in quelle, "A-Z braucht das Raster-CSS"
+
+
+def test_kachel_zoom_und_monitor_regel():
+    # JB-Funde: (1) Vollbild-Fernbedienung verdeckte auf EINEM Monitor das
+    # VLC-Bild -> nur bei screen.isExtended selbst fullscreen; (2) Netflix-
+    # Zoom: Fokus-Kachel waechst, Snippet fuellt die GANZE Kachel (Beschnitt
+    # gewollt).
+    quelle = _oberflaeche_html()
+    i = quelle.index("function tvFilmPlayer")
+    assert "screen.isExtended" in quelle[i:_funktionsende(quelle, i)], \
+        "ein Monitor gehoert dem Film"
+    assert "scale(1.3)" in quelle, "Netflix-Zoom fehlt"
+    i = quelle.index("#tv .tv-snip{")
+    assert "object-fit:cover" in quelle[i:i + 220] and "inset:3px" in quelle[i:i + 220], \
+        "Snippet muss die ganze Kachel fuellen"

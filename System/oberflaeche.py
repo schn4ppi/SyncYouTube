@@ -162,9 +162,12 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv .tv-band{display:flex;gap:14px;overflow-x:auto;padding:6px 2px 10px;scrollbar-width:none}
 #tv .tv-band.wrap{flex-wrap:wrap;overflow-x:visible}   /* „Alle A–Z"-Raster */
 #tv .tv-kachel{flex:0 0 auto;width:150px;cursor:pointer;border:3px solid transparent;
-  border-radius:12px;padding:3px;position:relative}
-#tv .tv-snip{position:absolute;top:3px;left:3px;width:calc(100% - 6px);
-  aspect-ratio:16/9;object-fit:cover;border-radius:9px;z-index:1;background:#000}
+  border-radius:12px;padding:3px;position:relative;transition:transform .25s}
+/* Netflix-Zoom (JB-Bild): die fokussierte/gehoverte Kachel tritt hervor … */
+#tv .tv-kachel.tv-fokus,#tv .tv-band:not(.wrap) .tv-kachel:hover{transform:scale(1.3);z-index:5}
+/* … und das Szenen-Snippet füllt die GANZE Kachel (Beschnitt gewollt). */
+#tv .tv-snip{position:absolute;inset:3px;width:calc(100% - 6px);height:calc(100% - 6px);
+  object-fit:cover;border-radius:9px;z-index:1;background:#000}
 #tv .tv-kachel img{width:100%;height:216px;object-fit:cover;border-radius:9px;
   background:#221c17;display:block}
 #tv .tv-kachel.quer img{height:96px}
@@ -3778,10 +3781,12 @@ function tvFilmPlayer(id,titel){
       `</div>`+
     `</div>`;
   ['pointermove','pointerdown','keydown'].forEach(evn=>el.addEventListener(evn,tvpWach));
-  // Die Fernbedienung geht selbst ins Browser-VOLLBILD (JB: „öffnet nicht
-  // vollbild") — auf dem zweiten Monitor liegt daneben das VLC-Bild; auf
-  // einem Monitor kommt VLCs eigenes Vollbild danach obenauf.
-  try{el.requestFullscreen&&el.requestFullscreen().catch(()=>{});}catch(e){}
+  // Die Fernbedienung geht NUR bei MEHREREN Monitoren selbst ins Vollbild
+  // (JB-Fund: auf einem Schirm verdeckte sie das VLC-Bild — „ich seh den
+  // player, aber das video nicht"). Ein Monitor gehört dem Film.
+  try{
+    if(screen.isExtended&&el.requestFullscreen)el.requestFullscreen().catch(()=>{});
+  }catch(e){}
   if(!tvpTimer)tvpTimer=setInterval(tvpTick,1000);
   setTimeout(tvpTick,600);
 }
