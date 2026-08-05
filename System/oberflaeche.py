@@ -762,6 +762,9 @@ html.light .kap:hover{color:#8a5a1e}html.light .pl-kapitel{border-color:#ece3d9}
   color:var(--sub-farbe,#fff);padding:4px 12px;border-radius:8px;
   font-size:calc(15px*var(--sub-skala,1));line-height:1.4;
   font-family:var(--sub-schrift,inherit);text-shadow:var(--sub-schatten,none)}
+/* Schriftart wirkt auch im Karaoke (JB 05.08.) — die Farben dort gehören
+   weiter dem Wischer. */
+.pl-subzeile .kar-akt,.pl-subzeile .kar-neben{font-family:var(--sub-schrift,inherit)}
 .pl-subzeile.karaoke{top:6%;bottom:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
 .kar-neben{color:rgba(255,255,255,.45);font-size:calc(15px*var(--sub-skala,1));max-width:92%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kar-akt{color:var(--akz2);font-size:calc(23px*var(--sub-skala,1));font-weight:700;text-align:center;max-width:94%;line-height:1.3}
@@ -5737,21 +5740,32 @@ function subMenu(ev){
     Object.keys(SUB_SCHRIFTEN).forEach(s=>kn(w,'Aa',subStil.schrift===s,
       ()=>subStilSetzen('schrift',s),
       "font-family:"+SUB_SCHRIFTEN[s].replace(/"/g,"'")+';padding:1px 7px',s));
-    // Textfarbe (Punkte) + Deckkraft + Schatten
-    w=reihe('Farbe');
-    ['#ffffff','#111111','#3b6df0','#38d1c8','#59c93c','#ffe94a','#e04343','#c94fc9']
-      .forEach(f=>punkt(w,f,subStil.farbe===f,()=>subStilSetzen('farbe',f),f));
-    w=reihe('Deckkraft');
-    [[0.5,'50%'],[0.75,'75%'],[1,'100%']].forEach(d=>
-      kn(w,d[1],subStil.deckkraft===d[0],()=>subStilSetzen('deckkraft',d[0])));
-    kn(w,'Schatten',subStil.schatten,()=>subStilSetzen('schatten',!subStil.schatten),
-       'margin-left:8px','Schlagschatten hinter der Schrift');
-    // Hintergrund: Farbe + Deckkraft (aus = nur Schrift)
-    w=reihe('Hintergrund');
-    punkt(w,'#000',subStil.hg==='schwarz',()=>subStilSetzen('hg','schwarz'),'schwarz');
-    punkt(w,'#fff',subStil.hg==='weiss',()=>subStilSetzen('hg','weiss'),'weiß');
-    [[0,'aus'],[0.25,'25%'],[0.5,'50%'],[0.75,'75%'],[1,'100%']].forEach(d=>
-      kn(w,d[1],subStil.hg_deckkraft===d[0],()=>subStilSetzen('hg_deckkraft',d[0])));
+    // JB 05.08.: bei KARAOKE greifen Farbe/Deckkraft/Hintergrund nicht (die
+    // Farben gehören dem Wischer) — diese Zeilen verschwinden dann, statt zu
+    // enttäuschen; Größe/Schrift/Versatz wirken auch im Karaoke.
+    const zyklus=(wrap,stufen,istAktiv,tun,titel)=>{
+      const i=stufen.findIndex(s=>istAktiv(s[0]));
+      const jetzt=stufen[Math.max(0,i)];
+      kn(wrap,jetzt[1],false,()=>tun(stufen[(Math.max(0,i)+1)%stufen.length][0]),
+         'min-width:44px',titel+' — Klick wechselt zur nächsten Stufe');};
+    if(subMode!=='karaoke'){
+      w=reihe('Farbe');
+      ['#ffffff','#111111','#3b6df0','#38d1c8','#59c93c','#ffe94a','#e04343','#c94fc9']
+        .forEach(f=>punkt(w,f,subStil.farbe===f,()=>subStilSetzen('farbe',f),f));
+      // Kompakt (JB: „zu viel Text in der Zeile"): Deckkraft-Stufen als EIN
+      // Zyklus-Knopf statt Knopfreihe.
+      w=reihe('Deckkraft');
+      zyklus(w,[[1,'100%'],[0.75,'75%'],[0.5,'50%']],v=>subStil.deckkraft===v,
+             v=>subStilSetzen('deckkraft',v),'Text-Deckkraft');
+      kn(w,'Schatten',subStil.schatten,()=>subStilSetzen('schatten',!subStil.schatten),
+         'margin-left:8px','Schlagschatten hinter der Schrift');
+      w=reihe('Hintergrund');
+      punkt(w,'#000',subStil.hg==='schwarz',()=>subStilSetzen('hg','schwarz'),'schwarz');
+      punkt(w,'#fff',subStil.hg==='weiss',()=>subStilSetzen('hg','weiss'),'weiß');
+      zyklus(w,[[0.7,'70%'],[1,'100%'],[0,'aus'],[0.25,'25%'],[0.5,'50%']],
+             v=>subStil.hg_deckkraft===v,v=>subStilSetzen('hg_deckkraft',v),
+             'Hintergrund-Deckkraft (aus = nur Schrift)');
+    }
     // Versatz kompakt: ‹ Wert › + Schrittweiten-Knopf (0,1/0,5/1/5)
     w=reihe('Versatz');
     const st=String(subSchritt).replace('.',',');
@@ -6300,6 +6314,9 @@ function plBarHTML(istVideo){
     // KERN — sie überleben jede Player-Größe (keine bo-Ausblende-Klasse).
     `<button class="pl-bsp" id="plb-sub" onclick="subMenu(event)" title="Untertitel: Modus, Sprache, Größe, Stil, Versatz (Taste S wechselt schnell den Modus)">💬</button>`+
     `<button class="pl-bsp bo3 weg-im-vollbild" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
+    // JB 05.08.: am Fernseher (Vollbild) gehört ↻ (VLC neu verbinden) an die
+    // Stelle der Schere — sichtbar nur am Gerät VLC.
+    `<button class="pl-bsp nur-vollbild" onclick="vlcNeustart()" style="${plGeraet==='vlc'?'':'display:none'}" title="VLC neu verbinden: frisch starten und an der letzten Stelle weiterspielen">↻</button>`+
     `<button class="pl-bsp bo3 weg-im-vollbild" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
     `<span class="pl-bvolwrap">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
     // YouTube-Öffnen und Link-Kopieren beziehen sich auf den TITEL, nicht auf
