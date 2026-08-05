@@ -176,7 +176,9 @@ def test_reihen(tmp_path, monkeypatch):
     filme.katalog_abzug()
     r = filme.reihen()
     assert [e["id"] for e in r["weiterschauen"]] == ["f1"]
-    assert r["top"][0]["id"] == "s1"                 # 8.7 vor 7.7
+    # Top relativiert (JB): Gesehenes fliegt raus - s1 (8.7) ist gesehen,
+    # also fuehrt f1 (7.7, ungesehen); >9.2 = Ein-Stimmen-Artefakt.
+    assert r["top"][0]["id"] == "f1"
     assert "Science-Fiction" in r["genres"]
     assert r["neu"][0]["id"] == "f1"                 # einziger mit DateCreated
 

@@ -467,7 +467,11 @@ def reihen(profil="standard"):
     bei Renés Ausfall steht (Spec „Ausfall-Verhalten")."""
     alle = katalog_lesen()["eintraege"]
     weiter = [e for e in alle if e["position_s"] > 0 and not e["gesehen"]]
-    top = sorted((e for e in alle if e.get("rating")),
+    # Top relativiert (JB: „irgendwelche schlechten filme"): GESEHENES fliegt
+    # raus, und Wertungen über 9.2 sind fast immer Ein-Stimmen-Artefakte
+    # (Jellyfin liefert keinen Vote-Count) — die dämpfen wir weg.
+    top = sorted((e for e in alle
+                  if e.get("rating") and not e["gesehen"] and e["rating"] <= 9.2),
                  key=lambda e: e["rating"], reverse=True)[:10]
     neu = sorted((e for e in alle if e.get("hinzugefuegt")),
                  key=lambda e: e["hinzugefuegt"], reverse=True)[:20]

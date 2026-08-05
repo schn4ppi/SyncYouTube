@@ -83,6 +83,18 @@ class VideoFenster:
         form.Invoke(Action(tu))
         return self.hwnd
 
+    def vorbereiten(self, form):
+        """Beim Hüllen-START Panel + hwnd anlegen und melden (JB-Fund: „Player
+        ist nicht unten im film" — der Server kannte das Fenster beim ersten
+        Play noch nicht und öffnete VLCs EIGENES Vollbild; das Panel blieb
+        schwarz). Früh gemeldet = jeder Film rendert von Anfang an IM Fenster."""
+        try:
+            if not self.hwnd:
+                self._anlegen(form)
+            self.melden()
+        except Exception:                            # noqa: BLE001 — Kür
+            pass
+
     def melden(self):
         """Das Handle EINMAL an den Server geben (überlebt dort auch die
         VLC-Selbstheilung); scheitert der Abruf, beim nächsten Rect erneut."""
@@ -157,7 +169,10 @@ def main():
     api._fenster = fenster
     # Vollbild (TV): der ⛶-Knopf der Oberfläche nutzt die Fullscreen-API —
     # die trägt im WebView2 genauso wie im Browser; kein Sonderweg nötig.
-    webview.start(private_mode=False)
+    def frueh():
+        time.sleep(1.5)                              # GUI erst stehen lassen
+        api.video.vorbereiten(fenster.native)
+    webview.start(frueh, private_mode=False)
     return 0
 
 
