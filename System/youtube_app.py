@@ -848,6 +848,7 @@ def bibliothek_liste():
             "track": e.get("track", ""), "jahr": e.get("jahr", ""),
             "genre": e.get("genre", ""),
             "cover_album": bool(e.get("cover_album")),
+            "herz": bool(e.get("herz")),             # ❤ Lieblingssong (JB 05.08.)
             "abo_nr": e.get("abo_nr", ""),
             "wiedergabe": e.get("wiedergabe") or None,
         })
@@ -2877,6 +2878,20 @@ def wiedergabe_setzen(daten):
         if keys:
             _json_speichern(GELADEN_PFAD, _geladen)
         return {"ok": True, "anzahl": len(keys)}
+
+
+def herz_umschalten(key):
+    """❤ Lieblingssong an/aus (JB 05.08.: „zu den lieblingssongs sollte ein
+    herz sein"). Aus = Feld ganz raus (die DB bleibt schlank)."""
+    with _io_lock:
+        e = _geladen.get(key)
+        if not e:
+            return
+        if e.get("herz"):
+            e.pop("herz", None)
+        else:
+            e["herz"] = True
+        _json_speichern(GELADEN_PFAD, _geladen)
 
 
 def wiedergabe_sub_altlast_raeumen():
@@ -5561,6 +5576,8 @@ class Handler(BaseHTTPRequestHandler):
     def _biblio(self, daten):
         key = daten.get("id") or ""
         art = daten.get("art")
+        if art == "herz":                            # ❤ Lieblingssong umschalten (JB 05.08.)
+            return herz_umschalten(key)
         if art == "bulk":                            # mehrere auf einmal (Mehrfachauswahl)
             op = daten.get("op")
             keys = [k for k in (daten.get("keys") or []) if k in _geladen]

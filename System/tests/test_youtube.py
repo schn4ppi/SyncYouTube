@@ -3766,3 +3766,56 @@ def test_fernsehmodus_im_ansicht_menue():
     i = quelle.index("function fernsehModus")
     block = quelle[i:_funktionsende(quelle, i)]
     assert "requestFullscreen" in block and "aktKey()" in block
+
+
+def test_herz_lieblingssongs(monkeypatch):
+    # JB 05.08.: "zu den lieblingssongs sollte ein herz sein."
+    gespeichert = []
+    monkeypatch.setattr(app, "_json_speichern", lambda p, d: gespeichert.append(p))
+    monkeypatch.setattr(app, "_geladen", {"k1": {"titel": "Song"}})
+    app.herz_umschalten("k1")
+    assert app._geladen["k1"]["herz"] is True and gespeichert
+    app.herz_umschalten("k1")
+    assert "herz" not in app._geladen["k1"], "zweiter Klick nimmt das Herz weg"
+    app.herz_umschalten("gibtsnicht")                # still, kein Crash
+    # Feld kommt in der Bibliotheks-Antwort an:
+    import inspect
+    assert '"herz"' in inspect.getsource(app.bibliothek_liste)
+    # UI: Badge auf der Kachel, Toggle-Knopf in Kachel+Liste+Steuerzentrale,
+    # Filter in Ansicht:
+    quelle = _oberflaeche_html()
+    assert "herzbadge" in quelle and "function herzToggle" in quelle
+    for fn in ("aktBtnsKachel", "aktBtnsListe"):
+        i = quelle.index("function " + fn)
+        assert "herzKnopf(x)" in quelle[i:_funktionsende(quelle, i)], fn
+    assert 'data-tr="herz"' in quelle, "Steuerzentrale hat kein Herz"
+    assert '<option value="herz">' in quelle and "x.herz)" in quelle
+
+
+def test_menu_toggle_zweiter_klick_schliesst():
+    # JB 05.08.: "Wenn ich ... Werkzeuge anklicke, dann oeffnet sich das
+    # menue, gut, doch wenn ich es nochmal anklicke, dann sollte es sich
+    # schliessen." Wurzel: der Aussenklick-Schliesser raeumt beim pointerdown
+    # weg, der folgende click oeffnete sofort NEU - das Menue konnte per
+    # Knopf nie zugehen. Jetzt: Toggle-Gedaechtnis.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function menuSchliesser")
+    assert "_menuZuKnopf=" in quelle[i:_funktionsende(quelle, i)], \
+        "Schliesser merkt sich den Knopf nicht"
+    i = quelle.index("function aktionsMenu")
+    assert "menuGeradeZu(ev.currentTarget)" in quelle[i:_funktionsende(quelle, i)]
+    i = quelle.index("function kontextMenuBauen")
+    assert "menuGeradeZu(pos.currentTarget)" in quelle[i:_funktionsende(quelle, i)], \
+        "auch die ...-Knoepfe der Kacheln muessen toggeln"
+
+
+def test_fernsehmodus_auffindbar():
+    # JB 05.08.: "Ich finde den fernsehmodus nicht." - jetzt an ZWEI Orten:
+    # ganz oben im Ansicht-Menue UND in den Player-Optionen.
+    quelle = _oberflaeche_html()
+    assert quelle.count("fernsehModus()") >= 3, "Eintrag fehlt an einem Ort"
+    i = quelle.index('id="libansicht"')
+    kopf = quelle[i:i + 1600]
+    assert 'onclick="fernsehModus()"' in kopf, "Eintrag muss OBEN im Ansicht-Menue stehen"
+    i = quelle.index("function optionenToggle")
+    assert "Fernsehmodus" in quelle[i:_funktionsende(quelle, i)]

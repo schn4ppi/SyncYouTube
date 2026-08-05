@@ -143,6 +143,10 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 .dlbox-body{flex:1 1 auto;min-height:0;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
 .dlbox-body::-webkit-scrollbar{width:6px}.dlbox-body::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
 .dlbox-body .card{margin:0;background:transparent;border:0;padding:6px 10px}
+/* ❤ Lieblingssongs (JB 05.08.): Herz-Badge auf der Kachel + rote Toggles */
+.herzbadge{position:absolute;top:6px;left:6px;color:#e5484d;font-size:15px;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
+.ib.herz.an,.mp-btn.herz.an{color:#e5484d}
 /* Filme (Film-Fundament): Poster-Bänder wie bei den Streamern — die REIHE
    scrollt horizontal in sich (Anti-Scroll: die Seite selbst wächst nicht). */
 #view-filme .f-rtitel{font-weight:700;margin:10px 2px 6px;font-size:14px}
@@ -2025,6 +2029,9 @@ function optionenToggle(ev){
     // gibt es nichts umzustellen, und ein Schalter für etwas, das immer
     // gefragt wird, wäre ein Knopf ohne Aufgabe (JB: wenige Knöpfe).
     '<div class="optrow"><span>Alle Einstellungen</span><button class="btn mini" onclick="einstellungenOeffnen()">⚙ Öffnen</button></div>'+
+    // JB 05.08.: Fernsehmodus auch HIER — er betrifft den Player, also gehört
+    // er zusätzlich in dessen Optionen (Ansicht-Menü hat ihn ebenfalls, oben).
+    '<div class="optrow"><span>📺 Fernsehmodus</span><button class="btn mini" onclick="fernsehModus()">Start</button></div>'+
     '<div class="optrow"><span>📱 Fernsteuerung</span><button class="btn mini" id="fernbtn" onclick="fernToggle()">…</button></div>'+
     '<div id="ferninfo" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
   document.body.appendChild(m);
@@ -3445,6 +3452,7 @@ function cmdNowRender(){
     `<button class="mp-btn" onclick="playerNext()" title="Nächster">${ico('next')}</button>`+
     `<button class="mp-btn mp-tog" data-tr="repeat" onclick="repeatCycle()">${ico('repeat')}</button>`+
     `<button class="mp-btn mp-tog mp-radio" data-tr="radio" onclick="radioStart()" title="📻 Radio — endloser Mix aus deiner Bibliothek">📻</button>`+
+    `<button class="mp-btn mp-tog herz${(libFind(aktKey())||{}).herz?' an':''}" data-tr="herz" onclick="herzToggle(aktKey())" title="❤ Lieblingssong an/aus">${(libFind(aktKey())||{}).herz?'♥':'♡'}</button>`+
     `<button class="mp-btn mp-tog mp-art" data-tr="art" onclick="playArtMenu(event)"></button>`+
     `<button class="mp-btn mp-yt" onclick="playerYoutube()" title="Diesen Titel auf YouTube öffnen — springt zur aktuellen Stelle">${ico('yt')}</button>`+
     `<button class="mp-btn" onclick="playerLinkKopieren()" title="YouTube-Link kopieren (zum Teilen, OHNE Zeitstempel)">🔗</button>`+
@@ -4880,6 +4888,7 @@ function libGefiltert(){
   let arr=libdaten.filter(x=>!favBekannt||x.ist_favorit).filter(x=>!!x.archiviert===libArchiv).filter(artPasst);
   if(f==='vorhanden')arr=arr.filter(x=>x.vorhanden);
   else if(f==='verschoben')arr=arr.filter(x=>!x.vorhanden);
+  else if(f==='herz')arr=arr.filter(x=>x.herz);        // ❤ Lieblingssongs (JB 05.08.)
   if(hide&&!libArchiv)arr=arr.filter(x=>x.vorhanden);
   if(q)arr=arr.filter(x=>(x.titel+' '+(x.uploader||'')).toLowerCase().includes(q));
   const key=libsort.key, dir=libsort.dir;
@@ -5048,10 +5057,25 @@ function kachelInfo(x){
   return katIcon(x)+' '+teile.join(' · ');
 }
 // Wenige, ruhige Icon-Knöpfe. Alles Weitere steckt im „⋯"-Menü (aufgeräumt).
+/* ❤ Lieblingssongs (JB 05.08.: „zu den lieblingssongs sollte ein herz sein") */
+function herzKnopf(x){
+  return `<button class="ib herz${x.herz?' an':''}" onclick="event.stopPropagation();herzToggle('${x.id}')" `+
+    `title="${x.herz?'❤ Lieblingssong — Herz entfernen':'Als Lieblingssong markieren'}">${x.herz?'♥':'♡'}</button>`;
+}
+async function herzToggle(id){
+  const x=libFind(id); if(!x)return;
+  x.herz=!x.herz;                                      // sofort sichtbar, Server zieht nach
+  try{fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id, art:'herz'})}).catch(()=>{});}catch(e){}
+  document.querySelectorAll('[data-tr="herz"]').forEach(b=>{
+    if(aktKey()===id){b.textContent=x.herz?'♥':'♡'; b.classList.toggle('an',!!x.herz);}});
+  libMalen();
+}
 function aktBtnsKachel(x){
   let b='';
   if(x.vorhanden){
     b+=`<button class="ib play" onclick="event.stopPropagation();playerPlay(['${x.id}'])" title="Abspielen">▶</button>`;
+    b+=herzKnopf(x);
     b+=`<button class="ib" onclick="plAddMenu(event,'${x.id}')" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
     b+=`<button class="ib" onclick="event.stopPropagation();biblio('${x.id}','ordner')" title="Im Ordner zeigen">📁</button>`;
   }else{
@@ -5075,6 +5099,10 @@ function menuSchliesser(m){                            // Außenklick schließt 
       const t=e2.target;
       const drin=t&&t.closest&&(t.closest('.itemmenu')||(m&&m.contains(t)));
       if(drin)return;                                 // Klick INS Menü: offen lassen
+      // Toggle-Gedächtnis (JB 05.08.: „wenn ich es nochmal anklicke, dann
+      // sollte es sich schließen"): dieses pointerdown räumt das Menü weg —
+      // kommt gleich der click desselben Knopfs, darf der NICHT neu öffnen.
+      _menuZuKnopf=(t&&t.closest)?t.closest('button'):null; _menuZuTs=Date.now();
       document.querySelectorAll('.itemmenu').forEach(x=>x.remove());
       if(m)m.remove();
       document.removeEventListener('pointerdown',zu,true);
@@ -5087,8 +5115,16 @@ function menuSchliesser(m){                            // Außenklick schließt 
     document.addEventListener('keydown',esc,true);
   },0);
 }
+let _menuZuKnopf=null, _menuZuTs=0;                    // s. menuSchliesser (Toggle)
+function menuGeradeZu(knopf){
+  // Wahr, wenn der Außenklick-Schließer das Menü soeben über GENAU diesen
+  // Knopf weggeräumt hat — dann ist der laufende click das Zumachen.
+  if(_menuZuKnopf&&knopf===_menuZuKnopf&&Date.now()-_menuZuTs<400){_menuZuKnopf=null; return true;}
+  return false;
+}
 function aktionsMenu(ev,eintraege){                    // generisches Klick-Menü an einem Knopf
   ev.stopPropagation();
+  if(menuGeradeZu(ev.currentTarget))return;            // 2. Klick = schließen (JB 05.08.)
   document.querySelectorAll('.itemmenu').forEach(m=>m.remove());
   const m=document.createElement('div'); m.className='itemmenu';
   m.innerHTML=eintraege.map((e,i)=>`<button data-i="${i}">${e[0]}</button>`).join('');
@@ -5418,6 +5454,8 @@ function ziehTooltip(ev,id){
    [Label, fn] klicken normal; [Label, optionenOderFunktion, 'sub'] zeigen ▸
    und klappen bei Hover/Klick RECHTS DANEBEN ein Flyout aus (Haken = aktiv). */
 function kontextMenuBauen(pos, eintraege){
+  // ⋯-Knöpfe (kein Rechtsklick): 2. Klick schließt statt neu zu öffnen.
+  if(pos.clientX===undefined&&pos.currentTarget&&menuGeradeZu(pos.currentTarget))return;
   document.querySelectorAll('.itemmenu').forEach(m=>m.remove());
   const m=document.createElement('div'); m.className='itemmenu';
   m.innerHTML=eintraege.map((e,i)=>e[2]==='sub'
@@ -5539,12 +5577,13 @@ function kachel(x){
   // Build 144o (JB): kleine ✂ oben rechts, wenn diese Kachel ein Ausschnitt ist
   // (der Hauptsong liegt dann im Rechtsklick) — damit man es auf einen Blick sieht.
   const schere=x.clip?'<span class="clip-schere" title="Ausschnitt — der Hauptsong liegt im Rechtsklick">✂</span>':'';
+  const herz=x.herz?'<span class="herzbadge" title="❤ Lieblingssong">♥</span>':'';
   const sel=libAuswahl.has(x.id)?' sel':'';
   // Ausführliche Details nur noch als Tooltip auf der Info-Zeile (Kachel bleibt ruhig).
   const det=[COLDEF.kategorie.t(x),COLDEF.qualitaet.t(x),technikText(x),mb(x.groesse),
              x.dauer?zeit(x.dauer):'',x.uploader||'',ytdatum(x.upload_date)].filter(Boolean).join('  ·  ');
   return `<div class="kachel ${x.vorhanden?'':'weg'}${sel}" data-id="${x.id}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}>
-    <div class="thumbwrap ${quelle?'':'platzhalter'}" onclick="thumbClick(event,'${x.id}')" title="Abspielen">${thumb}${dauer}${weg}${schere}</div>
+    <div class="thumbwrap ${quelle?'':'platzhalter'}" onclick="thumbClick(event,'${x.id}')" title="Abspielen">${thumb}${dauer}${weg}${schere}${herz}</div>
     <div class="kbody">
       <div class="ktitel" title="${esc(x.titel)}">${esc(x.titel)}</div>
       <div class="kinfo" title="${esc(det)}">${kachelInfo(x)}</div>
@@ -5560,6 +5599,7 @@ function aktBtnsListe(x){
   let b='<div class="lakt">';
   if(x.vorhanden){
     b+=`<button class="ib play" onclick="event.stopPropagation();playerPlay(['${x.id}'])" title="Abspielen">▶</button>`;
+    b+=herzKnopf(x);
     b+=`<button class="ib" onclick="plAddMenu(event,'${x.id}')" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
     b+=`<button class="ib" onclick="event.stopPropagation();biblio('${x.id}','ordner')" title="Im Ordner zeigen">📁</button>`;
   }else{
@@ -6600,6 +6640,7 @@ function fernsehModus(){
   // TV-Modus IST das Player-Vollbild (große Leiste, ⏪/⏩-Spulen, Panel per
   // Fernbedienung); die eigene TV-Oberfläche folgt als Teilprojekt 2.
   if(typeof ansichtZu==='function')ansichtZu();
+  const o=document.getElementById('optionen'); if(o)o.remove();
   const m=document.getElementById('pl-media');
   if(!m||!aktKey()){toast('📺 Erst einen Titel abspielen — der Fernsehmodus ist der Vollbild-Player.');return;}
   if(!document.fullscreenElement&&m.requestFullscreen)m.requestFullscreen();
@@ -8292,6 +8333,9 @@ setInterval(laden,1000);
             <button class="viewbtn" id="vb-alben" onclick="libAnsicht('alben')" title="Alben — gruppiert nach Künstler/Album">▤</button>
             <button class="viewbtn" id="vb-liste" onclick="libAnsicht('liste')" title="Liste">☰</button>
           </span></div>
+        <!-- JB 05.08. („Ich finde den fernsehmodus nicht"): ganz nach OBEN —
+             der wichtigste Modus versteckt sich nicht am Listenende. -->
+        <button class="mbtn" onclick="fernsehModus()" title="Player als Vollbild: große Leiste, ⏪/⏩-Spulen, Untertitel-Panel per Fernbedienung">📺 Fernsehmodus</button>
         <div class="msep"></div>
         <!-- Build 144l (JB 25.07.): „Nur Songs" ist von hier in die Abspielart
              (▶-Symbol im Player) gewandert — Alles · Nur Ton · Nur Video ·
@@ -8299,6 +8343,7 @@ setInterval(laden,1000);
         <div class="mzeile"><span>Filter</span>
           <select id="libfilter" onchange="libMalen()">
             <option value="alle">Alle</option>
+            <option value="herz">❤ Lieblingssongs</option>
             <option value="vorhanden">Nur vorhandene</option>
             <option value="verschoben">Nur verschobene/gelöschte</option>
           </select></div>
@@ -8312,7 +8357,6 @@ setInterval(laden,1000);
         <button class="mbtn" id="libselbtn" onclick="libSelectToggle()">☑ Mehrfach-Auswahl</button>
         <button class="mbtn" onclick="dublettenPopover(event);ansichtZu()">⧉ Dubletten finden…</button>
         <button class="mbtn" onclick="autotagAlle();ansichtZu()">🏷 Auto-Tagging (MusicBrainz)…</button>
-        <button class="mbtn" onclick="fernsehModus()" title="Player als Vollbild: große Leiste, ⏪/⏩-Spulen, Untertitel-Panel per Fernbedienung">📺 Fernsehmodus</button>
         <!-- Build 122 (JB: „sollte selbstständig passieren"): der
              Ordner-Blick läuft jetzt von allein, sobald die Bibliothek
              angesehen wird (gedrosselt, im Hintergrund). Kein Menüpunkt
