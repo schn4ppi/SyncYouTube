@@ -3122,9 +3122,12 @@ def test_wiedergabe_ui_verkabelt():
     block = quelle[i:_funktionsende(quelle, i)]
     assert "t.sub||p.sub||g.sub" in block, "Aufloesung Titel->Playlist->global fehlt"
     assert "wiedergabeAnwenden(x,el)" in quelle, "renderPlayerMedia wendet die Regeln nicht an"
+    # JB 05.08. (Verhaltensaenderung): der Sub-Wechsel gilt GLOBAL ("einmal an
+    # = fuer alle an") statt als Absolut-Regel je Titel - Details im
+    # Blink-Wurzeln-Test.
     i = quelle.index("function subModusSetzen")
-    assert "wiedergabeMerken" in quelle[i:_funktionsende(quelle, i)], \
-        "Sub-Wechsel am laufenden Titel wird nicht gemerkt"
+    assert "global:1" in quelle[i:_funktionsende(quelle, i)], \
+        "Sub-Wechsel wird nicht global gemerkt"
     assert "function speedWaehlen" in quelle and "()=>speedWaehlen(s)" in quelle, \
         "Tempo-Wahl laeuft nicht ueber das Auto-Merken"
     assert "wiedergabeDialog({keys:wgKeys}" in quelle, "Rechtsklick-Einstieg fehlt"
@@ -3667,3 +3670,99 @@ def test_filme_bereich_minimum():
         "Ohne Keyring-Zugang muss der Bereich ehrlich sagen warum er leer ist"
     assert "filme:'🎬 Filme'" in quelle or 'filme:"🎬 Filme"' in quelle, \
         "Ansicht ist nicht im Fenster-Register (VIEWS)"
+
+
+def test_untertitel_blinken_wurzeln():
+    # JB 05.08.: "Wenn ich untertitel eingestellt habe, dann blinken die
+    # untertitel mal an, mal aus." Drei Wurzeln, drei Riegel:
+    quelle = _oberflaeche_html()
+    # 1) Ohne gueltige Uhr wird NICHT gemalt (subTick(null) traf frueher ein
+    #    Browser-Video mit t=0 und wischte die Zeile jede Sekunde leer).
+    i = quelle.index("function subTick")
+    assert "if(!el&&!vlcAktiv())return" in quelle[i:_funktionsende(quelle, i)]
+    # 2) Der Moduswechsel gilt GLOBAL (einmal an = fuer alle an) - die alte
+    #    Absolut-Regel je Titel schaltete Untertitel je nach Vergangenheit ab.
+    i = quelle.index("function subModusSetzen")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "global:1" in block, "Moduswechsel speichert nicht global"
+    assert "wiedergabeMerken({sub" not in block, "Absolut-Regel je Titel lebt noch"
+    # 3) VLC-Uhr-Klemme: kleine Rueckspruenge des Status werfen die Zeile
+    #    nicht mehr aus ihrem Zeitfenster; Bildtakt fuer ALLE Modi.
+    i = quelle.index("async function vlcTick")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "gesch-s.pos<1.5" in block, "Uhr-Klemme fehlt"
+    assert "subCues&&vlcAktiv())subTick(null)" in block
+    i = quelle.index("function vlcKarLauf")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "subMode==='aus'" in block and "!vlcAktiv()" in block
+    # Server-Seite: Altlast-Migration existiert, sichert vor dem Aufraeumen.
+    assert hasattr(app, "wiedergabe_sub_altlast_raeumen")
+
+
+def test_wiedergabe_sub_altlast_migration(tmp_path, monkeypatch):
+    # Die Altlast-Regeln (jeder Klick schrieb sub je Titel) kommen EINMALIG
+    # raus - mit Rueckweg-Datei, andere Felder bleiben unberuehrt.
+    gespeichert = {}
+    monkeypatch.setattr(app, "_json_speichern", lambda p, d: gespeichert.__setitem__(os.path.basename(p), d))
+    monkeypatch.setattr(app, "_geladen", {
+        "a": {"wiedergabe": {"sub": "aus", "speed": 1.5}},
+        "b": {"wiedergabe": {"sub": "zeilen"}},
+        "c": {"titel": "ohne Regel"}})
+    monkeypatch.setattr(app, "CFG", {})
+    n = app.wiedergabe_sub_altlast_raeumen()
+    assert n == 2
+    assert app._geladen["a"]["wiedergabe"] == {"speed": 1.5}, "speed muss bleiben"
+    assert "wiedergabe" not in app._geladen["b"], "leere Regel muss ganz weg"
+    assert gespeichert["wiedergabe_sub_altlast.json"] == {"a": "aus", "b": "zeilen"}
+    assert app.CFG.get("wg_sub_migriert") is True
+    assert app.wiedergabe_sub_altlast_raeumen() == 0, "zweiter Lauf muss no-op sein"
+
+
+def test_ton_spur_wahl():
+    # JB 05.08.: globale Sprach-Praeferenz (de/en) fuer Mehrspur-Filme.
+    # Spurnamen sind uneinheitlich (Bytes, 'deu'/'German'/'Deutsch [Forced]'),
+    # id -1 ist 'Disable' und darf NIE gewaehlt werden.
+    gesetzt = []
+
+    class Sp:
+        def audio_get_track_description(self):
+            return [(-1, b"Disable"), (1, b"English"), (2, b"Deutsch [Forced]")]
+
+        def audio_set_track(self, tid):
+            gesetzt.append(tid)
+    assert app._ton_spur_waehlen(Sp(), "de") is True and gesetzt == [2]
+    gesetzt.clear()
+    assert app._ton_spur_waehlen(Sp(), "en") is True and gesetzt == [1]
+    gesetzt.clear()
+    assert app._ton_spur_waehlen(Sp(), "orig") is True and gesetzt == []
+    assert app._ton_spur_waehlen(Sp(), "fr") is True and gesetzt == [], \
+        "kein Treffer -> Default-Spur behalten, nicht raten"
+
+    class Leer:
+        def audio_get_track_description(self):
+            return []
+    assert app._ton_spur_waehlen(Leer(), "de") is False, \
+        "leere Liste = Start laeuft noch -> im naechsten Takt wieder"
+
+    class EineSpur:
+        def audio_get_track_description(self):
+            return [(-1, b"Disable"), (1, b"Track 1")]
+
+        def audio_set_track(self, tid):
+            gesetzt.append(tid)
+    assert app._ton_spur_waehlen(EineSpur(), "de") is True and gesetzt == []
+    # Verdrahtung: play nimmt ton an, der Status-Takt zieht nach, die
+    # Oberflaeche schickt ton an beiden VLC-play-Absendern mit.
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert '_vlc["ton_wunsch"]' in src and "_ton_spur_waehlen(sp, _vlc[" in src
+    ui = _oberflaeche_html()
+    assert ui.count("ton:w.ton||''") >= 2, "renderPlayerVlc UND vlcNeustart muessen ton mitgeben"
+
+
+def test_fernsehmodus_im_ansicht_menue():
+    # JB 05.08.: "Unter ansicht auch den fersehmodus einbauen."
+    quelle = _oberflaeche_html()
+    assert "📺 Fernsehmodus" in quelle and 'onclick="fernsehModus()"' in quelle
+    i = quelle.index("function fernsehModus")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "requestFullscreen" in block and "aktKey()" in block

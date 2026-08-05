@@ -6012,7 +6012,15 @@ function subModusSetzen(mode){
   subMode=mode;
   if(typeof subModeSitzung!=='undefined')subModeSitzung=mode;   // Sitzungs-Standard mitziehen
   try{localStorage.setItem('ytdl_submode',subMode);}catch(e){}
-  if(typeof wiedergabeMerken==='function')wiedergabeMerken({sub:mode});   // laufenden Titel absolut merken (Etappe C)
+  // Blink-Wurzel 2 + JB 05.08. („wenn ich die einmal an habe, dann sind die
+  // für alle an"): der Umschalter gilt GLOBAL — früher schrieb er eine
+  // Absolut-Regel je Titel, und Titel mit alter „aus"-Regel schalteten die
+  // Untertitel wieder ab. Ausnahmen je Titel/Playlist setzt weiter der
+  // Rechtsklick-Dialog „Wiedergabe…" (bewusst, nicht als Nebenwirkung).
+  fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({global:1,merge:1,sub:mode})}).catch(()=>{});
+  if(typeof daten!=='undefined'&&daten&&daten.config)  // sofort wirksam, ohne Poll
+    daten.config.wiedergabe=Object.assign({},daten.config.wiedergabe||{},{sub:mode});
   if(subMode!=='aus'&&!subCues)subNachladen();         // fehlen welche -> still holen, KEIN Popup
   subAnzeigen();
   const el=document.getElementById('pl-el');           // Wischer sofort mitnehmen (Build 115)
@@ -6078,6 +6086,12 @@ function subOffsetSchieben(d){
 }
 function subTick(el){
   if(!subCues||subMode==='aus')return;
+  // Blink-Wurzel 1 (JB 05.08.: „untertitel blinken mal an, mal aus"): ohne
+  // gültige Uhr NICHT malen. subTick(null) aus dem VLC-Takt traf früher ein
+  // Video im Browser-Element (vlcAktiv()=false, el=null) → t=0 → keine Zeile
+  // gefunden → Anzeige leergewischt; das nächste timeupdate malte sie neu —
+  // exakt das 1-Hz-Blinken.
+  if(!el&&!vlcAktiv())return;
   // Zeit-Quelle je Gerät: Browser = <audio>/<video>, VLC = geschätzte
   // Status-Zeit (JB-Fund 05.08.: am Gerät VLC kam nie ein Untertitel).
   const t=(vlcAktiv()?vlcPosGeschaetzt():(el?el.currentTime:0))+(subOffset||0);
@@ -6581,6 +6595,15 @@ function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
 function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)return;
   if(document.fullscreenElement)document.exitFullscreen();
   else if(m.requestFullscreen)m.requestFullscreen();}
+function fernsehModus(){
+  // JB 05.08.: „Unter Ansicht auch den Fernsehmodus einbauen" — der heutige
+  // TV-Modus IST das Player-Vollbild (große Leiste, ⏪/⏩-Spulen, Panel per
+  // Fernbedienung); die eigene TV-Oberfläche folgt als Teilprojekt 2.
+  if(typeof ansichtZu==='function')ansichtZu();
+  const m=document.getElementById('pl-media');
+  if(!m||!aktKey()){toast('📺 Erst einen Titel abspielen — der Fernsehmodus ist der Vollbild-Player.');return;}
+  if(!document.fullscreenElement&&m.requestFullscreen)m.requestFullscreen();
+}
 function plbPip(){                                     // natives Bild-in-Bild (JB 21.07.)
   const el=document.getElementById('pl-el');
   if(!el||el.tagName!=='VIDEO'){toast('Bild-in-Bild geht nur bei Videos.');return;}
@@ -6745,7 +6768,7 @@ function renderPlayerVlc(media,x,k){
   // und bei eingeschalteten Untertiteln lädt VLC die .vtt als eigene Spur.
   const w=wiedergabeFuer(x);
   vlcRateLetzte=w.speed||playSpeed||1;
-  vlcBefehl('play',{key:k,vol:plVol,rate:vlcRateLetzte,sub:subMode!=='aus'}).then(s=>{
+  vlcBefehl('play',{key:k,vol:plVol,rate:vlcRateLetzte,sub:subMode!=='aus',ton:w.ton||''}).then(s=>{
     if(s&&!s.verfuegbar){                              // VLC unterwegs verschwunden -> Rückfall
       toast(s.grund||'VLC nicht gefunden — der Browser-Player übernimmt.');
       plGeraet='browser'; try{localStorage.setItem('ytdl_geraet','browser');}catch(e){}
@@ -6762,11 +6785,13 @@ function vlcPosGeschaetzt(){
   return vlcPosLetzte+(vlcSpielt?((Date.now()-vlcPosTs)/1000)*(vlcRateLetzte||1):0);
 }
 function vlcKarLauf(){
-  // Karaoke-Wischer im Bildtakt auch am Gerät VLC (Pendant zu karLauf).
+  // Untertitel im Bildtakt am Gerät VLC — für ALLE Modi, nicht nur Karaoke
+  // (Blink-Fix 05.08.: der 1-s-Status allein ließ Zeilen an den Cue-Grenzen
+  // flackern und Cues unter 1 s ganz ausfallen).
   if(!window.requestAnimationFrame)return;
   cancelAnimationFrame(karRAF);
   const schritt=()=>{
-    if(plGeraet!=='vlc'||!vlcSpielt||subMode!=='karaoke'){karRAF=0; return;}
+    if(plGeraet!=='vlc'||!vlcAktiv()||!vlcSpielt||subMode==='aus'){karRAF=0; return;}
     subTick(null);
     karRAF=requestAnimationFrame(schritt);
   };
@@ -6778,7 +6803,7 @@ function vlcNeustart(){
   const k=aktKey(); if(!k)return;
   const w=wiedergabeFuer(libFind(k));
   const pos=Math.max(0,(vlcPosLetzte||0)-3);
-  vlcBefehl('play',{key:k,vol:plVol,rate:(w.speed||playSpeed||1),sub:subMode!=='aus',pos});
+  vlcBefehl('play',{key:k,vol:plVol,rate:(w.speed||playSpeed||1),sub:subMode!=='aus',pos,ton:w.ton||''});
   toast('↻ VLC neu verbunden'+(pos>0?' — weiter bei '+zeit(pos):''));
 }
 /* Etappe set_hwnd (JB-Go): läuft die Oberfläche in der PROGRAMM-HÜLLE
@@ -6816,11 +6841,20 @@ async function vlcTick(){
   if(s.rate)vlcRateLetzte=s.rate;
   if(s.dauer)vlcDauerLetzte=s.dauer;
   vlcSpielt=(s.zustand==='spielt');
-  if(vlcSpielt){vlcPosLetzte=s.pos; vlcPosTs=Date.now();}
-  // Untertitel am Gerät VLC: der Status-Takt treibt die Anzeige (Zeilen/
-  // Transkript); Karaoke bekommt seinen eigenen Bildtakt mit Schätz-Zeit.
-  if(subMode!=='aus'&&subCues)subTick(null);
-  if(subMode==='karaoke'&&vlcSpielt&&!karRAF)vlcKarLauf();
+  if(vlcSpielt){
+    // Blink-Wurzel 3 (Uhr-Klemme): der frische Status hängt oft ein paar
+    // hundert ms HINTER der weiterlaufenden Schätz-Uhr — kleine Rücksprünge
+    // warfen die Untertitel-Zeile kurz aus ihrem Zeitfenster (leer, nächster
+    // Takt wieder da = Flackern an Zeilen-Grenzen). Nur echte Sprünge
+    // (Seek/Drift > 1,5 s) setzen die Uhr zurück.
+    const gesch=vlcPosGeschaetzt();
+    if(!(s.pos<gesch&&gesch-s.pos<1.5)){vlcPosLetzte=s.pos; vlcPosTs=Date.now();}
+  }
+  // Untertitel am Gerät VLC: der Bildtakt (vlcKarLauf, jetzt für ALLE Modi)
+  // treibt die Anzeige weich; der 1-s-Takt bleibt Fallback — aber nur mit
+  // gültiger VLC-Uhr (Blink-Wurzel 1: nie mit t=0 malen).
+  if(subMode!=='aus'&&subCues&&vlcAktiv())subTick(null);
+  if(subMode!=='aus'&&vlcSpielt&&!karRAF)vlcKarLauf();
   // Die NORMALE Player-Leiste spiegelt den VLC-Zustand (JB: identische
   // Optik): Play/Pause-Symbol überall, Tempo-Knopf zeigt die echte Rate.
   document.querySelectorAll('[data-tr="pp"]').forEach(b=>{
@@ -8278,6 +8312,7 @@ setInterval(laden,1000);
         <button class="mbtn" id="libselbtn" onclick="libSelectToggle()">☑ Mehrfach-Auswahl</button>
         <button class="mbtn" onclick="dublettenPopover(event);ansichtZu()">⧉ Dubletten finden…</button>
         <button class="mbtn" onclick="autotagAlle();ansichtZu()">🏷 Auto-Tagging (MusicBrainz)…</button>
+        <button class="mbtn" onclick="fernsehModus()" title="Player als Vollbild: große Leiste, ⏪/⏩-Spulen, Untertitel-Panel per Fernbedienung">📺 Fernsehmodus</button>
         <!-- Build 122 (JB: „sollte selbstständig passieren"): der
              Ordner-Blick läuft jetzt von allein, sobald die Bibliothek
              angesehen wird (gedrosselt, im Hintergrund). Kein Menüpunkt

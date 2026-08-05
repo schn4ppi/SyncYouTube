@@ -2351,6 +2351,41 @@ def vlc_status():
             "eingebettet": bool(_vlc.get("hwnd"))}
 
 
+TON_ALIAS = {"de": ("de", "deu", "ger", "german", "deutsch"),
+             "en": ("en", "eng", "english", "englisch")}
+
+
+def _ton_spur_waehlen(sp, wunsch):
+    """Tonspur nach Sprach-Wunsch setzen (JB 05.08.: „eine Auswahl generell").
+    Spurnamen kommen aus den Container-Metadaten und sind uneinheitlich
+    ('deu', 'German', 'Deutsch [Forced]') — darum Alias-Matching. True heißt
+    „erledigt" (auch: nur eine Spur / kein Treffer ⇒ Default-Spur behalten);
+    False heißt „Liste noch leer, im nächsten Takt wieder" (Start asynchron)."""
+    if wunsch in (None, "", "orig"):
+        return True
+    try:
+        spuren = sp.audio_get_track_description() or []
+    except Exception:                                # noqa: BLE001 — später erneut
+        return False
+    if not spuren:
+        return False                                 # noch nicht geladen
+    if len(spuren) <= 2:                             # nur 'Disable' + eine Spur
+        return True
+    aliasse = TON_ALIAS.get(wunsch, (wunsch,))
+    for tid, name in spuren:
+        if tid < 0:
+            continue                                 # 'Disable' nie wählen
+        n = (name.decode("utf-8", "replace") if isinstance(name, bytes)
+             else str(name)).lower()
+        if any(a in n for a in aliasse):
+            try:
+                sp.audio_set_track(tid)
+            except Exception:                        # noqa: BLE001 — später erneut
+                return False
+            return True
+    return True                                      # kein Treffer ⇒ Default bleibt
+
+
 def vlc_kommando(daten):
     """Befehl vom Browser an den VLC-Motor; Antwort ist immer der Status.
     'status' lädt libvlc bewusst NICHT nach (der 1-s-Takt soll einen fehlenden
@@ -2375,6 +2410,9 @@ def vlc_kommando(daten):
                     sp.set_media(_vlc["instanz"].media_new(pfad))
                 sp.play()
                 _vlc["key"] = daten.get("key") or ""
+                # Sprach-Wunsch fürs Nachziehen merken (die Spur-Liste ist erst
+                # NACH dem asynchronen Start da; leer/orig = Datei-Standard).
+                _vlc["ton_wunsch"] = (str(daten.get("ton") or "").lower() or None)
                 if isinstance(daten.get("vol"), (int, float)):
                     _vlc["vol_wunsch"] = max(0, min(125, int(daten["vol"])))
                     sp.audio_set_volume(_vlc["vol_wunsch"])
@@ -2437,6 +2475,11 @@ def vlc_kommando(daten):
             w = _vlc.get("vol_wunsch")
             if w is not None and sp.audio_get_volume() != w:
                 sp.audio_set_volume(w)
+            # Ton-Sprache (JB 05.08., Mehrspur-Filme): gleiches Nachzieh-Muster —
+            # die Spur-Liste ist erst NACH dem asynchronen Start gefüllt.
+            if _vlc.get("ton_wunsch"):
+                if _ton_spur_waehlen(sp, _vlc["ton_wunsch"]):
+                    _vlc["ton_wunsch"] = None
         except Exception as e:           # noqa: BLE001 — libvlc-Fehler
             # Selbstheilung (JB): kaputte Instanz EINMAL neu aufbauen und den
             # Befehl wiederholen — erst der zweite Fehlschlag wird gemeldet.
@@ -2834,6 +2877,34 @@ def wiedergabe_setzen(daten):
         if keys:
             _json_speichern(GELADEN_PFAD, _geladen)
         return {"ok": True, "anzahl": len(keys)}
+
+
+def wiedergabe_sub_altlast_raeumen():
+    """Einmalige Räumung (JB 05.08.: „wenn ich die einmal an habe, dann sind
+    die für alle an"): Früher schrieb JEDER Untertitel-Umschalt-Klick eine
+    absolute Je-Titel-Regel — diese Altlast schaltete die Untertitel je nach
+    Titel-Vergangenheit „mal an, mal aus". Der Modus gilt jetzt GLOBAL; die
+    alten sub-Titelregeln kommen raus, RÜCKWEG liegt wortgleich in
+    wiedergabe_sub_altlast.json (nichts wird gelöscht, nur bewegt).
+    Bewusste Ausnahmen bleiben möglich: Rechtsklick → „Wiedergabe…"."""
+    if CFG.get("wg_sub_migriert"):
+        return 0
+    gesichert = {}
+    with _io_lock:
+        for k, e in _geladen.items():
+            w = e.get("wiedergabe") or {}
+            if "sub" in w:
+                gesichert[k] = w.pop("sub")
+                if not w:
+                    e.pop("wiedergabe", None)
+        if gesichert:
+            _json_speichern(GELADEN_PFAD, _geladen)
+    if gesichert:
+        _json_speichern(os.path.join(DATEN_DIR, "wiedergabe_sub_altlast.json"),
+                        gesichert)
+    CFG["wg_sub_migriert"] = True
+    _json_speichern(CONFIG_PFAD, CFG)
+    return len(gesichert)
 
 
 def playlist_sync(pl):
@@ -5299,7 +5370,10 @@ class Handler(BaseHTTPRequestHandler):
                 return _antwort(self, 200, vlc_kommando(
                     {"cmd": "play", "url": strom,
                      "key": "film:" + (daten.get("id") or ""),
-                     "vol": daten.get("vol")}))
+                     "vol": daten.get("vol"),
+                     # globale Sprach-Präferenz (Optionen → Wiedergabe-Standard);
+                     # film:-Keys haben keine Titel-Ebene, global genügt.
+                     "ton": (CFG.get("wiedergabe") or {}).get("ton")}))
             elif self.path == "/api/filme/fortschritt":
                 return _antwort(self, 200, {"ok": filme.fortschritt(
                     daten.get("id") or "", daten.get("position_s") or 0,
@@ -5680,6 +5754,9 @@ def _tray_icon(url):
 def main():
     sys.path.insert(0, SCRIPT_DIR)
     globals()["_START_SIGNATUR"] = _quell_signatur()  # Build 144m: Code-Stand beim Start merken
+    n = wiedergabe_sub_altlast_raeumen()              # einmalig (JB 05.08., s. Docstring)
+    if n:
+        _sag(f"Untertitel-Altlast geräumt: {n} Je-Titel-Regeln → wiedergabe_sub_altlast.json")
     if TESTMODUS:
         # Probe: nichts öffnet sich, nichts bleibt zurück außer dem Probenordner.
         for flag in ("--no-browser", "--no-tray"):
