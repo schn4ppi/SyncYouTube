@@ -1857,7 +1857,13 @@ function esc(t){const d=document.createElement('div');d.textContent=t||'';return
 let _toastTimer=null;
 function toast(text){                                  // kurze, dezente Rückmeldung (calm — kein Alert-Stopp)
   let t=document.getElementById('toast');
-  if(!t){t=document.createElement('div'); t.id='toast'; document.body.appendChild(t);}
+  if(!t){t=document.createElement('div'); t.id='toast';}
+  // Fullscreen-Falle (JB 05.08.): der Browser rendert im Vollbild NUR das
+  // Fullscreen-Element samt Kindern — ein Toast am <body> wäre im
+  // Fernsehmodus/Player-Vollbild unsichtbar. Darum dorthin hängen, wo
+  // gerade wirklich gerendert wird.
+  const ziel=document.fullscreenElement||document.body;
+  if(t.parentNode!==ziel)ziel.appendChild(t);
   t.textContent=text; t.classList.add('an');
   clearTimeout(_toastTimer); _toastTimer=setTimeout(()=>t.classList.remove('an'),2600);
 }
@@ -7054,6 +7060,12 @@ async function tvInfo(id){
   // 🎬-Fenster öffnet sie) — dann übernimmt tvKey nur für sie.
   document.addEventListener('keydown',tvKey,true);
   const el=document.getElementById('tv-info');
+  // Fullscreen-Falle (JB-Fund): im Fernsehmodus rendert der Browser NUR das
+  // Vollbild-Element (#tv) samt Kindern — als Geschwister unter <body>
+  // erschien die Info erst NACH dem Vollbild („öffnet sich im Browser").
+  // Darum die Seite dorthin umhängen, wo gerade gerendert wird.
+  const ziel=document.fullscreenElement||document.body;
+  if(el.parentNode!==ziel)ziel.appendChild(el);
   el.style.display='flex';
   el.innerHTML='<div class="info-body" style="font-size:24px;padding:60px">Lade…</div>';
   let d=null, mw=[], eps=[];

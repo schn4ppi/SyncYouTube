@@ -3994,3 +3994,20 @@ def test_netflix_detailseite():
     assert "!tvOffen&&!tvInfoOffen" in quelle[i:_funktionsende(quelle, i)]
     # Resume: filmePlay nimmt eine Position an
     assert "function filmePlay(id,pos)" in quelle.replace("async ", "")
+
+
+def test_fullscreen_umhaengung():
+    # JB-Fund 05.08.: "wenn ich im fernsehmodus bin, dann oeffnen sich nicht
+    # die infos usw. im fernsehmodus, sondern im browser." Wurzel: die
+    # Fullscreen-API rendert NUR das Vollbild-Element samt Kindern - #tv-info
+    # und #toast lagen als Geschwister unter <body>. Beide haengen sich jetzt
+    # dorthin, wo gerade gerendert wird.
+    quelle = _oberflaeche_html()
+    i = quelle.index("async function tvInfo(")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "document.fullscreenElement||document.body" in block, \
+        "Info-Seite haengt sich nicht ins Vollbild um"
+    i = quelle.index("function toast(")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "document.fullscreenElement||document.body" in block, \
+        "Toasts waeren im Fernsehmodus unsichtbar"
