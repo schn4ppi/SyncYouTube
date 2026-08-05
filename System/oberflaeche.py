@@ -143,6 +143,34 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 .dlbox-body{flex:1 1 auto;min-height:0;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
 .dlbox-body::-webkit-scrollbar{width:6px}.dlbox-body::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
 .dlbox-body .card{margin:0;background:transparent;border:0;padding:6px 10px}
+/* ---- TV-Bibliothek (Sync Teilprojekt 2 v1, JB: „erledige alle aufgaben von
+   der roadmap") — 10-Fuß-Regeln der Medienzentrale-Spec: große Schrift,
+   Cover-Reihen, reine Pfeil-Navigation mit deutlichem Fokus-Rahmen, dunkles
+   Theme, fixe Kopfleiste (Anti-Scroll: nur die Reihen bewegen sich). ---- */
+#tv{position:fixed;inset:0;z-index:900;display:none;flex-direction:column;
+  background:#0c0a09;color:#f2ece5;font-size:22px;overflow:hidden}
+#tv-kopf{display:flex;gap:6px;align-items:center;padding:18px 28px;flex:0 0 auto;
+  background:linear-gradient(#0c0a09 70%,transparent)}
+#tv-kopf .tvtab{font-size:22px;padding:8px 18px;border-radius:999px;background:none;
+  border:2px solid transparent;color:#b9aea4;cursor:pointer;white-space:nowrap}
+#tv-kopf .tvtab.akt{color:#fff;font-weight:700}
+#tv-kopf .tvtab.tv-fokus,#tv .tv-kachel.tv-fokus{border-color:#e8b04b;outline:none}
+#tv-kopf .tvzu{margin-left:auto;font-size:22px;background:none;border:2px solid transparent;
+  border-radius:999px;color:#b9aea4;padding:8px 16px;cursor:pointer}
+#tv-inhalt{flex:1;overflow-y:auto;padding:6px 28px 40px}
+#tv .tv-rtitel{font-size:26px;font-weight:700;margin:18px 2px 10px}
+#tv .tv-band{display:flex;gap:14px;overflow-x:auto;padding:6px 2px 10px;scrollbar-width:none}
+#tv .tv-kachel{flex:0 0 auto;width:150px;cursor:pointer;border:3px solid transparent;
+  border-radius:12px;padding:3px}
+#tv .tv-kachel img{width:100%;height:216px;object-fit:cover;border-radius:9px;
+  background:#221c17;display:block}
+#tv .tv-kachel.quer img{height:96px}
+#tv .tv-kachel.quer{width:170px}
+#tv .tv-ktitel{font-size:15px;margin-top:6px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;text-align:center}
+#tv .tv-leer{color:#8a7d74;font-size:18px;padding:30px 4px}
+#tv-suche{font-size:26px;padding:12px 20px;border-radius:12px;border:2px solid #3a322b;
+  background:#171310;color:#fff;width:min(600px,80%);margin:10px 0}
 /* ❤ Lieblingssongs (JB 05.08.): Herz-Badge auf der Kachel + rote Toggles */
 .herzbadge{position:absolute;top:6px;left:6px;color:#e5484d;font-size:15px;
   text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
@@ -3119,6 +3147,7 @@ function fernFenster(ev){
   // Build 134: zeigt Code + Handy-Link direkt an der Kopfleiste, ohne den
   // Umweg über das Zahnrad. Schwebende Fläche => an den <body> (Build-125-Regel).
   const f=daten&&daten.fernsteuerung; if(!f)return;
+  if(menuGeradeZu(ev.currentTarget))return;            // 2. Klick = zu
   document.querySelectorAll('#fernfly').forEach(x=>x.remove());
   const m=document.createElement('div'); m.className='panelmenu'; m.id='fernfly';
   m.style.minWidth='280px';
@@ -5288,6 +5317,7 @@ function plAddListe(m,key){
 }
 function plAddMenu(ev,key){
   ev.stopPropagation();
+  if(menuGeradeZu(ev.currentTarget))return;            // 2. Klick = zu (JB 05.08.)
   document.querySelectorAll('.itemmenu').forEach(x=>x.remove());
   const m=document.createElement('div'); m.className='itemmenu'; document.body.appendChild(m);
   plAddListe(m,key);
@@ -5298,6 +5328,7 @@ function plAddMenu(ev,key){
 // Kontext-/⋯-Menü am Titel (Explorer-Stil; Einträge mit 'bleib' tauschen nur den Inhalt).
 function libItemMenu(ev,id){
   ev.stopPropagation();
+  if(ev.currentTarget&&menuGeradeZu(ev.currentTarget))return;   // 2. Klick = zu
   document.querySelectorAll('.itemmenu').forEach(m=>m.remove());
   const x=libFind(id); if(!x)return;
   const eintraege=[];
@@ -5513,7 +5544,7 @@ function kmFuellen(f,titel,optionen,fertig){           // optionen: [Label, akti
   f.querySelectorAll('.km-sub button').forEach(b=>b.onclick=(e2)=>{
     e2.stopPropagation(); optionen[+b.dataset.i][2](); fertig();});
 }
-function kmListe(m,titel,optionen){kmFuellen(m,titel,optionen,()=>m.remove());}
+function kmListe(m,titel,optionen){if(!m)return; kmFuellen(m,titel,optionen,()=>m.remove());}   // m fehlt = Toggle hat geschlossen
 
 /* Rechtsklick im PLAYER: Menü für den laufenden Titel (pausiert nichts, startet nichts neu) */
 function playerKontext(ev){
@@ -5823,6 +5854,7 @@ function subSpracheSetzen(l){                          // direkte Wahl (Untertit
    Zweitweg, Taste S wechselt weiter schnell den Modus. */
 function subMenu(ev){
   ev.stopPropagation();
+  if(menuGeradeZu(ev.currentTarget))return;            // 2. Klick aufs 💬 = zu
   document.querySelectorAll('#subfly').forEach(x=>x.remove());
   const m=document.createElement('div'); m.className='panelmenu'; m.id='subfly';
   m.style.minWidth='280px';
@@ -6635,15 +6667,138 @@ function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
 function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)return;
   if(document.fullscreenElement)document.exitFullscreen();
   else if(m.requestFullscreen)m.requestFullscreen();}
+/* ---- TV-Bibliothek (Sync Teilprojekt 2 v1) --------------------------------
+   JB: „erledige alle aufgaben von der roadmap" — der Fernsehmodus öffnet
+   jetzt die eigene 10-Fuß-Ansicht: Menü-Schnitt A (Home · Filme · Serien ·
+   Neu & Beliebt · ❤ · YouTube · Musik · Suche), Poster-Reihen, reine
+   Pfeil-/Fernbedienungs-Navigation (Enter wählt, Esc/Zurück schließt).
+   Enter auf einen Film startet ihn im VLC (Film-Fundament); Enter auf einen
+   Titel spielt ihn im Player. Feinschliff-Runden folgen mit JBs Blick. */
+const TV_TABS=[['suche','🔍'],['home','Home'],['filme','Filme'],['serien','Serien'],
+  ['neu','Neu & Beliebt'],['herz','❤ Favoriten'],['yt','▶ YouTube'],['musik','🎵 Musik']];
+let tvTab='home', tvFokus={r:0,i:0}, tvReihenListe=[], tvFilmReihen=null;
 function fernsehModus(){
-  // JB 05.08.: „Unter Ansicht auch den Fernsehmodus einbauen" — der heutige
-  // TV-Modus IST das Player-Vollbild (große Leiste, ⏪/⏩-Spulen, Panel per
-  // Fernbedienung); die eigene TV-Oberfläche folgt als Teilprojekt 2.
   if(typeof ansichtZu==='function')ansichtZu();
   const o=document.getElementById('optionen'); if(o)o.remove();
-  const m=document.getElementById('pl-media');
-  if(!m||!aktKey()){toast('📺 Erst einen Titel abspielen — der Fernsehmodus ist der Vollbild-Player.');return;}
-  if(!document.fullscreenElement&&m.requestFullscreen)m.requestFullscreen();
+  tvOeffnen();
+}
+function tvOeffnen(){
+  const tv=document.getElementById('tv'); if(!tv)return;
+  tv.style.display='flex'; tvTab='home'; tvFokus={r:0,i:0};
+  document.addEventListener('keydown',tvKey,true);     // capture: Hotkeys treten zurück
+  try{if(!document.fullscreenElement&&tv.requestFullscreen)tv.requestFullscreen().catch(()=>{});}catch(e){}
+  tvLaden();
+}
+function tvZu(){
+  const tv=document.getElementById('tv'); if(!tv)return;
+  tv.style.display='none';
+  document.removeEventListener('keydown',tvKey,true);
+  if(document.fullscreenElement===tv)document.exitFullscreen().catch(()=>{});
+}
+async function tvLaden(){
+  try{tvFilmReihen=await (await fetch('/api/filme/reihen')).json();}
+  catch(e){tvFilmReihen={weiterschauen:[],top:[],neu:[],genres:{}};}
+  tvMalen();
+}
+function tvKopfMalen(){
+  const k=document.getElementById('tv-kopf');
+  k.innerHTML=TV_TABS.map(([id,name])=>
+    `<button class="tvtab${tvTab===id?' akt':''}" data-tv="${id}" onclick="tvTabWahl('${id}')">${name}</button>`).join('')+
+    `<button class="tvzu" onclick="tvZu()" title="Fernsehmodus verlassen (Esc)">✕ Beenden</button>`;
+}
+function tvTabWahl(id){tvTab=id; tvFokus={r:0,i:0}; tvMalen();}
+function tvTitelReihe(name,arr){return [name, arr.map(x=>({art:'titel',id:x.id,
+  name:x.titel, bild:x.cover_album?('/api/cover?id='+encodeURIComponent(x.id)):(x.thumb||''),
+  quer:!x.cover_album}))];}
+function tvFilmReihe(name,arr){return [name, (arr||[]).map(e=>({art:'film',id:e.id,
+  name:e.titel, bild:'/api/filme/bild?id='+encodeURIComponent(e.id)}))];}
+function tvReihenFuer(){
+  const f=tvFilmReihen||{weiterschauen:[],top:[],neu:[],genres:{}};
+  const lib=(typeof libdaten!=='undefined'&&libdaten)||[];
+  const da=lib.filter(x=>x.vorhanden);
+  const audio=x=>x.dateiart?x.dateiart==='audio':(x.kategorie==='MP3');
+  const zuletzt=[...da].filter(x=>x.last_play).sort((a,b)=>b.last_play-a.last_play);
+  const meist=[...da].filter(x=>x.plays).sort((a,b)=>b.plays-a.plays);
+  const neuste=[...da].sort((a,b)=>(b.ts||0)-(a.ts||0));
+  const nurFilm=a=>(a||[]).filter(e=>e.typ==='film'), nurSerie=a=>(a||[]).filter(e=>e.typ==='serie');
+  const genresAls=(filt)=>Object.entries(f.genres||{}).map(([g,a])=>[g,filt(a)])
+    .filter(([,a])=>a.length).slice(0,4).map(([g,a])=>tvFilmReihe(g,a));
+  if(tvTab==='home')return [
+    tvFilmReihe('Weiterschauen',f.weiterschauen), tvFilmReihe('Top 10',f.top),
+    tvFilmReihe('Neu auf dem Server',f.neu),
+    tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz).slice(0,20)),
+    tvTitelReihe('Zuletzt gespielt',zuletzt.slice(0,20))];
+  if(tvTab==='filme')return [tvFilmReihe('Top',nurFilm(f.top))].concat(genresAls(nurFilm));
+  if(tvTab==='serien')return [tvFilmReihe('Top',nurSerie(f.top))].concat(genresAls(nurSerie));
+  if(tvTab==='neu')return [tvFilmReihe('Neu auf dem Server',f.neu), tvFilmReihe('Top 10',f.top)];
+  if(tvTab==='herz')return [tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz))];
+  if(tvTab==='yt')return [tvTitelReihe('Zuletzt geladen',neuste.filter(x=>!audio(x)).slice(0,20)),
+    tvTitelReihe('Zuletzt gespielt',zuletzt.filter(x=>!audio(x)).slice(0,20)),
+    tvTitelReihe('Meistgespielt',meist.filter(x=>!audio(x)).slice(0,20))];
+  if(tvTab==='musik')return [tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz&&audio(x))),
+    tvTitelReihe('Meistgespielt',meist.filter(audio).slice(0,20)),
+    tvTitelReihe('Zuletzt gespielt',zuletzt.filter(audio).slice(0,20))];
+  if(tvTab==='suche'){
+    const q=(document.getElementById('tv-suche')||{value:''}).value.trim().toLowerCase();
+    if(!q)return [];
+    const filme=[...(f.top||[]),...(f.neu||[]),...[].concat(...Object.values(f.genres||{}))];
+    const gesehen=new Set(); const treffF=filme.filter(e=>{if(gesehen.has(e.id))return false;
+      gesehen.add(e.id); return (e.titel||'').toLowerCase().includes(q);});
+    return [tvFilmReihe('Filme & Serien',treffF.slice(0,20)),
+      tvTitelReihe('Deine Bibliothek',da.filter(x=>(x.titel||'').toLowerCase().includes(q)).slice(0,20))];
+  }
+  return [];
+}
+function tvMalen(){
+  tvKopfMalen();
+  const inhalt=document.getElementById('tv-inhalt');
+  tvReihenListe=tvReihenFuer().filter(([,items])=>items.length);
+  const suche=tvTab==='suche'
+    ?`<input id="tv-suche" placeholder="Titel suchen…" oninput="tvMalen()" autocomplete="off">`:'';
+  if(!tvReihenListe.length){
+    inhalt.innerHTML=suche+(tvTab==='suche'?'':'<div class="tv-leer">Hier ist noch nichts — '+
+      (tvTab==='herz'?'markiere Songs mit dem ♡-Herz.':'der Film-Katalog füllt sich über 🎬 Filme → ⟳ Abgleichen.')+'</div>');
+  }else{
+    inhalt.innerHTML=suche+tvReihenListe.map(([name,items],r)=>
+      `<div class="tv-reihe"><div class="tv-rtitel">${esc(name)}</div><div class="tv-band">`+
+      items.map((e,i)=>`<div class="tv-kachel${e.quer?' quer':''}" data-r="${r}" data-i="${i}" onclick="tvWahl(${r},${i})">`+
+        (e.bild?`<img loading="lazy" src="${e.bild}" onerror="this.style.visibility='hidden'">`:'<img>')+
+        `<div class="tv-ktitel">${esc(e.name)}</div></div>`).join('')+`</div></div>`).join('');
+  }
+  const s=document.getElementById('tv-suche'); if(s&&tvTab==='suche'){const v=s.value; s.focus(); s.value=''; s.value=v;}
+  tvFokusMalen();
+}
+function tvFokusMalen(){
+  document.querySelectorAll('#tv .tv-fokus').forEach(x=>x.classList.remove('tv-fokus'));
+  if(tvFokus.r<0){                                     // Kopfleiste
+    const tabs=document.querySelectorAll('#tv-kopf .tvtab');
+    const b=tabs[Math.max(0,Math.min(tabs.length-1,tvFokus.i))];
+    if(b){b.classList.add('tv-fokus'); b.scrollIntoView({block:'nearest',inline:'nearest'});}
+    return;
+  }
+  const k=document.querySelector(`#tv .tv-kachel[data-r="${tvFokus.r}"][data-i="${tvFokus.i}"]`);
+  if(k){k.classList.add('tv-fokus'); k.scrollIntoView({block:'nearest',inline:'nearest'});}
+}
+function tvWahl(r,i){
+  const e=(tvReihenListe[r]||[])[1]&&tvReihenListe[r][1][i]; if(!e)return;
+  if(e.art==='film'){filmePlay(e.id);}
+  else{tvZu(); playerPlay([e.id]);}
+}
+function tvKey(ev){
+  const tv=document.getElementById('tv');
+  if(!tv||tv.style.display==='none')return;
+  if(ev.target&&ev.target.id==='tv-suche'&&!['Escape','ArrowDown','ArrowUp'].includes(ev.key))return;
+  const tabs=TV_TABS.length;
+  const reihe=()=> (tvReihenListe[tvFokus.r]||[[],[]])[1]||[];
+  let getan=true;
+  if(ev.key==='Escape'||ev.key==='Backspace'){ if(tvFokus.r>=0&&ev.key==='Backspace'){tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};} else tvZu(); }
+  else if(ev.key==='ArrowLeft'){ if(tvFokus.r<0)tvFokus.i=Math.max(0,tvFokus.i-1); else tvFokus.i=Math.max(0,tvFokus.i-1); }
+  else if(ev.key==='ArrowRight'){ if(tvFokus.r<0)tvFokus.i=Math.min(tabs-1,tvFokus.i+1); else tvFokus.i=Math.min(reihe().length-1,tvFokus.i+1); }
+  else if(ev.key==='ArrowUp'){ if(tvFokus.r===0){tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};} else if(tvFokus.r>0){tvFokus.r--; tvFokus.i=Math.min(tvFokus.i,Math.max(0,(tvReihenListe[tvFokus.r][1]||[]).length-1));} }
+  else if(ev.key==='ArrowDown'){ if(tvFokus.r<0){tvFokus={r:0,i:0};} else if(tvFokus.r<tvReihenListe.length-1){tvFokus.r++; tvFokus.i=Math.min(tvFokus.i,Math.max(0,(tvReihenListe[tvFokus.r][1]||[]).length-1));} }
+  else if(ev.key==='Enter'){ if(tvFokus.r<0){tvTabWahl(TV_TABS[Math.max(0,tvFokus.i)][0]); tvFokus={r:-1,i:tvFokus.i};} else tvWahl(tvFokus.r,tvFokus.i); }
+  else getan=false;
+  if(getan){ev.preventDefault(); ev.stopPropagation(); tvFokusMalen();}
 }
 function plbPip(){                                     // natives Bild-in-Bild (JB 21.07.)
   const el=document.getElementById('pl-el');
@@ -8363,6 +8518,13 @@ setInterval(laden,1000);
              mehr nötig. -->
       </div>
       <div class="colmenu" id="libcolmenu" style="display:none"></div>
+
+      <!-- TV-Bibliothek (Sync Teilprojekt 2 v1): Vollbild-Overlay, Menü-Schnitt A
+           (JB-bestätigt) — eigene Einträge für YouTube und Musik in der Leiste. -->
+      <div id="tv">
+        <div id="tv-kopf"></div>
+        <div id="tv-inhalt"></div>
+      </div>
 
 </body>
 </html>

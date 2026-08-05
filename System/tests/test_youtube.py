@@ -3760,12 +3760,14 @@ def test_ton_spur_wahl():
 
 
 def test_fernsehmodus_im_ansicht_menue():
-    # JB 05.08.: "Unter ansicht auch den fersehmodus einbauen."
+    # JB 05.08.: "Unter ansicht auch den fersehmodus einbauen." Seit
+    # Teilprojekt 2 oeffnet er die TV-Bibliothek (Vollbild uebernimmt tvOeffnen).
     quelle = _oberflaeche_html()
     assert "📺 Fernsehmodus" in quelle and 'onclick="fernsehModus()"' in quelle
     i = quelle.index("function fernsehModus")
-    block = quelle[i:_funktionsende(quelle, i)]
-    assert "requestFullscreen" in block and "aktKey()" in block
+    assert "tvOeffnen()" in quelle[i:_funktionsende(quelle, i)]
+    i = quelle.index("function tvOeffnen")
+    assert "requestFullscreen" in quelle[i:_funktionsende(quelle, i)]
 
 
 def test_herz_lieblingssongs(monkeypatch):
@@ -3807,6 +3809,16 @@ def test_menu_toggle_zweiter_klick_schliesst():
     i = quelle.index("function kontextMenuBauen")
     assert "menuGeradeZu(pos.currentTarget)" in quelle[i:_funktionsende(quelle, i)], \
         "auch die ...-Knoepfe der Kacheln muessen toggeln"
+    # JB-Nachschlag 05.08.: "andocken an bibliothek/player/playlist geht nach
+    # dem zweiten klick nicht zu" - JEDER eigene Menue-Oeffner braucht den
+    # Guard, nicht nur die generischen Bauer.
+    for fn in ("plAddMenu", "libItemMenu", "subMenu", "fernFenster"):
+        i = quelle.index("function " + fn)
+        assert "menuGeradeZu(" in quelle[i:_funktionsende(quelle, i)], \
+            f"{fn} kann per Knopf nicht geschlossen werden"
+    i = quelle.index("function kmListe")
+    assert "if(!m)return" in quelle[i:_funktionsende(quelle, i)], \
+        "speedMenu wuerde bei greifendem Toggle auf undefined crashen"
 
 
 def test_fernsehmodus_auffindbar():
@@ -3819,3 +3831,31 @@ def test_fernsehmodus_auffindbar():
     assert 'onclick="fernsehModus()"' in kopf, "Eintrag muss OBEN im Ansicht-Menue stehen"
     i = quelle.index("function optionenToggle")
     assert "Fernsehmodus" in quelle[i:_funktionsende(quelle, i)]
+    # Seit Teilprojekt 2: der Fernsehmodus oeffnet die TV-Bibliothek.
+    i = quelle.index("function fernsehModus")
+    assert "tvOeffnen()" in quelle[i:_funktionsende(quelle, i)]
+
+
+def test_tv_bibliothek():
+    # Sync Teilprojekt 2 v1 (JB: "erledige alle aufgaben von der roadmap"):
+    # 10-Fuss-Vollbild-Ansicht mit Menue-Schnitt A, Poster-Reihen und reiner
+    # Pfeil-Navigation (Fernbedienung = Pfeiltasten + Enter + Zurueck).
+    quelle = _oberflaeche_html()
+    assert 'id="tv"' in quelle and 'id="tv-kopf"' in quelle and 'id="tv-inhalt"' in quelle
+    # Menue-Schnitt A: eigene Eintraege fuer YouTube und Musik neben den
+    # Streamer-Tabs (JB-bestaetigt).
+    for teil in ("'home'", "'filme'", "'serien'", "'neu'", "'herz'", "'yt'", "'musik'", "'suche'"):
+        assert teil in quelle[quelle.index("const TV_TABS"):quelle.index("const TV_TABS") + 300], teil
+    for fn in ("tvOeffnen", "tvZu", "tvLaden", "tvMalen", "tvKey", "tvWahl"):
+        assert "function " + fn in quelle, fn + " fehlt"
+    i = quelle.index("function tvKey")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for taste in ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", "Escape"):
+        assert taste in block, "D-Pad-Taste " + taste + " fehlt"
+    assert "stopPropagation" in block, "TV-Tasten muessen die globalen Hotkeys verdraengen"
+    i = quelle.index("function tvWahl")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "filmePlay(" in block and "playerPlay([" in block
+    assert "/api/filme/reihen" in quelle[quelle.index("function tvLaden"):]
+    assert "scrollIntoView" in quelle[quelle.index("function tvFokusMalen"):], \
+        "Fokus muss in die Sicht rollen (10-Fuss-Regel)"
