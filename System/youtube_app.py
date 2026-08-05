@@ -90,6 +90,10 @@ QUEUE_PFAD = os.path.join(DATEN_DIR, "warteschlange.json")
 GELADEN_PFAD = os.path.join(DATEN_DIR, "geladen_log.json")  # „Datenbank" fertiger Downloads
 PLAYLIST_PFAD = os.path.join(DATEN_DIR, "playlists.json")
 STATUS_PFAD = os.path.join(DATEN_DIR, "yt_status.json")   # fürs Dashboard (read-only Konsument)
+# Film-Fundament (Doku/SYNC_FILME_SPEC.md): eigenes Modul, Einbahn-Regel wie
+# geo/vpn — filme importiert NIE youtube_app. Braucht DATEN_DIR (Testmodus!).
+import filme                                              # noqa: E402
+filme.einrichten(DATEN_DIR)
 BIN_DIR = os.path.join(SCRIPT_DIR, "bin")
 # In der Release-exe sind ffmpeg/ffprobe/deno MIT eingepackt (PyInstaller-Bundle,
 # entpackt nach sys._MEIPASS/bin). Ein eigener bin\-Ordner NEBEN der exe hat
@@ -2361,10 +2365,14 @@ def vlc_kommando(daten):
             return {"verfuegbar": False, "grund": grund, "key": "", "zustand": "aus"}
         try:
             if cmd == "play":
-                pfad = _pfad_zu_key(daten.get("key") or "")
-                if not (pfad and os.path.isfile(pfad)):
-                    return {**vlc_status(), "fehler": "Datei nicht gefunden"}
-                sp.set_media(_vlc["instanz"].media_new(pfad))
+                if daten.get("url"):     # Film-Fundament: Netz-Strom (Jellyfin)
+                    pfad = ""            # statt lokaler Datei — Token bleibt am PC
+                    sp.set_media(_vlc["instanz"].media_new(daten["url"]))
+                else:
+                    pfad = _pfad_zu_key(daten.get("key") or "")
+                    if not (pfad and os.path.isfile(pfad)):
+                        return {**vlc_status(), "fehler": "Datei nicht gefunden"}
+                    sp.set_media(_vlc["instanz"].media_new(pfad))
                 sp.play()
                 _vlc["key"] = daten.get("key") or ""
                 if isinstance(daten.get("vol"), (int, float)):
@@ -4929,6 +4937,23 @@ def _neustart_pruefen():
     threading.Timer(0.3, _selbst_neustart).start()    # Antwort erst rausgeben lassen
 
 
+_filme_sync_laeuft = threading.Lock()
+
+
+def filme_sync_pruefen():
+    """6-h-Katalog-Abzug im BESTEHENDEN Ticker (Last-Budget: kein neuer Timer);
+    ohne Keyring-Zugang still (der Film-Teil ist dann einfach aus)."""
+    if not filme.sync_faellig() or not filme._zugang():
+        return
+    if _filme_sync_laeuft.acquire(blocking=False):
+        def lauf():
+            try:
+                filme.katalog_abzug()
+            finally:
+                _filme_sync_laeuft.release()
+        threading.Thread(target=lauf, daemon=True).start()
+
+
 def ticker_schleife():
     """Fortschritt alle 5 s sichern, damit ein Absturz höchstens 5 s Anzeige kostet."""
     while True:
@@ -4938,6 +4963,7 @@ def ticker_schleife():
         _fehler_aufraeumen()
         queue_heilen()                                # Build 137: hängende Aufträge (JB Punkt 6)
         _neustart_pruefen()                           # Build 144m: neuer Code -> Selbst-Neustart
+        filme_sync_pruefen()                          # Film-Fundament: 6-h-Abzug
 
 
 # ---------------------------------------------------------------- HTTP-Server
@@ -5067,6 +5093,27 @@ class Handler(BaseHTTPRequestHandler):
                 _antwort(self, 200, bild, "image/jpeg", cache=3600)
             else:
                 _antwort(self, 404, {"fehler": "kein eingebettetes Cover"})
+        # ---- Film-Fundament (Doku/SYNC_FILME_SPEC.md): nur gemappte Felder
+        # und lokal gecachte Bilder gehen raus — nie Token/Server-Adresse.
+        elif self.path.startswith("/api/filme/katalog"):
+            _antwort(self, 200, filme.katalog_lesen())
+        elif self.path.startswith("/api/filme/reihen"):
+            _antwort(self, 200, filme.reihen())
+        elif self.path.startswith("/api/filme/detail"):
+            fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            d = filme.detail(fid)
+            if d:
+                _antwort(self, 200, d)
+            else:
+                _antwort(self, 404, {"fehler": "unbekannter Film"})
+        elif self.path.startswith("/api/filme/bild"):
+            q = parse_qs(urlparse(self.path).query)
+            bild = filme.bild_holen((q.get("id") or [""])[0],
+                                    (q.get("art") or ["Primary"])[0])
+            if bild:
+                _antwort(self, 200, bild, "image/jpeg", cache=86400)
+            else:
+                _antwort(self, 404, {"fehler": "kein Bild"})
         elif self.path.startswith("/api/addon_hab_liste"):  # Erweiterung: Playlist schon eingereiht? (v1.1.2)
             lid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, addon_hab_liste(lid))
@@ -5241,6 +5288,22 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=untertitel_nachladen, args=(daten.get("id") or "",), daemon=True).start()
             elif self.path == "/api/autotag":
                 threading.Thread(target=autotag_lauf, args=(daten.get("keys"),), daemon=True).start()
+            elif self.path == "/api/filme/sync":       # manueller Katalog-Abzug
+                threading.Thread(target=filme.katalog_abzug, daemon=True).start()
+                return _antwort(self, 200, {"gestartet": True})
+            elif self.path == "/api/filme/play":       # Jellyfin-Strom in den LOKALEN VLC
+                strom = filme.stream_url(daten.get("id") or "")
+                if not strom:
+                    return _antwort(self, 503, {"fehler": "Jellyfin nicht erreichbar "
+                                                          "(Zugang/Netz pruefen)."})
+                return _antwort(self, 200, vlc_kommando(
+                    {"cmd": "play", "url": strom,
+                     "key": "film:" + (daten.get("id") or ""),
+                     "vol": daten.get("vol")}))
+            elif self.path == "/api/filme/fortschritt":
+                return _antwort(self, 200, {"ok": filme.fortschritt(
+                    daten.get("id") or "", daten.get("position_s") or 0,
+                    bool(daten.get("gesehen")))})
             else:
                 return _antwort(self, 404, {"fehler": "unbekannt"})
             _antwort(self, 200, {"ok": True})

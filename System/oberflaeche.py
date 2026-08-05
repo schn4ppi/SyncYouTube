@@ -143,6 +143,14 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 .dlbox-body{flex:1 1 auto;min-height:0;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
 .dlbox-body::-webkit-scrollbar{width:6px}.dlbox-body::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
 .dlbox-body .card{margin:0;background:transparent;border:0;padding:6px 10px}
+/* Filme (Film-Fundament): Poster-Bänder wie bei den Streamern — die REIHE
+   scrollt horizontal in sich (Anti-Scroll: die Seite selbst wächst nicht). */
+#view-filme .f-rtitel{font-weight:700;margin:10px 2px 6px;font-size:14px}
+#view-filme .f-band{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
+#view-filme .f-kachel{flex:0 0 auto;width:108px;cursor:pointer}
+#view-filme .f-kachel img{width:108px;height:162px;object-fit:cover;border-radius:8px;background:#221c17;display:block}
+#view-filme .f-kachel:hover img{outline:2px solid var(--akzent,#e8b04b)}
+#view-filme .f-ktitel{font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Abos im kompakten Download-Fenster: kleiner + ohne die lange Erklärung, damit
    man nicht scrollen muss (JB 21.07.). */
 .dlbox-body #view-abos{font-size:11.5px}
@@ -1608,6 +1616,19 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
     </div>
   </div>
 
+  <div id="view-filme">
+    <!-- Film-Fundament (Doku/SYNC_FILME_SPEC.md, Etappe 7): Anzeige-Minimum
+         als Beweis der Reihen-Engine — das TV-Design ist Teilprojekt 2. -->
+    <div class="card">
+      <div class="zeile" style="align-items:center">
+        <b style="flex:1">🎬 Filme</b>
+        <span id="filme-stand" class="hinweis"></span>
+        <button class="btn" onclick="filmeSync()" title="Katalog jetzt von Jellyfin abziehen (läuft sonst alle 6 h)">⟳ Abgleichen</button>
+      </div>
+      <div id="filme-reihen"></div>
+    </div>
+  </div>
+
   <div id="view-abos">
     <div class="card">
       <!-- Build 127 (JB: „bei Abos kann das Link-Feld weg"): Das zweite
@@ -2028,7 +2049,7 @@ async function setFehlerMin(v){
 }
 
 /* ================= Panels / Docking ================= */
-const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Downloads', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player', plq:'🎶 Playlist', abos:'📡 Abos'};
+const VIEWS={add:'➕ Hinzufügen', queue:'⬇ Downloads', done:'✅ Fertig', log:'📜 Log', lib:'📚 Bibliothek', player:'▶ Player', plq:'🎶 Playlist', abos:'📡 Abos', filme:'🎬 Filme'};
 const DLV=['queue','done','log','abos'];             // Download-Views: fest im dlbox (normal) / Canvas-Panel (mini). Hinzufügen läuft über „Link einfügen" oben
 const DLACTION={queue:["📂 Zielordner","aktion('','ordner_offen')"],
                 done:["🧹 Aufräumen","aktion('','queue_aufraeumen')"],
@@ -2192,6 +2213,7 @@ function renderPanels(){
   if(libSichtbar){if(!libTimer){libLaden();libTimer=setInterval(libPoll,5000);}}
   else{clearInterval(libTimer);libTimer=null;}
   if(L.panels.some(p=>p.active==='abos'))aboLaden();   // Abo-Fenster sichtbar -> Stand auffrischen
+  if(L.panels.some(p=>p.active==='filme'))filmeLaden(); // Filme-Fenster sichtbar -> Reihen laden
   // Playlist als eigenes Fenster? Dann blendet der Player seine Seitenliste aus.
   const plqExtern=L.panels.some(p=>p.views.includes('plq'));
   document.body.classList.toggle('plq-extern',plqExtern);
@@ -3523,6 +3545,43 @@ async function aboPost(daten){
   return await r.json();
 }
 async function aboLaden(){try{const r=await fetch('/api/abos'); aboState=(await r.json()).items||[]; aboMalen();}catch(e){}}
+/* ---- Filme (Film-Fundament, Doku/SYNC_FILME_SPEC.md Etappe 7) --------------
+   Anzeige-Minimum: die serverseitigen Reihen als Poster-Bänder, Klick spielt
+   den Jellyfin-Strom im LOKALEN VLC. Das eigentliche TV-Design ist
+   Teilprojekt 2 — hier geht es um den sichtbaren Beweis der Engine. */
+async function filmeLaden(){
+  const ziel=document.getElementById('filme-reihen'); if(!ziel)return;
+  try{
+    const r=await fetch('/api/filme/reihen'); const d=await r.json();
+    const stand=document.getElementById('filme-stand');
+    const kat=await (await fetch('/api/filme/katalog')).json();
+    if(stand)stand.textContent=kat.stand?('Stand '+new Date(kat.stand*1000).toLocaleString('de-DE')+' · Server '+(kat.server_version||'?')):'';
+    const reihen=[['Weiterschauen',d.weiterschauen],['Top 10',d.top],['Neu auf dem Server',d.neu]]
+      .concat(Object.entries(d.genres||{}));
+    const html=reihen.filter(([,liste])=>liste&&liste.length).map(([name,liste])=>
+      `<div class="f-reihe"><div class="f-rtitel">${esc(name)}</div><div class="f-band">`+
+      liste.map(e=>`<div class="f-kachel" onclick="filmePlay('${esc(e.id)}')" title="${esc(e.titel)}${e.jahr?' ('+e.jahr+')':''}${e.rating?' · ★'+e.rating.toFixed(1):''}${e.fsk?' · '+esc(e.fsk):''}">`+
+        `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
+        `<div class="f-ktitel">${esc(e.titel)}</div></div>`).join('')+
+      `</div></div>`).join('');
+    ziel.innerHTML=html||'<div class="hinweis">Kein Film-Katalog. Jellyfin-Zugang im Windows-Keyring (Sync-Jellyfin) einrichten, dann ⟳ Abgleichen.</div>';
+  }catch(e){ziel.innerHTML='<div class="hinweis">Filme-Reihen nicht erreichbar.</div>';}
+}
+async function filmePlay(id){
+  try{
+    const r=await fetch('/api/filme/play',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id, vol:plVol})});
+    const d=await r.json();
+    if(d.fehler)toast('🎬 '+d.fehler);
+    else toast('🎬 Film läuft im VLC.');
+  }catch(e){toast('🎬 Abspielen fehlgeschlagen.');}
+}
+async function filmeSync(){
+  try{await fetch('/api/filme/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    toast('🎬 Katalog-Abzug gestartet — dauert bei großen Bibliotheken etwas.');
+    setTimeout(filmeLaden, 8000);
+  }catch(e){toast('🎬 Abzug nicht erreichbar.');}
+}
 function aboVor(ts){
   if(!ts)return '';
   const m=Math.max(0,Math.round((Date.now()/1000-ts)/60));

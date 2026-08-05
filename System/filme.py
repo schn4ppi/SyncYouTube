@@ -1,0 +1,450 @@
+# -*- coding: utf-8 -*-
+"""Film-Fundament (Doku/SYNC_FILME_SPEC.md, JB-Go 05.08.2026): die
+Jellyfin-Bibliothek von Renés Server als lokaler Katalog-Spiegel + Bilder +
+TMDB/OMDb-Anreicherung + Reihen-Engine + Abspielweg über den VLC-Motor.
+
+Regeln (Spec „Zugriff & Sicherheit"):
+- Zugangsdaten NUR im Windows-Keyring (Sync-Jellyfin / Sync-TMDB / Sync-OMDb).
+- Der Jellyfin-Token verlässt diesen Server nie: Clients bekommen nur die
+  gemappten Katalog-Felder und Bilder aus dem lokalen Cache; die Stream-URL
+  mit Token geht ausschließlich an den LOKALEN VLC.
+- Einbahn-Regel wie geo/vpn: dieses Modul importiert NIE youtube_app.
+- Alle Netz-Zugriffe laufen über _http() — Tests patchen genau diese Funktion
+  und gehen nie ins Netz.
+"""
+import json
+import os
+import re
+import time
+import urllib.error
+import urllib.request
+
+import familie as fam
+
+_pfade = {}                                # gesetzt von einrichten()
+_sitzung = {}                              # {"token","user_id","version"}
+_fehlversuch_ts = 0.0                      # letzter GESCHEITERTER Abzug (Backoff)
+FEHL_BACKOFF_S = 30 * 60                   # nach Fehlschlag frühestens in 30 min wieder
+META_HALTBAR_S = 14 * 24 * 3600            # Ratings altern langsam (Spec)
+OMDB_TAGES_DECKEL = 950                    # Free-Key: 1.000/Tag — Puffer lassen
+GERAET_KOPF = ('MediaBrowser Client="Sync", Device="SyncYouTube", '
+               'DeviceId="sync-jb", Version="1.0"')
+
+
+def einrichten(daten_dir):
+    """Pfade setzen (DATEN_DIR des Servers — die Testmodus-Weiche greift mit)."""
+    _pfade["katalog"] = os.path.join(daten_dir, "filme_katalog.json")
+    _pfade["meta"] = os.path.join(daten_dir, "filme_meta_cache.json")
+    _pfade["queue"] = os.path.join(daten_dir, "filme_fortschritt_queue.json")
+    _pfade["bilder"] = os.path.join(daten_dir, "filme_bilder")
+
+
+# ---------------------------------------------------------------- Zugang/Netz
+
+def _zugang():
+    try:
+        import keyring
+        url = keyring.get_password("Sync-Jellyfin", "url")
+        ben = keyring.get_password("Sync-Jellyfin", "benutzer")
+        pw = keyring.get_password("Sync-Jellyfin", "passwort")
+        if url and ben and pw:
+            return {"url": url.rstrip("/"), "benutzer": ben, "passwort": pw}
+    except Exception:                      # noqa: BLE001 — ehrlich: kein Zugang
+        pass
+    return None
+
+
+def _meta_keys():
+    try:
+        import keyring
+        return {"tmdb": keyring.get_password("Sync-TMDB", "api_key") or "",
+                "omdb": keyring.get_password("Sync-OMDb", "api_key") or ""}
+    except Exception:                      # noqa: BLE001
+        return {"tmdb": "", "omdb": ""}
+
+
+def _http(url, daten=None, kopf=None, timeout=15):
+    """DER eine Netz-Zugang (Tests patchen genau diese Funktion)."""
+    req = urllib.request.Request(url, method="POST" if daten is not None else "GET")
+    for k, v in (kopf or {}).items():
+        req.add_header(k, v)
+    body = json.dumps(daten).encode("utf-8") if daten is not None else None
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, body, timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read() or b"{}"
+
+
+def _anmelden():
+    if _sitzung.get("token"):
+        return _sitzung
+    z = _zugang()
+    if not z:
+        return None
+    try:
+        st, roh = _http(z["url"] + "/Users/AuthenticateByName",
+                        daten={"Username": z["benutzer"], "Pw": z["passwort"]},
+                        kopf={"X-Emby-Authorization": GERAET_KOPF})
+    except Exception:                      # noqa: BLE001 — Server aus/Netz weg
+        return None
+    if st != 200:
+        return None
+    d = json.loads(roh or b"{}")
+    _sitzung.update(token=d.get("AccessToken") or "",
+                    user_id=(d.get("User") or {}).get("Id") or "")
+    try:
+        st, roh = _http(z["url"] + "/System/Info",
+                        kopf={"X-Emby-Token": _sitzung["token"]})
+        _sitzung["version"] = (json.loads(roh).get("Version") or "?") if st == 200 else "?"
+    except Exception:                      # noqa: BLE001 — Version ist Kür
+        _sitzung["version"] = "?"
+    return _sitzung
+
+
+# ---------------------------------------------------------------- Katalog
+
+def _eintrag(it):
+    """Jellyfin-Item → unser Katalog-Eintrag. WICHTIG (Token-Wächter): NUR die
+    hier gemappten Felder verlassen den Server — nie das rohe Objekt."""
+    stroeme = it.get("MediaStreams") or []
+    ud = it.get("UserData") or {}
+    ticks = it.get("RunTimeTicks") or 0
+    return {"id": it.get("Id") or "", "titel": it.get("Name") or "",
+            "typ": "serie" if it.get("Type") == "Series" else "film",
+            "jahr": it.get("ProductionYear"), "genres": it.get("Genres") or [],
+            "fsk": it.get("OfficialRating") or "", "rating": it.get("CommunityRating"),
+            "laufzeit_min": round(ticks / 600_000_000) if ticks else None,
+            "imdb": (it.get("ProviderIds") or {}).get("Imdb") or "",
+            "tmdb": (it.get("ProviderIds") or {}).get("Tmdb") or "",
+            "video_codec": next((s.get("Codec") for s in stroeme
+                                 if s.get("Type") == "Video"), ""),
+            "audio_codec": next((s.get("Codec") for s in stroeme
+                                 if s.get("Type") == "Audio"), ""),
+            "bild_tag": (it.get("ImageTags") or {}).get("Primary") or "",
+            "hinzugefuegt": it.get("DateCreated") or "",
+            "position_s": round((ud.get("PlaybackPositionTicks") or 0) / 10_000_000),
+            "gesehen": bool(ud.get("Played"))}
+
+
+def katalog_abzug():
+    """Voll-Abzug → filme_katalog.json (atomar; scheitert er, bleibt der alte
+    Spiegel stehen — Ausfall-Verhalten laut Spec)."""
+    global _fehlversuch_ts
+    z = _zugang()
+    if not z:                              # kein Backoff: Einrichtung fehlt nur
+        return {"ok": False, "anzahl": 0,
+                "fehler": "Kein Zugang im Keyring (Sync-Jellyfin)."}
+    s = _anmelden()
+    if not s:
+        _fehlversuch_ts = time.time()
+        return {"ok": False, "anzahl": 0, "fehler": "Anmeldung fehlgeschlagen."}
+    # Live gemessen (05.08., Renés Server): der Voll-Abzug in EINEM Ruf läuft
+    # in jeden Timeout (>300 s), und MediaStreams ist das teure Feld (63 s für
+    # 200 Titel MIT, 57 s für 1000 OHNE). Darum: seitenweise à 1000 ohne
+    # MediaStreams (~5 min gesamt, fair gegenüber Renés Rechner) — die Codecs
+    # holt detail() je Titel einzeln nach und cacht sie.
+    felder = ("Genres,ProviderIds,ProductionYear,OfficialRating,"
+              "CommunityRating,RunTimeTicks,DateCreated")
+    eintraege, start, gesamt = [], 0, None
+    neu_angemeldet = False
+    while gesamt is None or start < gesamt:
+        try:
+            st, roh = _http(f"{z['url']}/Users/{s['user_id']}/Items?Recursive=true"
+                            f"&IncludeItemTypes=Movie,Series&Fields={felder}"
+                            f"&StartIndex={start}&Limit=1000",
+                            kopf={"X-Emby-Token": s["token"]}, timeout=180)
+        except Exception as e:             # noqa: BLE001
+            _fehlversuch_ts = time.time()
+            return {"ok": False, "anzahl": 0, "fehler": f"Items-Abruf: {e}"}
+        if st == 401 and not neu_angemeldet:
+            # Token von einer zweiten Sitzung invalidiert (gleiche DeviceId,
+            # live gefunden 05.08.) ⇒ EINMAL frisch anmelden, Seite wiederholen.
+            neu_angemeldet = True
+            _sitzung.clear()
+            s = _anmelden()
+            if s:
+                continue
+            _fehlversuch_ts = time.time()
+            return {"ok": False, "anzahl": 0, "fehler": "Anmeldung fehlgeschlagen."}
+        if st != 200:
+            _fehlversuch_ts = time.time()
+            return {"ok": False, "anzahl": 0, "fehler": f"Items-Abruf HTTP {st}"}
+        d = json.loads(roh)
+        seite = d.get("Items") or []
+        if not seite:
+            break
+        eintraege.extend(_eintrag(it) for it in seite)
+        gesamt = d.get("TotalRecordCount") or len(seite)
+        start += 1000
+    fam.json_schreiben(_pfade["katalog"], {
+        "stand": time.time(), "server_version": s.get("version") or "?",
+        "eintraege": eintraege})
+    _fehlversuch_ts = 0.0                  # Erfolg löst den Backoff
+    fortschritt_nachreichen()              # liegengebliebene Meldungen mitnehmen
+    return {"ok": True, "anzahl": len(eintraege), "fehler": ""}
+
+
+def katalog_lesen():
+    try:
+        with open(_pfade["katalog"], encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"stand": 0, "server_version": "?", "eintraege": []}
+
+
+def sync_faellig(alter_s=6 * 3600):
+    """Fällig nach 6 h — aber NIE direkt nach einem Fehlschlag: sonst hämmert
+    der 5-s-Ticker bei totem/langsamem Server in Dauerschleife auf Renés
+    Rechner ein (live fast passiert am 05.08. — Timeout-Lauf und der Ticker
+    stieß sofort den nächsten an). Backoff = Selbstheilungs-Regel."""
+    if time.time() - _fehlversuch_ts < FEHL_BACKOFF_S:
+        return False
+    return (time.time() - (katalog_lesen().get("stand") or 0)) >= alter_s
+
+
+# ---------------------------------------------------------------- Bilder
+
+def bild_holen(item_id, art="Primary"):
+    """Bild aus dem Platten-Cache, sonst von Jellyfin holen und ablegen.
+    Dateiname strikt gefiltert — eine Item-Id ist nie ein Pfad."""
+    sauber = re.sub(r"[^A-Za-z0-9]", "", item_id or "")
+    if not sauber or sauber != (item_id or ""):
+        return None
+    pfad = os.path.join(_pfade["bilder"], f"{sauber}_{art}.jpg")
+    try:
+        with open(pfad, "rb") as f:
+            return f.read()
+    except OSError:
+        pass
+    s = _anmelden()
+    z = _zugang()
+    if not (s and z):
+        return None
+    try:
+        st, roh = _http(f"{z['url']}/Items/{sauber}/Images/{art}",
+                        kopf={"X-Emby-Token": s["token"]})
+        if st == 401:                      # Token invalidiert ⇒ einmal frisch
+            _sitzung.clear()
+            s = _anmelden()
+            if not s:
+                return None
+            st, roh = _http(f"{z['url']}/Items/{sauber}/Images/{art}",
+                            kopf={"X-Emby-Token": s["token"]})
+    except Exception:                      # noqa: BLE001
+        return None
+    if st != 200 or not roh:
+        return None
+    os.makedirs(_pfade["bilder"], exist_ok=True)
+    with open(pfad, "wb") as f:
+        f.write(roh)
+    return roh
+
+
+# ---------------------------------------------------------------- Anreicherung
+
+def _meta_cache():
+    try:
+        with open(_pfade["meta"], encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _omdb_erlaubt(cache):
+    heute = time.strftime("%Y-%m-%d")
+    if cache.get("omdb_tag") != heute:
+        cache["omdb_tag"], cache["omdb_zaehler"] = heute, 0
+    return (cache.get("omdb_zaehler") or 0) < OMDB_TAGES_DECKEL
+
+
+def detail(item_id):
+    """Spiegel-Eintrag + TMDB/OMDb-Anreicherung (on demand, 14-Tage-Cache).
+    Fehlender Key oder tote Quelle ⇒ Felder bleiben leer, NIE eine Fehlerseite
+    (Selbstheilungs-Regel)."""
+    e = next((x for x in katalog_lesen()["eintraege"] if x["id"] == item_id), None)
+    if not e:
+        return None
+    cache = _meta_cache()
+    m = cache.get(item_id) or {}
+    if not m or time.time() - (m.get("ts") or 0) > META_HALTBAR_S:
+        m = {"ts": time.time(), "beschreibung": "", "cast": [],
+             "empfehlungen_tmdb": [], "imdb_rating": "", "metacritic": "",
+             "tomatometer": ""}
+        keys = _meta_keys()
+        if keys.get("tmdb") and e.get("tmdb"):
+            art = "tv" if e["typ"] == "serie" else "movie"
+            try:
+                st, roh = _http(f"https://api.themoviedb.org/3/{art}/{e['tmdb']}"
+                                f"?api_key={keys['tmdb']}&language=de-DE"
+                                f"&append_to_response=credits,recommendations")
+                if st == 200:
+                    d = json.loads(roh)
+                    m["beschreibung"] = d.get("overview") or ""
+                    m["cast"] = [c.get("name") or "" for c in
+                                 (d.get("credits") or {}).get("cast") or []][:12]
+                    m["empfehlungen_tmdb"] = [str(x.get("id")) for x in
+                                              (d.get("recommendations") or {})
+                                              .get("results") or []]
+            except Exception:              # noqa: BLE001 — Reihe kommt ohne TMDB
+                pass
+        if keys.get("omdb") and e.get("imdb") and _omdb_erlaubt(cache):
+            try:
+                st, roh = _http(f"https://www.omdbapi.com/?i={e['imdb']}"
+                                f"&apikey={keys['omdb']}")
+                if st == 200:
+                    d = json.loads(roh)
+                    m["imdb_rating"] = d.get("imdbRating") or ""
+                    m["metacritic"] = d.get("Metascore") or ""
+                    m["tomatometer"] = next(
+                        (r.get("Value") for r in d.get("Ratings") or []
+                         if "Rotten" in (r.get("Source") or "")), "") or ""
+                    cache["omdb_zaehler"] = (cache.get("omdb_zaehler") or 0) + 1
+            except Exception:              # noqa: BLE001 — Zahl fehlt dann eben
+                pass
+        # Codecs kommen seit dem Seiten-Abzug nicht mehr im Spiegel mit
+        # (teuerstes Feld, live gemessen — s. katalog_abzug): je Titel einzeln
+        # nachholen und im Cache halten, sie ändern sich praktisch nie.
+        m["video_codec"] = e.get("video_codec") or ""
+        m["audio_codec"] = e.get("audio_codec") or ""
+        if not m["video_codec"]:
+            s = _anmelden()
+            z = _zugang()
+            if s and z:
+                try:
+                    st, roh = _http(f"{z['url']}/Users/{s['user_id']}/Items/{item_id}",
+                                    kopf={"X-Emby-Token": s["token"]})
+                    if st == 200:
+                        voll = _eintrag(json.loads(roh))
+                        m["video_codec"] = voll["video_codec"]
+                        m["audio_codec"] = voll["audio_codec"]
+                except Exception:          # noqa: BLE001 — Codec ist Kür
+                    pass
+        cache[item_id] = m
+        fam.json_schreiben(_pfade["meta"], cache)
+    return {**e, "beschreibung": m.get("beschreibung") or "",
+            "cast": m.get("cast") or [],
+            "empfehlungen_tmdb": m.get("empfehlungen_tmdb") or [],
+            "imdb_rating": m.get("imdb_rating") or "",
+            "metacritic": m.get("metacritic") or "",
+            "tomatometer": m.get("tomatometer") or "",
+            "video_codec": m.get("video_codec") or e.get("video_codec") or "",
+            "audio_codec": m.get("audio_codec") or e.get("audio_codec") or ""}
+
+
+# ---------------------------------------------------------------- Reihen
+
+def reihen():
+    """Home-Reihen rein aus dem Spiegel — kein Netz, damit die Anzeige auch
+    bei Renés Ausfall steht (Spec „Ausfall-Verhalten")."""
+    alle = katalog_lesen()["eintraege"]
+    weiter = [e for e in alle if e["position_s"] > 0 and not e["gesehen"]]
+    top = sorted((e for e in alle if e.get("rating")),
+                 key=lambda e: e["rating"], reverse=True)[:10]
+    neu = sorted((e for e in alle if e.get("hinzugefuegt")),
+                 key=lambda e: e["hinzugefuegt"], reverse=True)[:20]
+    haeufig = {}
+    for e in alle:
+        for g in e["genres"]:
+            haeufig[g] = haeufig.get(g, 0) + 1
+    genres = {}
+    for g, _ in sorted(haeufig.items(), key=lambda kv: kv[1], reverse=True)[:8]:
+        genres[g] = [e for e in alle if g in e["genres"]][:15]
+    return {"weiterschauen": weiter, "top": top, "neu": neu, "genres": genres}
+
+
+def mehr_wie(item_id):
+    """TMDB-Empfehlungen ∩ Katalog — nur was Renés Server WIRKLICH hat."""
+    d = detail(item_id)
+    if not d:
+        return []
+    ids = set(d.get("empfehlungen_tmdb") or [])
+    return [e for e in katalog_lesen()["eintraege"]
+            if e["tmdb"] and e["tmdb"] in ids and e["id"] != item_id]
+
+
+# ---------------------------------------------------------------- Abspielen
+
+def stream_url(item_id):
+    """Direct-Play-URL für den LOKALEN VLC (Token in der URL ist ok, weil sie
+    diesen PC nie verlässt — Clients bekommen sie NICHT)."""
+    s = _anmelden()
+    z = _zugang()
+    if not (s and z):
+        return None
+    return f"{z['url']}/Videos/{item_id}/stream?static=true&api_key={s['token']}"
+
+
+def _queue_lesen():
+    try:
+        with open(_pfade["queue"], encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
+def _fortschritt_senden(item_id, position_s, gesehen):
+    s = _anmelden()
+    z = _zugang()
+    if not (s and z):
+        return False
+    try:
+        st, _ = _http(z["url"] + "/Sessions/Playing/Progress",
+                      daten={"ItemId": item_id,
+                             "PositionTicks": int(position_s) * 10_000_000,
+                             "IsPaused": False},
+                      kopf={"X-Emby-Token": s["token"]})
+        if st == 401:
+            # Live gefunden (05.08.): Jellyfin wirft das alte Token weg, sobald
+            # sich dieselbe DeviceId neu anmeldet (z. B. eine zweite Sitzung).
+            # Selbstheilung: EINMAL frisch anmelden und wiederholen.
+            _sitzung.clear()
+            s = _anmelden()
+            if not s:
+                return False
+            st, _ = _http(z["url"] + "/Sessions/Playing/Progress",
+                          daten={"ItemId": item_id,
+                                 "PositionTicks": int(position_s) * 10_000_000,
+                                 "IsPaused": False},
+                          kopf={"X-Emby-Token": s["token"]})
+    except Exception:                      # noqa: BLE001 — Netz weg ⇒ Queue
+        return False
+    if gesehen and st in (200, 204):
+        try:
+            _http(f"{z['url']}/Users/{s['user_id']}/PlayedItems/{item_id}",
+                  daten={}, kopf={"X-Emby-Token": s["token"]})
+        except Exception:                  # noqa: BLE001 — Position zaehlt schon
+            pass
+    return st in (200, 204)
+
+
+def fortschritt(item_id, position_s, gesehen=False):
+    """Fortschritt an Jellyfin melden; scheitert es, wandert die Meldung in die
+    Queue und geht beim nächsten Erfolg/Abzug nach (nichts geht verloren)."""
+    if _fortschritt_senden(item_id, position_s, gesehen):
+        return True
+    q = _queue_lesen()
+    q.append({"item": item_id, "position_s": int(position_s),
+              "gesehen": bool(gesehen), "ts": time.time()})
+    fam.json_schreiben(_pfade["queue"], q)
+    return False
+
+
+def fortschritt_nachreichen():
+    """Liegengebliebene Meldungen senden; bei erneutem Fehlschlag bleibt der
+    Rest liegen. Gibt die Zahl der erfolgreich nachgereichten zurück."""
+    q = _queue_lesen()
+    geschafft = 0
+    rest = []
+    for m in q:
+        if rest:                           # einmal gescheitert ⇒ Reihenfolge halten
+            rest.append(m)
+        elif _fortschritt_senden(m["item"], m["position_s"], m.get("gesehen")):
+            geschafft += 1
+        else:
+            rest.append(m)
+    if geschafft or (len(rest) != len(q)):
+        fam.json_schreiben(_pfade["queue"], rest)
+    return geschafft

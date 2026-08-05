@@ -3653,3 +3653,17 @@ def test_spulen_am_fernseher():
     assert "fullscreenchange" in quelle
     i = quelle.index("function renderPlayerMedia")
     assert "spulStopp()" in quelle[i:_funktionsende(quelle, i)]
+
+
+def test_filme_bereich_minimum():
+    # Spec-Etappe 7 (Doku/SYNC_FILME_SPEC.md): Reihen sichtbar machen als
+    # Beweis - das TV-Design selbst bleibt Teilprojekt 2.
+    quelle = _oberflaeche_html()
+    assert "/api/filme/reihen" in quelle, "Filme-Bereich laedt keine Reihen"
+    assert "/api/filme/bild?id=" in quelle
+    assert "filmePlay" in quelle and "/api/filme/play" in quelle
+    assert "/api/filme/sync" in quelle, "manueller Abzug fehlt"
+    assert "Kein Film-Katalog" in quelle, \
+        "Ohne Keyring-Zugang muss der Bereich ehrlich sagen warum er leer ist"
+    assert "filme:'🎬 Filme'" in quelle or 'filme:"🎬 Filme"' in quelle, \
+        "Ansicht ist nicht im Fenster-Register (VIEWS)"
