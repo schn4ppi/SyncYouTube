@@ -6844,7 +6844,9 @@ async function tvProfilNeu(){
   }catch(e){}
   toast('👤 Profil anlegen fehlgeschlagen.');
 }
-function tvTabWahl(id){tvTab=id; tvFokus={r:0,i:0}; tvMalen();}
+function tvTabWahl(id){tvTab=id; tvFokus={r:0,i:0};
+  if(id==='herz'&&tvWuensche===null)tvWuenscheLaden().then(tvMalen);  // Wünsche einmalig ziehen
+  tvMalen();}
 function tvTitelReihe(name,arr){return [name, arr.map(x=>({art:'titel',id:x.id,
   name:x.titel, bild:x.cover_album?('/api/cover?id='+encodeURIComponent(x.id)):(x.thumb||''),
   quer:!x.cover_album}))];}
@@ -6871,6 +6873,7 @@ function tvReihenFuer(){
   if(tvTab==='serien')return [tvFilmReihe('Top',nurSerie(f.top))].concat(genresAls(nurSerie));
   if(tvTab==='neu')return [tvFilmReihe('Neu auf dem Server',f.neu), tvFilmReihe('Top 10',f.top)];
   if(tvTab==='herz')return [tvFilmReihe('🎞 Meine Liste',f.merkliste),
+    tvWunschReihe('⏳ Meine Wünsche',tvWuensche||[]),
     tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz))];
   if(tvTab==='yt')return [tvTitelReihe('Zuletzt geladen',neuste.filter(x=>!audio(x)).slice(0,20)),
     tvTitelReihe('Zuletzt gespielt',zuletzt.filter(x=>!audio(x)).slice(0,20)),
@@ -6885,9 +6888,44 @@ function tvReihenFuer(){
     const gesehen=new Set(); const treffF=filme.filter(e=>{if(gesehen.has(e.id))return false;
       gesehen.add(e.id); return (e.titel||'').toLowerCase().includes(q);});
     return [tvFilmReihe('Filme & Serien',treffF.slice(0,20)),
-      tvTitelReihe('Deine Bibliothek',da.filter(x=>(x.titel||'').toLowerCase().includes(q)).slice(0,20))];
+      tvTitelReihe('Deine Bibliothek',da.filter(x=>(x.titel||'').toLowerCase().includes(q)).slice(0,20)),
+      tvWunschReihe('➕ Wünschen — ganzer Katalog (Enter im Suchfeld)',tvSeerrErgebnis||[])];
   }
   return [];
+}
+/* ---- Wünsche über Jellyseerr (Teilprojekt 4) ------------------------------
+   Enter im Suchfeld fragt Renés Jellyseerr (dahinter Radarr/Sonarr) — die
+   Treffer zeigen ehrlich ihren Stand: ✔ da · ◐ teils · ⏳ kommt · ➕ wünschbar.
+   Enter auf ➕ stellt den Wunsch (Serien: alle Staffeln). Bewusst NUR auf
+   Enter, nicht je Tastendruck — wir hämmern nicht auf Renés Server. */
+let tvSeerrErgebnis=null, tvWuensche=null;
+function tvWunschReihe(name,arr){
+  const BADGE={da:'✔ ',teils:'◐ ',kommt:'⏳ ','':'➕ '};
+  return [name, (arr||[]).map(e=>({art:'seerr', tmdb:e.tmdb, typ:e.typ, status:e.status,
+    id:e.id||'', name:(BADGE[e.status]||'')+e.titel+(e.jahr?' ('+e.jahr+')':''),
+    bild:e.poster||(e.id?('/api/filme/bild?id='+encodeURIComponent(e.id)):'')}))];
+}
+async function tvSeerrSuche(){
+  const s=document.getElementById('tv-suche'); if(!s||!s.value.trim())return;
+  toast('🔍 Frage den ganzen Katalog an…');
+  try{tvSeerrErgebnis=((await (await fetch('/api/filme/wuenschen?q='+encodeURIComponent(s.value.trim()))).json())||{}).items||[];}
+  catch(e){tvSeerrErgebnis=[];}
+  if(!tvSeerrErgebnis.length)toast('🔍 Nichts gefunden — oder Renés Wunsch-Server ist gerade aus.');
+  tvMalen();
+}
+async function tvWuenscheLaden(){
+  try{tvWuensche=((await (await fetch('/api/filme/anfragen')).json())||{}).items||[];}
+  catch(e){tvWuensche=[];}
+}
+async function tvAnfrage(e){
+  if(e.status==='da'){toast('✔ Gibt es schon — such den Titel im Katalog.'); return;}
+  if(e.status==='kommt'||e.status==='teils'){toast('⏳ Ist schon angefragt — kommt.'); return;}
+  try{
+    const r=await (await fetch('/api/filme/anfragen',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tmdb:e.tmdb, typ:e.typ})})).json();
+    if(r.ok){toast('➕ Wunsch gestellt — René lädt ihn, sobald er kann.'); e.status='kommt'; tvMalen();}
+    else toast('➕ '+(r.fehler||'Anfrage fehlgeschlagen.'));
+  }catch(x){toast('➕ Anfrage nicht erreichbar.');}
 }
 function tvMalen(){
   tvKopfMalen();
@@ -6929,6 +6967,11 @@ function tvFokusMalen(){
 function tvHeroDa(){return !!document.querySelector('#tv-hero [data-hero]');}
 function tvWahl(r,i){
   const e=(tvReihenListe[r]||[])[1]&&tvReihenListe[r][1][i]; if(!e)return;
+  if(e.art==='seerr'){                                 // Wunsch-Kachel (Teilprojekt 4)
+    if(e.status==='da'&&e.id)tvInfo(e.id);             // schon da + im Spiegel -> Info
+    else tvAnfrage(e);
+    return;
+  }
   if(e.art==='film'){tvInfo(e.id);}                    // Netflix-Muster: erst die Info-Seite
   else{tvZu(); playerPlay([e.id]);}
 }
@@ -7102,7 +7145,10 @@ function tvKey(ev){
     if(getan){ev.preventDefault(); ev.stopPropagation(); if(tvProfilModus)tvProfilFokusMalen();}
     return;
   }
-  if(ev.target&&ev.target.id==='tv-suche'&&!['Escape','ArrowDown','ArrowUp'].includes(ev.key))return;
+  if(ev.target&&ev.target.id==='tv-suche'){
+    if(ev.key==='Enter'){ev.preventDefault(); ev.stopPropagation(); tvSeerrSuche(); return;}
+    if(!['Escape','ArrowDown','ArrowUp'].includes(ev.key))return;
+  }
   const tabs=TV_TABS.length;
   const reihe=()=> (tvReihenListe[tvFokus.r]||[[],[]])[1]||[];
   let getan=true;

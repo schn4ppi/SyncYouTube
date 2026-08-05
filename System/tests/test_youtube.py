@@ -3936,3 +3936,24 @@ def test_tv_profile_und_geraete_ui():
     assert "geraetFreigeben" in quelle and "geraetTrennen" in quelle
     assert "Fernsteuerung ist AUS" in quelle, \
         "Ohne WLAN-Lauschen muss der Dialog ehrlich warnen"
+
+
+def test_tv_wuensche_ui():
+    # Teilprojekt 4 (JB-Go): Enter im Suchfeld fragt Renés Jellyseerr,
+    # Status-Badges sind ehrlich, Enter auf ➕ stellt den Wunsch, der
+    # ❤-Tab zeigt "Meine Wuensche".
+    quelle = _oberflaeche_html()
+    assert "function tvSeerrSuche" in quelle and "/api/filme/wuenschen?q=" in quelle
+    assert "function tvAnfrage" in quelle and "/api/filme/anfragen" in quelle
+    i = quelle.index("function tvWunschReihe")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for badge in ("da:'✔ '", "teils:'◐ '", "kommt:'⏳ '", "'':'➕ '"):
+        assert badge in block, "Status-Badge fehlt: " + badge
+    i = quelle.index("function tvWahl")
+    assert "tvAnfrage(e)" in quelle[i:_funktionsende(quelle, i)]
+    i = quelle.index("function tvKey")
+    assert "tvSeerrSuche()" in quelle[i:_funktionsende(quelle, i)], \
+        "Enter im Suchfeld muss die Wunsch-Suche starten"
+    assert "⏳ Meine Wünsche" in quelle, "Wunsch-Reihe fehlt im ❤-Tab"
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert "/api/filme/wuenschen" in src and "seerr_anfragen" in src

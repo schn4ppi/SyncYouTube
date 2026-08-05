@@ -5248,6 +5248,11 @@ class Handler(BaseHTTPRequestHandler):
                 _antwort(self, 200, b.getvalue(), "image/png")
             except Exception as e:                   # noqa: BLE001 — Link steht daneben
                 _antwort(self, 500, {"fehler": f"QR: {e}"})
+        elif self.path.startswith("/api/filme/wuenschen"):  # Seerr-Suche (Teilprojekt 4)
+            q = (parse_qs(urlparse(self.path).query).get("q") or [""])[0]
+            _antwort(self, 200, {"items": filme.seerr_suche(q)})
+        elif self.path.startswith("/api/filme/anfragen"):   # meine Wünsche + Stand
+            _antwort(self, 200, {"items": filme.seerr_meine()})
         elif self.path.startswith("/api/filme/episoden"):  # Serien: Staffeln + Folgen
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, {"items": filme.episoden(fid)})
@@ -5472,6 +5477,9 @@ class Handler(BaseHTTPRequestHandler):
                 p = profil_geraete.profil_anlegen(daten.get("name") or "",
                                                   daten.get("emoji") or "")
                 return _antwort(self, 200, p or {"fehler": "Name fehlt"})
+            elif self.path == "/api/filme/anfragen":   # Wunsch stellen (Teilprojekt 4)
+                return _antwort(self, 200, filme.seerr_anfragen(
+                    daten.get("tmdb") or 0, daten.get("typ") or "film"))
             elif self.path == "/api/filme/fortschritt":
                 return _antwort(self, 200, {"ok": filme.fortschritt(
                     daten.get("id") or "", daten.get("position_s") or 0,

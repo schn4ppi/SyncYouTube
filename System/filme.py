@@ -17,6 +17,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import familie as fam
@@ -454,6 +455,163 @@ def mehr_wie(item_id):
     ids = set(d.get("empfehlungen_tmdb") or [])
     return [e for e in katalog_lesen()["eintraege"]
             if e["tmdb"] and e["tmdb"] in ids and e["id"] != item_id]
+
+
+# ---------------------------------------------------------------- Jellyseerr
+# Teilprojekt 4 (JB-Go „weiter mit teilprojekt 4, den requests über
+# jellyseerr"): Film-/Serien-Wünsche gehen an Renés Jellyseerr (dahinter
+# Radarr + Sonarr). Anmeldung mit JBs JELLYFIN-Konto (ein Konto für alles,
+# live sondiert 05.08.: 200, Rechte 176); Session-Cookie mit 401/403-Heilung.
+# 1080p-Wünsche → René; der 4K-Stack bei JB ist ein späteres Teilprojekt.
+
+_seerr = {"cookie": ""}
+SEERR_STATUS = {5: "da", 4: "teils", 3: "kommt", 2: "kommt", 1: ""}
+
+
+def _seerr_url():
+    try:
+        import keyring
+        return (keyring.get_password("Sync-Jellyseerr", "url") or "").rstrip("/")
+    except Exception:                      # noqa: BLE001
+        return ""
+
+
+def _seerr_http(url, daten=None, kopf=None, timeout=20):
+    """Eigener Netz-Zugang für Seerr (Tests patchen ihn): liefert zusätzlich
+    das Set-Cookie der Antwort (Session)."""
+    req = urllib.request.Request(url, method="POST" if daten is not None else "GET")
+    for k, v in (kopf or {}).items():
+        req.add_header(k, v)
+    body = json.dumps(daten).encode("utf-8") if daten is not None else None
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, body, timeout=timeout) as r:
+            return r.status, r.read(), (r.headers.get("Set-Cookie") or "")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read() or b"{}", ""
+
+
+def _seerr_anmelden():
+    z = _zugang()
+    basis = _seerr_url()
+    if not (z and basis):
+        return False
+    try:
+        st, _, keks = _seerr_http(basis + "/api/v1/auth/jellyfin",
+                                  daten={"username": z["benutzer"],
+                                         "password": z["passwort"]})
+    except Exception:                      # noqa: BLE001
+        return False
+    if st != 200 or not keks:
+        return False
+    _seerr["cookie"] = keks.split(";")[0]
+    return True
+
+
+def _seerr_ruf(pfad, daten=None):
+    """Seerr-Aufruf mit Sitzung; abgelaufene Sitzung wird EINMAL geheilt."""
+    basis = _seerr_url()
+    if not basis:
+        return 0, {}
+    if not _seerr["cookie"] and not _seerr_anmelden():
+        return 0, {}
+    for versuch in (1, 2):
+        try:
+            st, roh, _ = _seerr_http(basis + pfad, daten=daten,
+                                     kopf={"Cookie": _seerr["cookie"]})
+        except Exception:                  # noqa: BLE001
+            return 0, {}
+        if st in (401, 403) and versuch == 1:
+            _seerr["cookie"] = ""
+            if not _seerr_anmelden():
+                return st, {}
+            continue
+        try:
+            return st, json.loads(roh or b"{}")
+        except ValueError:
+            return st, {}
+    return 0, {}
+
+
+def seerr_suche(q):
+    """Suche im GANZEN Katalog (TMDB via Seerr) — mit ehrlichem Status:
+    da / teils / kommt (angefragt) / '' (wünschbar)."""
+    if not (q or "").strip():
+        return []
+    st, d = _seerr_ruf("/api/v1/search?query=" + urllib.parse.quote(q.strip()))
+    if st != 200:
+        return []
+    out = []
+    for x in d.get("results") or []:
+        if x.get("mediaType") not in ("movie", "tv"):
+            continue
+        mi = x.get("mediaInfo") or {}
+        datum = x.get("releaseDate") or x.get("firstAirDate") or ""
+        out.append({"tmdb": x.get("id"),
+                    "typ": "film" if x.get("mediaType") == "movie" else "serie",
+                    "titel": x.get("title") or x.get("name") or "",
+                    "jahr": (datum or "")[:4],
+                    "poster": ("https://image.tmdb.org/t/p/w300" + x["posterPath"])
+                              if x.get("posterPath") else "",
+                    "status": SEERR_STATUS.get(mi.get("status") or 0, "")})
+    return out[:20]
+
+
+def seerr_anfragen(tmdb, typ):
+    """Den Wunsch stellen. Serien: alle Staffeln (JBs Wunsch-Fluss simpel
+    halten); 409 = gibt es schon — ehrlich melden, kein Fehlerkasten."""
+    daten = {"mediaType": "movie" if typ != "serie" else "tv", "mediaId": int(tmdb)}
+    if typ == "serie":
+        daten["seasons"] = "all"
+    st, d = _seerr_ruf("/api/v1/request", daten=daten)
+    if st in (200, 201):
+        return {"ok": True, "fehler": ""}
+    if st == 409:
+        return {"ok": False, "fehler": "Schon angefragt oder vorhanden."}
+    return {"ok": False, "fehler": f"Anfrage fehlgeschlagen (HTTP {st})."}
+
+
+def seerr_meine(n=20):
+    """Die letzten Wünsche mit Stand — Titel aus dem eigenen Katalog; noch
+    nicht gespiegelte Wünsche bekommen ihren Titel EINMALIG von TMDB
+    (Seerr liefert nur die Id — „Wunsch (TMDB 10564)" hilft am TV niemandem)."""
+    st, d = _seerr_ruf(f"/api/v1/request?take={int(n)}&sort=added")
+    if st != 200:
+        return []
+    kat = {e["tmdb"]: e for e in katalog_lesen()["eintraege"] if e.get("tmdb")}
+    cache = _meta_cache()
+    tt = cache.get("tmdb_titel") or {}
+    keys = _meta_keys()
+    neu = False
+    out = []
+    for r in d.get("results") or []:
+        m = r.get("media") or {}
+        tmdb = str(m.get("tmdbId") or "")
+        typ = "film" if m.get("mediaType") == "movie" else "serie"
+        e = kat.get(tmdb)
+        titel = (e or {}).get("titel") or tt.get(tmdb) or ""
+        if not titel and keys.get("tmdb") and tmdb:
+            art = "movie" if typ == "film" else "tv"
+            try:
+                st2, roh2 = _http(f"https://api.themoviedb.org/3/{art}/{tmdb}"
+                                  f"?api_key={keys['tmdb']}&language=de-DE")
+                if st2 == 200:
+                    d2 = json.loads(roh2)
+                    titel = d2.get("title") or d2.get("name") or ""
+                    if titel:
+                        tt[tmdb] = titel
+                        neu = True
+            except Exception:              # noqa: BLE001 — Nummer bleibt Rückfall
+                pass
+        out.append({"tmdb": tmdb, "typ": typ,
+                    "titel": titel or f"Wunsch (TMDB {tmdb})",
+                    "id": (e or {}).get("id") or "",
+                    "status": SEERR_STATUS.get(m.get("status") or 0, "kommt")})
+    if neu:
+        cache["tmdb_titel"] = tt
+        fam.json_schreiben(_pfade["meta"], cache)
+    return out
 
 
 # ---------------------------------------------------------------- Abspielen

@@ -304,3 +304,83 @@ def test_merkliste_je_profil(tmp_path, monkeypatch):
     monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "", "omdb": ""})
     assert filme.detail("s1", "anna")["gemerkt"] is True
     assert filme.detail("s1")["gemerkt"] is False
+
+
+def _fake_seerr(antworten, mitschrift=None):
+    """Wie _fake_http, aber mit Set-Cookie-Rueckgabe (Seerr-Sitzung)."""
+    def http(url, daten=None, kopf=None, timeout=20):
+        if mitschrift is not None:
+            mitschrift.append((url, daten, dict(kopf or {})))
+        for teil, status, obj, keks in antworten:
+            if teil in url:
+                return status, json.dumps(obj).encode("utf-8"), keks
+        raise AssertionError("unerwartete Seerr-URL: " + url)
+    return http
+
+
+FAKE_SEERR_SUCHE = {"results": [
+    {"mediaType": "movie", "id": 438631, "title": "Dune", "releaseDate": "2021-09-15",
+     "posterPath": "/dune.jpg", "mediaInfo": {"status": 5}},
+    {"mediaType": "tv", "id": 90228, "name": "Dune: Prophecy",
+     "firstAirDate": "2024-11-17", "mediaInfo": {"status": 4}},
+    {"mediaType": "movie", "id": 111, "title": "Wuenschbar", "releaseDate": "2020-01-01"},
+    {"mediaType": "person", "id": 999, "name": "Kein Titel"},
+]}
+
+
+def test_seerr_suche_und_anfrage(tmp_path, monkeypatch):
+    # Teilprojekt 4: Anmeldung mit dem Jellyfin-Konto, Status-Mapping,
+    # Serien-Anfrage mit allen Staffeln, 409 = ehrliche Meldung.
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_seerr_url", lambda: "https://seerr.example")
+    filme._seerr["cookie"] = ""
+    schrift = []
+    monkeypatch.setattr(filme, "_seerr_http", _fake_seerr([
+        ("auth/jellyfin", 200, {"username": "JBK"}, "connect.sid=abc; Path=/"),
+        ("/search", 200, FAKE_SEERR_SUCHE, ""),
+        ("/request?take", 200, {"results": [
+            {"status": 2, "media": {"tmdbId": 286217, "mediaType": "movie", "status": 3}}]}, ""),
+    ], schrift))
+    t = filme.seerr_suche("Dune")
+    assert [x["status"] for x in t] == ["da", "teils", ""]
+    assert t[0]["poster"].startswith("https://image.tmdb.org/t/p/w300/")
+    assert t[1]["typ"] == "serie" and t[1]["jahr"] == "2024"
+    assert all(x["typ"] != "person" for x in t), "Personen fliegen raus"
+    # Cookie kam aus der Anmeldung und geht bei der Suche mit:
+    assert any("connect.sid=abc" in (k.get("Cookie") or "") for _, _, k in schrift)
+    # Meine Wuensche: Titel aus dem eigenen Katalog, wenn schon gespiegelt
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, FAKE_ITEMS)]))
+    filme.katalog_abzug()
+    w = filme.seerr_meine()
+    assert w[0]["titel"] == "Der Marsianer" and w[0]["status"] == "kommt"
+    # Anfrage: Serie -> seasons all; 409 -> ehrlich
+    monkeypatch.setattr(filme, "_seerr_http", _fake_seerr([
+        ("/api/v1/request", 201, {}, "")], schrift))
+    assert filme.seerr_anfragen(90228, "serie")["ok"] is True
+    assert schrift[-1][1]["seasons"] == "all" and schrift[-1][1]["mediaType"] == "tv"
+    monkeypatch.setattr(filme, "_seerr_http", _fake_seerr([
+        ("/api/v1/request", 409, {}, "")]))
+    r = filme.seerr_anfragen(438631, "film")
+    assert r["ok"] is False and "Schon angefragt" in r["fehler"]
+
+
+def test_seerr_sitzung_heilt(tmp_path, monkeypatch):
+    # Abgelaufene Sitzung (403) wird EINMAL frisch angemeldet - wie die
+    # Jellyfin-Token-Heilung.
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_seerr_url", lambda: "https://seerr.example")
+    filme._seerr["cookie"] = "connect.sid=ALT"
+    lauf = {"n": 0}
+
+    def http(url, daten=None, kopf=None, timeout=20):
+        if "auth/jellyfin" in url:
+            return 200, b"{}", "connect.sid=NEU; Path=/"
+        lauf["n"] += 1
+        if "connect.sid=ALT" in (kopf or {}).get("Cookie", ""):
+            return 403, b"{}", ""
+        return 200, json.dumps({"results": []}).encode(), ""
+    monkeypatch.setattr(filme, "_seerr_http", http)
+    assert filme.seerr_suche("x") == []
+    assert lauf["n"] == 2, "genau ein Heilungs-Versuch mit frischer Sitzung"
