@@ -261,7 +261,7 @@ def _omdb_erlaubt(cache):
     return (cache.get("omdb_zaehler") or 0) < OMDB_TAGES_DECKEL
 
 
-def detail(item_id):
+def detail(item_id, profil="standard"):
     """Spiegel-Eintrag + TMDB/OMDb-Anreicherung (on demand, 14-Tage-Cache).
     Fehlender Key oder tote Quelle ⇒ Felder bleiben leer, NIE eine Fehlerseite
     (Selbstheilungs-Regel)."""
@@ -337,7 +337,7 @@ def detail(item_id):
             "tomatometer": m.get("tomatometer") or "",
             "video_codec": m.get("video_codec") or e.get("video_codec") or "",
             "audio_codec": m.get("audio_codec") or e.get("audio_codec") or "",
-            "gemerkt": item_id in merkliste_lesen()}
+            "gemerkt": item_id in merkliste_lesen(profil)}
 
 
 # ---------------------------------------------------------------- Serien
@@ -384,32 +384,46 @@ def episoden(serien_id):
 
 # ---------------------------------------------------------------- Merkliste
 
-def merkliste_lesen():
+def merkliste_lesen(profil="standard"):
+    """Je PROFIL eine Liste (Teilprojekt 3). Altbestand (nackte Liste aus
+    Build 181) wandert stillschweigend zum Standard-Profil."""
     try:
         with open(_pfade["merk"], encoding="utf-8") as f:
-            return json.load(f)
+            d = json.load(f)
     except (OSError, ValueError):
         return []
+    if isinstance(d, list):                # Altformat → Standard-Profil
+        return d if profil == "standard" else []
+    return d.get(profil or "standard") or []
 
 
-def merkliste_toggle(item_id):
-    """Film-Watchlist (JB-Go): LOKALE Liste — ausfallfest und schnell; ein
+def merkliste_toggle(item_id, profil="standard"):
+    """Film-Watchlist (JB-Go): LOKALE Liste je Profil — ausfallfest; ein
     Jellyfin-Favoriten-Sync wäre ein späterer Kandidat (unbestätigt).
     Rückgabe: ist der Titel JETZT gemerkt?"""
-    ids = merkliste_lesen()
+    profil = profil or "standard"
+    try:
+        with open(_pfade["merk"], encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        d = {}
+    if isinstance(d, list):                # Altformat einmalig heben
+        d = {"standard": d}
+    ids = d.get(profil) or []
     if item_id in ids:
         ids.remove(item_id)
         an = False
     else:
         ids.append(item_id)
         an = True
-    fam.json_schreiben(_pfade["merk"], ids)
+    d[profil] = ids
+    fam.json_schreiben(_pfade["merk"], d)
     return an
 
 
 # ---------------------------------------------------------------- Reihen
 
-def reihen():
+def reihen(profil="standard"):
     """Home-Reihen rein aus dem Spiegel — kein Netz, damit die Anzeige auch
     bei Renés Ausfall steht (Spec „Ausfall-Verhalten")."""
     alle = katalog_lesen()["eintraege"]
@@ -425,7 +439,7 @@ def reihen():
     genres = {}
     for g, _ in sorted(haeufig.items(), key=lambda kv: kv[1], reverse=True)[:8]:
         genres[g] = [e for e in alle if g in e["genres"]][:15]
-    merk_ids = merkliste_lesen()
+    merk_ids = merkliste_lesen(profil)
     merk = sorted((e for e in alle if e["id"] in set(merk_ids)),
                   key=lambda e: merk_ids.index(e["id"]))
     return {"weiterschauen": weiter, "top": top, "neu": neu, "genres": genres,

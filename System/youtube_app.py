@@ -94,6 +94,10 @@ STATUS_PFAD = os.path.join(DATEN_DIR, "yt_status.json")   # fürs Dashboard (rea
 # geo/vpn — filme importiert NIE youtube_app. Braucht DATEN_DIR (Testmodus!).
 import filme                                              # noqa: E402
 filme.einrichten(DATEN_DIR)
+# Teilprojekt 3 (Profile + Geräte): gleiche Bauform. Bewusst NICHT
+# "profile.py" — das würde das stdlib-Modul profile (Profiler) überschatten.
+import profil_geraete                                     # noqa: E402
+profil_geraete.einrichten(DATEN_DIR)
 BIN_DIR = os.path.join(SCRIPT_DIR, "bin")
 # In der Release-exe sind ffmpeg/ffprobe/deno MIT eingepackt (PyInstaller-Bundle,
 # entpackt nach sys._MEIPASS/bin). Ein eigener bin\-Ordner NEBEN der exe hat
@@ -5090,20 +5094,45 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
+    def _ist_lokal(self):
+        return (self.client_address[0] if self.client_address else "") in ("127.0.0.1", "::1")
+
+    def _geraet_profil(self):
+        """Profil des anfragenden Geräts: localhost = im UI gewählt (Query),
+        LAN-Gerät = an den Token gebunden (Teilprojekt 3)."""
+        q = parse_qs(urlparse(self.path).query)
+        tok = (q.get("geraet") or [self.headers.get("X-Geraet", "")])[0]
+        p = profil_geraete.geraet_ok(tok)
+        if p:
+            return p
+        return (q.get("profil") or ["standard"])[0] if self._ist_lokal() else "standard"
+
     def _hat_zugriff(self):
-        """Localhost immer; aus dem LAN nur die Handy-Seite selbst oder mit gültigem Code."""
+        """Localhost immer; aus dem LAN: Pairing-Wege frei, sonst NUR mit
+        verifiziertem Geräte-Token ODER dem Fernsteuerungs-Code (Riegel-
+        PFLICHT, JB: Externe nur mit Zugangsdaten)."""
         ip = self.client_address[0] if self.client_address else ""
         if ip in ("127.0.0.1", "::1"):
             return True
-        if urlparse(self.path).path in ("/m", "/handy"):
-            return True
+        pfad = urlparse(self.path).path
+        if pfad in ("/m", "/handy", "/koppeln", "/api/geraet_anmelden", "/api/geraet_status"):
+            return True                              # Pairing muss VOR dem Token gehen
         q = parse_qs(urlparse(self.path).query)
+        tok = (q.get("geraet") or [self.headers.get("X-Geraet", "")])[0]
+        if profil_geraete.geraet_ok(tok):
+            return True
         code = (q.get("code") or [self.headers.get("X-Code", "")])[0]
         return zugriff_erlaubt(ip, CFG.get("fernsteuerung"), CFG.get("fernsteuerung_code") or "", code)
 
     def do_GET(self):
         if not self._hat_zugriff():
-            return _antwort(self, 403, {"fehler": "Kein Zugriff — Fernsteuerung aus oder falscher Code."})
+            # Nicht gekoppeltes LAN-Gerät auf der Startseite? Dann die
+            # Pairing-Seite statt einer kalten 403 (Teilprojekt 3).
+            if urlparse(self.path).path in ("/", "/index.html"):
+                return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
+            return _antwort(self, 403, {"fehler": "Kein Zugriff — Gerät nicht gekoppelt."})
+        if urlparse(self.path).path == "/koppeln":       # Pairing-Seite direkt
+            return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
         if urlparse(self.path).path in ("/m", "/handy"):     # schlanke Handy-Oberfläche
             import importlib
             import handy
@@ -5184,14 +5213,41 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/filme/katalog"):
             _antwort(self, 200, filme.katalog_lesen())
         elif self.path.startswith("/api/filme/reihen"):
-            _antwort(self, 200, filme.reihen())
+            _antwort(self, 200, filme.reihen(self._geraet_profil()))
         elif self.path.startswith("/api/filme/detail"):
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            d = filme.detail(fid)
+            d = filme.detail(fid, self._geraet_profil())
             if d:
                 _antwort(self, 200, d)
             else:
                 _antwort(self, 404, {"fehler": "unbekannter Film"})
+        # ---- Teilprojekt 3: Profile + Geräte -------------------------------
+        elif self.path.startswith("/api/profile"):
+            _antwort(self, 200, {"items": profil_geraete.profil_liste(),
+                                 "aktiv": self._geraet_profil()})
+        elif self.path.startswith("/api/geraet_status"):   # Pairing-Poll (frei)
+            q = parse_qs(urlparse(self.path).query)
+            t = profil_geraete.geraet_token_abholen(
+                (q.get("id") or [""])[0], (q.get("code") or [""])[0])
+            _antwort(self, 200, t or {"wartet": True})
+        elif self.path.startswith("/api/geraete"):         # NUR PC: Geräte-Übersicht
+            if not self._ist_lokal():
+                return _antwort(self, 403, {"fehler": "nur am PC"})
+            _antwort(self, 200, {"items": profil_geraete.geraete_liste(),
+                                 "url": f"http://{_lan_ip()}:{int(CFG.get('port', 8776))}/koppeln",
+                                 "wlan": bool(CFG.get("fernsteuerung"))})
+        elif self.path.startswith("/api/geraet_qr"):       # NUR PC: QR zum Abfotografieren
+            if not self._ist_lokal():
+                return _antwort(self, 403, {"fehler": "nur am PC"})
+            try:
+                import io
+                import qrcode
+                img = qrcode.make(f"http://{_lan_ip()}:{int(CFG.get('port', 8776))}/koppeln")
+                b = io.BytesIO()
+                img.save(b, "PNG")
+                _antwort(self, 200, b.getvalue(), "image/png")
+            except Exception as e:                   # noqa: BLE001 — Link steht daneben
+                _antwort(self, 500, {"fehler": f"QR: {e}"})
         elif self.path.startswith("/api/filme/episoden"):  # Serien: Staffeln + Folgen
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, {"items": filme.episoden(fid)})
@@ -5395,9 +5451,27 @@ class Handler(BaseHTTPRequestHandler):
                      # globale Sprach-Präferenz (Optionen → Wiedergabe-Standard);
                      # film:-Keys haben keine Titel-Ebene, global genügt.
                      "ton": (CFG.get("wiedergabe") or {}).get("ton")}))
-            elif self.path == "/api/filme/merk":       # 🎞 Film-Watchlist an/aus
+            elif self.path == "/api/filme/merk":       # 🎞 Film-Watchlist an/aus (je Profil)
                 return _antwort(self, 200, {"an": filme.merkliste_toggle(
+                    daten.get("id") or "", self._geraet_profil())})
+            # ---- Teilprojekt 3: Profile + Geräte ---------------------------
+            elif self.path == "/api/geraet_anmelden":  # Pairing Schritt 1 (frei)
+                return _antwort(self, 200, profil_geraete.geraet_anmelden(
+                    daten.get("name") or ""))
+            elif self.path == "/api/geraet_bestaetigen":   # NUR PC (Freigabe)
+                if not self._ist_lokal():
+                    return _antwort(self, 403, {"fehler": "nur am PC"})
+                return _antwort(self, 200, {"ok": profil_geraete.geraet_bestaetigen(
+                    daten.get("id") or "", daten.get("profil") or "standard")})
+            elif self.path == "/api/geraet_entfernen":     # NUR PC (Widerruf)
+                if not self._ist_lokal():
+                    return _antwort(self, 403, {"fehler": "nur am PC"})
+                return _antwort(self, 200, {"ok": profil_geraete.geraet_entfernen(
                     daten.get("id") or "")})
+            elif self.path == "/api/profil_anlegen":
+                p = profil_geraete.profil_anlegen(daten.get("name") or "",
+                                                  daten.get("emoji") or "")
+                return _antwort(self, 200, p or {"fehler": "Name fehlt"})
             elif self.path == "/api/filme/fortschritt":
                 return _antwort(self, 200, {"ok": filme.fortschritt(
                     daten.get("id") or "", daten.get("position_s") or 0,

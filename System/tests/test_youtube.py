@@ -3918,3 +3918,21 @@ def test_tv_serien_und_watchlist():
         assert teil in block, teil
     src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
     assert "/api/filme/episoden" in src and "/api/filme/merk" in src
+
+
+def test_tv_profile_und_geraete_ui():
+    # Teilprojekt 3 (JB-Go): "Wer schaut?"-Screen, Profil-Chip, Profil an
+    # allen Merk-/Reihen-Wegen, Geraete-Dialog mit QR am PC.
+    quelle = _oberflaeche_html()
+    assert "Wer schaut?" in quelle and "function tvProfilWahl" in quelle
+    assert "function tvProfilSetzen" in quelle and "tvProfilNeu" in quelle
+    assert "ytdl_profil" in quelle, "Profil-Wahl wird nicht gemerkt"
+    assert quelle.count("profil='+encodeURIComponent(tvProfil())") >= 3, \
+        "Reihen/Detail/Merk muessen das Profil mitschicken"
+    i = quelle.index("function tvKey")
+    assert "tvProfilModus" in quelle[i:_funktionsende(quelle, i)], \
+        "Wer-schaut braucht die Fernbedienung"
+    assert "function geraeteDialog" in quelle and "/api/geraet_qr" in quelle
+    assert "geraetFreigeben" in quelle and "geraetTrennen" in quelle
+    assert "Fernsteuerung ist AUS" in quelle, \
+        "Ohne WLAN-Lauschen muss der Dialog ehrlich warnen"

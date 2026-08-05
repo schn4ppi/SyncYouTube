@@ -283,3 +283,24 @@ def test_merkliste(tmp_path, monkeypatch):
     assert filme.detail("f1")["gemerkt"] is True
     assert filme.merkliste_toggle("f1") is False, "zweiter Klick nimmt raus"
     assert filme.reihen()["merkliste"] == []
+
+
+def test_merkliste_je_profil(tmp_path, monkeypatch):
+    # Teilprojekt 3: jede Person hat ihre EIGENE Liste; der Altbestand
+    # (nackte Liste aus Build 181) gehoert dem Standard-Profil.
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, FAKE_ITEMS)]))
+    filme.katalog_abzug()
+    with open(filme._pfade["merk"], "w", encoding="utf-8") as f:
+        json.dump(["f1"], f)                        # Altformat
+    assert filme.merkliste_lesen() == ["f1"], "Altbestand -> Standard-Profil"
+    assert filme.merkliste_lesen("anna") == []
+    assert filme.merkliste_toggle("s1", "anna") is True
+    assert filme.merkliste_lesen("anna") == ["s1"]
+    assert filme.merkliste_lesen() == ["f1"], "Profile duerfen sich nicht mischen"
+    assert [e["id"] for e in filme.reihen("anna")["merkliste"]] == ["s1"]
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "", "omdb": ""})
+    assert filme.detail("s1", "anna")["gemerkt"] is True
+    assert filme.detail("s1")["gemerkt"] is False

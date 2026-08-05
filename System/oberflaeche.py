@@ -186,6 +186,9 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 .tv-btn.zart{background:rgba(255,255,255,.16);color:#fff}
 .tv-btn.akt{background:rgba(232,176,75,.35)}          /* gewählte Staffel */
 .tv-btn.tv-fokus{border-color:#e8b04b}
+/* „Wer schaut?" (Teilprojekt 3): große Profil-Kacheln in der Mitte */
+#tv .tv-profil{width:150px;text-align:center}
+#tv .tv-pemoji{font-size:84px;line-height:1.4;background:#221c17;border-radius:14px;padding:14px 0}
 /* More-Info-Seite: Overlay ÜBER der TV-Ebene, gleiche Fernbedienungs-Regeln */
 #tv-info{position:fixed;inset:0;z-index:950;display:none;flex-direction:column;
   background:rgba(12,10,9,.97);color:#f2ece5;overflow:hidden}
@@ -2088,6 +2091,8 @@ function optionenToggle(ev){
     // er zusätzlich in dessen Optionen (Ansicht-Menü hat ihn ebenfalls, oben).
     '<div class="optrow"><span>📺 Fernsehmodus</span><button class="btn mini" onclick="fernsehModus()">Start</button></div>'+
     '<div class="optrow"><span>📱 Fernsteuerung</span><button class="btn mini" id="fernbtn" onclick="fernToggle()">…</button></div>'+
+    // Teilprojekt 3: Geräte koppeln (QR/Code) + freigeben/trennen — nur am PC.
+    '<div class="optrow"><span>📺 Geräte (TV/Handy)</span><button class="btn mini" onclick="geraeteDialog()">Koppeln…</button></div>'+
     '<div id="ferninfo" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
   document.body.appendChild(m);
   const sel=m.querySelector('#opt_fehler'); if(sel)sel.value=fmin;
@@ -6709,11 +6714,16 @@ function fernsehModus(){
   const o=document.getElementById('optionen'); if(o)o.remove();
   tvOeffnen();
 }
-function tvOeffnen(){
+async function tvOeffnen(){
   const tv=document.getElementById('tv'); if(!tv)return;
   tv.style.display='flex'; tvTab='home'; tvFokus={r:0,i:0};
   document.addEventListener('keydown',tvKey,true);     // capture: Hotkeys treten zurück
   try{if(!document.fullscreenElement&&tv.requestFullscreen)tv.requestFullscreen().catch(()=>{});}catch(e){}
+  await tvProfileLaden();
+  // „Wer schaut?" nur, wenn es WIRKLICH etwas zu wählen gibt (calm) oder die
+  // gemerkte Wahl nicht mehr existiert.
+  const gilt=(tvProfile||[]).some(p=>p.id===tvProfil());
+  if((tvProfile||[]).length>1||!gilt){tvProfilWahl(); return;}
   tvLaden();
 }
 function tvZu(){
@@ -6724,15 +6734,115 @@ function tvZu(){
   if(document.fullscreenElement===tv)document.exitFullscreen().catch(()=>{});
 }
 async function tvLaden(){
-  try{tvFilmReihen=await (await fetch('/api/filme/reihen')).json();}
+  tvProfilModus=false;
+  try{tvFilmReihen=await (await fetch('/api/filme/reihen?profil='+encodeURIComponent(tvProfil()))).json();}
   catch(e){tvFilmReihen={weiterschauen:[],top:[],neu:[],genres:{}};}
   tvMalen();
 }
 function tvKopfMalen(){
   const k=document.getElementById('tv-kopf');
+  const p=(tvProfile||[]).find(x=>x.id===tvProfil())||{emoji:'👤',name:''};
   k.innerHTML=TV_TABS.map(([id,name])=>
     `<button class="tvtab${tvTab===id?' akt':''}" data-tv="${id}" onclick="tvTabWahl('${id}')">${name}</button>`).join('')+
-    `<button class="tvzu" onclick="tvZu()" title="Fernsehmodus verlassen (Esc)">✕ Beenden</button>`;
+    `<button class="tvzu" onclick="tvProfilWahl()" title="Profil wechseln — ${esc(p.name)}" style="margin-left:auto">${p.emoji}</button>`+
+    `<button class="tvzu" style="margin-left:0" onclick="tvZu()" title="Fernsehmodus verlassen (Esc)">✕</button>`;
+}
+/* ---- Geräte koppeln (Teilprojekt 3, nur am PC) ----------------------------
+   Fluss: Neues Gerät öffnet die LAN-Adresse (QR abfotografieren) → sieht die
+   Pairing-Seite mit GROSSEM Code → JB gibt HIER frei (Profil zuordnen) → das
+   Gerät holt sich seinen eigenen Token und lädt die volle Oberfläche.
+   Jeder Token ist einzeln widerrufbar (🗑 Trennen). */
+async function geraeteDialog(){
+  const o=document.getElementById('optionen'); if(o)o.remove();
+  document.querySelectorAll('#gerdlg').forEach(x=>x.remove());
+  const m=document.createElement('div'); m.className='panelmenu'; m.id='gerdlg';
+  m.style.minWidth='330px'; m.style.maxWidth='380px';
+  m.innerHTML='<div class="sm-titel">📺 Geräte koppeln</div><div id="gerdlg-body" style="padding:6px">Lade…</div>';
+  document.body.appendChild(m);
+  m.style.left='50%'; m.style.top='16%'; m.style.transform='translateX(-50%)'; m.style.position='fixed';
+  menuSchliesser(m);
+  geraeteMalen();
+}
+async function geraeteMalen(){
+  const body=document.getElementById('gerdlg-body'); if(!body)return;
+  let d={items:[],url:'',wlan:false};
+  try{d=await (await fetch('/api/geraete')).json();}catch(e){}
+  let profile=[];
+  try{profile=((await (await fetch('/api/profile')).json())||{}).items||[];}catch(e){}
+  const optionen=profile.map(p=>`<option value="${esc(p.id)}">${p.emoji} ${esc(p.name)}</option>`).join('');
+  const wartend=d.items.filter(g=>!g.verifiziert), fest=d.items.filter(g=>g.verifiziert);
+  body.innerHTML=
+    (d.wlan
+      ?`<div style="text-align:center"><img src="/api/geraet_qr" style="width:170px;height:170px;border-radius:8px;background:#fff;padding:6px"><br>`+
+       `<span style="font-size:12px;color:#8a7d74">Mit dem Gerät abfotografieren oder öffnen:<br><b>${esc(d.url)}</b></span></div>`
+      :`<div style="font-size:13px;color:#c9803f;padding:4px 2px">⚠ Die Fernsteuerung ist AUS — kein Gerät erreicht den Server. `+
+       `Erst oben unter „📱 Fernsteuerung" einschalten, dann koppeln.</div>`)+
+    (wartend.length?'<div class="sm-titel" style="margin-top:8px">Wartet auf Freigabe</div>'+wartend.map(g=>
+      `<div class="optrow"><span>${esc(g.name)} — Code <b style="color:var(--akz2)">${esc(g.code)}</b></span>`+
+      `<span><select id="gpr-${esc(g.id)}" class="btn mini">${optionen}</select> `+
+      `<button class="btn mini" onclick="geraetFreigeben('${esc(g.id)}')">✓ Freigeben</button></span></div>`).join(''):'')+
+    (fest.length?'<div class="sm-titel" style="margin-top:8px">Gekoppelt</div>'+fest.map(g=>{
+      const p=profile.find(x=>x.id===g.profil)||{emoji:'👤',name:g.profil};
+      return `<div class="optrow"><span>${esc(g.name)} · ${p.emoji} ${esc(p.name)}</span>`+
+      `<button class="btn mini" onclick="geraetTrennen('${esc(g.id)}')">🗑 Trennen</button></div>`;}).join(''):'')+
+    (!wartend.length&&!fest.length&&d.wlan?'<div style="font-size:13px;color:#8a7d74;padding:6px 2px">Noch kein Gerät angemeldet — sobald eines die Adresse öffnet, erscheint es hier mit seinem Code.</div>':'');
+  if(wartend.length)setTimeout(geraeteMalen,4000);     // frisch halten, solange gewartet wird
+}
+async function geraetFreigeben(id){
+  const sel=document.getElementById('gpr-'+id);
+  try{await fetch('/api/geraet_bestaetigen',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id, profil:(sel&&sel.value)||'standard'})});
+    toast('📺 Gerät freigegeben — es verbindet sich gleich von selbst.');
+  }catch(e){toast('📺 Freigeben fehlgeschlagen.');}
+  geraeteMalen();
+}
+async function geraetTrennen(id){
+  try{await fetch('/api/geraet_entfernen',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id})});
+    toast('📺 Gerät getrennt — der Zugang ist sofort wertlos.');
+  }catch(e){toast('📺 Trennen fehlgeschlagen.');}
+  geraeteMalen();
+}
+/* ---- Profile („Wer schaut?", Teilprojekt 3) ------------------------------- */
+let tvProfile=null, tvProfilModus=false;
+function tvProfil(){try{return localStorage.getItem('ytdl_profil')||'standard';}catch(e){return 'standard';}}
+async function tvProfileLaden(){
+  try{tvProfile=((await (await fetch('/api/profile')).json())||{}).items||[];}
+  catch(e){tvProfile=[{id:'standard',name:'JB',emoji:'🦊'}];}
+}
+function tvProfilWahl(){
+  tvProfilModus=true; tvFokus={r:0,i:0};
+  const inhalt=document.getElementById('tv-inhalt');
+  document.getElementById('tv-kopf').innerHTML='';
+  inhalt.innerHTML=`<div class="tv-werschaut"><div class="tv-rtitel" style="font-size:34px;text-align:center;margin-top:8vh">Wer schaut?</div>`+
+    `<div class="tv-band" style="justify-content:center;margin-top:30px">`+
+    (tvProfile||[]).map((p,i)=>`<div class="tv-kachel tv-profil" data-pr="${i}" onclick="tvProfilSetzen('${esc(p.id)}')">`+
+      `<div class="tv-pemoji">${p.emoji}</div><div class="tv-ktitel" style="font-size:18px">${esc(p.name)}</div></div>`).join('')+
+    `<div class="tv-kachel tv-profil" data-pr="${(tvProfile||[]).length}" onclick="tvProfilNeu()">`+
+      `<div class="tv-pemoji">＋</div><div class="tv-ktitel" style="font-size:18px">Neues Profil</div></div>`+
+    `</div></div>`;
+  tvProfilFokusMalen();
+}
+function tvProfilFokusMalen(){
+  document.querySelectorAll('#tv .tv-fokus').forEach(x=>x.classList.remove('tv-fokus'));
+  const alle=document.querySelectorAll('#tv [data-pr]');
+  const z=alle[Math.max(0,Math.min(alle.length-1,tvFokus.i))];
+  if(z){z.classList.add('tv-fokus'); z.scrollIntoView({block:'nearest',inline:'nearest'});}
+}
+function tvProfilSetzen(id){
+  try{localStorage.setItem('ytdl_profil',id);}catch(e){}
+  tvProfilModus=false; tvTab='home'; tvFokus={r:0,i:0};
+  tvFilmReihen=null; tvLaden();
+}
+async function tvProfilNeu(){
+  const name=prompt('Name des Profils?'); if(!name)return;
+  const emoji=prompt('Ein Emoji fürs Profil? (z. B. 🦁)','🙂')||'🙂';
+  try{
+    const p=await (await fetch('/api/profil_anlegen',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,emoji})})).json();
+    if(p&&p.id){await tvProfileLaden(); tvProfilSetzen(p.id); return;}
+  }catch(e){}
+  toast('👤 Profil anlegen fehlgeschlagen.');
 }
 function tvTabWahl(id){tvTab=id; tvFokus={r:0,i:0}; tvMalen();}
 function tvTitelReihe(name,arr){return [name, arr.map(x=>({art:'titel',id:x.id,
@@ -6865,7 +6975,7 @@ async function tvInfo(id){
   el.style.display='flex';
   el.innerHTML='<div class="info-body" style="font-size:24px;padding:60px">Lade…</div>';
   let d=null, mw=[], eps=[];
-  try{d=await (await fetch('/api/filme/detail?id='+encodeURIComponent(id))).json();}catch(e){}
+  try{d=await (await fetch('/api/filme/detail?id='+encodeURIComponent(id)+'&profil='+encodeURIComponent(tvProfil()))).json();}catch(e){}
   try{mw=((await (await fetch('/api/filme/mehrwie?id='+encodeURIComponent(id))).json())||{}).items||[];}catch(e){}
   if(d&&d.typ==='serie'){                              // Staffeln + Folgen (JB-Go)
     try{eps=((await (await fetch('/api/filme/episoden?id='+encodeURIComponent(id))).json())||{}).items||[];}catch(e){}
@@ -6889,7 +6999,8 @@ function tvSerienPlay(){
 }
 async function tvMerk(id){
   try{
-    const r=await (await fetch('/api/filme/merk',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await (await fetch('/api/filme/merk?profil='+encodeURIComponent(tvProfil()),
+      {method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id})})).json();
     if(tvInfoDaten)tvInfoDaten.d.gemerkt=!!r.an;
     toast(r.an?'🎞 Auf deiner Liste.':'🎞 Von der Liste genommen.');
@@ -6898,7 +7009,7 @@ async function tvMerk(id){
   }catch(e){toast('🎞 Merken fehlgeschlagen.');}
 }
 async function tvLadenStill(){
-  try{tvFilmReihen=await (await fetch('/api/filme/reihen')).json();}catch(e){}
+  try{tvFilmReihen=await (await fetch('/api/filme/reihen?profil='+encodeURIComponent(tvProfil()))).json();}catch(e){}
 }
 function tvStaffel(n){tvInfoStaffel=n; tvInfoFokus={r:1,i:0}; tvInfoMalen();}
 function tvInfoMalen(){
@@ -6978,6 +7089,17 @@ function tvKey(ev){
     }
     else getan=false;
     if(getan){ev.preventDefault(); ev.stopPropagation(); if(tvInfoOffen)tvInfoFokusMalen();}
+    return;
+  }
+  if(tvProfilModus){                                   // „Wer schaut?"-Ebene
+    let getan=true;
+    const alle=document.querySelectorAll('#tv [data-pr]');
+    if(ev.key==='ArrowLeft')tvFokus.i=Math.max(0,tvFokus.i-1);
+    else if(ev.key==='ArrowRight')tvFokus.i=Math.min(alle.length-1,tvFokus.i+1);
+    else if(ev.key==='Enter'){const z=alle[Math.max(0,Math.min(alle.length-1,tvFokus.i))]; if(z)z.click();}
+    else if(ev.key==='Escape'||ev.key==='Backspace')tvZu();
+    else getan=false;
+    if(getan){ev.preventDefault(); ev.stopPropagation(); if(tvProfilModus)tvProfilFokusMalen();}
     return;
   }
   if(ev.target&&ev.target.id==='tv-suche'&&!['Escape','ArrowDown','ArrowUp'].includes(ev.key))return;
