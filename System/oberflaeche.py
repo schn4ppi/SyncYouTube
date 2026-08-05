@@ -160,6 +160,7 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-inhalt{flex:1;overflow-y:auto;padding:6px 28px 40px}
 #tv .tv-rtitel{font-size:26px;font-weight:700;margin:18px 2px 10px}
 #tv .tv-band{display:flex;gap:14px;overflow-x:auto;padding:6px 2px 10px;scrollbar-width:none}
+#tv .tv-band.wrap{flex-wrap:wrap;overflow-x:visible}   /* „Alle A–Z"-Raster */
 #tv .tv-kachel{flex:0 0 auto;width:150px;cursor:pointer;border:3px solid transparent;
   border-radius:12px;padding:3px;position:relative}
 #tv .tv-snip{position:absolute;top:3px;left:3px;width:calc(100% - 6px);
@@ -214,7 +215,8 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
   display:inline-flex;align-items:center}
 #tv-player .tvp-ib svg{width:30px;height:30px;fill:#fff}
 #tv-player .tvp-mtitel{position:absolute;left:50%;transform:translateX(-50%);
-  font-size:18px;font-weight:700;white-space:nowrap}
+  font-size:18px;font-weight:700;white-space:nowrap;max-width:42%;
+  overflow:hidden;text-overflow:ellipsis}
 #tv-player .tvp-rechts{margin-left:auto}
 #tv-player .tvp-idle{position:absolute;left:6vw;top:30vh;max-width:640px;display:none;
   flex-direction:column;gap:10px}
@@ -3759,7 +3761,7 @@ function tvFilmPlayer(id,titel){
           `<div class="tvp-balken"><div id="tvp-fuell"></div></div></div>`+
           `<span id="tvp-zeit" class="tvp-zeit">–</span></div>`+
         `<div class="tvp-reihe">`+
-          `<button class="tvp-ib" id="tvp-pp" onclick="vlcBefehl('toggle');setTimeout(tvpTick,300)">⏸</button>`+
+          `<button class="tvp-ib" id="tvp-pp" onclick="vlcBefehl('toggle');setTimeout(tvpTick,300)" title="Pause/Weiter (Leertaste)">${ico('pause')}</button>`+
           `<button class="tvp-ib" onclick="tvpRel(-10)" title="10 s zurück">${ico('r10')}</button>`+
           `<button class="tvp-ib" onclick="tvpRel(10)" title="10 s vor">${ico('f10')}</button>`+
           `<span class="pl-bvolwrap" style="color:#fff">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value);vlcBefehl('vol',{wert:plVol})"></span>`+
@@ -3776,6 +3778,10 @@ function tvFilmPlayer(id,titel){
       `</div>`+
     `</div>`;
   ['pointermove','pointerdown','keydown'].forEach(evn=>el.addEventListener(evn,tvpWach));
+  // Die Fernbedienung geht selbst ins Browser-VOLLBILD (JB: „öffnet nicht
+  // vollbild") — auf dem zweiten Monitor liegt daneben das VLC-Bild; auf
+  // einem Monitor kommt VLCs eigenes Vollbild danach obenauf.
+  try{el.requestFullscreen&&el.requestFullscreen().catch(()=>{});}catch(e){}
   if(!tvpTimer)tvpTimer=setInterval(tvpTick,1000);
   setTimeout(tvpTick,600);
 }
@@ -3796,7 +3802,11 @@ function tvpIdleTick(spielt){
 function tvpZu(){
   tvpOffen=false;
   if(tvpTimer){clearInterval(tvpTimer); tvpTimer=null;}
-  const el=document.getElementById('tv-player'); if(el){el.style.display='none'; el.innerHTML='';}
+  const el=document.getElementById('tv-player');
+  if(el){
+    if(document.fullscreenElement===el){try{document.exitFullscreen();}catch(e){}}
+    el.style.display='none'; el.innerHTML='';
+  }
 }
 async function tvpTick(){
   if(!tvpOffen)return;
@@ -3805,6 +3815,9 @@ async function tvpTick(){
   if(!s)return;
   if(s.zustand==='spielt')tvpLief=true;
   tvpTicks++;
+  // JB-Fund: vlcKeyLetzter setzte nur der Geräte-VLC-Takt — ohne ihn war
+  // filmStopp/Esc/← ein stiller No-op. Der Film-Takt pflegt ihn jetzt selbst.
+  vlcKeyLetzter=s.key||vlcKeyLetzter; vlcSpielt=(s.zustand==='spielt');
   tvpIdleTick(s.zustand==='spielt');
   // Ende-Erkennung mit ANLAUF-GNADE (live gefunden: der erste Tick kam vor
   // VLCs „spielt" und schloss die Fernbedienung sofort wieder): erst
@@ -3815,7 +3828,7 @@ async function tvpTick(){
     return;
   }
   tvpPos=s.pos||tvpPos; tvpDauer=s.dauer||tvpDauer;
-  const pp=document.getElementById('tvp-pp'); if(pp)pp.textContent=(s.zustand==='spielt')?'⏸':'▶';
+  const pp=document.getElementById('tvp-pp'); if(pp)pp.innerHTML=ico(s.zustand==='spielt'?'pause':'play');
   const f=document.getElementById('tvp-fuell');
   if(f&&tvpDauer)f.style.width=Math.min(100,tvpPos/tvpDauer*100)+'%';
   const z=document.getElementById('tvp-zeit'); if(z)z.textContent=zeit(tvpPos)+' / '+zeit(tvpDauer);
@@ -3849,7 +3862,7 @@ async function filmStopp(){
     return;
   }
   const id=(vlcKeyLetzter||'').slice(5); if(!id)return;
-  const pos=Math.round(vlcPosGeschaetzt()||0);
+  const pos=Math.round((tvpOffen?tvpPos:vlcPosGeschaetzt())||0);
   vlcBefehl('stop');
   try{fetch('/api/filme/fortschritt',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({id, position_s:pos})}).catch(()=>{});}catch(e){}
@@ -3866,6 +3879,8 @@ async function filmStopp(){
     try{tv.requestFullscreen&&tv.requestFullscreen().catch(()=>{});}catch(e){}
   }
   toast('🎬 Film beendet — gemerkt bei '+zeit(pos)+'.');
+  // ← bringt IMMER zur Detailansicht zurück (JB) — auch wenn sie zu war.
+  if(!tvInfoOffen&&id)tvInfo(id);
 }
 document.addEventListener('keydown',ev=>{
   // Esc beendet den laufenden Film — überall, außer ein Menü/Panel liegt oben
@@ -7155,7 +7170,12 @@ function tvTabWahl(id){tvTab=id; tvFokus={r:0,i:0};
   if(id==='live'&&tvLive===null)tvLiveLaden();                        // Kanäle einmalig ziehen
   tvMalen();}
 /* 📡 Live (JB-Go): kodinerds-Legal-Liste, VLC spielt m3u8 direkt. */
-let tvLive=null;
+let tvLive=null, tvKatalog=null;
+async function tvKatalogLaden(){
+  try{tvKatalog=((await (await fetch('/api/filme/katalog')).json())||{}).eintraege||[];}
+  catch(e){tvKatalog=[];}
+  tvMalen();
+}
 async function tvLiveLaden(){
   try{tvLive=((await (await fetch('/api/live')).json())||{}).items||[];}catch(e){tvLive=[];}
   tvMalen();
@@ -7191,8 +7211,18 @@ function tvReihenFuer(){
     tvFilmReihe('Neu auf dem Server',f.neu),
     tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz).slice(0,20)),
     tvTitelReihe('Zuletzt gespielt',zuletzt.slice(0,20))];
-  if(tvTab==='filme')return [tvFilmReihe('Top',nurFilm(f.top))].concat(genresAls(nurFilm));
-  if(tvTab==='serien')return [tvFilmReihe('Top',nurSerie(f.top))].concat(genresAls(nurSerie));
+  if(tvTab==='filme'||tvTab==='serien'){
+    // JB: „Wo sind eigentlich die restlichen Filme von René?" — die Reihen
+    // deckeln bei 10–15; hier kommt der GANZE Katalog als A–Z-Raster dazu.
+    const filt=tvTab==='filme'?nurFilm:nurSerie;
+    const kopf=[tvFilmReihe('Top',filt(f.top))].concat(genresAls(filt));
+    if(tvKatalog===null){tvKatalogLaden(); return kopf;}
+    const alle=tvKatalog.filter(e=>e.typ===(tvTab==='filme'?'film':'serie'))
+      .sort((a,b)=>(a.titel||'').localeCompare(b.titel||'','de'));
+    const azReihe=tvFilmReihe(`Alle von A bis Z (${alle.length})`,alle);
+    azReihe[2]='wrap';                                 // Raster statt Band
+    return kopf.concat([azReihe]);
+  }
   if(tvTab==='neu')return [tvFilmReihe('Neu auf dem Server',f.neu), tvFilmReihe('Top 10',f.top)];
   if(tvTab==='live'){
     const gr={};
@@ -7266,11 +7296,12 @@ function tvMalen(){
     inhalt.innerHTML=hero+suche+(tvTab==='suche'?'':'<div class="tv-leer">Hier ist noch nichts — '+
       (tvTab==='herz'?'markiere Songs mit dem ♡-Herz.':'der Film-Katalog füllt sich über 🎬 Filme → ⟳ Abgleichen.')+'</div>');
   }else{
-    inhalt.innerHTML=hero+suche+tvReihenListe.map(([name,items],r)=>
-      `<div class="tv-reihe"><div class="tv-rtitel">${esc(name)}</div><div class="tv-band">`+
-      items.map((e,i)=>`<div class="tv-kachel${e.quer?' quer':''}" data-r="${r}" data-i="${i}"${e.art==='film'&&e.id?` data-fid="${esc(e.id)}"`:''} onclick="tvWahl(${r},${i})">`+
+    inhalt.innerHTML=hero+suche+tvReihenListe.map((reihe,r)=>{
+      const [name,items]=reihe;
+      return `<div class="tv-reihe"><div class="tv-rtitel">${esc(name)}</div><div class="tv-band${reihe[2]==='wrap'?' wrap':''}">`+
+      items.map((e,i)=>`<div class="tv-kachel${e.quer?' quer':''}" data-r="${r}" data-i="${i}"${e.art==='film'&&e.id?` data-fid="${esc(e.id)}"`:''} onclick="tvKachelKlick(event,${r},${i})">`+
         (e.bild?`<img loading="lazy" src="${e.bild}" onerror="this.style.visibility='hidden'">`:'<img>')+
-        `<div class="tv-ktitel">${esc(e.name)}</div></div>`).join('')+`</div></div>`).join('');
+        `<div class="tv-ktitel">${esc(e.name)}</div></div>`).join('')+`</div></div>`;}).join('');
   }
   const s=document.getElementById('tv-suche'); if(s&&tvTab==='suche'){const v=s.value; s.focus(); s.value=''; s.value=v;}
   if(tvTab==='home')tvHeroMalen();                     // Billboard lädt asynchron nach
@@ -7294,6 +7325,18 @@ function tvFokusMalen(){
     snippetAus(); snippetAn(k);}                       // D-Pad-Fokus = Hover (Fernbedienung)
 }
 function tvHeroDa(){return !!document.querySelector('#tv-hero [data-hero]');}
+function tvKachelKlick(ev,r,i){
+  // Netflix-Verhalten (JB-Fund: „ganz rechts … bewegt er die ganze reihe"):
+  // eine ANGESCHNITTENE Kachel blättert die Reihe eine Seite weiter, nur
+  // eine voll sichtbare öffnet.
+  const k=ev.currentTarget, band=k.closest('.tv-band');
+  if(band&&!band.classList.contains('wrap')){
+    const kr=k.getBoundingClientRect(), br=band.getBoundingClientRect();
+    if(kr.right>br.right+8){band.scrollBy({left:band.clientWidth*0.85,behavior:'smooth'}); return;}
+    if(kr.left<br.left-8){band.scrollBy({left:-band.clientWidth*0.85,behavior:'smooth'}); return;}
+  }
+  tvWahl(r,i);
+}
 function tvWahl(r,i){
   const e=(tvReihenListe[r]||[])[1]&&tvReihenListe[r][1][i]; if(!e)return;
   if(e.art==='live'){tvLivePlay(e); return;}           // 📡 Kanal (JB-Go)

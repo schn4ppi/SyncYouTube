@@ -4090,3 +4090,32 @@ def test_live_und_snippet_ui():
     assert "live:" in quelle[i:_funktionsende(quelle, i)]
     src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
     assert "/api/live" in src and "live_tv.kanaele" in src and "/api/filme/snippet" in src
+
+
+def test_film_player_rueckweg():
+    # JB-Fund: '<- funktioniert nicht' - vlcKeyLetzter setzte nur der
+    # Geraete-VLC-Takt, filmStopp war ein stiller No-op; und '<-' muss
+    # IMMER zur Detailansicht zurueckfuehren.
+    quelle = _oberflaeche_html()
+    i = quelle.index("async function tvpTick")
+    assert "vlcKeyLetzter=s.key" in quelle[i:_funktionsende(quelle, i)], \
+        "der Film-Takt muss den key selbst pflegen"
+    i = quelle.index("async function filmStopp")
+    assert "tvInfo(id)" in quelle[i:_funktionsende(quelle, i)], \
+        "<- muss zur Detailansicht zurueck"
+    i = quelle.index("function tvFilmPlayer")
+    assert "requestFullscreen" in quelle[i:_funktionsende(quelle, i)], \
+        "die Fernbedienung muss selbst ins Vollbild"
+
+
+def test_reihen_blaettern_und_alle_az():
+    # JB-Funde: Klick auf ANGESCHNITTENE Kachel blaettert die Reihe
+    # (Netflix-Muster) statt zu oeffnen; und der GANZE Katalog ist als
+    # 'Alle von A bis Z'-Raster im Filme-/Serien-Tab erreichbar.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function tvKachelKlick")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "scrollBy" in block and "getBoundingClientRect" in block
+    assert 'onclick="tvKachelKlick(event' in quelle, "Kacheln nutzen den Blaetter-Klick nicht"
+    assert "Alle von A bis Z" in quelle and "tvKatalogLaden" in quelle
+    assert "tv-band.wrap" in quelle, "A-Z braucht das Raster-CSS"
