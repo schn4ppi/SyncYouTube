@@ -39,6 +39,7 @@ def einrichten(daten_dir):
     _pfade["queue"] = os.path.join(daten_dir, "filme_fortschritt_queue.json")
     _pfade["bilder"] = os.path.join(daten_dir, "filme_bilder")
     _pfade["merk"] = os.path.join(daten_dir, "filme_merkliste.json")
+    _pfade["snippets"] = os.path.join(daten_dir, "filme_snippets")
 
 
 # ---------------------------------------------------------------- Zugang/Netz
@@ -492,6 +493,61 @@ def mehr_wie(item_id):
     ids = set(d.get("empfehlungen_tmdb") or [])
     return [e for e in katalog_lesen()["eintraege"]
             if e["tmdb"] and e["tmdb"] in ids and e["id"] != item_id]
+
+
+# ---------------------------------------------------------------- Snippets
+# Hover-Szenen-Snippet (JB-Go, Recherche 05.08.): Netflix-Prinzip „nach dem
+# Setup, vor den Spoilern" — deterministisch bei 27 % der Laufzeit, 6 s,
+# stumm, klein. ffmpeg seekt per Range direkt auf der Jellyfin-Stream-URL
+# (kein Vollabruf); der Token bleibt am PC, der Client sieht nur die Datei.
+
+_snippet_laeuft = set()
+
+
+def snippet_pfad(item_id):
+    sauber = re.sub(r"[^A-Za-z0-9]", "", item_id or "")
+    return os.path.join(_pfade["snippets"], f"{sauber}.mp4") if sauber else ""
+
+
+def snippet_backen(item_id):
+    """Einmalig je Titel; still bei jedem Fehler (Vorschau ist Kür)."""
+    pfad = snippet_pfad(item_id)
+    if not pfad or os.path.exists(pfad) or item_id in _snippet_laeuft:
+        return False
+    e = next((x for x in katalog_lesen()["eintraege"] if x["id"] == item_id), None)
+    strom = stream_url(item_id)
+    if not (e and strom):
+        return False
+    start = max(60, int((e.get("laufzeit_min") or 30) * 60 * 0.27))
+    _snippet_laeuft.add(item_id)
+    try:
+        import subprocess
+        os.makedirs(_pfade["snippets"], exist_ok=True)
+        tmp = pfad + ".tmp.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(start), "-i", strom, "-t", "6", "-an",
+             "-vf", "scale=480:-2", "-movflags", "+faststart", tmp],
+            capture_output=True, timeout=90,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if os.path.exists(tmp) and os.path.getsize(tmp) > 10_000:
+            os.replace(tmp, pfad)
+            return True
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    except Exception:                      # noqa: BLE001 — Vorschau ist Kür
+        pass
+    finally:
+        _snippet_laeuft.discard(item_id)
+    return False
+
+
+def snippet_lesen(item_id):
+    """Fertiges Snippet als Bytes; None stößt (einmalig) das Backen an."""
+    pfad = snippet_pfad(item_id)
+    if pfad and os.path.exists(pfad):
+        with open(pfad, "rb") as f:
+            return f.read()
+    return None
 
 
 # ---------------------------------------------------------------- Jellyseerr

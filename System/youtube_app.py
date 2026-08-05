@@ -98,6 +98,8 @@ filme.einrichten(DATEN_DIR)
 # "profile.py" — das würde das stdlib-Modul profile (Profiler) überschatten.
 import profil_geraete                                     # noqa: E402
 profil_geraete.einrichten(DATEN_DIR)
+import live_tv                                            # noqa: E402
+live_tv.einrichten(DATEN_DIR)
 BIN_DIR = os.path.join(SCRIPT_DIR, "bin")
 # In der Release-exe sind ffmpeg/ffprobe/deno MIT eingepackt (PyInstaller-Bundle,
 # entpackt nach sys._MEIPASS/bin). Ein eigener bin\-Ordner NEBEN der exe hat
@@ -5256,6 +5258,17 @@ class Handler(BaseHTTPRequestHandler):
                 _antwort(self, 200, b.getvalue(), "image/png")
             except Exception as e:                   # noqa: BLE001 — Link steht daneben
                 _antwort(self, 500, {"fehler": f"QR: {e}"})
+        elif self.path.startswith("/api/filme/snippet"):   # Hover-Szene (6 s, stumm)
+            fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            clip = filme.snippet_lesen(fid)
+            if clip:
+                _antwort(self, 200, clip, "video/mp4", cache=86400)
+            else:                                     # noch nicht gebacken ⇒ anstoßen
+                threading.Thread(target=filme.snippet_backen, args=(fid,),
+                                 daemon=True).start()
+                _antwort(self, 404, {"wartet": True})
+        elif self.path.startswith("/api/live"):           # 📡 Live-Kanäle (kodinerds)
+            _antwort(self, 200, {"items": live_tv.kanaele()})
         elif self.path.startswith("/api/filme/wuenschen"):  # Seerr-Suche (Teilprojekt 4)
             q = (parse_qs(urlparse(self.path).query).get("q") or [""])[0]
             _antwort(self, 200, {"items": filme.seerr_suche(q)})
@@ -5490,6 +5503,11 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/filme/anfragen":   # Wunsch stellen (Teilprojekt 4)
                 return _antwort(self, 200, filme.seerr_anfragen(
                     daten.get("tmdb") or 0, daten.get("typ") or "film"))
+            elif self.path == "/api/live/play":        # Live-Kanal in den VLC
+                return _antwort(self, 200, vlc_kommando(
+                    {"cmd": "play", "url": daten.get("url") or "",
+                     "key": "live:" + (daten.get("name") or ""),
+                     "vol": daten.get("vol"), "vollbild": True}))
             elif self.path == "/api/filme/fortschritt":
                 return _antwort(self, 200, {"ok": filme.fortschritt(
                     daten.get("id") or "", daten.get("position_s") or 0,

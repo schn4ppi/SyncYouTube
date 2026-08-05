@@ -4055,12 +4055,16 @@ def test_film_player_screen():
     assert "tvFilmPlayer(" in block, "nach dem Start muss die Fernbedienung kommen"
     i = quelle.index("function tvFilmPlayer")
     block = quelle[i:_funktionsende(quelle, i)]
-    for teil in ("tvp-pp", "tvpSeek", "tvpRel(-10)", "⏹ Beenden", "Esc = Beenden"):
+    # Netflix-Layout (Build 188, JBs Player-Bilder): <- oben links, Leiste
+    # unten, Auto-Hide + Pause-Idle ("Du siehst ... / Pausiert").
+    for teil in ("tvp-pp", "tvpSeek", "tvpRel(-10)", "tvp-zurueck", "tvp-unten",
+                 "tvp-idle", "Du siehst", "Pausiert", "tvpWach"):
         assert teil in block, f"Fernbedienungs-Baustein fehlt: {teil}"
+    assert "function tvpIdleTick" in quelle, "Auto-Hide/Idle-Uhr fehlt"
     i = quelle.index("async function tvpTick")
     block = quelle[i:_funktionsende(quelle, i)]
-    assert "film:" in block and "tvpZu()" in block, \
-        "Film-Ende muss die Fernbedienung selbst abraeumen"
+    assert "(film|live):" in block and "tvpZu()" in block, \
+        "Film-/Live-Ende muss die Fernbedienung selbst abraeumen"
     # Tasten: Space/Enter/Pfeile/Esc am Player, Esc holt das TV-Vollbild zurueck
     i = quelle.index("function tvKey")
     block = quelle[i:_funktionsende(quelle, i)]
@@ -4068,3 +4072,21 @@ def test_film_player_screen():
     i = quelle.index("async function filmStopp")
     block = quelle[i:_funktionsende(quelle, i)]
     assert "tvpZu()" in block and "requestFullscreen" in block
+
+
+def test_live_und_snippet_ui():
+    # JB-Go: 📡-Live-Tab (kodinerds, legal) + Hover-Szenen-Snippets.
+    quelle = _oberflaeche_html()
+    assert "'live','📡 Live'" in quelle.replace('"', "'"), "Live-Tab fehlt"
+    assert "function tvLivePlay" in quelle and "/api/live/play" in quelle
+    assert "function snippetAn" in quelle and "/api/filme/snippet?id=" in quelle
+    i = quelle.index("function tvWahl")
+    assert "tvLivePlay(e)" in quelle[i:_funktionsende(quelle, i)]
+    i = quelle.index("function tvFokusMalen")
+    assert "snippetAn(k)" in quelle[i:_funktionsende(quelle, i)], \
+        "D-Pad-Fokus muss das Snippet genauso zeigen wie die Maus"
+    # Live-Keys: Fernbedienung/Stopp kennen live: (kein Fortschritts-Post!)
+    i = quelle.index("async function filmStopp")
+    assert "live:" in quelle[i:_funktionsende(quelle, i)]
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert "/api/live" in src and "live_tv.kanaele" in src and "/api/filme/snippet" in src

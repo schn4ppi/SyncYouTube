@@ -161,7 +161,9 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv .tv-rtitel{font-size:26px;font-weight:700;margin:18px 2px 10px}
 #tv .tv-band{display:flex;gap:14px;overflow-x:auto;padding:6px 2px 10px;scrollbar-width:none}
 #tv .tv-kachel{flex:0 0 auto;width:150px;cursor:pointer;border:3px solid transparent;
-  border-radius:12px;padding:3px}
+  border-radius:12px;padding:3px;position:relative}
+#tv .tv-snip{position:absolute;top:3px;left:3px;width:calc(100% - 6px);
+  aspect-ratio:16/9;object-fit:cover;border-radius:9px;z-index:1;background:#000}
 #tv .tv-kachel img{width:100%;height:216px;object-fit:cover;border-radius:9px;
   background:#221c17;display:block}
 #tv .tv-kachel.quer img{height:96px}
@@ -192,17 +194,35 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 .tv-btn.zart{background:rgba(255,255,255,.16);color:#fff}
 .tv-btn.akt{background:rgba(232,176,75,.35)}          /* gewählte Staffel */
 .tv-btn.tv-fokus{border-color:#e8b04b}
-/* Film-Player-Screen (Build 187): die Fernbedienung zum VLC-Vollbild */
-#tv-player{position:fixed;inset:0;z-index:970;display:none;align-items:flex-end;
-  justify-content:center;background:#0c0a09;color:#f2ece5}
+/* Film-Player (Build 188, Netflix-Layout nach JBs Bildern): Leiste unten
+   über volle Breite, ← oben links; Inaktivität blendet aus; Pause-Idle. */
+#tv-player{position:fixed;inset:0;z-index:970;display:none;background:#0c0a09;color:#f2ece5}
 #tv-player .tvp-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.28}
-#tv-player .tvp-mitte{position:relative;z-index:1;width:min(980px,94vw);padding:0 0 7vh;text-align:center}
-#tv-player .tvp-titel{font-size:34px;font-weight:800;margin-bottom:10px}
-#tv-player .tvp-hinweis{font-size:16px;color:#b9aea4;margin-bottom:22px;line-height:1.5}
-#tv-player .tvp-leiste{display:flex;align-items:center;gap:12px;justify-content:center}
-#tv-player .tvp-balkenwrap{flex:1;max-width:420px;padding:12px 0;cursor:pointer}
-#tv-player .tvp-balken{height:6px;background:#3a322b;border-radius:3px;overflow:hidden}
+#tv-player .tvp-ui{position:absolute;inset:0;z-index:1;transition:opacity .5s}
+#tv-player.idle .tvp-zurueck,#tv-player.idle .tvp-unten{opacity:0;pointer-events:none}
+#tv-player .tvp-zurueck{position:absolute;top:22px;left:26px;font-size:34px;background:none;
+  border:none;color:#fff;cursor:pointer;transition:opacity .5s}
+#tv-player .tvp-unten{position:absolute;left:0;right:0;bottom:0;padding:14px 30px 20px;
+  background:linear-gradient(0deg,rgba(12,10,9,.9),transparent);transition:opacity .5s}
+#tv-player .tvp-balkenzeile{display:flex;align-items:center;gap:16px;margin-bottom:10px}
+#tv-player .tvp-balkenwrap{flex:1;padding:10px 0;cursor:pointer}
+#tv-player .tvp-balken{height:5px;background:rgba(255,255,255,.28);border-radius:3px;overflow:hidden}
 #tv-player .tvp-balken div{height:100%;width:0;background:#e5484d}
+#tv-player .tvp-zeit{font-size:16px;color:#fff;white-space:nowrap}
+#tv-player .tvp-reihe{display:flex;align-items:center;gap:16px}
+#tv-player .tvp-ib{background:none;border:none;color:#fff;font-size:26px;cursor:pointer;
+  display:inline-flex;align-items:center}
+#tv-player .tvp-ib svg{width:30px;height:30px;fill:#fff}
+#tv-player .tvp-mtitel{position:absolute;left:50%;transform:translateX(-50%);
+  font-size:18px;font-weight:700;white-space:nowrap}
+#tv-player .tvp-rechts{margin-left:auto}
+#tv-player .tvp-idle{position:absolute;left:6vw;top:30vh;max-width:640px;display:none;
+  flex-direction:column;gap:10px}
+#tv-player .tvp-idle-klein{font-size:19px;color:#d8cec4}
+#tv-player .tvp-idle-titel{font-size:56px;font-weight:900;line-height:1.05}
+#tv-player .tvp-idle-meta{font-size:20px;color:#d8cec4;font-weight:700}
+#tv-player .tvp-idle-besch{font-size:17px;color:#cfc5ba}
+#tv-player .tvp-idle-paused{position:fixed;right:6vw;bottom:10vh;font-size:22px;color:#d8cec4}
 /* TV-Profil-Dialog (eigener statt prompt(), JB: „bau den") */
 #tv-dialog{position:fixed;inset:0;z-index:980;display:none;align-items:center;
   justify-content:center;background:rgba(8,6,5,.82);color:#f2ece5}
@@ -3719,27 +3739,59 @@ async function filmePlay(id,pos){
    ±10 s, klickbarer Balken, Lautstärke, Beenden. Tasten: Leertaste/Enter =
    Pause · ←/→ = ±10 s · ↑/↓ = Lautstärke · Esc = Beenden. */
 let tvpTimer=null, tvpPos=0, tvpDauer=0, tvpOffen=false, tvpLief=false, tvpTicks=0;
+let tvpMeta=null, tvpAktiv=0;                          // Idle-Uhr (Netflix-Auto-Hide)
 function tvFilmPlayer(id,titel){
-  tvpOffen=true; tvpPos=0; tvpDauer=0; tvpLief=false; tvpTicks=0;
+  tvpOffen=true; tvpPos=0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
+  tvpMeta=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)?tvInfoDaten.d:{titel:titel||''};
   let el=document.getElementById('tv-player');
   if(!el){el=document.createElement('div'); el.id='tv-player';}
   (document.fullscreenElement||document.body).appendChild(el);
   el.style.display='flex';
+  // Netflix-Layout (JBs Player-Bilder): ← oben links, Leiste UNTEN über die
+  // volle Breite (roter Balken + Zeit rechts), darunter ⏯ ±10 🔊 links und
+  // der Titel mittig. Bei Inaktivität blendet alles aus (tvpIdleTick).
   el.innerHTML=
     `<img class="tvp-bg" src="/api/filme/bild?id=${encodeURIComponent(id)}&art=Backdrop" onerror="this.style.visibility='hidden'">`+
-    `<div class="tvp-mitte"><div class="tvp-titel">${esc(titel||'')}</div>`+
-    `<div class="tvp-hinweis">Der Film läuft im VLC-Vollbild — hier ist die Fernbedienung.<br>`+
-      `Leertaste = Pause · ← → = ±10 s · ↑ ↓ = Lautstärke · Esc = Beenden</div>`+
-    `<div class="tvp-leiste">`+
-      `<button class="tv-btn zart" id="tvp-pp" onclick="vlcBefehl('toggle');setTimeout(tvpTick,300)">⏸</button>`+
-      `<button class="tv-btn zart" onclick="tvpRel(-10)">⏪ 10</button>`+
-      `<div class="tvp-balkenwrap" onclick="tvpSeek(event)"><div class="tvp-balken"><div id="tvp-fuell"></div></div></div>`+
-      `<span id="tvp-zeit" class="info-rest">–</span>`+
-      `<button class="tv-btn zart" onclick="tvpRel(10)">10 ⏩</button>`+
-      `<button class="tv-btn" onclick="filmStopp()">⏹ Beenden</button>`+
-    `</div></div>`;
+    `<div class="tvp-ui">`+
+      `<button class="tvp-zurueck" onclick="filmStopp()" title="Beenden (Esc)">←</button>`+
+      `<div class="tvp-unten">`+
+        `<div class="tvp-balkenzeile"><div class="tvp-balkenwrap" onclick="tvpSeek(event)">`+
+          `<div class="tvp-balken"><div id="tvp-fuell"></div></div></div>`+
+          `<span id="tvp-zeit" class="tvp-zeit">–</span></div>`+
+        `<div class="tvp-reihe">`+
+          `<button class="tvp-ib" id="tvp-pp" onclick="vlcBefehl('toggle');setTimeout(tvpTick,300)">⏸</button>`+
+          `<button class="tvp-ib" onclick="tvpRel(-10)" title="10 s zurück">${ico('r10')}</button>`+
+          `<button class="tvp-ib" onclick="tvpRel(10)" title="10 s vor">${ico('f10')}</button>`+
+          `<span class="pl-bvolwrap" style="color:#fff">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value);vlcBefehl('vol',{wert:plVol})"></span>`+
+          `<div class="tvp-mtitel">${esc(tvpMeta.titel||'')}</div>`+
+          `<span class="tvp-rechts"></span>`+
+        `</div>`+
+      `</div>`+
+      `<div class="tvp-idle" id="tvp-idle" style="display:none">`+
+        `<div class="tvp-idle-klein">Du siehst</div>`+
+        `<div class="tvp-idle-titel">${esc(tvpMeta.titel||'')}</div>`+
+        `<div class="tvp-idle-meta">${[tvpMeta.jahr,esc(tvpMeta.fsk||''),tvpMeta.laufzeit_min?tvpMeta.laufzeit_min+' min':''].filter(Boolean).join('   ')}</div>`+
+        `<div class="tvp-idle-besch">${esc((tvpMeta.beschreibung||'').slice(0,220))}</div>`+
+        `<div class="tvp-idle-paused">Pausiert</div>`+
+      `</div>`+
+    `</div>`;
+  ['pointermove','pointerdown','keydown'].forEach(evn=>el.addEventListener(evn,tvpWach));
   if(!tvpTimer)tvpTimer=setInterval(tvpTick,1000);
   setTimeout(tvpTick,600);
+}
+function tvpWach(){
+  tvpAktiv=Date.now();
+  const el=document.getElementById('tv-player'); if(el)el.classList.remove('idle');
+  const idle=document.getElementById('tvp-idle'); if(idle)idle.style.display='none';
+}
+function tvpIdleTick(spielt){
+  // Netflix-Verhalten (JB-Bilder): Inaktivität blendet die Leiste aus; wer in
+  // PAUSE verharrt, bekommt den ruhigen „Du siehst …"-Schirm (Bild 3).
+  const el=document.getElementById('tv-player'); if(!el)return;
+  const still=Date.now()-tvpAktiv>3500;
+  el.classList.toggle('idle',still);
+  const idle=document.getElementById('tvp-idle');
+  if(idle)idle.style.display=(still&&!spielt)?'flex':'none';
 }
 function tvpZu(){
   tvpOffen=false;
@@ -3753,10 +3805,11 @@ async function tvpTick(){
   if(!s)return;
   if(s.zustand==='spielt')tvpLief=true;
   tvpTicks++;
+  tvpIdleTick(s.zustand==='spielt');
   // Ende-Erkennung mit ANLAUF-GNADE (live gefunden: der erste Tick kam vor
   // VLCs „spielt" und schloss die Fernbedienung sofort wieder): erst
   // schließen, wenn der Film nachweislich lief oder der Start nie kam.
-  if((!(s.key||'').startsWith('film:')||s.zustand==='aus')&&(tvpLief||tvpTicks>8)){
+  if((!/^(film|live):/.test(s.key||'')||s.zustand==='aus')&&(tvpLief||tvpTicks>8)){
     tvpZu();
     if(tvInfoOffen)tvInfoMalen();
     return;
@@ -3783,8 +3836,18 @@ function tvpSeek(ev){
 /* Film beenden (JB 05.08.: „auch beendet werden können mit escape") — meldet
    den Spot an Jellyfin UND lokal, damit „Weiterschauen ab …" SOFORT stimmt,
    ohne auf den nächsten Katalog-Abzug zu warten. */
-function filmLaeuft(){return vlcSpielt&&(vlcKeyLetzter||'').startsWith('film:');}
+function filmLaeuft(){return vlcSpielt&&/^(film|live):/.test(vlcKeyLetzter||'');}
 async function filmStopp(){
+  if((vlcKeyLetzter||'').startsWith('live:')){         // 📡 Live: nur stoppen
+    vlcBefehl('stop');
+    if(typeof tvpZu==='function')tvpZu();
+    const tvL=document.getElementById('tv');
+    if(tvL&&tvL.style.display!=='none'&&!document.fullscreenElement){
+      try{tvL.requestFullscreen&&tvL.requestFullscreen().catch(()=>{});}catch(e){}
+    }
+    toast('📡 Live beendet.');
+    return;
+  }
   const id=(vlcKeyLetzter||'').slice(5); if(!id)return;
   const pos=Math.round(vlcPosGeschaetzt()||0);
   vlcBefehl('stop');
@@ -6875,15 +6938,49 @@ function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)retu
    Enter auf einen Film startet ihn im VLC (Film-Fundament); Enter auf einen
    Titel spielt ihn im Player. Feinschliff-Runden folgen mit JBs Blick. */
 const TV_TABS=[['suche','🔍'],['home','Home'],['filme','Filme'],['serien','Serien'],
-  ['neu','Neu & Beliebt'],['herz','❤ Favoriten'],['yt','▶ YouTube'],['musik','🎵 Musik']];
+  ['neu','Neu & Beliebt'],['live','📡 Live'],['herz','❤ Favoriten'],['yt','▶ YouTube'],['musik','🎵 Musik']];
 let tvTab='home', tvFokus={r:0,i:0}, tvReihenListe=[], tvFilmReihen=null;
 function fernsehModus(){
   if(typeof ansichtZu==='function')ansichtZu();
   const o=document.getElementById('optionen'); if(o)o.remove();
   tvOeffnen();
 }
+/* Hover-Szenen-Snippet (JB-Go): nach 800 ms Verweilen läuft ein stummes
+   6-s-Loop-Video (eigener ffmpeg-Bäcker, Szene bei 27 % Laufzeit) über dem
+   Poster — Netflix-Gefühl; 404 heißt „backt gerade", nächstes Mal ist es da. */
+let snipTimer=null;
+function snippetAn(kachel){
+  const fid=kachel&&kachel.dataset&&kachel.dataset.fid; if(!fid)return;
+  clearTimeout(snipTimer);
+  snipTimer=setTimeout(()=>{
+    if(kachel.querySelector('.tv-snip'))return;
+    const v=document.createElement('video');
+    v.className='tv-snip'; v.muted=true; v.loop=true; v.autoplay=true; v.playsInline=true;
+    v.src='/api/filme/snippet?id='+encodeURIComponent(fid);
+    v.onerror=()=>v.remove();
+    kachel.appendChild(v);
+  },800);
+}
+function snippetAus(){
+  clearTimeout(snipTimer);
+  document.querySelectorAll('#tv .tv-snip').forEach(x=>x.remove());
+}
+let _snipVerkabelt=false;
+function snippetVerkabeln(){
+  if(_snipVerkabelt)return; _snipVerkabelt=true;
+  const inhalt=document.getElementById('tv-inhalt'); if(!inhalt)return;
+  inhalt.addEventListener('mouseover',ev=>{
+    const k=ev.target.closest&&ev.target.closest('.tv-kachel[data-fid]');
+    if(k&&!k.querySelector('.tv-snip')){snippetAus(); snippetAn(k);}
+  });
+  inhalt.addEventListener('mouseout',ev=>{
+    const k=ev.target.closest&&ev.target.closest('.tv-kachel[data-fid]');
+    if(k&&!k.contains(ev.relatedTarget))snippetAus();
+  });
+}
 async function tvOeffnen(){
   const tv=document.getElementById('tv'); if(!tv)return;
+  snippetVerkabeln();
   tv.style.display='flex'; tvTab='home'; tvFokus={r:0,i:0};
   document.addEventListener('keydown',tvKey,true);     // capture: Hotkeys treten zurück
   try{if(!document.fullscreenElement&&tv.requestFullscreen)tv.requestFullscreen().catch(()=>{});}catch(e){}
@@ -7055,7 +7152,23 @@ function tvDlgFokusMalen(){
 }
 function tvTabWahl(id){tvTab=id; tvFokus={r:0,i:0};
   if(id==='herz'&&tvWuensche===null)tvWuenscheLaden().then(tvMalen);  // Wünsche einmalig ziehen
+  if(id==='live'&&tvLive===null)tvLiveLaden();                        // Kanäle einmalig ziehen
   tvMalen();}
+/* 📡 Live (JB-Go): kodinerds-Legal-Liste, VLC spielt m3u8 direkt. */
+let tvLive=null;
+async function tvLiveLaden(){
+  try{tvLive=((await (await fetch('/api/live')).json())||{}).items||[];}catch(e){tvLive=[];}
+  tvMalen();
+}
+async function tvLivePlay(e){
+  if(document.fullscreenElement){try{document.exitFullscreen();}catch(x){}}
+  try{
+    const r=await (await fetch('/api/live/play',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url:e.url, name:e.name, vol:plVol})})).json();
+    if(r.fehler){toast('📡 '+r.fehler); return;}
+    tvFilmPlayer('',e.name);                           // Fernbedienung ohne Seek-Ziel
+  }catch(x){toast('📡 Kanal nicht erreichbar.');}
+}
 function tvTitelReihe(name,arr){return [name, arr.map(x=>({art:'titel',id:x.id,
   name:x.titel, bild:x.cover_album?('/api/cover?id='+encodeURIComponent(x.id)):(x.thumb||''),
   quer:!x.cover_album}))];}
@@ -7081,6 +7194,12 @@ function tvReihenFuer(){
   if(tvTab==='filme')return [tvFilmReihe('Top',nurFilm(f.top))].concat(genresAls(nurFilm));
   if(tvTab==='serien')return [tvFilmReihe('Top',nurSerie(f.top))].concat(genresAls(nurSerie));
   if(tvTab==='neu')return [tvFilmReihe('Neu auf dem Server',f.neu), tvFilmReihe('Top 10',f.top)];
+  if(tvTab==='live'){
+    const gr={};
+    (tvLive||[]).forEach(k=>{(gr[k.gruppe||'Sender']=gr[k.gruppe||'Sender']||[]).push(k);});
+    return Object.entries(gr).slice(0,8).map(([g,ks])=>[g, ks.slice(0,25).map(k=>({
+      art:'live', name:k.name, url:k.url, bild:k.logo||'', quer:true}))]);
+  }
   if(tvTab==='herz')return [tvFilmReihe('🎞 Meine Liste',f.merkliste),
     tvWunschReihe('⏳ Meine Wünsche',tvWuensche||[]),
     tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz))];
@@ -7149,7 +7268,7 @@ function tvMalen(){
   }else{
     inhalt.innerHTML=hero+suche+tvReihenListe.map(([name,items],r)=>
       `<div class="tv-reihe"><div class="tv-rtitel">${esc(name)}</div><div class="tv-band">`+
-      items.map((e,i)=>`<div class="tv-kachel${e.quer?' quer':''}" data-r="${r}" data-i="${i}" onclick="tvWahl(${r},${i})">`+
+      items.map((e,i)=>`<div class="tv-kachel${e.quer?' quer':''}" data-r="${r}" data-i="${i}"${e.art==='film'&&e.id?` data-fid="${esc(e.id)}"`:''} onclick="tvWahl(${r},${i})">`+
         (e.bild?`<img loading="lazy" src="${e.bild}" onerror="this.style.visibility='hidden'">`:'<img>')+
         `<div class="tv-ktitel">${esc(e.name)}</div></div>`).join('')+`</div></div>`).join('');
   }
@@ -7171,11 +7290,13 @@ function tvFokusMalen(){
     return;
   }
   const k=document.querySelector(`#tv .tv-kachel[data-r="${tvFokus.r}"][data-i="${tvFokus.i}"]`);
-  if(k){k.classList.add('tv-fokus'); k.scrollIntoView({block:'nearest',inline:'nearest'});}
+  if(k){k.classList.add('tv-fokus'); k.scrollIntoView({block:'nearest',inline:'nearest'});
+    snippetAus(); snippetAn(k);}                       // D-Pad-Fokus = Hover (Fernbedienung)
 }
 function tvHeroDa(){return !!document.querySelector('#tv-hero [data-hero]');}
 function tvWahl(r,i){
   const e=(tvReihenListe[r]||[])[1]&&tvReihenListe[r][1][i]; if(!e)return;
+  if(e.art==='live'){tvLivePlay(e); return;}           // 📡 Kanal (JB-Go)
   if(e.art==='seerr'){                                 // Wunsch-Kachel (Teilprojekt 4)
     if(e.status==='da'&&e.id)tvInfo(e.id);             // schon da + im Spiegel -> Info
     else tvAnfrage(e);
@@ -7390,6 +7511,7 @@ function tvKey(ev){
   // Film-Fernbedienung offen? Sie hat Vorrang vor allen Ebenen.
   if(tvpOffen){
     let getan=true;
+    tvpWach();                                         // jede Taste weckt die Leiste
     if(ev.key==='Escape')filmStopp();
     else if(ev.key===' '||ev.key==='Enter'){vlcBefehl('toggle'); setTimeout(tvpTick,300);}
     else if(ev.key==='ArrowLeft')tvpRel(-10);

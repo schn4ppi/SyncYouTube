@@ -417,3 +417,44 @@ def test_detail_netflix_felder(tmp_path, monkeypatch):
     assert d["trailer"] == [{"key": "abc123", "name": "Trailer 1"}], "nur YouTube"
     assert d["hoehe"] == 2160 and d["audio_kanaele"] == 8
     assert d["audio_sprachen"] == ["ger", "eng"] and d["sub_sprachen"] == ["ger", "eng"]
+
+
+def test_live_tv_parser(tmp_path):
+    import live_tv
+    live_tv.einrichten(str(tmp_path))
+    m3u = ('#EXTM3U\n'
+           '#EXTINF:-1 tvg-logo="https://l/ard.png" group-title="Hauptsender",Das Erste\n'
+           'https://s/ard/master.m3u8\n'
+           '#EXTINF:-1 group-title="Regional",WDR\n'
+           'https://s/wdr.m3u8\n'
+           '# Kommentar\n')
+    k = live_tv.m3u_parsen(m3u)
+    assert k[0] == {"name": "Das Erste", "logo": "https://l/ard.png",
+                    "gruppe": "Hauptsender", "url": "https://s/ard/master.m3u8"}
+    assert k[1]["gruppe"] == "Regional" and k[1]["logo"] == ""
+
+
+def test_snippet_baecker(tmp_path, monkeypatch):
+    # JB-Go Hover-Snippet: deterministisch bei 27% Laufzeit, still bei Fehlern.
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, FAKE_ITEMS)]))
+    filme.katalog_abzug()
+    rufe = []
+
+    def fake_run(cmd, **kw):
+        rufe.append(cmd)
+        with open(cmd[-1], "wb") as f:               # letztes Arg = tmp-Datei
+            f.write(b"0" * 20000)
+        class R: pass
+        return R()
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert filme.snippet_backen("f1") is True
+    cmd = rufe[0]
+    assert cmd[cmd.index("-ss") + 1] == str(int(141 * 60 * 0.27)), "27% der Laufzeit"
+    assert "-an" in cmd and "6" in cmd, "6 s, stumm"
+    assert filme.snippet_lesen("f1"), "fertiges Snippet muss lesbar sein"
+    assert filme.snippet_backen("f1") is False, "zweites Backen ist ein No-op"
+    assert filme.snippet_lesen("gibtsnicht") is None
