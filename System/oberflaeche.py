@@ -4310,7 +4310,12 @@ const ICONS={
   // Form-Sprache und dieselbe Farbe wie der Rest der Leiste.
   back:'M11 12 19 6.5v11L11 12zm-8 0 8-5.5v11L3 12z',
   fwd:'M13 12 5 17.5v-11L13 12zm8 0-8 5.5v-11L21 12z'};
-function ico(n){return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+ICONS[n]+'"/></svg>';}
+const ICONS_VOLL={
+  // 10-Sekunden-Kreispfeile (JB 05.08., Bild): unmissverständlich ±10 s —
+  // die alten ⏪/⏩-Doppeldreiecke lasen sich wie voriger/nächster Titel.
+  r10:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="12" y="16.5" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none">10</text></svg>',
+  f10:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="12" y="16.5" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none">10</text></svg>'};
+function ico(n){return ICONS_VOLL[n]||('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+ICONS[n]+'"/></svg>');}
 
 /* ---- Browser-Zeichen für den Status-Punkt (Build 133, JB-Wunsch) ----------
    Reihenfolge der Prüfung ist wichtig: Edge und Chrome tragen beide „Chrome"
@@ -5535,12 +5540,11 @@ function playerPlay(keys,start,quelle,plid){
   keys=(keys||[]).filter(k=>{const x=libFind(k); return x&&x.vorhanden;});
   if(!keys.length){alert('Nichts Abspielbares — die Datei fehlt (verschoben/gelöscht).');return;}
   // Genau den LAUFENDEN Titel nochmal angeklickt -> nicht neu starten, sondern Pause/Play
-  if(vlcAktiv() && keys.length===1 && keys[0]===aktKey()){ vlcBefehl('toggle'); return; }
+  if(vlcAktiv() && keys.length===1 && keys[0]===aktKey()){ plTogglePlay(); return; }
   const el=document.getElementById('pl-el');
   if(el && keys.length===1 && keys[0]===aktKey()){ if(el.paused)el.play(); else el.pause(); return; }
   radioAktiv=false;                                  // manueller Start beendet den Radio-Stream
   playerState.queue=keys; playerState.idx=start||0;
-  playerAktiv=true;                                  // Start = Player ist „angefasst" (Space greift)
   playerState.quelle=quelle||'Bibliothek';           // Name fürs Playlist-Fenster (JB 21.07.)
   playerState.plid=plid||'';                         // nur gesetzt bei einer GESPEICHERTEN Playlist
   ensurePlayer(); renderPlayerMedia();
@@ -5559,6 +5563,16 @@ function playerNext(){
   else if(playerState.queue.length<=1)naechstesAusBibliothek();
 }
 function playerPrev(){
+  // Standard-Player-Verhalten (JB 05.08., wie Spotify/YT Music): läuft der
+  // Titel schon (>3 s), springt ⏮ erst an den ANFANG; erst ein zweiter
+  // Druck geht zum vorigen Titel. Deckt auch Wiederholen-eins ab.
+  const el0=document.getElementById('pl-el');
+  const pos=vlcAktiv()?vlcPosLetzte:(el0?el0.currentTime:0);
+  if(pos>3){
+    if(vlcAktiv()){vlcPosLetzte=0; vlcBefehl('seek',{wert:0});}
+    else if(el0)el0.currentTime=0;
+    return;
+  }
   const n=queueIdxPassend(playerState.idx-1,-1);
   if(n>=0){playerState.idx=n; renderPlayerMedia();}
   // Symmetrisch zu playerNext (JB 14.07.: 'ich kann nur vor, nicht zurück, ohne Playlist'):
@@ -6315,10 +6329,11 @@ function plBarHTML(istVideo){
     // fehlt die Steuerzentrale oben, die das sonst übernimmt.
     // JB 05.08. (Disney/Netflix-Bilder): ±10 s gehören IMMER in die Leiste,
     // nicht nur im Vollbild — fürs Sofa sind die Pfeiltasten zu weit weg.
-    `<button class="mp-btn" id="plb-back10" onclick="plbSpringen(-10)" title="10 Sekunden zurück (Taste J)">${ico('back')}</button>`+
+    `<button class="mp-btn" id="plb-prev" onclick="playerPrev()" title="Voriger Titel — läuft der Titel schon, erst an den Anfang (Taste P)">${ico('prev')}</button>`+
+    `<button class="mp-btn" id="plb-back10" onclick="plbSpringen(-10)" title="10 Sekunden zurück (Taste J)">${ico('r10')}</button>`+
     `<button class="mp-btn" data-tr="pp" onclick="plTogglePlay()">${ico('play')}</button>`+
-    `<button class="mp-btn" id="plb-fwd10" onclick="plbSpringen(10)" title="10 Sekunden vor (Taste L)">${ico('fwd')}</button>`+
-    `<button class="mp-btn nur-vollbild" id="plb-next" onclick="playerNext()" title="Nächster Titel (Taste N)">${ico('next')}</button>`+
+    `<button class="mp-btn" id="plb-fwd10" onclick="plbSpringen(10)" title="10 Sekunden vor (Taste L)">${ico('f10')}</button>`+
+    `<button class="mp-btn" id="plb-next" onclick="playerNext()" title="Nächster Titel (Taste N)">${ico('next')}</button>`+
     `<span class="pl-bspacer"></span>`+
     // JB 05.08. (Netflix/YouTube-Muster): Untertitel + Lautstärke gehören zum
     // KERN — sie überleben jede Player-Größe (keine bo-Ausblende-Klasse).
@@ -6367,7 +6382,7 @@ function sprungZeigen(s){
   if(_sprungWeg){_sprungWeg.remove(); _sprungWeg=null;}
   const d=document.createElement('div');
   d.className='pl-sprung '+(s<0?'links':'rechts');
-  d.innerHTML=ico(s<0?'back':'fwd')+'<span>'+Math.abs(_sprungSumme)+' s</span>';
+  d.innerHTML=ico(s<0?'r10':'f10')+'<span>'+Math.abs(_sprungSumme)+' s</span>';
   media.appendChild(d); _sprungWeg=d;
   clearTimeout(_sprungTimer);
   _sprungTimer=setTimeout(()=>{if(_sprungWeg){_sprungWeg.remove(); _sprungWeg=null;} _sprungSumme=0;},700);
@@ -6795,6 +6810,7 @@ function renderPlayerMedia(){
   // erwartet); Audio bleibt am Gerät VLC (braucht kein Fenster). In der
   // PROGRAMM-HÜLLE rendert VLC eingebettet ins eigene Fenster (set_hwnd).
   const vlcHier=plGeraet==='vlc'&&(istAudio||!!window.pywebview);
+  if(!vlcHier&&plGeraet==='vlc')vlcBefehl('stop');     // JB-Fund: sonst spielt VLC-Audio unterm Browser-Video weiter
   if(vlcHier){                                         // Gerät „VLC": Motor auf dem PC statt <audio>/<video>
     xfAbbrechen();                                     // Crossfade gehört dem Browser-Element
     renderPlayerVlc(media,x,k);
@@ -6850,7 +6866,7 @@ function renderPlayerMedia(){
 }
 function plQueueKlick(i){
   if(i===playerState.idx){                             // schon aktiv -> Pause/Play statt Neustart
-    if(vlcAktiv()){vlcBefehl('toggle'); return;}
+    if(vlcAktiv()){plTogglePlay(); return;}
     const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}
     return;
   }
@@ -7972,12 +7988,7 @@ const HK_NAMEN={playpause:'Play / Pause',rueck10:'10 s zurück',vor10:'10 s vor'
 let HK={};
 (function(){let g={}; try{g=JSON.parse(localStorage.getItem('ytdl_hotkeys')||'{}')||{};}catch(e){}
   for(const a in HK_DEF)HK[a]=(Array.isArray(g[a])&&g[a].length)?g[a].slice():HK_DEF[a].slice();})();
-// „Player zuletzt angefasst?" — steuert die Standard-Leertaste (JB 05.08.).
-let playerAktiv=false;
-document.addEventListener('pointerdown',e=>{
-  playerAktiv=!!(e.target&&e.target.closest&&
-    e.target.closest('#pl-card,#view-plq,#cmd-now,.pl-media,.pl-bar'));
-},true);
+
 function hkSpeichern(){try{localStorage.setItem('ytdl_hotkeys',JSON.stringify(HK));}catch(e){}}
 function hkCode(e){return (e.shiftKey?'Shift+':'')+e.code;}
 function hkAktionFuer(code){for(const a in HK){if((HK[a]||[]).includes(code))return a;} return '';}
@@ -8068,15 +8079,8 @@ document.addEventListener('keydown',e=>{
     langsamer:()=>{if(el)_rate(-0.25);}, schneller:()=>{if(el)_rate(0.25);},
     subfrueher:()=>subOffsetSchieben(-0.5), subspaeter:()=>subOffsetSchieben(0.5)
   };
-  const akt=hkAktionFuer(hkCode(e));
-  // JB 05.08.: „Hotkeys sollten nur funktionieren wenn ich im Fenster bin,
-  // oder selber eine Taste zugewiesen habe." Die STANDARD-Belegung von
-  // Play/Pause (Space/K) gilt nur, wenn der Player zuletzt angefasst wurde
-  // oder Vollbild läuft — eine im Hotkey-Editor SELBST gesetzte Taste gilt
-  // bewusst überall.
-  if(akt==='playpause'&&!document.fullscreenElement&&!playerAktiv
-     &&JSON.stringify(HK.playpause)===JSON.stringify(HK_DEF.playpause))return;
-  const tu=HK_TUN[akt];
+  // JB 05.08. (Korrektur): Hotkeys gelten ÜBERALL im Browser-Fenster.
+  const tu=HK_TUN[hkAktionFuer(hkCode(e))];
   if(tu){e.preventDefault(); tu(); return;}
   switch(e.code){                                      // fest: Medientasten der Tastatur
     case 'MediaPlayPause': e.preventDefault(); playPause(); break;
