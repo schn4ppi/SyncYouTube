@@ -271,22 +271,39 @@ def detail(item_id, profil="standard"):
         return None
     cache = _meta_cache()
     m = cache.get(item_id) or {}
-    if not m or time.time() - (m.get("ts") or 0) > META_HALTBAR_S:
+    # "trailer_v2" ist der Feld-Versions-Marker: ältere Cache-Einträge werden
+    # einmal frisch geholt (Netflix-Detailseite Build 184; v2 = Trailer-Fix:
+    # language=de-DE filterte auch die VIDEOS auf Deutsch ⇒ meist leer).
+    if not m or "trailer_v2" not in m or time.time() - (m.get("ts") or 0) > META_HALTBAR_S:
         m = {"ts": time.time(), "beschreibung": "", "cast": [],
              "empfehlungen_tmdb": [], "imdb_rating": "", "metacritic": "",
-             "tomatometer": ""}
+             "tomatometer": "", "tagline": "", "regie": [], "drehbuch": [],
+             "trailer": [], "trailer_v2": True, "hoehe": 0, "audio_kanaele": 0,
+             "audio_sprachen": [], "sub_sprachen": []}
         keys = _meta_keys()
         if keys.get("tmdb") and e.get("tmdb"):
             art = "tv" if e["typ"] == "serie" else "movie"
             try:
                 st, roh = _http(f"https://api.themoviedb.org/3/{art}/{e['tmdb']}"
                                 f"?api_key={keys['tmdb']}&language=de-DE"
-                                f"&append_to_response=credits,recommendations")
+                                f"&append_to_response=credits,recommendations,videos"
+                                f"&include_video_language=de,en,null")
                 if st == 200:
                     d = json.loads(roh)
                     m["beschreibung"] = d.get("overview") or ""
+                    m["tagline"] = d.get("tagline") or ""
                     m["cast"] = [c.get("name") or "" for c in
                                  (d.get("credits") or {}).get("cast") or []][:12]
+                    crew = (d.get("credits") or {}).get("crew") or []
+                    m["regie"] = [c.get("name") for c in crew
+                                  if c.get("job") == "Director"][:3]
+                    m["drehbuch"] = [c.get("name") for c in crew
+                                     if c.get("job") in ("Writer", "Screenplay",
+                                                         "Story", "Novel")][:3]
+                    m["trailer"] = [{"key": v.get("key"), "name": v.get("name") or "Trailer"}
+                                    for v in (d.get("videos") or {}).get("results") or []
+                                    if v.get("site") == "YouTube"
+                                    and v.get("type") in ("Trailer", "Teaser")][:6]
                     m["empfehlungen_tmdb"] = [str(x.get("id")) for x in
                                               (d.get("recommendations") or {})
                                               .get("results") or []]
@@ -310,24 +327,38 @@ def detail(item_id, profil="standard"):
                     cache["omdb_zaehler"] = (cache.get("omdb_zaehler") or 0) + 1
             except Exception:              # noqa: BLE001 — Zahl fehlt dann eben
                 pass
-        # Codecs kommen seit dem Seiten-Abzug nicht mehr im Spiegel mit
-        # (teuerstes Feld, live gemessen — s. katalog_abzug): je Titel einzeln
-        # nachholen und im Cache halten, sie ändern sich praktisch nie.
+        # Technik kommt seit dem Seiten-Abzug nicht mehr im Spiegel mit
+        # (teuerstes Feld, live gemessen — s. katalog_abzug): je Titel EIN
+        # Einzel-Abruf: Codecs, Auflösung, Ton-Kanäle/-Sprachen, Untertitel-
+        # Sprachen (Netflix-Detailseite: Qualität · Sound · Untertitel).
         m["video_codec"] = e.get("video_codec") or ""
         m["audio_codec"] = e.get("audio_codec") or ""
-        if not m["video_codec"]:
-            s = _anmelden()
-            z = _zugang()
-            if s and z:
-                try:
-                    st, roh = _http(f"{z['url']}/Users/{s['user_id']}/Items/{item_id}",
-                                    kopf={"X-Emby-Token": s["token"]})
-                    if st == 200:
-                        voll = _eintrag(json.loads(roh))
-                        m["video_codec"] = voll["video_codec"]
-                        m["audio_codec"] = voll["audio_codec"]
-                except Exception:          # noqa: BLE001 — Codec ist Kür
-                    pass
+        s = _anmelden()
+        z = _zugang()
+        if s and z:
+            try:
+                st, roh = _http(f"{z['url']}/Users/{s['user_id']}/Items/{item_id}",
+                                kopf={"X-Emby-Token": s["token"]})
+                if st == 200:
+                    voll = json.loads(roh)
+                    for strom in voll.get("MediaStreams") or []:
+                        art2 = strom.get("Type")
+                        if art2 == "Video":
+                            m["video_codec"] = m["video_codec"] or strom.get("Codec") or ""
+                            m["hoehe"] = max(m.get("hoehe") or 0, strom.get("Height") or 0)
+                        elif art2 == "Audio":
+                            m["audio_codec"] = m["audio_codec"] or strom.get("Codec") or ""
+                            m["audio_kanaele"] = max(m.get("audio_kanaele") or 0,
+                                                     strom.get("Channels") or 0)
+                            sp = strom.get("Language") or ""
+                            if sp and sp not in m["audio_sprachen"]:
+                                m["audio_sprachen"].append(sp)
+                        elif art2 == "Subtitle":
+                            sp = strom.get("Language") or ""
+                            if sp and sp not in m["sub_sprachen"]:
+                                m["sub_sprachen"].append(sp)
+            except Exception:              # noqa: BLE001 — Technik ist Kür
+                pass
         cache[item_id] = m
         fam.json_schreiben(_pfade["meta"], cache)
     return {**e, "beschreibung": m.get("beschreibung") or "",
@@ -338,6 +369,12 @@ def detail(item_id, profil="standard"):
             "tomatometer": m.get("tomatometer") or "",
             "video_codec": m.get("video_codec") or e.get("video_codec") or "",
             "audio_codec": m.get("audio_codec") or e.get("audio_codec") or "",
+            "tagline": m.get("tagline") or "", "regie": m.get("regie") or [],
+            "drehbuch": m.get("drehbuch") or [], "trailer": m.get("trailer") or [],
+            "hoehe": m.get("hoehe") or 0,
+            "audio_kanaele": m.get("audio_kanaele") or 0,
+            "audio_sprachen": m.get("audio_sprachen") or [],
+            "sub_sprachen": m.get("sub_sprachen") or [],
             "gemerkt": item_id in merkliste_lesen(profil)}
 
 

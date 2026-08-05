@@ -2436,6 +2436,14 @@ def vlc_kommando(daten):
                         sp.set_time(int(pos * 1000))
                 except (TypeError, ValueError):
                     pass
+                # Filme starten im VOLLBILD (JB 05.08.) — aber nur, wenn das
+                # Video NICHT in die Hülle eingebettet ist (set_hwnd): dort
+                # würde set_fullscreen das Bild aus dem Fenster reißen.
+                if daten.get("vollbild") and not _vlc.get("hwnd"):
+                    try:
+                        sp.set_fullscreen(True)
+                    except Exception:                # noqa: BLE001 — Fenster reicht
+                        pass
                 if daten.get("sub") and not pfad.lower().endswith(".mp3"):
                     subs = untertitel_liste(daten.get("key") or "")
                     if subs:
@@ -5453,6 +5461,8 @@ class Handler(BaseHTTPRequestHandler):
                     {"cmd": "play", "url": strom,
                      "key": "film:" + (daten.get("id") or ""),
                      "vol": daten.get("vol"),
+                     "pos": daten.get("pos"),          # Weiterschauen ab Spot
+                     "vollbild": True,                 # Filme = Kino (JB 05.08.)
                      # globale Sprach-Präferenz (Optionen → Wiedergabe-Standard);
                      # film:-Keys haben keine Titel-Ebene, global genügt.
                      "ton": (CFG.get("wiedergabe") or {}).get("ton")}))

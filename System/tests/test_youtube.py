@@ -3880,7 +3880,8 @@ def test_tv_hero_und_more_info():
         assert teil in block, f"Info-Datenquelle {teil} fehlt"
     i = quelle.index("function tvInfoMalen")            # Renderer (seit Build 181 getrennt)
     block = quelle[i:_funktionsende(quelle, i)]
-    for teil in ("Besetzung:", "Technik:", "Mehr wie das", "tvInfoZu()"):
+    # "Technik:" ging in "Ton:"/"Untertitel:" auf (Netflix-Aufteilung, 184).
+    for teil in ("Besetzung:", "Ton:", "Mehr wie das", "tvInfoZu()"):
         assert teil in block, f"Info-Baustein {teil} fehlt"
     # Netflix-Muster: Enter auf Film-Kachel oeffnet die Info-Seite.
     i = quelle.index("function tvWahl")
@@ -3957,3 +3958,39 @@ def test_tv_wuensche_ui():
     assert "⏳ Meine Wünsche" in quelle, "Wunsch-Reihe fehlt im ❤-Tab"
     src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
     assert "/api/filme/wuenschen" in src and "seerr_anfragen" in src
+
+
+def test_netflix_detailseite():
+    # JB 05.08. (Design-Runde): Klick auf einen Film oeffnet die
+    # Detailansicht (nie Sofort-Play), mit Fortschrittsbalken + Spot,
+    # Weiterschauen/Von vorne, Qualitaet/Ton/Untertitel, Trailer & mehr
+    # und dem Netflix-'Ueber'-Block.
+    quelle = _oberflaeche_html()
+    # PC-🎬-Kachel oeffnet die Info, spielt NICHT direkt:
+    i = quelle.index("async function filmeLaden")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert 'onclick="tvInfo(' in block and 'onclick="filmePlay(' not in block
+    i = quelle.index("function tvInfoMalen")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for teil in ("info-progress", "Noch ${rest} min", "Weiterschauen ab",
+                 "↻ Von vorne", "Meine Liste", "<b>Ton:</b>",
+                 "<b>Untertitel:</b>", "Trailer & mehr", "Über ",
+                 "<b>Regie:</b>", "<b>Drehbuch:</b>", "Altersfreigabe",
+                 "Dieser Film ist"):
+        assert teil in block, f"Detailseiten-Baustein fehlt: {teil}"
+    assert "tvQualitaet" in quelle and "function tvTon" in quelle
+    # Vollbild + Esc: Filme starten im VLC-Vollbild (nur ohne Huelle),
+    # Escape beendet den Film und meldet den Spot.
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert '"vollbild": True' in src
+    i = src.index('if daten.get("vollbild")')
+    assert '_vlc.get("hwnd")' in src[i:i + 200], "eingebettet darf NICHT fullscreen reissen"
+    assert "function filmStopp" in quelle and "filmLaeuft()" in quelle
+    i = quelle.index("function filmStopp")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "/api/filme/fortschritt" in block and "position_s" in block
+    # Info-Seite funktioniert auch OHNE TV-Modus (Klick im 🎬-Fenster):
+    i = quelle.index("function tvKey")
+    assert "!tvOffen&&!tvInfoOffen" in quelle[i:_funktionsende(quelle, i)]
+    # Resume: filmePlay nimmt eine Position an
+    assert "function filmePlay(id,pos)" in quelle.replace("async ", "")

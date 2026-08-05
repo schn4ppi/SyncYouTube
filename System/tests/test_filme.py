@@ -384,3 +384,36 @@ def test_seerr_sitzung_heilt(tmp_path, monkeypatch):
     monkeypatch.setattr(filme, "_seerr_http", http)
     assert filme.seerr_suche("x") == []
     assert lauf["n"] == 2, "genau ein Heilungs-Versuch mit frischer Sitzung"
+
+
+def test_detail_netflix_felder(tmp_path, monkeypatch):
+    # Build 184: die Detailseite braucht Regie/Drehbuch/Tagline/Trailer
+    # (TMDB) und Aufloesung/Ton-Kanaele+Sprachen/Untertitel (Jellyfin).
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items?", 200, FAKE_ITEMS)]))
+    filme.katalog_abzug()
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "T", "omdb": ""})
+    tmdb_voll = dict(FAKE_TMDB)
+    tmdb_voll["tagline"] = "Angst ist der Verstandeskiller."
+    tmdb_voll["credits"] = {"cast": [{"name": "Matt Damon"}],
+                            "crew": [{"name": "Ridley Scott", "job": "Director"},
+                                     {"name": "Drew Goddard", "job": "Screenplay"}]}
+    tmdb_voll["videos"] = {"results": [
+        {"site": "YouTube", "type": "Trailer", "key": "abc123", "name": "Trailer 1"},
+        {"site": "Vimeo", "type": "Trailer", "key": "nein", "name": "falsche Seite"}]}
+    jelly_voll = {"MediaStreams": [
+        {"Type": "Video", "Codec": "hevc", "Height": 2160},
+        {"Type": "Audio", "Codec": "eac3", "Channels": 6, "Language": "ger"},
+        {"Type": "Audio", "Codec": "dts", "Channels": 8, "Language": "eng"},
+        {"Type": "Subtitle", "Language": "ger"}, {"Type": "Subtitle", "Language": "eng"}]}
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("api.themoviedb.org", 200, tmdb_voll),
+        ("/Items/f1", 200, jelly_voll)]))
+    d = filme.detail("f1")
+    assert d["regie"] == ["Ridley Scott"] and d["drehbuch"] == ["Drew Goddard"]
+    assert d["tagline"].startswith("Angst")
+    assert d["trailer"] == [{"key": "abc123", "name": "Trailer 1"}], "nur YouTube"
+    assert d["hoehe"] == 2160 and d["audio_kanaele"] == 8
+    assert d["audio_sprachen"] == ["ger", "eng"] and d["sub_sprachen"] == ["ger", "eng"]

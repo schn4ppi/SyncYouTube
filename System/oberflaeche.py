@@ -200,7 +200,17 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-info .info-meta{font-size:19px;color:#d8cec4;margin-bottom:10px}
 #tv-info .info-besch{max-width:900px;color:#e6ddd2;margin-bottom:12px}
 #tv-info .info-neben{font-size:16px;color:#a99d92;margin:4px 0}
-#tv-info .info-btns{display:flex;gap:12px;margin:14px 0 6px}
+#tv-info .info-btns{display:flex;gap:12px;margin:14px 0 6px;flex-wrap:wrap}
+#tv-info .info-badge{border:1px solid #8a7d74;border-radius:4px;padding:1px 8px;
+  font-size:15px;color:#d8cec4;vertical-align:1px}
+#tv-info .info-punkt{margin:0 10px;color:#6b6058}
+#tv-info .info-progresswrap{display:flex;align-items:center;gap:12px;max-width:520px;margin:10px 0 2px}
+#tv-info .info-progress{flex:1;height:5px;background:#3a322b;border-radius:3px;overflow:hidden}
+#tv-info .info-progress div{height:100%;background:#e5484d}
+#tv-info .info-rest{font-size:15px;color:#b9aea4;white-space:nowrap}
+#tv-info .info-tagline{font-style:italic;color:#b9aea4;margin:6px 0;font-size:18px}
+#tv-info .info-ueber{margin-top:26px;padding-top:8px;border-top:1px solid #2a241f;color:#b9aea4}
+#tv-info .info-ueber .info-neben{font-size:15px}
 /* ❤ Lieblingssongs (JB 05.08.): Herz-Badge auf der Kachel + rote Toggles */
 .herzbadge{position:absolute;top:6px;left:6px;color:#e5484d;font-size:15px;
   text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
@@ -3629,22 +3639,48 @@ async function filmeLaden(){
       .concat(Object.entries(d.genres||{}));
     const html=reihen.filter(([,liste])=>liste&&liste.length).map(([name,liste])=>
       `<div class="f-reihe"><div class="f-rtitel">${esc(name)}</div><div class="f-band">`+
-      liste.map(e=>`<div class="f-kachel" onclick="filmePlay('${esc(e.id)}')" title="${esc(e.titel)}${e.jahr?' ('+e.jahr+')':''}${e.rating?' · ★'+e.rating.toFixed(1):''}${e.fsk?' · '+esc(e.fsk):''}">`+
+      liste.map(e=>`<div class="f-kachel" onclick="tvInfo('${esc(e.id)}')" title="${esc(e.titel)}${e.jahr?' ('+e.jahr+')':''}${e.rating?' · ★'+e.rating.toFixed(1):''}${e.fsk?' · '+esc(e.fsk):''}">`+
         `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
         `<div class="f-ktitel">${esc(e.titel)}</div></div>`).join('')+
       `</div></div>`).join('');
     ziel.innerHTML=html||'<div class="hinweis">Kein Film-Katalog. Jellyfin-Zugang im Windows-Keyring (Sync-Jellyfin) einrichten, dann ⟳ Abgleichen.</div>';
   }catch(e){ziel.innerHTML='<div class="hinweis">Filme-Reihen nicht erreichbar.</div>';}
 }
-async function filmePlay(id){
+async function filmePlay(id,pos){
   try{
     const r=await fetch('/api/filme/play',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id, vol:plVol})});
+      body:JSON.stringify({id, vol:plVol, pos:pos||0})});
     const d=await r.json();
     if(d.fehler)toast('🎬 '+d.fehler);
-    else toast('🎬 Film läuft im VLC.');
+    else toast('🎬 Film läuft im VLC (Vollbild) — Esc beendet ihn.');
   }catch(e){toast('🎬 Abspielen fehlgeschlagen.');}
 }
+/* Film beenden (JB 05.08.: „auch beendet werden können mit escape") — meldet
+   den Spot an Jellyfin UND lokal, damit „Weiterschauen ab …" SOFORT stimmt,
+   ohne auf den nächsten Katalog-Abzug zu warten. */
+function filmLaeuft(){return vlcSpielt&&(vlcKeyLetzter||'').startsWith('film:');}
+async function filmStopp(){
+  const id=(vlcKeyLetzter||'').slice(5); if(!id)return;
+  const pos=Math.round(vlcPosGeschaetzt()||0);
+  vlcBefehl('stop');
+  try{fetch('/api/filme/fortschritt',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id, position_s:pos})}).catch(()=>{});}catch(e){}
+  const merk=e=>{if(e&&e.id===id)e.position_s=pos;};
+  if(tvFilmReihen){Object.values(tvFilmReihen).forEach(v=>{
+    if(Array.isArray(v))v.forEach(merk);
+    else if(v&&typeof v==='object')Object.values(v).forEach(a=>Array.isArray(a)&&a.forEach(merk));});}
+  if(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id){tvInfoDaten.d.position_s=pos; tvInfoMalen();}
+  toast('🎬 Film beendet — gemerkt bei '+zeit(pos)+'.');
+}
+document.addEventListener('keydown',ev=>{
+  // Esc beendet den laufenden Film — überall, außer ein Menü/Panel liegt oben
+  // (die schließen sich selbst zuerst; das TV regelt seine Ebenen in tvKey).
+  if(ev.key!=='Escape'||!filmLaeuft())return;
+  const tv=document.getElementById('tv');
+  if(tv&&tv.style.display!=='none')return;             // tvKey ist zuständig
+  if(document.querySelector('.itemmenu,.panelmenu'))return;
+  ev.preventDefault(); filmStopp();
+});
 async function filmeSync(){
   try{await fetch('/api/filme/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     toast('🎬 Katalog-Abzug gestartet — dauert bei großen Bibliotheken etwas.');
@@ -7014,6 +7050,9 @@ async function tvHeroMalen(){
 let tvInfoDaten=null, tvInfoStaffel=0;                 // {d, mw, eps} der offenen Info
 async function tvInfo(id){
   tvInfoId=id; tvInfoOffen=true; tvInfoFokus={r:0,i:0}; tvInfoDaten=null; tvInfoStaffel=0;
+  // Die Detailseite gibt es auch OHNE TV-Modus (JB 05.08.: Klick im
+  // 🎬-Fenster öffnet sie) — dann übernimmt tvKey nur für sie.
+  document.addEventListener('keydown',tvKey,true);
   const el=document.getElementById('tv-info');
   el.style.display='flex';
   el.innerHTML='<div class="info-body" style="font-size:24px;padding:60px">Lade…</div>';
@@ -7055,44 +7094,87 @@ async function tvLadenStill(){
   try{tvFilmReihen=await (await fetch('/api/filme/reihen?profil='+encodeURIComponent(tvProfil()))).json();}catch(e){}
 }
 function tvStaffel(n){tvInfoStaffel=n; tvInfoFokus={r:1,i:0}; tvInfoMalen();}
+function tvQualitaet(h){return h>=2000?'4K':h>=1000?'HD':h>=720?'720p':'';}   // 1040 = anamorphes HD
+function tvTon(d){
+  const k=d.audio_kanaele||0;
+  const kanal=k>=8?'7.1':k>=6?'5.1':k===2?'Stereo':'';
+  const spr=(d.audio_sprachen||[]).join(', ');
+  return [spr,kanal,(d.audio_codec||'').toUpperCase()].filter(Boolean).join(' · ');
+}
 function tvInfoMalen(){
+  // Netflix-/Disney-Muster am Fernseher (JBs Liste 05.08. = exakt deren
+  // Detailseite): Titel groß, Fortschrittsbalken mit dem Spot, Weiterschauen/
+  // Von vorne, ＋ Liste, Meta-Badges (FSK/Qualität), Klappentext, Besetzung/
+  // Genres/Ton/Untertitel, Staffeln, Mehr wie das, Trailer & mehr, und unten
+  // der „Über“-Block (Regie · Besetzung · Drehbuch · Genres · Dieser Film
+  // ist · Altersfreigabe).
   const el=document.getElementById('tv-info');
   if(!el||!tvInfoDaten)return;
   const {d,mw,eps}=tvInfoDaten, id=tvInfoId;
   const staffeln=[...new Set(eps.map(e=>e.staffel))];
   const folgen=eps.filter(e=>e.staffel===tvInfoStaffel);
+  const dauerS=(d.laufzeit_min||0)*60;
+  const prozent=(d.position_s>0&&dauerS)?Math.min(99,Math.round(d.position_s/dauerS*100)):0;
+  const rest=dauerS?Math.max(1,Math.round((dauerS-d.position_s)/60)):0;
+  const q=tvQualitaet(d.hoehe), ton=tvTon(d), subs=(d.sub_sprachen||[]).join(', ');
+  const badges=[d.jahr||'', d.fsk?`<span class="info-badge">${esc(d.fsk)}</span>`:'',
+    d.laufzeit_min?d.laufzeit_min+' min':'', q?`<span class="info-badge">${q}</span>`:'',
+    d.rating?'★ '+(+d.rating).toFixed(1):'', d.imdb_rating?'IMDb '+esc(d.imdb_rating):'',
+    d.tomatometer?'🍅 '+esc(d.tomatometer):''].filter(Boolean).join('<span class="info-punkt">·</span>');
+  const knoepfe=(d.typ==='serie'
+    ?`<button class="tv-btn" data-info="0" onclick="tvSerienPlay()">▶ Weiterschauen</button>`
+    :(d.position_s>30
+      ?`<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}',${d.position_s})">▶ Weiterschauen ab ${zeit(d.position_s)}</button>`+
+       `<button class="tv-btn zart" data-info="1" onclick="filmePlay('${esc(id)}',0)">↻ Von vorne</button>`
+      :`<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}')">▶ Abspielen</button>`))+
+    `<button class="tv-btn zart" data-info="2" onclick="tvMerk('${esc(id)}')">${d.gemerkt?'✓ Gemerkt':'＋ Meine Liste'}</button>`+
+    `<button class="tv-btn zart" data-info="3" onclick="tvInfoZu()">✕ Zurück</button>`;
+  const dieserFilm=d.tagline||((d.genres||[]).slice(0,3).join(' · '));
   el.innerHTML=
     `<div class="info-kopf"><img src="/api/filme/bild?id=${encodeURIComponent(id)}&art=Backdrop" `+
       `onerror="this.onerror=null;this.src='/api/filme/bild?id=${encodeURIComponent(id)}'">`+
       `<div class="info-titel">${esc(d.titel||'')}</div></div>`+
     `<div class="info-body">`+
-      `<div class="info-meta">${tvMetaZeile(d)}</div>`+
-      `<div class="info-btns">`+
-        (d.typ==='serie'
-          ?`<button class="tv-btn" data-info="0" onclick="tvSerienPlay()">▶ Weiterschauen</button>`
-          :`<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}')">▶ Abspielen</button>`)+
-        `<button class="tv-btn zart" data-info="1" onclick="tvMerk('${esc(id)}')">${d.gemerkt?'✓ Gemerkt':'＋ Meine Liste'}</button>`+
-        `<button class="tv-btn zart" data-info="2" onclick="tvInfoZu()">✕ Zurück</button>`+
-      `</div>`+
+      `<div class="info-meta">${badges}</div>`+
+      (prozent?`<div class="info-progresswrap"><div class="info-progress"><div style="width:${prozent}%"></div></div>`+
+        `<span class="info-rest">Noch ${rest} min</span></div>`:'')+
+      `<div class="info-btns">${knoepfe}</div>`+
+      (d.tagline?`<div class="info-tagline">„${esc(d.tagline)}“</div>`:'')+
       `<div class="info-besch">${esc(d.beschreibung||'')}</div>`+
-      (d.cast&&d.cast.length?`<div class="info-neben">Besetzung: ${esc(d.cast.slice(0,8).join(', '))}</div>`:'')+
-      ((d.video_codec||d.audio_codec)?`<div class="info-neben">Technik: ${esc([d.video_codec,d.audio_codec].filter(Boolean).join(' / '))}</div>`:'')+
+      (d.cast&&d.cast.length?`<div class="info-neben"><b>Besetzung:</b> ${esc(d.cast.slice(0,6).join(', '))}</div>`:'')+
+      (d.genres&&d.genres.length?`<div class="info-neben"><b>Genres:</b> ${esc(d.genres.join(', '))}</div>`:'')+
+      (ton?`<div class="info-neben"><b>Ton:</b> ${esc(ton)}</div>`:'')+
+      (subs?`<div class="info-neben"><b>Untertitel:</b> ${esc(subs)}</div>`:'')+
       (staffeln.length?`<div class="tv-rtitel" style="margin-top:14px">Staffeln</div><div class="tv-band">`+
         staffeln.map(n=>`<button class="tv-btn zart${n===tvInfoStaffel?' akt':''}" data-st="${n}" onclick="tvStaffel(${n})">Staffel ${n||'?'}</button>`).join('')+`</div>`+
         `<div class="tv-band">`+folgen.map((e,i)=>
-          `<div class="tv-kachel quer" data-ep="${i}" onclick="filmePlay('${esc(e.id)}')" title="${esc(e.titel)}">`+
+          `<div class="tv-kachel quer" data-ep="${i}" onclick="filmePlay('${esc(e.id)}',${e.position_s>30&&!e.gesehen?e.position_s:0})" title="${esc(e.titel)}">`+
           `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
           `<div class="tv-ktitel">${e.gesehen?'✓ ':''}F${e.folge} · ${esc(e.titel)}${e.position_s>0&&!e.gesehen?' ⏸':''}</div></div>`).join('')+`</div>`:'')+
       (mw.length?`<div class="tv-rtitel" style="margin-top:16px">Mehr wie das</div><div class="tv-band">`+
         mw.slice(0,15).map((e,i)=>`<div class="tv-kachel" data-mw="${i}" onclick="tvInfo('${esc(e.id)}')">`+
           `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
           `<div class="tv-ktitel">${esc(e.titel)}</div></div>`).join('')+`</div>`:'')+
+      (d.trailer&&d.trailer.length?`<div class="tv-rtitel" style="margin-top:16px">Trailer & mehr</div><div class="tv-band">`+
+        d.trailer.map((t,i)=>`<div class="tv-kachel quer" data-trl="${i}" onclick="window.open('https://www.youtube.com/watch?v=${esc(t.key)}','_blank')" title="${esc(t.name)}">`+
+          `<img loading="lazy" src="https://i.ytimg.com/vi/${esc(t.key)}/mqdefault.jpg" onerror="this.style.visibility='hidden'">`+
+          `<div class="tv-ktitel">▶ ${esc(t.name)}</div></div>`).join('')+`</div>`:'')+
+      `<div class="info-ueber"><div class="tv-rtitel">Über ${esc(d.titel||'')}</div>`+
+        ((d.regie||[]).length?`<div class="info-neben"><b>Regie:</b> ${esc(d.regie.join(', '))}</div>`:'')+
+        (d.cast&&d.cast.length?`<div class="info-neben"><b>Besetzung:</b> ${esc(d.cast.join(', '))}</div>`:'')+
+        ((d.drehbuch||[]).length?`<div class="info-neben"><b>Drehbuch:</b> ${esc(d.drehbuch.join(', '))}</div>`:'')+
+        (d.genres&&d.genres.length?`<div class="info-neben"><b>Genres:</b> ${esc(d.genres.join(', '))}</div>`:'')+
+        (dieserFilm?`<div class="info-neben"><b>${d.typ==='serie'?'Diese Serie ist':'Dieser Film ist'}:</b> ${esc(dieserFilm)}</div>`:'')+
+        (d.fsk?`<div class="info-neben"><b>Altersfreigabe:</b> <span class="info-badge">${esc(d.fsk)}</span></div>`:'')+
+      `</div>`+
     `</div>`;
   tvInfoFokusMalen();
 }
 function tvInfoZu(){
   tvInfoOffen=false; tvInfoDaten=null;
   const el=document.getElementById('tv-info'); if(el){el.style.display='none'; el.innerHTML='';}
+  const tv=document.getElementById('tv');              // ohne TV: Tasten wieder frei
+  if(!tv||tv.style.display==='none')document.removeEventListener('keydown',tvKey,true);
 }
 function tvInfoEbenen(){
   // Generische Fokus-Zeilen der Info-Seite: Knöpfe → Staffeln → Folgen →
@@ -7102,6 +7184,7 @@ function tvInfoEbenen(){
     [...document.querySelectorAll('#tv-info [data-st]')],
     [...document.querySelectorAll('#tv-info [data-ep]')],
     [...document.querySelectorAll('#tv-info [data-mw]')],
+    [...document.querySelectorAll('#tv-info [data-trl]')],
   ].filter(a=>a.length);
 }
 function tvInfoFokusMalen(){
@@ -7115,12 +7198,16 @@ function tvInfoFokusMalen(){
 }
 function tvKey(ev){
   const tv=document.getElementById('tv');
-  if(!tv||tv.style.display==='none')return;
+  const tvOffen=tv&&tv.style.display!=='none';
+  if(!tvOffen&&!tvInfoOffen)return;                    // Info läuft auch ohne TV
   // Info-Seite offen? Dann navigiert die Fernbedienung DORT (eigene Ebene).
   if(tvInfoOffen){
     let getan=true;
     const eb=tvInfoEbenen();
-    if(ev.key==='Escape'||ev.key==='Backspace')tvInfoZu();
+    if(ev.key==='Escape'||ev.key==='Backspace'){
+      if(filmLaeuft())filmStopp();                     // Esc beendet erst den FILM
+      else tvInfoZu();
+    }
     else if(ev.key==='ArrowLeft')tvInfoFokus.i=Math.max(0,tvInfoFokus.i-1);
     else if(ev.key==='ArrowRight')tvInfoFokus.i=tvInfoFokus.i+1;   // Malen klemmt
     else if(ev.key==='ArrowDown')tvInfoFokus={r:tvInfoFokus.r+1,i:0};
@@ -7152,7 +7239,10 @@ function tvKey(ev){
   const tabs=TV_TABS.length;
   const reihe=()=> (tvReihenListe[tvFokus.r]||[[],[]])[1]||[];
   let getan=true;
-  if(ev.key==='Escape'||ev.key==='Backspace'){ if(tvFokus.r>=0&&ev.key==='Backspace'){tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};} else tvZu(); }
+  if(ev.key==='Escape'||ev.key==='Backspace'){
+    if(ev.key==='Escape'&&filmLaeuft())filmStopp();    // Esc beendet erst den FILM
+    else if(tvFokus.r>=0&&ev.key==='Backspace'){tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};}
+    else tvZu(); }
   else if(ev.key==='ArrowLeft'){ if(tvFokus.r===-2)tvFokus.i=Math.max(0,tvFokus.i-1); else tvFokus.i=Math.max(0,tvFokus.i-1); }
   else if(ev.key==='ArrowRight'){ if(tvFokus.r===-2)tvFokus.i=Math.min(1,tvFokus.i+1); else if(tvFokus.r<0)tvFokus.i=Math.min(tabs-1,tvFokus.i+1); else tvFokus.i=Math.min(reihe().length-1,tvFokus.i+1); }
   else if(ev.key==='ArrowUp'){
@@ -7346,7 +7436,7 @@ function renderPlayerVlc(media,x,k){
   });
   if(!vlcTimer)vlcTimer=setInterval(vlcTick,1000);
 }
-let vlcPosLetzte=0, vlcDauerLetzte=0, vlcHeilt=false, vlcPosTs=0, vlcSpielt=false;
+let vlcPosLetzte=0, vlcDauerLetzte=0, vlcHeilt=false, vlcPosTs=0, vlcSpielt=false, vlcKeyLetzter='';
 function vlcPosGeschaetzt(){
   // Zwischen zwei Status-Takten weiterzählen — Untertitel/Karaoke laufen
   // sonst nur im 1-s-Ruck (JB: „untertitel an, aber kommt kein untertitel":
@@ -7409,6 +7499,7 @@ async function vlcTick(){
   huelleVideoRect(s);
   if(s.rate)vlcRateLetzte=s.rate;
   if(s.dauer)vlcDauerLetzte=s.dauer;
+  vlcKeyLetzter=s.key||'';
   vlcSpielt=(s.zustand==='spielt');
   if(vlcSpielt){
     // Blink-Wurzel 3 (Uhr-Klemme): der frische Status hängt oft ein paar
