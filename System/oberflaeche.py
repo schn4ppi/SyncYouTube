@@ -932,12 +932,16 @@ body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
 .pl-media.viz-an .pl-viz{display:block}
 .pl-vizwrap{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden}
 .pl-cover{max-width:96%;max-height:100%;border-radius:10px;object-fit:contain}
-/* Gerät „VLC" (Etappe B): Cover + schlanke Fernbedienung statt <audio>-Leiste */
-.pl-vlc{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer}
-.pl-vlc .pl-cover{flex:0 1 auto;min-height:0;max-height:62%}
-.pl-vlchint{font-size:11.5px;color:#8a7d74}
-.pl-vlcbar{display:flex;align-items:center;gap:8px;width:min(92%,620px);cursor:default}
-.pl-vlcbar #pl-vlc-seek{flex:1;min-width:60px}
+/* Gerät „VLC" (Etappe B): Cover + schlanke Fernbedienung statt <audio>-Leiste.
+   JB-Bild 05.08.: das Cover füllt jetzt die Fläche wie im normalen Player
+   (gleicher Wrap wie .pl-vizwrap, statt der alten 62%-Klemme). */
+.pl-vlc{height:100%;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer}
+.pl-vlcwrap{flex:1;width:100%;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden}
+.pl-vlc .pl-cover{max-width:96%;max-height:100%}
+.pl-vlchint{font-size:11.5px;color:#8a7d74;flex:none}
+.pl-vlcbar{display:flex;align-items:center;gap:8px;width:min(92%,680px);cursor:default;flex:none}
+.pl-vlcseekwrap{position:relative;flex:1;display:flex;min-width:60px}
+.pl-vlcseekwrap #pl-vlc-seek{flex:1;width:100%}
 .pl-vlcbar .pl-bvolwrap{display:flex;align-items:center;gap:4px}
 .pl-vlcbar .pl-bvol{width:74px}
 #pl-geraet.an{color:var(--akz2);border-color:var(--akz2)}
@@ -4567,11 +4571,18 @@ let schnitt=null;                                      // {id,a,b,dauer}
 async function clipDialog(id){
   if(!id){alert('Kein Titel gewählt.');return;}
   if(aktKey()!==id){playerPlay([id]); await new Promise(r=>setTimeout(r,500));}
-  const el=document.getElementById('pl-el');
-  if(!el||!isFinite(el.duration)||!el.duration){toast('Titel lädt noch — gleich nochmal ✂ drücken.');return;}
+  // Am Gerät VLC gibt es kein <audio>-Element — Dauer/Position kommen aus
+  // dem letzten VLC-Status (JB 05.08.: ✂ auch im VLC-Modus).
+  let dauer, curT;
+  if(plGeraet==='vlc'&&aktKey()===id&&vlcDauerLetzte){
+    dauer=vlcDauerLetzte; curT=vlcPosLetzte||0;
+  }else{
+    const el=document.getElementById('pl-el');
+    if(!el||!isFinite(el.duration)||!el.duration){toast('Titel lädt noch — gleich nochmal ✂ drücken.');return;}
+    dauer=el.duration; curT=el.currentTime;
+  }
   schnittZu();
-  const dauer=el.duration;
-  schnitt={id, a:0, b:(el.currentTime>1&&el.currentTime<dauer-1)?el.currentTime:dauer, dauer};
+  schnitt={id, a:0, b:(curT>1&&curT<dauer-1)?curT:dauer, dauer};
   const fly=document.createElement('div');
   fly.className='abo-flyout'; fly.id='schnitt-fly'; fly.tabIndex=-1; fly.style.height='auto';
   fly.innerHTML='<div class="abo-fly-titel">✂ Ausschnitt wählen<span class="spacer"></span>'+
@@ -6299,9 +6310,14 @@ async function geraetWechsel(){
   geraetMalen(); if(aktKey())renderPlayerMedia();
 }
 function geraetMalen(){
+  // JB 05.08.: „Warum nicht einfach nur VLC?" — der Knopf heißt immer
+  // 🖥 VLC und leuchtet, wenn VLC das Ausgabegerät ist (Toggle-Optik).
   document.querySelectorAll('#pl-geraet').forEach(b=>{
-    b.textContent=plGeraet==='vlc'?'🖥 VLC':'🔊 Browser';
+    b.textContent='🖥 VLC';
     b.classList.toggle('an',plGeraet==='vlc');
+    b.title=plGeraet==='vlc'
+      ?'VLC ist das Ausgabegerät (läuft unabhängig vom Browser-Fenster) — Klick schaltet zurück auf den Browser-Player'
+      :'Auf VLC abspielen (dieser PC): läuft auch ohne Browser-Fenster weiter — Klick schaltet um; ohne installiertes VLC bleibt der Browser-Player';
   });
 }
 function renderPlayerVlc(media,x,k){
@@ -6309,7 +6325,9 @@ function renderPlayerVlc(media,x,k){
                   :`this.style.display='none'`;
   media.innerHTML=
     `<div class="pl-vlc">`+
-      `<img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" onerror="${fb}">`+
+      // JB-Bild 05.08.: das Cover war viel kleiner als im normalen Player —
+      // gleicher Wrap wie die Audio-Ansicht (flex:1, Bild füllt die Fläche).
+      `<div class="pl-vlcwrap"><img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" onerror="${fb}"></div>`+
       `<div class="pl-vlchint">🖥 spielt über VLC auf diesem PC — läuft auch ohne dieses Fenster weiter</div>`+
       `<div class="pl-vlcbar">`+
         `<button class="btn mini" onclick="playerPrev()" title="Vorheriger Titel">⏮</button>`+
@@ -6317,9 +6335,11 @@ function renderPlayerVlc(media,x,k){
         `<button class="btn mini" onclick="playerNext()" title="Nächster Titel">⏭</button>`+
         `<button class="btn mini" onclick="vlcBefehl('stop')" title="Wiedergabe stoppen (VLC spielt sonst auch nach dem Schließen des Browser-Fensters weiter)">⏹</button>`+
         `<button class="btn mini" onclick="speedMenu(event)" title="Tempo (gilt auch am Gerät VLC)">⏩</button>`+
+        `<button class="btn mini" onclick="vlcNeustart()" title="Neu verbinden: VLC frisch starten und an der letzten Stelle weiterspielen (falls etwas hakt)">↻</button>`+
+        `<button class="btn mini" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
         `<span id="pl-vlc-zeit" class="muted2">0:00 / 0:00</span>`+
-        `<input type="range" id="pl-vlc-seek" min="0" max="1000" value="0" `+
-          `oninput="vlcZieht=true" onchange="vlcSpringen(this)" title="Spulen">`+
+        `<span class="pl-vlcseekwrap"><input type="range" id="pl-vlc-seek" min="0" max="1000" value="0" `+
+          `oninput="vlcZieht=true" onchange="vlcSpringen(this)" title="Spulen"></span>`+
         `<span class="pl-bvolwrap">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+
       `</div>`+
     `</div>`;
@@ -6342,6 +6362,36 @@ function renderPlayerVlc(media,x,k){
   if(!vlcTimer)vlcTimer=setInterval(vlcTick,1000);
 }
 function vlcSpringen(r){vlcZieht=false; const d=r._dauer||0; if(d)vlcBefehl('seek',{wert:(+r.value/1000)*d});}
+let vlcPosLetzte=0, vlcDauerLetzte=0, vlcHeilt=false;
+function vlcNeustart(){
+  // ↻ (JB: „Gibt es einen reload knopf wenn etwas abstürzt?"): VLC frisch
+  // starten und an der letzten Stelle weiterspielen (3 s Anlauf).
+  const k=aktKey(); if(!k)return;
+  const w=wiedergabeFuer(libFind(k));
+  const pos=Math.max(0,(vlcPosLetzte||0)-3);
+  vlcBefehl('play',{key:k,vol:plVol,rate:(w.speed||playSpeed||1),sub:subMode!=='aus',pos});
+  toast('↻ VLC neu verbunden'+(pos>0?' — weiter bei '+zeit(pos):''));
+}
+function vlcMerkerMalen(s){
+  // Wiedergabe-Merker (gelber Strich, wie im Browser-Player Build 102):
+  // „hier war ich zuletzt" — Klick springt mit 3 s Anlauf hin.
+  const wrap=document.querySelector('.pl-vlcseekwrap'); if(!wrap)return;
+  let m=document.getElementById('pl-vlc-merker');
+  const k=aktKey(), eintrag=k&&_posMerk[k];
+  const nah=eintrag&&Math.abs(s.pos-eintrag.t)<3;
+  if(!eintrag||!s.dauer||nah){if(m)m.remove(); return;}
+  if(!m){
+    m=document.createElement('div'); m.id='pl-vlc-merker'; m.className='plb-merker';
+    m.style.pointerEvents='auto';
+    m.addEventListener('click',e=>{e.stopPropagation();
+      const k2=aktKey();
+      if(k2&&_posMerk[k2]){vlcBefehl('seek',{wert:Math.max(0,_posMerk[k2].t-3)});
+        toast('↦ zurück zu '+zeit(_posMerk[k2].t)+' (mit Anlauf)');}});
+    wrap.appendChild(m);
+  }
+  m.style.left=Math.round(100*eintrag.t/s.dauer)+'%';
+  m.title='Zuletzt warst du hier: '+zeit(eintrag.t)+' — Klick springt hin';
+}
 async function vlcTick(){
   if(plGeraet!=='vlc'){clearInterval(vlcTimer); vlcTimer=null; return;}
   const s=await vlcBefehl('status'); if(!s||!s.verfuegbar)return;
@@ -6349,8 +6399,24 @@ async function vlcTick(){
         r=document.getElementById('pl-vlc-seek');
   if(pp)pp.textContent=(s.zustand==='spielt')?'⏸':'▶';
   if(s.rate)vlcRateLetzte=s.rate;
+  if(s.dauer)vlcDauerLetzte=s.dauer;
+  if(s.zustand==='spielt')vlcPosLetzte=s.pos;
   if(z)z.textContent=zeit(s.pos)+' / '+zeit(s.dauer)+(s.rate&&s.rate!==1?' · '+s.rate+'×':'');
   if(r&&!vlcZieht){r._dauer=s.dauer; r.value=s.dauer?Math.round(1000*s.pos/s.dauer):0;}
+  // Selbstheilung: meldet libvlc FEHLER, einmal automatisch neu verbinden
+  // (der Server baut die Instanz frisch); erst der zweite Fehler bleibt stehen.
+  if(s.zustand==='fehler'&&s.key===aktKey()&&!vlcHeilt){vlcHeilt=true; vlcNeustart(); return;}
+  if(s.zustand==='spielt')vlcHeilt=false;
+  // Wiedergabe-Merker („wo war ich zuletzt") — derselbe Speicher wie im
+  // Browser-Player (ytdl_pos_v1), gleicher 5-s-Takt.
+  const mk=aktKey();
+  if(mk&&s.dauer&&s.zustand==='spielt'&&Date.now()-_posMerkTs>5000){
+    _posMerkTs=Date.now();
+    if(s.pos>20&&s.pos<s.dauer-20)_posMerk[mk]={t:Math.floor(s.pos),ts:Date.now()};
+    else if(s.pos>=s.dauer-20)delete _posMerk[mk];
+    try{localStorage.setItem('ytdl_pos_v1',JSON.stringify(_posMerk));}catch(e){}
+  }
+  vlcMerkerMalen(s);
   // Titelende: genau EINMAL weiterschalten (der Ended-Zustand bleibt in libvlc
   // stehen, bis etwas Neues spielt — ohne die Merker-Variable liefe die
   // Warteschlange bei leerem Ende im 1-s-Takt immer weiter).

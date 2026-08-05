@@ -2158,7 +2158,21 @@ def fernsteuerung_info():
 # ehrlicher Hinweis, der Browser-Player spielt weiter (Rückfall).
 
 _vlc = {"instanz": None, "spieler": None, "key": "", "grund": "", "vol_wunsch": None}
-_vlc_lock = threading.Lock()
+_vlc_lock = threading.RLock()   # RLock: die Selbstheilung wiederholt den Befehl im Lock
+
+
+def _vlc_reset():
+    """Kaputte libvlc-Instanz wegwerfen (JB: „Kann er das selbstständig
+    resetten?") — der nächste Befehl baut frisch auf. Nicht-destruktiv:
+    betrifft nur den Player-Prozessteil, nie Dateien."""
+    for feld in ("spieler", "instanz"):
+        obj = _vlc.get(feld)
+        if obj is not None:
+            try:
+                obj.release()
+            except Exception:                        # noqa: BLE001 — schon tot ist auch ok
+                pass
+    _vlc.update(instanz=None, spieler=None, key="", grund="")
 
 
 def _vlc_spieler():
@@ -2228,6 +2242,12 @@ def vlc_kommando(daten):
                         sp.set_rate(rate)
                 except (TypeError, ValueError):
                     pass
+                try:                                 # ↻/Merker: an einer Stelle WEITERspielen
+                    pos = float(daten.get("pos") or 0)
+                    if pos > 0:
+                        sp.set_time(int(pos * 1000))
+                except (TypeError, ValueError):
+                    pass
                 if daten.get("sub") and not pfad.lower().endswith(".mp3"):
                     subs = untertitel_liste(daten.get("key") or "")
                     if subs:
@@ -2263,7 +2283,12 @@ def vlc_kommando(daten):
             w = _vlc.get("vol_wunsch")
             if w is not None and sp.audio_get_volume() != w:
                 sp.audio_set_volume(w)
-        except Exception as e:           # noqa: BLE001 — libvlc-Fehler ehrlich melden
+        except Exception as e:           # noqa: BLE001 — libvlc-Fehler
+            # Selbstheilung (JB): kaputte Instanz EINMAL neu aufbauen und den
+            # Befehl wiederholen — erst der zweite Fehlschlag wird gemeldet.
+            if not daten.get("_wiederholt"):
+                _vlc_reset()
+                return vlc_kommando({**daten, "_wiederholt": True})
             return {**vlc_status(), "fehler": str(e)[:200]}
         return vlc_status()
 

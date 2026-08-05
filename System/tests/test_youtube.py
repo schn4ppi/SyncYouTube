@@ -3345,3 +3345,50 @@ def test_addon_nachschub_zaehlt(monkeypatch):
     assert app._addon_nachschub["n"] == 3 and app._addon_nachschub["id"] == 1
     app.addon_nachschub({"n": 0})
     assert app._addon_nachschub["id"] == 1, "n=0 darf keinen Toast ausloesen"
+
+
+def test_vlc_selbstheilung_baut_neu(monkeypatch, tmp_path):
+    # JB 05.08.: "Kann er das selbststaendig resetten?" - wirft libvlc, wird
+    # die Instanz EINMAL frisch gebaut und der Befehl wiederholt; erst der
+    # zweite Fehlschlag wird gemeldet.
+    import types
+    fake_vlc = types.ModuleType("vlc")
+    fake_vlc.State = types.SimpleNamespace(Playing="P", Paused="p", Ended="E",
+                                           Error="X", Stopped="S")
+    gebaut = []
+
+    class Kaputt:
+        def set_media(self, m): pass
+        def play(self): raise RuntimeError("libvlc tot")
+        def release(self): pass
+        def stop(self): pass
+
+    class Heil:
+        def __init__(self): self.lief = False
+        def set_media(self, m): pass
+        def play(self): self.lief = True
+        def get_state(self): return fake_vlc.State.Playing
+        def get_time(self): return 0
+        def get_length(self): return 1000
+        def audio_get_volume(self): return 100
+        def get_rate(self): return 1.0
+        def release(self): pass
+
+    class Inst:
+        def __init__(self):
+            gebaut.append(self)
+            self.sp = Kaputt() if len(gebaut) == 1 else Heil()
+        def media_player_new(self): return self.sp
+        def media_new(self, pfad): return types.SimpleNamespace(pfad=pfad)
+        def release(self): pass
+
+    fake_vlc.Instance = lambda *a: Inst()
+    monkeypatch.setitem(sys.modules, "vlc", fake_vlc)
+    monkeypatch.setattr(app, "_vlc", {"instanz": None, "spieler": None,
+                                      "key": "", "grund": "", "vol_wunsch": None})
+    mp3 = tmp_path / "x.mp3"; mp3.write_bytes(b"x")
+    monkeypatch.setattr(app, "_geladen", {"k|mp3": {"pfad": str(mp3)}})
+    st = app.vlc_kommando({"cmd": "play", "key": "k|mp3"})
+    assert len(gebaut) == 2, "Selbstheilung hat keine frische Instanz gebaut"
+    assert not st.get("fehler") and st["zustand"] == "spielt", \
+        "Nach der Heilung muss der wiederholte Befehl gelingen"
