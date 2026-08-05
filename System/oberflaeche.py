@@ -165,6 +165,8 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
   border-radius:12px;padding:3px;position:relative;transition:transform .25s}
 /* Netflix-Zoom (JB-Bild): die fokussierte/gehoverte Kachel tritt hervor … */
 #tv .tv-kachel.tv-fokus,#tv .tv-band:not(.wrap) .tv-kachel:hover{transform:scale(1.3);z-index:5}
+#tv .tv-dauer{position:absolute;top:8px;right:8px;z-index:2;font-size:13px;
+  color:#fff;background:rgba(12,10,9,.7);border-radius:5px;padding:1px 7px}
 /* … und das Szenen-Snippet füllt die GANZE Kachel (Beschnitt gewollt). */
 #tv .tv-snip{position:absolute;inset:3px;width:calc(100% - 6px);height:calc(100% - 6px);
   object-fit:cover;border-radius:9px;z-index:1;background:#000}
@@ -252,18 +254,22 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
   overflow-y:auto;padding:4vh 0}
 #tv-info .info-karte{width:min(940px,94vw);margin:auto;background:#141110;
   border-radius:14px;overflow:hidden;box-shadow:0 14px 70px rgba(0,0,0,.85)}
-#tv-info .info-kopf{position:relative;aspect-ratio:16/8;min-height:240px;overflow:hidden}
-#tv-info .info-kopf img{width:100%;height:100%;object-fit:cover}
+#tv-info .info-kopf{position:relative;aspect-ratio:16/9;min-height:240px;overflow:hidden}
+#tv-info .info-kopf img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 #tv-info .info-kopf::after{content:'';position:absolute;inset:0;
-  background:linear-gradient(0deg,#141110 3%,transparent 48%)}
+  background:linear-gradient(0deg,#141110 3%,transparent 52%)}
 #tv-info .info-x{position:absolute;top:14px;right:14px;z-index:2;width:44px;height:44px;
   border-radius:50%;background:rgba(12,10,9,.75);color:#fff;border:3px solid transparent;
   font-size:20px;cursor:pointer}
 #tv-info .info-x.tv-fokus{border-color:#e8b04b}
-#tv-info .info-titel{position:absolute;left:34px;bottom:88px;right:120px;z-index:1;
-  font-size:clamp(30px,3.4vw,48px);font-weight:900;line-height:1.05;
-  text-shadow:0 2px 12px rgba(0,0,0,.8)}
-#tv-info .info-kopfzeile{position:absolute;left:34px;right:34px;bottom:20px;z-index:1}
+/* Netflix-Fluss (JB-Fund: „Die Leiste … wird vom Filmtext verdeckt"): Titel,
+   Balken und Knöpfe stapeln sich als FLEX-SPALTE von unten — nichts kann
+   mehr überlappen, egal wie viele Zeilen der Titel braucht. */
+#tv-info .info-kopf-inhalt{position:absolute;left:34px;right:34px;bottom:20px;z-index:1;
+  display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+#tv-info .info-titel{font-size:clamp(30px,3.4vw,48px);font-weight:900;line-height:1.05;
+  text-shadow:0 2px 12px rgba(0,0,0,.8);max-width:75%}
+#tv-info .info-kopfzeile{width:100%}
 #tv-info .info-body{padding:20px 34px 34px;font-size:18px}
 #tv-info .info-spalten{display:grid;grid-template-columns:1.7fr 1fr;gap:8px 30px;margin-bottom:6px}
 #tv-info .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
@@ -3807,6 +3813,8 @@ function tvpIdleTick(spielt){
 function tvpZu(){
   tvpOffen=false;
   if(tvpTimer){clearInterval(tvpTimer); tvpTimer=null;}
+  const api=window.pywebview&&window.pywebview.api;   // Hüllen-Bild freigeben
+  if(api&&api.video_rect){try{api.video_rect(0,0,0,0,false);}catch(e){}}
   const el=document.getElementById('tv-player');
   if(el){
     if(document.fullscreenElement===el){try{document.exitFullscreen();}catch(e){}}
@@ -3834,6 +3842,16 @@ async function tvpTick(){
   }
   tvpPos=s.pos||tvpPos; tvpDauer=s.dauer||tvpDauer;
   const pp=document.getElementById('tvp-pp'); if(pp)pp.innerHTML=ico(s.zustand==='spielt'?'pause':'play');
+  // In der PROGRAMM-HÜLLE ist die Bedienung IM Player (JB): das eingebettete
+  // VLC-Bild bekommt die Fläche BIS zur Leisten-Oberkante gemeldet.
+  const api=window.pywebview&&window.pywebview.api;
+  if(api&&api.video_rect){
+    const u=document.querySelector('#tv-player .tvp-unten');
+    const dpr=window.devicePixelRatio||1;
+    const bis=(u&&!document.getElementById('tv-player').classList.contains('idle'))
+      ?u.getBoundingClientRect().top:window.innerHeight;
+    try{api.video_rect(0,0,Math.round(innerWidth*dpr),Math.round(bis*dpr),true);}catch(e){}
+  }
   const f=document.getElementById('tvp-fuell');
   if(f&&tvpDauer)f.style.width=Math.min(100,tvpPos/tvpDauer*100)+'%';
   const z=document.getElementById('tvp-zeit'); if(z)z.textContent=zeit(tvpPos)+' / '+zeit(tvpDauer);
@@ -7482,11 +7500,11 @@ function tvInfoMalen(){
   el.innerHTML=`<div class="info-karte">`+
     `<div class="info-kopf">${querBild(id)}`+
       `<button class="info-x" data-info="9" onclick="tvInfoZu()" title="Schließen (Esc)">✕</button>`+
-      `<div class="info-titel">${esc(d.titel||'')}</div>`+
-      `<div class="info-kopfzeile">`+
+      `<div class="info-kopf-inhalt">`+
+        `<div class="info-titel">${esc(d.titel||'')}</div>`+
         (prozent?`<div class="info-progresswrap"><div class="info-progress"><div style="width:${prozent}%"></div></div>`+
           `<span class="info-rest">${posMin} von ${d.laufzeit_min} min</span></div>`:'')+
-        `<div class="info-btns">${knoepfe}</div>`+
+        `<div class="info-btns info-kopfzeile">${knoepfe}</div>`+
       `</div></div>`+
     `<div class="info-body">`+
       `<div class="info-spalten"><div>`+
@@ -7508,7 +7526,8 @@ function tvInfoMalen(){
           `<div class="tv-ktitel">${e.gesehen?'✓ ':''}F${e.folge} · ${esc(e.titel)}${e.position_s>0&&!e.gesehen?' ⏸':''}</div></div>`).join('')+`</div>`:'')+
       (mw.length?`<div class="tv-rtitel" style="margin-top:16px">Mehr wie das</div><div class="info-grid">`+
         mw.slice(0,9).map((e,i)=>`<div class="tv-kachel" data-mw="${i}" onclick="tvInfo('${esc(e.id)}')">`+
-          querBild(e.id)+`<div class="tv-ktitel">${esc(e.titel)}</div></div>`).join('')+`</div>`:'')+
+          querBild(e.id)+(e.laufzeit_min?`<span class="tv-dauer">${Math.floor(e.laufzeit_min/60)}h ${e.laufzeit_min%60}m</span>`:'')+
+          `<div class="tv-ktitel">${esc(e.titel)}</div></div>`).join('')+`</div>`:'')+
       (d.trailer&&d.trailer.length?`<div class="tv-rtitel" style="margin-top:16px">Trailer & mehr</div><div class="info-grid">`+
         d.trailer.map((t,i)=>`<div class="tv-kachel" data-trl="${i}" onclick="window.open('https://www.youtube.com/watch?v=${esc(t.key)}','_blank')" title="${esc(t.name)}">`+
           `<img loading="lazy" src="https://i.ytimg.com/vi/${esc(t.key)}/mqdefault.jpg" style="aspect-ratio:16/9;height:auto" onerror="this.style.visibility='hidden'">`+

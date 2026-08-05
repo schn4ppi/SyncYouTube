@@ -4134,3 +4134,19 @@ def test_kachel_zoom_und_monitor_regel():
     i = quelle.index("#tv .tv-snip{")
     assert "object-fit:cover" in quelle[i:i + 220] and "inset:3px" in quelle[i:i + 220], \
         "Snippet muss die ganze Kachel fuellen"
+
+
+def test_info_kopf_netflix_fluss():
+    # JB-Fund: der Filmtitel verdeckte den Fortschrittsbalken (absolute
+    # Stapel). Jetzt Netflix-Fluss: Titel/Balken/Knoepfe als Flex-Spalte
+    # von unten; Kopfbild 16:9; Mehr-wie-Karten mit Dauer-Ecke; in der
+    # HUELLE meldet der Film-Player die Bildflaeche bis zur Leiste.
+    quelle = _oberflaeche_html()
+    i = quelle.index("#tv-info .info-kopf-inhalt{")
+    assert "flex-direction:column" in quelle[i:i + 220], "Kopf muss stapeln, nicht ueberlappen"
+    i = quelle.index("#tv-info .info-kopf{")
+    assert "16/9" in quelle[i:i + 120], "Kopfbild ist 16:9 (Netflix)"
+    assert "tv-dauer" in quelle, "Dauer-Ecke auf Mehr-wie-Karten fehlt"
+    i = quelle.index("async function tvpTick")
+    assert "video_rect" in quelle[i:_funktionsende(quelle, i)], \
+        "Huelle: Bedienung IM Player braucht die Flaechen-Meldung"
