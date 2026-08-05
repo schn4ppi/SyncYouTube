@@ -223,6 +223,11 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
   font-size:18px;font-weight:700;white-space:nowrap;max-width:42%;
   overflow:hidden;text-overflow:ellipsis}
 #tv-player .tvp-rechts{margin-left:auto}
+#tv-player .tvp-lade{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:14px;color:#d8cec4;font-size:18px}
+#tv-player .tvp-spin{width:54px;height:54px;border-radius:50%;border:5px solid rgba(255,255,255,.2);
+  border-top-color:#e5484d;animation:tvpdreh 1s linear infinite}
+@keyframes tvpdreh{to{transform:rotate(360deg)}}
 #tv-player .tvp-idle{position:absolute;left:6vw;top:30vh;max-width:640px;display:none;
   flex-direction:column;gap:10px}
 #tv-player .tvp-idle-klein{font-size:19px;color:#d8cec4}
@@ -3740,7 +3745,7 @@ async function filmePlay(id,pos){
     const d=await r.json();
     if(d.fehler){toast('🎬 '+d.fehler); return;}
     const titel=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.titel)||'';
-    tvFilmPlayer(id,titel);                            // die Fernbedienung (Build 187)
+    tvFilmPlayer(id,titel,pos||0);                     // die Fernbedienung (Build 187)
   }catch(e){toast('🎬 Abspielen fehlgeschlagen.');}
 }
 /* ---- Film-Player-Screen (Build 187) ---------------------------------------
@@ -3751,8 +3756,8 @@ async function filmePlay(id,pos){
    Pause · ←/→ = ±10 s · ↑/↓ = Lautstärke · Esc = Beenden. */
 let tvpTimer=null, tvpPos=0, tvpDauer=0, tvpOffen=false, tvpLief=false, tvpTicks=0;
 let tvpMeta=null, tvpAktiv=0;                          // Idle-Uhr (Netflix-Auto-Hide)
-function tvFilmPlayer(id,titel){
-  tvpOffen=true; tvpPos=0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
+function tvFilmPlayer(id,titel,pos){
+  tvpOffen=true; tvpPos=pos||0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
   tvpMeta=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)?tvInfoDaten.d:{titel:titel||''};
   let el=document.getElementById('tv-player');
   if(!el){el=document.createElement('div'); el.id='tv-player';}
@@ -3778,6 +3783,8 @@ function tvFilmPlayer(id,titel){
           `<span class="tvp-rechts"></span>`+
         `</div>`+
       `</div>`+
+      `<div class="tvp-lade" id="tvp-lade"><div class="tvp-spin"></div>`+
+        `<span id="tvp-lade-text">${pos>0?'Springt zu '+zeit(pos)+' …':'Lädt …'}</span></div>`+
       `<div class="tvp-idle" id="tvp-idle" style="display:none">`+
         `<div class="tvp-idle-klein">Du siehst</div>`+
         `<div class="tvp-idle-titel">${esc(tvpMeta.titel||'')}</div>`+
@@ -3841,6 +3848,10 @@ async function tvpTick(){
     return;
   }
   tvpPos=s.pos||tvpPos; tvpDauer=s.dauer||tvpDauer;
+  // Lade-Spinner (JB-Go): sichtbar, bis der Film WIRKLICH spielt — deckt den
+  // langsamen Index-/Seek-Anlauf mancher Container über die Leitung ehrlich ab.
+  const lade=document.getElementById('tvp-lade');
+  if(lade)lade.style.display=(s.zustand==='spielt'||(tvpLief&&s.zustand==='pause'))?'none':'flex';
   const pp=document.getElementById('tvp-pp'); if(pp)pp.innerHTML=ico(s.zustand==='spielt'?'pause':'play');
   // In der PROGRAMM-HÜLLE ist die Bedienung IM Player (JB): das eingebettete
   // VLC-Bild bekommt die Fläche BIS zur Leisten-Oberkante gemeldet.
@@ -3856,8 +3867,13 @@ async function tvpTick(){
   if(f&&tvpDauer)f.style.width=Math.min(100,tvpPos/tvpDauer*100)+'%';
   const z=document.getElementById('tvp-zeit'); if(z)z.textContent=zeit(tvpPos)+' / '+zeit(tvpDauer);
 }
+function tvpLadeZeigen(text){
+  const l=document.getElementById('tvp-lade'), t=document.getElementById('tvp-lade-text');
+  if(t)t.textContent=text; if(l)l.style.display='flex';
+}
 function tvpRel(s){
   tvpPos=Math.max(0,Math.min(tvpDauer||1e9,tvpPos+s));
+  tvpLadeZeigen('Springt zu '+zeit(tvpPos)+' …');
   vlcBefehl('seek',{wert:tvpPos});
   setTimeout(tvpTick,300);
 }
@@ -3866,6 +3882,7 @@ function tvpSeek(ev){
   const r=wrap.getBoundingClientRect();
   if(!tvpDauer||!r.width)return;
   tvpPos=Math.max(0,Math.min(tvpDauer,(ev.clientX-r.left)/r.width*tvpDauer));
+  tvpLadeZeigen('Springt zu '+zeit(tvpPos)+' …');
   vlcBefehl('seek',{wert:tvpPos});
   setTimeout(tvpTick,300);
 }

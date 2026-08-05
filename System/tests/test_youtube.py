@@ -4150,3 +4150,19 @@ def test_info_kopf_netflix_fluss():
     i = quelle.index("async function tvpTick")
     assert "video_rect" in quelle[i:_funktionsende(quelle, i)], \
         "Huelle: Bedienung IM Player braucht die Flaechen-Meldung"
+
+
+def test_lade_spinner():
+    # JB-Go: Spinner deckt den langsamen Index-/Seek-Anlauf ehrlich ab -
+    # 'Springt zu H:MM ...' bei Resume/Seek, 'Laedt ...' beim Kaltstart;
+    # weg, sobald der Film WIRKLICH spielt (Pause blendet ihn nicht ein).
+    quelle = _oberflaeche_html()
+    i = quelle.index("function tvFilmPlayer")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "tvp-lade" in block and "Springt zu " in block and "tvp-spin" in block
+    i = quelle.index("async function tvpTick")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "tvpLief&&s.zustand==='pause'" in block, "Pause darf keinen Spinner zeigen"
+    assert "function tvpLadeZeigen" in quelle
+    i = quelle.index("function tvpRel")
+    assert "tvpLadeZeigen(" in quelle[i:_funktionsende(quelle, i)], "Seek zeigt den Sprung"
