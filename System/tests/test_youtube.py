@@ -2911,6 +2911,7 @@ def test_vlc_motor_spielt_und_meldet_status(monkeypatch, tmp_path):
     fake_vlc = types.ModuleType("vlc")
     fake_vlc.State = types.SimpleNamespace(Playing="P", Paused="p", Ended="E",
                                            Error="X", Stopped="S")
+    fake_vlc.MediaSlaveType = types.SimpleNamespace(subtitle=0)
 
     class FakeSpieler:
         def __init__(self):
@@ -2954,6 +2955,15 @@ def test_vlc_motor_spielt_und_meldet_status(monkeypatch, tmp_path):
         def get_length(self):
             return 245000
 
+        def set_rate(self, r):
+            aufrufe.append(("rate", r)); self.rate = r
+
+        def get_rate(self):
+            return getattr(self, "rate", 1.0)
+
+        def add_slave(self, art, uri, an):
+            aufrufe.append(("slave", uri))
+
         def get_state(self):
             return {"spielt": fake_vlc.State.Playing,
                     "pause": fake_vlc.State.Paused}.get(self.zustand,
@@ -2983,6 +2993,13 @@ def test_vlc_motor_spielt_und_meldet_status(monkeypatch, tmp_path):
     assert st["vol"] == 80, \
         "Wunsch-Lautstaerke wird nicht nachgezogen (libvlc-Race, live gemessen)"
 
+    # VLC-Restpunkte (JB 05.08.): Tempo gilt auch am Geraet VLC - beim Play
+    # (Wiedergabe-Regeln, Etappe C) und als eigener Befehl (Hotkeys/Menue).
+    st = app.vlc_kommando({"cmd": "play", "key": "abc|mp3", "rate": 1.5})
+    assert ("rate", 1.5) in aufrufe and st["rate"] == 1.5
+    st = app.vlc_kommando({"cmd": "rate", "wert": 2})
+    assert ("rate", 2.0) in aufrufe and st["rate"] == 2.0
+
     st = app.vlc_kommando({"cmd": "toggle"})
     assert st["zustand"] == "pause", "pause() muss togglen"
     st = app.vlc_kommando({"cmd": "seek", "wert": 12.5})
@@ -2992,6 +3009,22 @@ def test_vlc_motor_spielt_und_meldet_status(monkeypatch, tmp_path):
         "stop muss den gemerkten Titel loslassen"
     st = app.vlc_kommando({"cmd": "play", "key": "gibtsnicht|mp3"})
     assert st.get("fehler"), "Fehlende Datei muss ehrlich gemeldet werden"
+
+    # Untertitel am Geraet VLC: bei Videos wandert die .vtt als Spur mit
+    # (add_slave) - MP3s haben kein VLC-Fenster, dort bewusst nicht.
+    mp4 = tmp_path / "clip.mp4"
+    mp4.write_bytes(b"x" * 10)
+    vtt = tmp_path / "clip.en.vtt"
+    vtt.write_text("WEBVTT", encoding="utf-8")
+    app._geladen["vid|beste"] = {"pfad": str(mp4)}
+    monkeypatch.setattr(app, "untertitel_liste", lambda key: [(str(vtt), "en")])
+    app.vlc_kommando({"cmd": "play", "key": "vid|beste", "sub": True})
+    assert any(a[0] == "slave" and a[1].startswith("file:") for a in aufrufe), \
+        "Video + Untertitel an: .vtt muss als VLC-Spur mitgehen"
+    aufrufe.clear()
+    app.vlc_kommando({"cmd": "play", "key": "abc|mp3", "sub": True})
+    assert not any(a[0] == "slave" for a in aufrufe), \
+        "MP3 hat kein VLC-Fenster - kein Untertitel-Slave"
 
 
 def test_vlc_fehlt_ehrlicher_rueckfall(monkeypatch):

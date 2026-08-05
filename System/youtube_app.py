@@ -2114,7 +2114,8 @@ def vlc_status():
     return {"verfuegbar": True, "grund": "", "key": _vlc["key"], "zustand": zustand,
             "pos": max(0, sp.get_time()) / 1000.0,
             "dauer": max(0, sp.get_length()) / 1000.0,
-            "vol": max(0, sp.audio_get_volume())}
+            "vol": max(0, sp.audio_get_volume()),
+            "rate": round(sp.get_rate() or 1.0, 2)}
 
 
 def vlc_kommando(daten):
@@ -2140,6 +2141,25 @@ def vlc_kommando(daten):
                 if isinstance(daten.get("vol"), (int, float)):
                     _vlc["vol_wunsch"] = max(0, min(125, int(daten["vol"])))
                     sp.audio_set_volume(_vlc["vol_wunsch"])
+                # Wiedergabe-Grundeinstellungen gelten auch am Gerät VLC:
+                # Tempo (Etappe C) und — bei Videos — die .vtt als Untertitel-
+                # Spur im VLC-Fenster (add_slave lädt sie zur Laufzeit dazu).
+                try:
+                    rate = float(daten.get("rate") or 0)
+                    if 0.25 <= rate <= 4:
+                        sp.set_rate(rate)
+                except (TypeError, ValueError):
+                    pass
+                if daten.get("sub") and not pfad.lower().endswith(".mp3"):
+                    subs = untertitel_liste(daten.get("key") or "")
+                    if subs:
+                        import vlc as _v
+                        import urllib.request as _ur
+                        uri = "file:" + _ur.pathname2url(subs[0][0])
+                        try:
+                            sp.add_slave(_v.MediaSlaveType.subtitle, uri, True)
+                        except Exception:            # noqa: BLE001 — ohne Untertitel weiterspielen
+                            pass
             elif cmd == "toggle":
                 sp.pause()               # libvlc: pause() wechselt Pause↔Weiter
             elif cmd == "pause":
@@ -2152,6 +2172,11 @@ def vlc_kommando(daten):
             elif cmd == "vol":
                 _vlc["vol_wunsch"] = max(0, min(125, int(daten.get("wert") or 0)))
                 sp.audio_set_volume(_vlc["vol_wunsch"])
+            elif cmd == "rate":
+                try:
+                    sp.set_rate(max(0.25, min(4.0, float(daten.get("wert") or 1))))
+                except (TypeError, ValueError):
+                    pass
             # Live gemessen (05.08.): ein audio_set_volume, das ankommt, BEVOR
             # libvlc den Audio-Ausgang aufgebaut hat (play startet asynchron),
             # geht verloren — der Titel spielte mit 100 statt der gewünschten

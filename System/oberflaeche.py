@@ -6185,7 +6185,7 @@ function plBarIdleInit(media,el){                      // Leiste ruht die Maus -
    1-s-Status-Takt, dann greift dieselbe playerAdvance-Logik wie im Browser.
    VLC nicht installiert ⇒ Hinweis (toast) + Browser-Player als Rückfall. */
 let plGeraet=localStorage.getItem('ytdl_geraet')||'browser';
-let vlcTimer=null, vlcEndeFuer='', vlcZieht=false;
+let vlcTimer=null, vlcEndeFuer='', vlcZieht=false, vlcRateLetzte=1;
 async function vlcBefehl(cmd,extra){
   try{
     const r=await fetch('/api/vlc',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -6222,6 +6222,7 @@ function renderPlayerVlc(media,x,k){
         `<button class="btn mini" id="pl-vlc-pp" onclick="vlcBefehl('toggle')" title="Pause/Weiter">⏸</button>`+
         `<button class="btn mini" onclick="playerNext()" title="Nächster Titel">⏭</button>`+
         `<button class="btn mini" onclick="vlcBefehl('stop')" title="Wiedergabe stoppen (VLC spielt sonst auch nach dem Schließen des Browser-Fensters weiter)">⏹</button>`+
+        `<button class="btn mini" onclick="speedMenu(event)" title="Tempo (gilt auch am Gerät VLC)">⏩</button>`+
         `<span id="pl-vlc-zeit" class="muted2">0:00 / 0:00</span>`+
         `<input type="range" id="pl-vlc-seek" min="0" max="1000" value="0" `+
           `oninput="vlcZieht=true" onchange="vlcSpringen(this)" title="Spulen">`+
@@ -6233,7 +6234,11 @@ function renderPlayerVlc(media,x,k){
     vlcBefehl('toggle');
   };
   vlcEndeFuer='';
-  vlcBefehl('play',{key:k,vol:plVol}).then(s=>{
+  // Wiedergabe-Regeln (Etappe C) gelten auch hier: effektives Tempo mitgeben,
+  // und bei eingeschalteten Untertiteln lädt VLC die .vtt als eigene Spur.
+  const w=wiedergabeFuer(x);
+  vlcRateLetzte=w.speed||playSpeed||1;
+  vlcBefehl('play',{key:k,vol:plVol,rate:vlcRateLetzte,sub:subMode!=='aus'}).then(s=>{
     if(s&&!s.verfuegbar){                              // VLC unterwegs verschwunden -> Rückfall
       toast(s.grund||'VLC nicht gefunden — der Browser-Player übernimmt.');
       plGeraet='browser'; try{localStorage.setItem('ytdl_geraet','browser');}catch(e){}
@@ -6249,7 +6254,8 @@ async function vlcTick(){
   const pp=document.getElementById('pl-vlc-pp'), z=document.getElementById('pl-vlc-zeit'),
         r=document.getElementById('pl-vlc-seek');
   if(pp)pp.textContent=(s.zustand==='spielt')?'⏸':'▶';
-  if(z)z.textContent=zeit(s.pos)+' / '+zeit(s.dauer);
+  if(s.rate)vlcRateLetzte=s.rate;
+  if(z)z.textContent=zeit(s.pos)+' / '+zeit(s.dauer)+(s.rate&&s.rate!==1?' · '+s.rate+'×':'');
   if(r&&!vlcZieht){r._dauer=s.dauer; r.value=s.dauer?Math.round(1000*s.pos/s.dauer):0;}
   // Titelende: genau EINMAL weiterschalten (der Ended-Zustand bleibt in libvlc
   // stehen, bis etwas Neues spielt — ohne die Merker-Variable liefe die
@@ -6286,7 +6292,8 @@ function wiedergabeMerken(felder){
   fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(Object.assign({keys:[k],merge:1},felder))}).catch(()=>{});
 }
-function speedWaehlen(s){playSpeed=s; speedAnwenden(); wiedergabeMerken({speed:s});}
+function speedWaehlen(s){playSpeed=s; speedAnwenden(); wiedergabeMerken({speed:s});
+  if(plGeraet==='vlc'){vlcRateLetzte=s; vlcBefehl('rate',{wert:s});}}
 let wgZiel=null;
 function wgGlobalDialog(){wiedergabeDialog({global:1},'Standard für alles ohne eigene Regel');}
 function wiedergabeDialog(ziel,name){
@@ -7465,7 +7472,11 @@ function toastHTML(html,dauer){
   clearTimeout(t._weg); t._weg=setTimeout(()=>t.classList.remove('an'), dauer||5000);
 }
 function _vol(d){plbVol(Math.max(0,Math.min(100,(plVol||0)+d)));}
-function _rate(d){const el=document.getElementById('pl-el'); if(!el)return;
+function _rate(d){
+  if(plGeraet==='vlc'){                                // Tempo-Hotkeys auch am Gerät VLC
+    const r=Math.max(0.25,Math.min(4,Math.round(((vlcRateLetzte||1)+d)*100)/100));
+    vlcRateLetzte=r; vlcBefehl('rate',{wert:r}); toast('⏩ Tempo '+r+'×'); return;}
+  const el=document.getElementById('pl-el'); if(!el)return;
   el.playbackRate=Math.max(0.25,Math.min(4,Math.round((el.playbackRate+d)*100)/100));
   toast('⏩ Tempo '+el.playbackRate+'×');}
 /* ---- Hotkey-Editor (JB-Wunsch, Marschbefehl 05.08.) ----------------------
