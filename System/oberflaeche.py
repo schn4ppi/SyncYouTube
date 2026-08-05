@@ -3067,7 +3067,7 @@ function remoteAusfuehren(r){
   const el=document.getElementById('pl-el');
   if(r.cmd==='playkey'&&r.key)playerPlay([r.key]);
   else if(r.cmd==='play')plTogglePlay();               // 'play' vom Handy = togglen (Browser ODER Gerät VLC)
-  else if(r.cmd==='pause'){if(plGeraet==='vlc')vlcBefehl('pause'); else if(el)el.pause();}
+  else if(r.cmd==='pause'){if(vlcAktiv())vlcBefehl('pause'); else if(el)el.pause();}
   else if(r.cmd==='next')playerNext();
   else if(r.cmd==='prev')playerPrev();
 }
@@ -3449,6 +3449,7 @@ function cmdSeekTick(){                                // Position/Zeiten nachf�
 }
 setInterval(cmdSeekTick,500);
 function cmdPlayPause(){
+  if(vlcAktiv()){plTogglePlay(); return;}    // Gerät VLC: derselbe Weg wie überall
   const pe=document.getElementById('pl-el');
   if(!pe){ if(libdaten.length)playGefilterte(); return; }   // nichts läuft -> Bibliothek starten (bei 🔀 gemischt)
   if(pe.paused)pe.play(); else pe.pause();
@@ -4435,9 +4436,13 @@ function transportRender(){
     b.classList.toggle('an',playRepeat!=='aus');
     b.innerHTML=ico(playRepeat==='eins'?'repeat1':'repeat');
     b.title='Wiederholen: '+(playRepeat==='aus'?'aus':(playRepeat==='alle'?'alle Titel':'nur dieser Titel'))+' (klicken: aus → alle → einer)';});
+  // DER Wurm (JB 05.08., „wechselt kurz und springt zurück"): dieser Maler
+  // läuft im 1-s-Takt und las NUR das <audio>-Element — am Gerät VLC gibt es
+  // keins, also übermalte er den richtigen Zustand sofort wieder mit ▶.
+  const spielt=vlcAktiv()?vlcSpielt:!!(pe&&!pe.paused);
   document.querySelectorAll('[data-tr="pp"]').forEach(b=>{
-    b.innerHTML=ico(pe&&!pe.paused?'pause':'play');
-    b.title=(pe&&!pe.paused)?'Pause':'Abspielen';});
+    b.innerHTML=ico(spielt?'pause':'play');
+    b.title=spielt?'Pause':'Abspielen';});
   document.querySelectorAll('[data-tr="radio"]').forEach(b=>b.classList.toggle('an',radioAktiv));
   document.querySelectorAll('[data-tr="art"]').forEach(b=>{
     const o=PLAYART.find(o=>o[0]===playArt)||PLAYART[0];
@@ -4576,7 +4581,7 @@ async function clipDialog(id){
   // Am Gerät VLC gibt es kein <audio>-Element — Dauer/Position kommen aus
   // dem letzten VLC-Status (JB 05.08.: ✂ auch im VLC-Modus).
   let dauer, curT;
-  if(plGeraet==='vlc'&&aktKey()===id&&vlcDauerLetzte){
+  if(vlcAktiv()&&aktKey()===id&&vlcDauerLetzte){
     dauer=vlcDauerLetzte; curT=vlcPosLetzte||0;
   }else{
     const el=document.getElementById('pl-el');
@@ -5530,11 +5535,12 @@ function playerPlay(keys,start,quelle,plid){
   keys=(keys||[]).filter(k=>{const x=libFind(k); return x&&x.vorhanden;});
   if(!keys.length){alert('Nichts Abspielbares — die Datei fehlt (verschoben/gelöscht).');return;}
   // Genau den LAUFENDEN Titel nochmal angeklickt -> nicht neu starten, sondern Pause/Play
-  if(plGeraet==='vlc' && keys.length===1 && keys[0]===aktKey()){ vlcBefehl('toggle'); return; }
+  if(vlcAktiv() && keys.length===1 && keys[0]===aktKey()){ vlcBefehl('toggle'); return; }
   const el=document.getElementById('pl-el');
   if(el && keys.length===1 && keys[0]===aktKey()){ if(el.paused)el.play(); else el.pause(); return; }
   radioAktiv=false;                                  // manueller Start beendet den Radio-Stream
   playerState.queue=keys; playerState.idx=start||0;
+  playerAktiv=true;                                  // Start = Player ist „angefasst" (Space greift)
   playerState.quelle=quelle||'Bibliothek';           // Name fürs Playlist-Fenster (JB 21.07.)
   playerState.plid=plid||'';                         // nur gesetzt bei einer GESPEICHERTEN Playlist
   ensurePlayer(); renderPlayerMedia();
@@ -5698,8 +5704,12 @@ function subMenu(ev){
     m.innerHTML='';
     // Live-VORSCHAU (Disney: „Subtitles will appear like this") — dieselben
     // CSS-Variablen wie die echte Anzeige, jede Wahl wirkt sofort sichtbar.
+    // Feste Höhe (JB 05.08.: „das Fenster wird größer und kleiner") — die
+    // Vorschau-Box bleibt gleich groß, der Text skaliert darin.
     const vs=document.createElement('div');
-    vs.className='pl-subzeile'; vs.style.cssText='position:static;text-align:center;padding:4px 6px 10px;pointer-events:none';
+    vs.className='pl-subzeile';
+    vs.style.cssText='position:static;display:flex;align-items:center;justify-content:center;'+
+      'height:56px;overflow:hidden;padding:0 6px 6px;pointer-events:none';
     const vspan=document.createElement('span'); vspan.className='subtxt';
     vspan.textContent='So sehen Untertitel aus';
     vs.appendChild(vspan); subLookAuf(vs); m.appendChild(vs);
@@ -5981,7 +5991,7 @@ function subTick(el){
   if(!subCues||subMode==='aus')return;
   // Zeit-Quelle je Gerät: Browser = <audio>/<video>, VLC = geschätzte
   // Status-Zeit (JB-Fund 05.08.: am Gerät VLC kam nie ein Untertitel).
-  const t=(plGeraet==='vlc'?vlcPosGeschaetzt():(el?el.currentTime:0))+(subOffset||0);
+  const t=(vlcAktiv()?vlcPosGeschaetzt():(el?el.currentTime:0))+(subOffset||0);
   let i=subIdx;
   if(i<0||i>=subCues.length||t<subCues[i].start||t>=subCues[i].ende)
     i=subCues.findIndex(c=>t>=c.start&&t<c.ende);
@@ -6329,7 +6339,7 @@ function plBarHTML(istVideo){
    `</div></div>`;
 }
 function plTogglePlay(){
-  if(plGeraet==='vlc'){
+  if(vlcAktiv()){
     // JB 05.08.: das Symbol muss SOFORT umspringen — nicht erst mit dem
     // nächsten 1-s-Status (der korrigiert, falls der Befehl scheiterte).
     vlcSpielt=!vlcSpielt;
@@ -6363,7 +6373,7 @@ function sprungZeigen(s){
   _sprungTimer=setTimeout(()=>{if(_sprungWeg){_sprungWeg.remove(); _sprungWeg=null;} _sprungSumme=0;},700);
 }
 function plbSpringen(s,leise){                         // Build 130: ±x s im Vollbild-Overlay
-  if(plGeraet==='vlc'){                                // Gerät VLC: über den Status springen
+  if(vlcAktiv()){                                     // Gerät VLC: über den Status springen
     if(!vlcDauerLetzte)return;
     vlcPosLetzte=Math.max(0,Math.min(vlcDauerLetzte,vlcPosLetzte+s));
     vlcBefehl('seek',{wert:vlcPosLetzte});
@@ -6411,10 +6421,10 @@ function seitenverhaeltnisAnwenden(){                  // beim Aufbau des Player
   const m=document.getElementById('pl-media'); if(m)arAnlegen(m,v);
 }
 function plbSeekDrag(v){const el=document.getElementById('pl-el'), t=document.getElementById('plb-t0');
-  const d=plGeraet==='vlc'?vlcDauerLetzte:(el&&el.duration);
+  const d=vlcAktiv()?vlcDauerLetzte:(el&&el.duration);
   if(d&&t)t.textContent=zeit(v/1000*d);}
 function plbSeekEnd(v){
-  if(plGeraet==='vlc'){
+  if(vlcAktiv()){
     if(vlcDauerLetzte){vlcPosLetzte=v/1000*vlcDauerLetzte; vlcBefehl('seek',{wert:vlcPosLetzte});}
     plbSeekAktiv=false; return;
   }
@@ -6422,7 +6432,7 @@ function plbSeekEnd(v){
   if(el&&el.duration)el.currentTime=v/1000*el.duration; plbSeekAktiv=false;}
 function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
   try{localStorage.setItem('ytdl_vol',plVol);}catch(e){}
-  if(plGeraet==='vlc')vlcBefehl('vol',{wert:plVol});   // Gerät VLC hört auf dieselbe Lautstärke
+  if(vlcAktiv())vlcBefehl('vol',{wert:plVol});   // Gerät VLC hört auf dieselbe Lautstärke
   const el=document.getElementById('pl-el'); if(el)el.volume=plVol/100;
   // Mini-Player- und Video-Leisten-Regler zeigen immer denselben Stand
   document.querySelectorAll('.pl-bvol').forEach(s=>{if(+s.value!==plVol)s.value=plVol;});}
@@ -6472,7 +6482,7 @@ function posMerkerMalen(){
   const el=document.getElementById('pl-el'); const k=aktKey();
   const eintrag=k&&_posMerk[k];
   // Gerät VLC (JB: identische Leiste): Dauer/Position aus dem 1-s-Status.
-  const vlc=plGeraet==='vlc';
+  const vlc=vlcAktiv();
   const dauer=vlc?vlcDauerLetzte:(el&&isFinite(el.duration)?el.duration:0);
   const pos=vlc?vlcPosLetzte:(el?el.currentTime:0);
   const nah=eintrag&&dauer&&Math.abs(pos-eintrag.t)<3;   // Playhead klebt drauf -> ausblenden
@@ -6483,7 +6493,7 @@ function posMerkerMalen(){
       const el2=document.getElementById('pl-el'), k2=aktKey();
       if(!k2||!_posMerk[k2])return;
       const ziel=Math.max(0,_posMerk[k2].t-3);           // 3 s Anlauf (Build 105)
-      if(plGeraet==='vlc'){vlcPosLetzte=ziel; vlcBefehl('seek',{wert:ziel});}
+      if(vlcAktiv()){vlcPosLetzte=ziel; vlcBefehl('seek',{wert:ziel});}
       else if(el2)el2.currentTime=ziel;
       toast('↦ zurück zu '+zeit(_posMerk[k2].t)+' (mit Anlauf)');});
     wrap.appendChild(m);
@@ -6498,7 +6508,7 @@ function plbTick(){                                    // Position/Zeit der Leis
   if(!s||!t0||!t1)return;
   if(Date.now()-_posMerkTs>5000){_posMerkTs=Date.now(); posMerken();}   // Merker-Takt (Build 102)
   posMerkerMalen();
-  if(plGeraet==='vlc'){                                // Gerät VLC: Werte aus dem 1-s-Status
+  if(vlcAktiv()){                                     // Gerät VLC: Werte aus dem 1-s-Status
     if(!vlcDauerLetzte){s.value=0;t0.textContent='0:00';t1.textContent='0:00';return;}
     if(!plbSeekAktiv){s.value=Math.round(vlcPosLetzte/vlcDauerLetzte*1000);t0.textContent=zeit(vlcPosLetzte);}
     t1.textContent=zeit(vlcDauerLetzte);
@@ -6533,6 +6543,16 @@ function plBarIdleInit(media,el){                      // Leiste ruht die Maus -
    VLC nicht installiert ⇒ Hinweis (toast) + Browser-Player als Rückfall. */
 let plGeraet=localStorage.getItem('ytdl_geraet')||'browser';
 let vlcTimer=null, vlcEndeFuer='', vlcRateLetzte=1;
+/* DIE eine Wahrheit „spielt gerade über VLC?" (JB 05.08.): Gerät VLC gewählt
+   UND der aktuelle Titel läuft dort wirklich — Videos OHNE Hülle spielen im
+   Browser-Element (VLC kann sein Bild nicht in eine Webseite einbetten),
+   Audio immer über VLC, in der Hülle alles. */
+function vlcAktiv(){
+  if(plGeraet!=='vlc')return false;
+  const x=libFind(aktKey()); if(!x)return false;
+  const istAudio=x.dateiart?x.dateiart==='audio':((x.kategorie==='MP3')||(!x.vcodec&&x.acodec));
+  return istAudio||!!window.pywebview;
+}
 async function vlcBefehl(cmd,extra){
   try{
     const r=await fetch('/api/vlc',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -6630,7 +6650,7 @@ function huelleVideoRect(s){
   const x=libFind(aktKey());
   const video=x&&(x.dateiart?x.dateiart!=='audio':(x.kategorie!=='MP3'));
   const wrap=document.querySelector('#pl-media .pl-vizwrap');
-  const an=!!(plGeraet==='vlc'&&video&&wrap&&s&&s.verfuegbar&&s.zustand!=='aus');
+  const an=!!(vlcAktiv()&&video&&wrap&&s&&s.verfuegbar&&s.zustand!=='aus');
   let sig='aus', args=[0,0,0,0,false];
   if(an){
     const r=wrap.getBoundingClientRect();
@@ -6718,7 +6738,7 @@ function wiedergabeMerken(felder){
     body:JSON.stringify(Object.assign({keys:[k],merge:1},felder))}).catch(()=>{});
 }
 function speedWaehlen(s){playSpeed=s; speedAnwenden(); wiedergabeMerken({speed:s});
-  if(plGeraet==='vlc'){vlcRateLetzte=s; vlcBefehl('rate',{wert:s});}}
+  if(vlcAktiv()){vlcRateLetzte=s; vlcBefehl('rate',{wert:s});}}
 let wgZiel=null;
 function wgGlobalDialog(){wiedergabeDialog({global:1},'Standard für alles ohne eigene Regel');}
 function wiedergabeDialog(ziel,name){
@@ -6769,7 +6789,13 @@ function renderPlayerMedia(){
   // fehlt das Video und es gibt nur die MP3, gehört die Audio-Ansicht
   // (Cover+Visualizer) her — statt schwarzem Video-Element (JB 14.07.).
   const istAudio=x.dateiart?x.dateiart==='audio':((x.kategorie==='MP3')||(!x.vcodec&&x.acodec));
-  if(plGeraet==='vlc'){                                // Gerät „VLC": Motor auf dem PC statt <audio>/<video>
+  // JB 05.08.: „warum öffnet sich ein neues Fenster mit VLC?" — im BROWSER
+  // kann VLC sein Bild nicht einbetten (kein Fenster-Handle über Webseiten).
+  // Darum spielt ein VIDEO ohne Hülle im Browser-Element (eingebettet, wie
+  // erwartet); Audio bleibt am Gerät VLC (braucht kein Fenster). In der
+  // PROGRAMM-HÜLLE rendert VLC eingebettet ins eigene Fenster (set_hwnd).
+  const vlcHier=plGeraet==='vlc'&&(istAudio||!!window.pywebview);
+  if(vlcHier){                                         // Gerät „VLC": Motor auf dem PC statt <audio>/<video>
     xfAbbrechen();                                     // Crossfade gehört dem Browser-Element
     renderPlayerVlc(media,x,k);
   }else if(istAudio){
@@ -6824,7 +6850,7 @@ function renderPlayerMedia(){
 }
 function plQueueKlick(i){
   if(i===playerState.idx){                             // schon aktiv -> Pause/Play statt Neustart
-    if(plGeraet==='vlc'){vlcBefehl('toggle'); return;}
+    if(vlcAktiv()){vlcBefehl('toggle'); return;}
     const el=document.getElementById('pl-el'); if(el){if(el.paused)el.play(); else el.pause();}
     return;
   }
@@ -7919,7 +7945,7 @@ function toastHTML(html,dauer){
 }
 function _vol(d){plbVol(Math.max(0,Math.min(100,(plVol||0)+d)));}
 function _rate(d){
-  if(plGeraet==='vlc'){                                // Tempo-Hotkeys auch am Gerät VLC
+  if(vlcAktiv()){                                     // Tempo-Hotkeys auch am Gerät VLC
     const r=Math.max(0.25,Math.min(4,Math.round(((vlcRateLetzte||1)+d)*100)/100));
     vlcRateLetzte=r; vlcBefehl('rate',{wert:r}); toast('⏩ Tempo '+r+'×'); return;}
   const el=document.getElementById('pl-el'); if(!el)return;
@@ -7946,6 +7972,12 @@ const HK_NAMEN={playpause:'Play / Pause',rueck10:'10 s zurück',vor10:'10 s vor'
 let HK={};
 (function(){let g={}; try{g=JSON.parse(localStorage.getItem('ytdl_hotkeys')||'{}')||{};}catch(e){}
   for(const a in HK_DEF)HK[a]=(Array.isArray(g[a])&&g[a].length)?g[a].slice():HK_DEF[a].slice();})();
+// „Player zuletzt angefasst?" — steuert die Standard-Leertaste (JB 05.08.).
+let playerAktiv=false;
+document.addEventListener('pointerdown',e=>{
+  playerAktiv=!!(e.target&&e.target.closest&&
+    e.target.closest('#pl-card,#view-plq,#cmd-now,.pl-media,.pl-bar'));
+},true);
 function hkSpeichern(){try{localStorage.setItem('ytdl_hotkeys',JSON.stringify(HK));}catch(e){}}
 function hkCode(e){return (e.shiftKey?'Shift+':'')+e.code;}
 function hkAktionFuer(code){for(const a in HK){if((HK[a]||[]).includes(code))return a;} return '';}
@@ -8022,7 +8054,7 @@ document.addEventListener('keydown',e=>{
   if(_hkFang)return;                                   // der Fang-Dialog hört gerade selbst zu
   // Tabellen-Dispatcher (Hotkey-Editor): HK bestimmt, welche Taste was tut.
   const HK_TUN={
-    playpause:()=>{if(el||plGeraet==='vlc')playPause();},
+    playpause:()=>{if(el||vlcAktiv())playPause();},
     rueck10:()=>springen(-10), vor10:()=>springen(10),
     sprungvor:()=>springen(sprungWeite()), sprungzurueck:()=>springen(-sprungWeite()),
     lauter:()=>_vol(5), leiser:()=>_vol(-5),
@@ -8036,7 +8068,15 @@ document.addEventListener('keydown',e=>{
     langsamer:()=>{if(el)_rate(-0.25);}, schneller:()=>{if(el)_rate(0.25);},
     subfrueher:()=>subOffsetSchieben(-0.5), subspaeter:()=>subOffsetSchieben(0.5)
   };
-  const tu=HK_TUN[hkAktionFuer(hkCode(e))];
+  const akt=hkAktionFuer(hkCode(e));
+  // JB 05.08.: „Hotkeys sollten nur funktionieren wenn ich im Fenster bin,
+  // oder selber eine Taste zugewiesen habe." Die STANDARD-Belegung von
+  // Play/Pause (Space/K) gilt nur, wenn der Player zuletzt angefasst wurde
+  // oder Vollbild läuft — eine im Hotkey-Editor SELBST gesetzte Taste gilt
+  // bewusst überall.
+  if(akt==='playpause'&&!document.fullscreenElement&&!playerAktiv
+     &&JSON.stringify(HK.playpause)===JSON.stringify(HK_DEF.playpause))return;
+  const tu=HK_TUN[akt];
   if(tu){e.preventDefault(); tu(); return;}
   switch(e.code){                                      // fest: Medientasten der Tastatur
     case 'MediaPlayPause': e.preventDefault(); playPause(); break;
