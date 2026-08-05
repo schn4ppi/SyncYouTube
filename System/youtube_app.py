@@ -1665,9 +1665,13 @@ def autotag_lauf(keys=None):
         # heilt sich der Rückstand bei jedem späteren Lauf von selbst).
         alle = list(keys) if keys else [k for k, e in list(_geladen.items())
                                         if _ist_musik(e) and not e.get("album")]
+        # NUR MP3s: _cover_in_datei bettet bewusst nur in MP3s ein (Videos =
+        # GB-Remux) — ohne den Filter holte der Zweig bei JEDEM Lauf ~26
+        # Video-Cover vom CAA und warf sie weg (live gemessen 05.08.).
         nur_cover = [] if keys else [k for k, e in list(_geladen.items())
                                      if e.get("album") and not e.get("cover_album")
                                      and (e.get("mb_release") or e.get("mb_rg"))
+                                     and (_pfad_zu_key(k) or "").lower().endswith(".mp3")
                                      and k not in alle]
         _autotag["gesamt"] = len(alle) + len(nur_cover)
         for k in nur_cover:
@@ -1678,7 +1682,8 @@ def autotag_lauf(keys=None):
             bild = _cover_holen(e.get("mb_release", ""), e.get("mb_rg", ""))
             if bild:
                 _cover_in_datei(k, e, bild)
-                _autotag["getaggt"] += 1
+                if e.get("cover_album"):             # ehrlich: nur EINGEBETTETE zählen
+                    _autotag["getaggt"] += 1
             time.sleep(2)                            # CAA-Takt (Serien-Drossel)
         for k in alle:
             e = _geladen.get(k)
@@ -1715,9 +1720,12 @@ def autotag_lauf(keys=None):
             _autotag["getaggt"] += 1
             _tags_in_datei(k, e)
             # Etappe A: echtes Album-Cover einbetten (ersetzt das YouTube-
-            # Thumbnail in der Datei). Nur einmal je Titel; kein Cover im
-            # Archiv (404) ist kein Fehler — dann bleibt das Thumbnail.
-            if (fund.get("release_id") or fund.get("rg_id")) and not e.get("cover_album"):
+            # Thumbnail in der Datei). Nur einmal je Titel und NUR für MP3s
+            # (_cover_in_datei lässt Videos bewusst aus — der Abruf wäre
+            # weggeworfene CAA-Last); kein Cover im Archiv (404) ist kein
+            # Fehler — dann bleibt das Thumbnail.
+            if ((fund.get("release_id") or fund.get("rg_id")) and not e.get("cover_album")
+                    and (_pfad_zu_key(k) or "").lower().endswith(".mp3")):
                 bild = _cover_holen(fund.get("release_id", ""), fund.get("rg_id", ""))
                 if bild:
                     _cover_in_datei(k, e, bild)

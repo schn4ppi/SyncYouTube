@@ -3164,7 +3164,14 @@ def test_cover_nachzug_ohne_neue_mb_suche(monkeypatch):
     monkeypatch.setattr(app, "_geladen", {
         "a|mp3": {"titel": "A", "album": "X", "mb_release": "rel-1",
                   "kuenstler": "K", "pfad": ""},
-        "b|mp3": {"titel": "B", "pfad": ""}})
+        "b|mp3": {"titel": "B", "pfad": ""},
+        # Video mit Album+Id: _cover_in_datei bettet nur in MP3s ein - der
+        # Zweig darf fuer Videos gar nicht erst beim CAA anfragen.
+        "c|beste": {"titel": "C", "album": "Y", "mb_release": "rel-video",
+                    "pfad": ""}})
+    monkeypatch.setattr(app, "_pfad_zu_key",
+                        lambda k: {"a|mp3": "a.mp3", "b|mp3": "b.mp3",
+                                   "c|beste": "c.mp4"}.get(k, ""))
     monkeypatch.setattr(app, "_ist_musik", lambda e: True)
     monkeypatch.setattr(app, "_autotag", {"laeuft": False, "gesamt": 0,
                                           "erledigt": 0, "getaggt": 0})
@@ -3182,9 +3189,13 @@ def test_cover_nachzug_ohne_neue_mb_suche(monkeypatch):
     app.autotag_lauf()
     assert eingebettet == ["a|mp3"], "Cover-Nachzug hat nicht eingebettet"
     assert ("cover", "rel-1") in aufrufe
+    assert ("cover", "rel-video") not in aufrufe, \
+        "Fuer Videos darf der Zweig kein CAA-Bild holen (wird eh verworfen)"
     assert ("mb", "A") not in aufrufe, "Nachzug darf KEINE neue MB-Suche machen"
     assert ("mb", "B") in aufrufe, "Musik ohne Album braucht weiter die volle Suche"
     assert app._geladen["a|mp3"]["album"] == "X", "Tags muessen unangetastet bleiben"
+    assert app._autotag["getaggt"] == 1, \
+        "getaggt zaehlt nur EINGEBETTETE Cover (nicht bloss geholte Bilder)"
     # Und der Voll-Lauf speichert die Ids, von denen der Nachzug lebt:
     import inspect
     q = inspect.getsource(app.autotag_lauf)
