@@ -1304,6 +1304,62 @@ def _mb_norm_titel(t):
     return " ".join(t.replace(" ", " ").split())
 
 
+def _itunes_suche(kuenstler, titel, timeout=10):
+    """Zweite Quelle (JB 05.08., „links und rechts schauen"): die iTunes
+    Search API — offen, ohne Schlüssel, mit Alben, Jahr, Genre und großem
+    Cover. Nur als RÜCKFALL, wenn MusicBrainz nichts oder kein Album liefert;
+    übernommen wird nur ein Treffer, dessen Titel UND Künstler normalisiert
+    zum Kandidaten passen (JB-Leitsatz: nur Belegtes)."""
+    import urllib.parse
+    import urllib.request
+    if not titel:
+        return None
+    q = urllib.parse.urlencode({"term": f"{kuenstler} {titel}".strip(),
+                                "media": "music", "entity": "song", "limit": "5"})
+    try:
+        req = urllib.request.Request("https://itunes.apple.com/search?" + q,
+                                     headers={"User-Agent": MB_UA})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception:                                # noqa: BLE001 — Netz: kein Fund
+        return None
+    for t in data.get("results", []) or []:
+        tn, ka = _mb_norm_titel(t.get("trackName")), _mb_norm_titel(titel)
+        # exakt ODER Präfix (iTunes hängt Untertitel an: „Running Up That
+        # Hill (A Deal with God)") — Präfix nur bei aussagekräftiger Länge.
+        if tn != ka and not (len(ka) >= 8 and tn.startswith(ka)):
+            continue
+        if kuenstler and _mb_norm_titel(t.get("artistName")) != _mb_norm_titel(kuenstler):
+            continue
+        cover = (t.get("artworkUrl100") or "").replace("100x100", "600x600")
+        return {"kuenstler": t.get("artistName") or kuenstler,
+                "titel": t.get("trackName") or titel,
+                "album": t.get("collectionName") or "",
+                "jahr": (t.get("releaseDate") or "")[:4],
+                "genre": t.get("primaryGenreName") or "",
+                "release_id": "", "rg_id": "", "cover_url": cover}
+    return None
+
+
+def _bild_laden(url, timeout=15):
+    """Ein Bild von einer URL (iTunes-Artwork) — gleiche Plausibilität wie
+    beim Cover Art Archive, ein kurzer Retry."""
+    if not url:
+        return None
+    import urllib.request
+    for versuch in (1, 2):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": MB_UA})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                daten = r.read()
+            if 2000 < len(daten) < 10 * 1024 * 1024:
+                return daten
+            return None
+        except Exception:                            # noqa: BLE001
+            time.sleep(3)
+    return None
+
+
 def _ist_live_titel(t):
     """Sagt der QUELL-Titel selbst, dass es eine Live-Aufnahme ist? (JB 05.08.,
     Nirvana-Fall: „Live On MTV Unplugged" — dann ist das offizielle LIVE-Album
@@ -1758,7 +1814,8 @@ def autotag_lauf(keys=None):
         # landet als Sidecar; cover_album=True stoppt Wiederholungen.
         nur_cover = [] if keys else [k for k, e in list(_geladen.items())
                                      if e.get("album") and not e.get("cover_album")
-                                     and (e.get("mb_release") or e.get("mb_rg"))
+                                     and (e.get("mb_release") or e.get("mb_rg")
+                                          or e.get("cover_url"))
                                      and k not in alle]
         _autotag["gesamt"] = len(alle) + len(nur_cover)
         for k in nur_cover:
@@ -1767,6 +1824,8 @@ def autotag_lauf(keys=None):
             if not e or e.get("cover_album"):
                 continue
             bild = _cover_holen(e.get("mb_release", ""), e.get("mb_rg", ""))
+            if not bild:
+                bild = _bild_laden(e.get("cover_url") or "")
             if bild:
                 _cover_in_datei(k, e, bild)
                 if e.get("cover_album"):             # ehrlich: nur EINGEBETTETE zählen
@@ -1789,6 +1848,19 @@ def autotag_lauf(keys=None):
                     # sie darf beim blanken Zweitversuch nicht verloren gehen.
                     fund = _mb_suche(ku, blank, live_hinweis=_ist_live_titel(ti))
                     time.sleep(1.5)
+            # iTunes-Rückfall (JB 05.08., „viele Lieder ohne richtige Cover/
+            # Titel"): MusicBrainz fand nichts oder kein Album — die offene
+            # iTunes-Suche ergänzt NUR leere Felder (nichts überschreiben).
+            if not fund or not fund.get("album"):
+                it = _itunes_suche(ku, _titel_blank(ti))
+                if it:
+                    if not fund:
+                        fund = it
+                    else:
+                        for feld in ("album", "jahr", "genre"):
+                            if not fund.get(feld) and it.get(feld):
+                                fund[feld] = it[feld]
+                        fund["cover_url"] = it.get("cover_url", "")
             if not fund:
                 continue
             with _io_lock:
@@ -1805,14 +1877,20 @@ def autotag_lauf(keys=None):
                     e["mb_release"] = fund["release_id"]
                 if fund.get("rg_id"):
                     e["mb_rg"] = fund["rg_id"]
+                if fund.get("cover_url"):             # iTunes-Artwork für den Nachzug
+                    e["cover_url"] = fund["cover_url"]
                 _json_speichern(GELADEN_PFAD, _geladen)
             _autotag["getaggt"] += 1
             _tags_in_datei(k, e)
             # Etappe A: echtes Album-Cover (MP3: eingebettet, Video: Sidecar —
-            # JB 05.08.: Dateiart ist kein Ausschluss). Nur einmal je Titel;
-            # kein Cover im Archiv (404) ist kein Fehler — Thumbnail bleibt.
-            if (fund.get("release_id") or fund.get("rg_id")) and not e.get("cover_album"):
-                bild = _cover_holen(fund.get("release_id", ""), fund.get("rg_id", ""))
+            # JB 05.08.: Dateiart ist kein Ausschluss). Kette: Cover Art
+            # Archive, dann iTunes-Artwork; kein Bild ist kein Fehler.
+            if not e.get("cover_album"):
+                bild = None
+                if fund.get("release_id") or fund.get("rg_id"):
+                    bild = _cover_holen(fund.get("release_id", ""), fund.get("rg_id", ""))
+                if not bild:
+                    bild = _bild_laden(fund.get("cover_url") or e.get("cover_url") or "")
                 if bild:
                     _cover_in_datei(k, e, bild)
     finally:

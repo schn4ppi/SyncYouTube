@@ -3451,3 +3451,37 @@ def test_untertitel_versatz(monkeypatch):
     i = quelle.index("function wiedergabeAnwenden")
     assert "subOffset=w.sub_offset" in quelle[i:_funktionsende(quelle, i)], \
         "Gemerkter Versatz wird beim Titelstart nicht angewendet"
+
+
+def test_itunes_rueckfall(monkeypatch):
+    # JB 05.08. ("links und rechts"): iTunes Search als ZWEITE Quelle - offen,
+    # ohne Schluessel; nur als Rueckfall und nur bei Titel+Kuenstler-Treffer
+    # (exakt oder aussagekraeftiges Praefix). Der Lauf ergaenzt NUR leere
+    # Felder und nutzt das Artwork, wenn das Cover Art Archive nichts hat.
+    import io, json, urllib.request
+    antwort = {"results": [
+        {"trackName": "Running Up That Hill (A Deal with God)",
+         "artistName": "Kate Bush", "collectionName": "Hounds of Love",
+         "releaseDate": "1985-09-16", "primaryGenreName": "Rock",
+         "artworkUrl100": "https://x/100x100bb.jpg"},
+        {"trackName": "Ganz anderes Lied", "artistName": "Kate Bush",
+         "collectionName": "Falsch", "releaseDate": "2000-01-01"}]}
+
+    class FakeResp:
+        def read(self): return json.dumps(antwort).encode("utf-8")
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=10: FakeResp())
+
+    f = app._itunes_suche("Kate Bush", "Running Up That Hill")
+    assert f and f["album"] == "Hounds of Love" and f["jahr"] == "1985"
+    assert f["genre"] == "Rock" and "600x600" in f["cover_url"], \
+        "Artwork muss auf 600x600 vergroessert werden"
+    assert app._itunes_suche("Kate Bush", "Voellig anderes Stueck") is None, \
+        "Ohne Titel-Treffer darf nichts uebernommen werden (nur Belegtes)"
+    # Verkabelung im Lauf (Quelle als Waechter):
+    import inspect
+    q = inspect.getsource(app.autotag_lauf)
+    assert "_itunes_suche" in q and "_bild_laden" in q, \
+        "iTunes-Rueckfall haengt nicht im Auto-Tagging"
+    assert 'e.get("cover_url")' in q, "Artwork-URL wird nicht fuer den Nachzug gespeichert"
