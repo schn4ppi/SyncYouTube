@@ -3855,7 +3855,39 @@ def test_tv_bibliothek():
     assert "stopPropagation" in block, "TV-Tasten muessen die globalen Hotkeys verdraengen"
     i = quelle.index("function tvWahl")
     block = quelle[i:_funktionsende(quelle, i)]
-    assert "filmePlay(" in block and "playerPlay([" in block
+    # Seit dem Feinschliff: Film-Kachel oeffnet die Info-Seite (dort spielt
+    # der ▶-Knopf); Titel spielen weiter sofort.
+    assert "tvInfo(e.id)" in block and "playerPlay([" in block
     assert "/api/filme/reihen" in quelle[quelle.index("function tvLaden"):]
     assert "scrollIntoView" in quelle[quelle.index("function tvFokusMalen"):], \
         "Fokus muss in die Sicht rollen (10-Fuss-Regel)"
+
+
+def test_tv_hero_und_more_info():
+    # JB-Go: "weiter mit dem tv feinschliff, hero und more-info seite."
+    quelle = _oberflaeche_html()
+    # Hero: Billboard auf Home, Backdrop mit Primary-Rueckfall, Play + Info.
+    assert 'id="tv-hero"' in quelle and "function tvHeroMalen" in quelle
+    i = quelle.index("function tvHeroMalen")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "art=Backdrop" in block and "data-hero=" in block
+    assert "filmePlay(" in block and "tvInfo(" in block
+    # More-Info: Detail + "Mehr wie das" (neue Route), Cast/Technik, Zurueck.
+    assert 'id="tv-info"' in quelle and "function tvInfo" in quelle
+    i = quelle.index("async function tvInfo")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for teil in ("/api/filme/detail", "/api/filme/mehrwie", "Besetzung:",
+                 "Technik:", "Mehr wie das", "tvInfoZu()"):
+        assert teil in block, f"Info-Baustein {teil} fehlt"
+    # Netflix-Muster: Enter auf Film-Kachel oeffnet die Info-Seite.
+    i = quelle.index("function tvWahl")
+    assert "tvInfo(e.id)" in quelle[i:_funktionsende(quelle, i)]
+    # Fernbedienung: Info-Ebene faengt die Tasten ab, Esc geht nur eine
+    # Ebene zurueck; Hero ist eigene Fokus-Ebene zwischen Kopf und Reihen.
+    i = quelle.index("function tvKey")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "tvInfoOffen" in block and "tvInfoZu()" in block
+    assert "tvHeroDa()" in block, "Hero-Ebene fehlt im D-Pad"
+    # Server: mehrwie-Route verkabelt.
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert "/api/filme/mehrwie" in src

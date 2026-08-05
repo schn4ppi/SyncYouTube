@@ -171,6 +171,32 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv .tv-leer{color:#8a7d74;font-size:18px;padding:30px 4px}
 #tv-suche{font-size:26px;padding:12px 20px;border-radius:12px;border:2px solid #3a322b;
   background:#171310;color:#fff;width:min(600px,80%);margin:10px 0}
+/* Hero-Billboard (Netflix-Muster, JB-Go „hero und more-info seite") */
+#tv-hero{position:relative;border-radius:16px;overflow:hidden;min-height:340px;
+  display:flex;align-items:flex-end;margin:4px 0 10px;background:#171310}
+#tv-hero .hero-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.55}
+#tv-hero .hero-text{position:relative;padding:28px;max-width:62%;
+  background:linear-gradient(90deg,rgba(12,10,9,.85),transparent)}
+#tv-hero .hero-titel{font-size:42px;font-weight:800;line-height:1.1;margin-bottom:8px}
+#tv-hero .hero-meta{font-size:18px;color:#d8cec4;margin-bottom:10px}
+#tv-hero .hero-besch{font-size:17px;color:#cfc5ba;max-height:4.6em;overflow:hidden}
+#tv-hero .hero-btns{display:flex;gap:12px;margin-top:16px}
+.tv-btn{font-size:22px;padding:10px 26px;border-radius:10px;cursor:pointer;
+  border:3px solid transparent;background:#f2ece5;color:#171310;font-weight:700}
+.tv-btn.zart{background:rgba(255,255,255,.16);color:#fff}
+.tv-btn.tv-fokus{border-color:#e8b04b}
+/* More-Info-Seite: Overlay ÜBER der TV-Ebene, gleiche Fernbedienungs-Regeln */
+#tv-info{position:fixed;inset:0;z-index:950;display:none;flex-direction:column;
+  background:rgba(12,10,9,.97);color:#f2ece5;overflow:hidden}
+#tv-info .info-kopf{position:relative;flex:0 0 42%;min-height:260px;overflow:hidden}
+#tv-info .info-kopf img{width:100%;height:100%;object-fit:cover;opacity:.6}
+#tv-info .info-titel{position:absolute;left:36px;bottom:18px;font-size:44px;
+  font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.8)}
+#tv-info .info-body{flex:1;overflow-y:auto;padding:18px 36px 40px;font-size:19px}
+#tv-info .info-meta{font-size:19px;color:#d8cec4;margin-bottom:10px}
+#tv-info .info-besch{max-width:900px;color:#e6ddd2;margin-bottom:12px}
+#tv-info .info-neben{font-size:16px;color:#a99d92;margin:4px 0}
+#tv-info .info-btns{display:flex;gap:12px;margin:14px 0 6px}
 /* ❤ Lieblingssongs (JB 05.08.): Herz-Badge auf der Kachel + rote Toggles */
 .herzbadge{position:absolute;top:6px;left:6px;color:#e5484d;font-size:15px;
   text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
@@ -6691,6 +6717,7 @@ function tvOeffnen(){
 }
 function tvZu(){
   const tv=document.getElementById('tv'); if(!tv)return;
+  if(typeof tvInfoZu==='function')tvInfoZu();          // Info-Seite räumt mit ab
   tv.style.display='none';
   document.removeEventListener('keydown',tvKey,true);
   if(document.fullscreenElement===tv)document.exitFullscreen().catch(()=>{});
@@ -6755,21 +6782,28 @@ function tvMalen(){
   tvReihenListe=tvReihenFuer().filter(([,items])=>items.length);
   const suche=tvTab==='suche'
     ?`<input id="tv-suche" placeholder="Titel suchen…" oninput="tvMalen()" autocomplete="off">`:'';
+  const hero=(tvTab==='home')?'<div id="tv-hero"></div>':'';
   if(!tvReihenListe.length){
-    inhalt.innerHTML=suche+(tvTab==='suche'?'':'<div class="tv-leer">Hier ist noch nichts — '+
+    inhalt.innerHTML=hero+suche+(tvTab==='suche'?'':'<div class="tv-leer">Hier ist noch nichts — '+
       (tvTab==='herz'?'markiere Songs mit dem ♡-Herz.':'der Film-Katalog füllt sich über 🎬 Filme → ⟳ Abgleichen.')+'</div>');
   }else{
-    inhalt.innerHTML=suche+tvReihenListe.map(([name,items],r)=>
+    inhalt.innerHTML=hero+suche+tvReihenListe.map(([name,items],r)=>
       `<div class="tv-reihe"><div class="tv-rtitel">${esc(name)}</div><div class="tv-band">`+
       items.map((e,i)=>`<div class="tv-kachel${e.quer?' quer':''}" data-r="${r}" data-i="${i}" onclick="tvWahl(${r},${i})">`+
         (e.bild?`<img loading="lazy" src="${e.bild}" onerror="this.style.visibility='hidden'">`:'<img>')+
         `<div class="tv-ktitel">${esc(e.name)}</div></div>`).join('')+`</div></div>`).join('');
   }
   const s=document.getElementById('tv-suche'); if(s&&tvTab==='suche'){const v=s.value; s.focus(); s.value=''; s.value=v;}
+  if(tvTab==='home')tvHeroMalen();                     // Billboard lädt asynchron nach
   tvFokusMalen();
 }
 function tvFokusMalen(){
   document.querySelectorAll('#tv .tv-fokus').forEach(x=>x.classList.remove('tv-fokus'));
+  if(tvFokus.r===-2){                                  // Hero-Billboard-Knöpfe
+    const b=document.querySelector(`#tv-hero [data-hero="${Math.max(0,Math.min(1,tvFokus.i))}"]`);
+    if(b){b.classList.add('tv-fokus'); b.scrollIntoView({block:'nearest',inline:'nearest'});}
+    return;
+  }
   if(tvFokus.r<0){                                     // Kopfleiste
     const tabs=document.querySelectorAll('#tv-kopf .tvtab');
     const b=tabs[Math.max(0,Math.min(tabs.length-1,tvFokus.i))];
@@ -6779,24 +6813,130 @@ function tvFokusMalen(){
   const k=document.querySelector(`#tv .tv-kachel[data-r="${tvFokus.r}"][data-i="${tvFokus.i}"]`);
   if(k){k.classList.add('tv-fokus'); k.scrollIntoView({block:'nearest',inline:'nearest'});}
 }
+function tvHeroDa(){return !!document.querySelector('#tv-hero [data-hero]');}
 function tvWahl(r,i){
   const e=(tvReihenListe[r]||[])[1]&&tvReihenListe[r][1][i]; if(!e)return;
-  if(e.art==='film'){filmePlay(e.id);}
+  if(e.art==='film'){tvInfo(e.id);}                    // Netflix-Muster: erst die Info-Seite
   else{tvZu(); playerPlay([e.id]);}
+}
+/* ---- Hero-Billboard + More-Info (JB-Go: „weiter mit dem tv feinschliff,
+   hero und more-info seite") ---------------------------------------------- */
+let tvHeroId='', tvInfoOffen=false, tvInfoFokus={r:0,i:0}, tvInfoMehr=[], tvInfoId='';
+function tvMetaZeile(d){
+  const teile=[];
+  if(d.jahr)teile.push(d.jahr);
+  if(d.fsk)teile.push(esc(d.fsk));
+  if(d.laufzeit_min)teile.push(d.laufzeit_min+' min');
+  if(d.rating)teile.push('★ '+(+d.rating).toFixed(1));
+  if(d.imdb_rating)teile.push('IMDb '+esc(d.imdb_rating));
+  if(d.metacritic)teile.push('MC '+esc(d.metacritic));
+  if(d.tomatometer)teile.push('🍅 '+esc(d.tomatometer));
+  return teile.join('  ·  ');
+}
+async function tvHeroMalen(){
+  const box=document.getElementById('tv-hero'); if(!box)return;
+  const f=tvFilmReihen||{};
+  const kand=(f.weiterschauen&&f.weiterschauen[0])||(f.top&&f.top[0])||(f.neu&&f.neu[0]);
+  if(!kand){box.style.display='none'; return;}
+  tvHeroId=kand.id;
+  let d=kand;
+  try{d=await (await fetch('/api/filme/detail?id='+encodeURIComponent(kand.id))).json();}catch(e){}
+  if(!document.getElementById('tv-hero'))return;       // Tab inzwischen gewechselt
+  box.innerHTML=
+    `<img class="hero-bg" src="/api/filme/bild?id=${encodeURIComponent(kand.id)}&art=Backdrop" `+
+      `onerror="this.onerror=null;this.src='/api/filme/bild?id=${encodeURIComponent(kand.id)}'">`+
+    `<div class="hero-text"><div class="hero-titel">${esc(d.titel||'')}</div>`+
+    `<div class="hero-meta">${tvMetaZeile(d)}</div>`+
+    `<div class="hero-besch">${esc(d.beschreibung||'')}</div>`+
+    `<div class="hero-btns">`+
+      `<button class="tv-btn" data-hero="0" onclick="filmePlay('${esc(kand.id)}')">▶ Abspielen</button>`+
+      `<button class="tv-btn zart" data-hero="1" onclick="tvInfo('${esc(kand.id)}')">ℹ Mehr Infos</button>`+
+    `</div></div>`;
+}
+async function tvInfo(id){
+  tvInfoId=id; tvInfoOffen=true; tvInfoFokus={r:0,i:0};
+  const el=document.getElementById('tv-info');
+  el.style.display='flex';
+  el.innerHTML='<div class="info-body" style="font-size:24px;padding:60px">Lade…</div>';
+  let d=null, mw=[];
+  try{d=await (await fetch('/api/filme/detail?id='+encodeURIComponent(id))).json();}catch(e){}
+  try{mw=((await (await fetch('/api/filme/mehrwie?id='+encodeURIComponent(id))).json())||{}).items||[];}catch(e){}
+  if(!tvInfoOffen||tvInfoId!==id)return;               // inzwischen geschlossen/weiter
+  if(!d||d.fehler){el.innerHTML='<div class="info-body" style="padding:60px">Film nicht gefunden. (Esc = zurück)</div>'; return;}
+  tvInfoMehr=mw;
+  el.innerHTML=
+    `<div class="info-kopf"><img src="/api/filme/bild?id=${encodeURIComponent(id)}&art=Backdrop" `+
+      `onerror="this.onerror=null;this.src='/api/filme/bild?id=${encodeURIComponent(id)}'">`+
+      `<div class="info-titel">${esc(d.titel||'')}</div></div>`+
+    `<div class="info-body">`+
+      `<div class="info-meta">${tvMetaZeile(d)}</div>`+
+      `<div class="info-btns">`+
+        `<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}')">▶ Abspielen</button>`+
+        `<button class="tv-btn zart" data-info="1" onclick="tvInfoZu()">✕ Zurück</button>`+
+      `</div>`+
+      `<div class="info-besch">${esc(d.beschreibung||'')}</div>`+
+      (d.cast&&d.cast.length?`<div class="info-neben">Besetzung: ${esc(d.cast.slice(0,8).join(', '))}</div>`:'')+
+      ((d.video_codec||d.audio_codec)?`<div class="info-neben">Technik: ${esc([d.video_codec,d.audio_codec].filter(Boolean).join(' / '))}</div>`:'')+
+      (mw.length?`<div class="tv-rtitel" style="margin-top:16px">Mehr wie das</div><div class="tv-band">`+
+        mw.slice(0,15).map((e,i)=>`<div class="tv-kachel" data-mw="${i}" onclick="tvInfo('${esc(e.id)}')">`+
+          `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
+          `<div class="tv-ktitel">${esc(e.titel)}</div></div>`).join('')+`</div>`:'')+
+    `</div>`;
+  tvInfoFokusMalen();
+}
+function tvInfoZu(){
+  tvInfoOffen=false;
+  const el=document.getElementById('tv-info'); if(el){el.style.display='none'; el.innerHTML='';}
+}
+function tvInfoFokusMalen(){
+  document.querySelectorAll('#tv-info .tv-fokus').forEach(x=>x.classList.remove('tv-fokus'));
+  const ziel=tvInfoFokus.r===0
+    ?document.querySelector(`#tv-info [data-info="${tvInfoFokus.i}"]`)
+    :document.querySelector(`#tv-info [data-mw="${tvInfoFokus.i}"]`);
+  if(ziel){ziel.classList.add('tv-fokus'); ziel.scrollIntoView({block:'nearest',inline:'nearest'});}
 }
 function tvKey(ev){
   const tv=document.getElementById('tv');
   if(!tv||tv.style.display==='none')return;
+  // Info-Seite offen? Dann navigiert die Fernbedienung DORT (eigene Ebene).
+  if(tvInfoOffen){
+    let getan=true;
+    const mwZahl=Math.min(15,(tvInfoMehr||[]).length);
+    if(ev.key==='Escape'||ev.key==='Backspace')tvInfoZu();
+    else if(ev.key==='ArrowLeft')tvInfoFokus.i=Math.max(0,tvInfoFokus.i-1);
+    else if(ev.key==='ArrowRight')tvInfoFokus.i=Math.min((tvInfoFokus.r===0?1:mwZahl-1),tvInfoFokus.i+1);
+    else if(ev.key==='ArrowDown'){ if(tvInfoFokus.r===0&&mwZahl){tvInfoFokus={r:1,i:0};} }
+    else if(ev.key==='ArrowUp'){ if(tvInfoFokus.r===1){tvInfoFokus={r:0,i:0};} }
+    else if(ev.key==='Enter'){
+      if(tvInfoFokus.r===0){ if(tvInfoFokus.i===0)filmePlay(tvInfoId); else tvInfoZu(); }
+      else{const e=(tvInfoMehr||[])[tvInfoFokus.i]; if(e)tvInfo(e.id);}
+    }
+    else getan=false;
+    if(getan){ev.preventDefault(); ev.stopPropagation(); if(tvInfoOffen)tvInfoFokusMalen();}
+    return;
+  }
   if(ev.target&&ev.target.id==='tv-suche'&&!['Escape','ArrowDown','ArrowUp'].includes(ev.key))return;
   const tabs=TV_TABS.length;
   const reihe=()=> (tvReihenListe[tvFokus.r]||[[],[]])[1]||[];
   let getan=true;
   if(ev.key==='Escape'||ev.key==='Backspace'){ if(tvFokus.r>=0&&ev.key==='Backspace'){tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};} else tvZu(); }
-  else if(ev.key==='ArrowLeft'){ if(tvFokus.r<0)tvFokus.i=Math.max(0,tvFokus.i-1); else tvFokus.i=Math.max(0,tvFokus.i-1); }
-  else if(ev.key==='ArrowRight'){ if(tvFokus.r<0)tvFokus.i=Math.min(tabs-1,tvFokus.i+1); else tvFokus.i=Math.min(reihe().length-1,tvFokus.i+1); }
-  else if(ev.key==='ArrowUp'){ if(tvFokus.r===0){tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};} else if(tvFokus.r>0){tvFokus.r--; tvFokus.i=Math.min(tvFokus.i,Math.max(0,(tvReihenListe[tvFokus.r][1]||[]).length-1));} }
-  else if(ev.key==='ArrowDown'){ if(tvFokus.r<0){tvFokus={r:0,i:0};} else if(tvFokus.r<tvReihenListe.length-1){tvFokus.r++; tvFokus.i=Math.min(tvFokus.i,Math.max(0,(tvReihenListe[tvFokus.r][1]||[]).length-1));} }
-  else if(ev.key==='Enter'){ if(tvFokus.r<0){tvTabWahl(TV_TABS[Math.max(0,tvFokus.i)][0]); tvFokus={r:-1,i:tvFokus.i};} else tvWahl(tvFokus.r,tvFokus.i); }
+  else if(ev.key==='ArrowLeft'){ if(tvFokus.r===-2)tvFokus.i=Math.max(0,tvFokus.i-1); else tvFokus.i=Math.max(0,tvFokus.i-1); }
+  else if(ev.key==='ArrowRight'){ if(tvFokus.r===-2)tvFokus.i=Math.min(1,tvFokus.i+1); else if(tvFokus.r<0)tvFokus.i=Math.min(tabs-1,tvFokus.i+1); else tvFokus.i=Math.min(reihe().length-1,tvFokus.i+1); }
+  else if(ev.key==='ArrowUp'){
+    if(tvFokus.r===0){tvFokus=tvHeroDa()?{r:-2,i:0}:{r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};}
+    else if(tvFokus.r===-2){tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};}
+    else if(tvFokus.r>0){tvFokus.r--; tvFokus.i=Math.min(tvFokus.i,Math.max(0,(tvReihenListe[tvFokus.r][1]||[]).length-1));}
+  }
+  else if(ev.key==='ArrowDown'){
+    if(tvFokus.r===-1){tvFokus=tvHeroDa()?{r:-2,i:0}:{r:0,i:0};}
+    else if(tvFokus.r===-2){tvFokus={r:0,i:0};}
+    else if(tvFokus.r<tvReihenListe.length-1){tvFokus.r++; tvFokus.i=Math.min(tvFokus.i,Math.max(0,(tvReihenListe[tvFokus.r][1]||[]).length-1));}
+  }
+  else if(ev.key==='Enter'){
+    if(tvFokus.r===-2){const b=document.querySelector(`#tv-hero [data-hero="${tvFokus.i}"]`); if(b)b.click();}
+    else if(tvFokus.r<0){tvTabWahl(TV_TABS[Math.max(0,tvFokus.i)][0]); tvFokus={r:-1,i:tvFokus.i};}
+    else tvWahl(tvFokus.r,tvFokus.i);
+  }
   else getan=false;
   if(getan){ev.preventDefault(); ev.stopPropagation(); tvFokusMalen();}
 }
@@ -8525,6 +8665,7 @@ setInterval(laden,1000);
         <div id="tv-kopf"></div>
         <div id="tv-inhalt"></div>
       </div>
+      <div id="tv-info"></div>
 
 </body>
 </html>

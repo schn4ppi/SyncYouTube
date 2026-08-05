@@ -5192,6 +5192,9 @@ class Handler(BaseHTTPRequestHandler):
                 _antwort(self, 200, d)
             else:
                 _antwort(self, 404, {"fehler": "unbekannter Film"})
+        elif self.path.startswith("/api/filme/mehrwie"):   # TMDB-Empfehlungen ∩ Katalog
+            fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            _antwort(self, 200, {"items": filme.mehr_wie(fid)})
         elif self.path.startswith("/api/filme/bild"):
             q = parse_qs(urlparse(self.path).query)
             bild = filme.bild_holen((q.get("id") or [""])[0],

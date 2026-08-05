@@ -296,11 +296,15 @@ def detail(item_id):
                                 f"&apikey={keys['omdb']}")
                 if st == 200:
                     d = json.loads(roh)
-                    m["imdb_rating"] = d.get("imdbRating") or ""
-                    m["metacritic"] = d.get("Metascore") or ""
-                    m["tomatometer"] = next(
+                    # OMDb schreibt fehlende Werte wörtlich als "N/A" — das
+                    # gehört nicht in die Anzeige (live gesehen: „MC N/A").
+                    def _wert(v):
+                        return "" if (v or "").strip().upper() == "N/A" else (v or "")
+                    m["imdb_rating"] = _wert(d.get("imdbRating"))
+                    m["metacritic"] = _wert(d.get("Metascore"))
+                    m["tomatometer"] = _wert(next(
                         (r.get("Value") for r in d.get("Ratings") or []
-                         if "Rotten" in (r.get("Source") or "")), "") or ""
+                         if "Rotten" in (r.get("Source") or "")), ""))
                     cache["omdb_zaehler"] = (cache.get("omdb_zaehler") or 0) + 1
             except Exception:              # noqa: BLE001 — Zahl fehlt dann eben
                 pass
