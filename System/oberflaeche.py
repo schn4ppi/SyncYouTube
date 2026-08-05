@@ -1687,6 +1687,37 @@ LK.skaliere=function(rects,rx,ry,minW,minH){
   });
 };
 
+/* Reflow nach dem Klemmen (JB-Bild 05.08.2026): skaliere() klemmt Masse auf
+   Minima, skaliert die Positionen aber weiter — bei stark verkleinertem
+   Viewport rutschen geklemmte Fenster unter ihre Nachbarn (live: breites
+   Basis-Layout, Fenster ~530px schmal). Der Reflow behaelt die
+   LESE-REIHENFOLGE (y, dann x) und schiebt jedes kollidierende Fenster auf
+   den naechsten freien Platz: erst rechts neben den Partner, passt es nicht
+   mehr in die Breite, in die naechste Zeile ("dynamisch anpassbar, die
+   Anordnung bleibt"). Rundungs-Beruehrungen (<=3px) gelten nicht als
+   Kollision, sonst zerlegte der Reflow gap-0-Layouts. Mutiert die Objekte;
+   die BASIS des Aufrufers bleibt unangetastet. */
+LK.entklemmen=function(rects,cw,gap){
+  gap=Math.max(0,gap||0);
+  var tol=3;
+  function stoert(a,b){
+    return a.x<b.x+b.w-tol&&a.x+a.w>b.x+tol&&a.y<b.y+b.h-tol&&a.y+a.h>b.y+tol;
+  }
+  var fertig=[];
+  rects.slice().sort(function(a,b){return (a.y-b.y)||(a.x-b.x);}).forEach(function(p){
+    var schutz=0;
+    while(schutz++<200){
+      var k=null;
+      for(var i=0;i<fertig.length;i++){ if(stoert(p,fertig[i])){k=fertig[i];break;} }
+      if(!k)break;
+      var nx=k.x+k.w+gap;
+      if(nx+p.w<=cw){ p.x=nx; }
+      else { p.x=0; p.y=k.y+k.h+gap; }
+    }
+    fertig.push(p);
+  });
+};
+
 /* Layout in einen Ziel-Viewport einpassen: Bezug = gemerkte Speichergroesse
    (ref) oder — bei Alt-Layouts ohne Bezug — die eigene Bounding-Box. Skaliert
    nur bei Abweichung > schwelle (Default 1%). Rueckgabe: true wenn skaliert. */
@@ -2203,6 +2234,10 @@ function layoutProjizieren(){
   }
   const b=L.basis, kopie=b.panels.map(g=>({id:g.id,x:g.x,y:g.y,w:g.w,h:g.h}));
   LK.skaliere(kopie, m.cw/b.vp.cw, m.ch/b.vp.ch, 220, 160);
+  // JB-Bild 05.08.: die Minima-Klemme schob geklemmte Fenster unter ihre
+  // Nachbarn (schmales Fenster + breite Basis). Der Reflow ordnet NUR die
+  // Projektion — die Basis (JBs gebaute Anordnung) bleibt unangetastet.
+  LK.entklemmen(kopie, m.cw, Math.max(0,fensterAbstand()));
   L.panels.forEach(p=>{const g=kopie.find(x=>x.id===p.id); if(g){p.x=g.x; p.y=g.y; p.w=g.w; p.h=g.h;}});
   L.vp=m;
 }
