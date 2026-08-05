@@ -3230,8 +3230,12 @@ def test_cover_nachzug_ohne_neue_mb_suche(monkeypatch):
                         lambda k, e, b: (eingebettet.append(k),
                                          e.__setitem__("cover_album", True)))
     monkeypatch.setattr(app, "_mb_suche",
-                        lambda ku, ti, timeout=10: aufrufe.append(("mb", ti)) or None)
+                        lambda ku, ti, timeout=10, live_hinweis=None:
+                        aufrufe.append(("mb", ti)) or None)
+    monkeypatch.setattr(app, "_itunes_suche",
+                        lambda ku, ti, timeout=10: aufrufe.append(("it", ti)) or None)
     monkeypatch.setattr(app, "_titel_blank", lambda t: t)
+    monkeypatch.setattr(app, "_titel_kern", lambda t: t)
     monkeypatch.setattr(app, "_tag_kandidat", lambda e: ("K", e.get("titel", "")))
     monkeypatch.setattr(app, "_json_speichern", lambda p, d: None)
     monkeypatch.setattr(app.time, "sleep", lambda s: None)
@@ -3485,3 +3489,20 @@ def test_itunes_rueckfall(monkeypatch):
     assert "_itunes_suche" in q and "_bild_laden" in q, \
         "iTunes-Rueckfall haengt nicht im Auto-Tagging"
     assert 'e.get("cover_url")' in q, "Artwork-URL wird nicht fuer den Nachzug gespeichert"
+
+
+def test_titel_kern_und_kandidaten_heilung():
+    # Drei Relauf-Fallen vom 05.08. (live gemessen): (1) der Live-Hinweis muss
+    # vom ORIGINAL-Dateititel kommen (der Kandidat ist nach dem ersten Taggen
+    # schon abgestreift); (2) Anhaengsel wie '- Official Music Video' sind
+    # keine Klammern und liessen die Suche leerlaufen; (3) 'Titel - Kuenstler'
+    # vertauscht - der strenge iTunes-Abgleich macht den Tausch-Versuch sicher.
+    assert app._titel_kern("Running Up That Hill - Official Music Video") == "Running Up That Hill"
+    assert app._titel_kern("Africa (Official HD Video)") == "Africa"
+    assert app._titel_kern("Golden Brown") == "Golden Brown", "echte Titel bleiben ganz"
+    assert app._titel_kern("House Of The Rising Sun (Music Video) [4K HD]") == "House Of The Rising Sun"
+    import inspect
+    q = inspect.getsource(app.autotag_lauf)
+    assert '_ist_live_titel(e.get("titel")' in q, \
+        "Live-Hinweis muss vom ORIGINAL-Titel kommen (Relauf-Falle)"
+    assert q.count("_itunes_suche") >= 2, "Der vertauschte Zweitversuch fehlt"

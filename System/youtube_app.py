@@ -1262,6 +1262,24 @@ def _titel_blank(t):
     return ohne or roh
 
 
+_ANHAENGSEL = re.compile(
+    r"\s*[-–—|]\s*(official([ \w]*)?|music video|lyric(s| video)?|audio|video|"
+    r"hd|4k( hd)?|remaster(ed)?( \d{4})?|visuali[sz]er)\s*$", re.IGNORECASE)
+
+
+def _titel_kern(t):
+    """Klammer-Zusätze UND bekannte Bindestrich-Anhängsel abstreifen (JB-Fund
+    05.08.: „Running Up That Hill - Official Music Video" fand nichts, weil
+    das Anhängsel keine Klammer ist). Mehrfach, bis nichts mehr passt."""
+    t = _titel_blank(t)
+    for _ in range(3):
+        neu = _ANHAENGSEL.sub("", t).strip(" -–—|,")
+        if neu == t or not neu:
+            break
+        t = neu
+    return t
+
+
 def _mb_get(url, timeout=10):
     """GET mit MusicBrainz-Pflicht-User-Agent; bei Drossel (503) EIN Retry nach Pause."""
     import urllib.request
@@ -1837,22 +1855,33 @@ def autotag_lauf(keys=None):
             if not e:
                 continue
             ku, ti = _tag_kandidat(e)
-            fund = _mb_suche(ku, ti)
+            # Live-Hinweis IMMER aus dem ORIGINAL-Dateititel (Relauf-Falle,
+            # live gemessen: der Kandidat kommt aus den schon getaggten
+            # Feldern — „(Live On MTV Unplugged)" war da längst abgestreift,
+            # und die Live-Regel kam nie zum Zug).
+            live = _ist_live_titel(e.get("titel") or "") or _ist_live_titel(ti)
+            fund = _mb_suche(ku, ti, live_hinweis=live)
             time.sleep(1.5)                          # MusicBrainz-Regel: max 1 Anfrage/Sekunde (+Puffer)
             if not fund:
                 # Build 136: zweiter Versuch ohne Klammer-Zusätze — die sind
                 # der häufigste Grund, warum ein Titel nicht gefunden wird.
-                blank = _titel_blank(ti)
+                blank = _titel_kern(ti)
                 if blank != ti:
-                    # Der Klammer-Zusatz trägt oft die Live-Info („(Live)") —
-                    # sie darf beim blanken Zweitversuch nicht verloren gehen.
-                    fund = _mb_suche(ku, blank, live_hinweis=_ist_live_titel(ti))
+                    fund = _mb_suche(ku, blank, live_hinweis=live)
                     time.sleep(1.5)
             # iTunes-Rückfall (JB 05.08., „viele Lieder ohne richtige Cover/
             # Titel"): MusicBrainz fand nichts oder kein Album — die offene
             # iTunes-Suche ergänzt NUR leere Felder (nichts überschreiben).
             if not fund or not fund.get("album"):
-                it = _itunes_suche(ku, _titel_blank(ti))
+                it = _itunes_suche(ku, _titel_kern(ti))
+                if not it:
+                    # Vertauschte Reihenfolge probieren („Mr. Sandman - The
+                    # Chordettes": der Kandidat riet Künstler und Titel
+                    # falsch herum). Der strenge Titel+Künstler-Abgleich
+                    # macht das SICHER — nur die richtige Reihenfolge trifft.
+                    it = _itunes_suche(_titel_kern(ti), ku)
+                    if it:                            # Fund in Wahrheit vertauscht
+                        ku, ti = _titel_kern(ti), ku
                 if it:
                     if not fund:
                         fund = it
