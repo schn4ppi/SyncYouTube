@@ -171,34 +171,70 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv .tv-leer{color:#8a7d74;font-size:18px;padding:30px 4px}
 #tv-suche{font-size:26px;padding:12px 20px;border-radius:12px;border:2px solid #3a322b;
   background:#171310;color:#fff;width:min(600px,80%);margin:10px 0}
-/* Hero-Billboard (Netflix-Muster, JB-Go „hero und more-info seite") */
-#tv-hero{position:relative;border-radius:16px;overflow:hidden;min-height:340px;
-  display:flex;align-items:flex-end;margin:4px 0 10px;background:#171310}
-#tv-hero .hero-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.55}
-#tv-hero .hero-text{position:relative;padding:28px;max-width:62%;
-  background:linear-gradient(90deg,rgba(12,10,9,.85),transparent)}
-#tv-hero .hero-titel{font-size:42px;font-weight:800;line-height:1.1;margin-bottom:8px}
-#tv-hero .hero-meta{font-size:18px;color:#d8cec4;margin-bottom:10px}
-#tv-hero .hero-besch{font-size:17px;color:#cfc5ba;max-height:4.6em;overflow:hidden}
-#tv-hero .hero-btns{display:flex;gap:12px;margin-top:16px}
+/* Hero-Billboard (JB 05.08. mit Netflix-Referenzbildern: „der headline film
+   ist zu sehr gequetscht") — hoch, randlos, Titel riesig, Bild läuft frei
+   nach rechts; Text bleibt lesbar über einem Links- + Unten-Verlauf. */
+#tv-hero{position:relative;min-height:56vh;margin:0 -28px 8px;overflow:hidden;
+  display:flex;align-items:flex-end;background:#0c0a09}
+#tv-hero .hero-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#tv-hero::after{content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(12,10,9,.96) 6%,rgba(12,10,9,.55) 40%,transparent 68%),
+             linear-gradient(0deg,#0c0a09 0,transparent 24%)}
+#tv-hero .hero-text{position:relative;z-index:1;max-width:46%;padding:0 28px 5vh 28px}
+#tv-hero .hero-titel{font-size:clamp(40px,4.6vw,74px);font-weight:900;line-height:1.05;
+  margin-bottom:14px;text-shadow:0 2px 14px rgba(0,0,0,.65)}
+#tv-hero .hero-meta{font-size:18px;color:#d8cec4;margin-bottom:12px}
+#tv-hero .hero-besch{font-size:18px;color:#e6ddd2;max-width:640px;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+#tv-hero .hero-btns{display:flex;gap:12px;margin-top:18px}
 .tv-btn{font-size:22px;padding:10px 26px;border-radius:10px;cursor:pointer;
   border:3px solid transparent;background:#f2ece5;color:#171310;font-weight:700}
 .tv-btn.zart{background:rgba(255,255,255,.16);color:#fff}
 .tv-btn.akt{background:rgba(232,176,75,.35)}          /* gewählte Staffel */
 .tv-btn.tv-fokus{border-color:#e8b04b}
+/* TV-Profil-Dialog (eigener statt prompt(), JB: „bau den") */
+#tv-dialog{position:fixed;inset:0;z-index:980;display:none;align-items:center;
+  justify-content:center;background:rgba(8,6,5,.82);color:#f2ece5}
+#tv-dialog .dlg{background:#141110;border-radius:14px;padding:32px 38px;
+  width:min(560px,92vw);text-align:center;box-shadow:0 14px 70px rgba(0,0,0,.85)}
+#tv-dialog input{font-size:26px;padding:12px 20px;border-radius:12px;
+  border:2px solid #3a322b;background:#171310;color:#fff;width:80%;text-align:center}
+#tv-dialog input:focus{border-color:#e8b04b;outline:none}
+#tv-dialog .emojis{display:flex;gap:10px;justify-content:center;margin:20px 0;flex-wrap:wrap}
+#tv-dialog .emo{font-size:38px;padding:6px 12px;border-radius:12px;
+  border:3px solid transparent;background:#221c17;cursor:pointer}
+#tv-dialog .emo.akt{background:rgba(232,176,75,.35)}
+#tv-dialog .emo.tv-fokus{border-color:#e8b04b}
 /* „Wer schaut?" (Teilprojekt 3): große Profil-Kacheln in der Mitte */
 #tv .tv-profil{width:150px;text-align:center}
 #tv .tv-pemoji{font-size:84px;line-height:1.4;background:#221c17;border-radius:14px;padding:14px 0}
-/* More-Info-Seite: Overlay ÜBER der TV-Ebene, gleiche Fernbedienungs-Regeln */
-#tv-info{position:fixed;inset:0;z-index:950;display:none;flex-direction:column;
-  background:rgba(12,10,9,.97);color:#f2ece5;overflow:hidden}
-#tv-info .info-kopf{position:relative;flex:0 0 42%;min-height:260px;overflow:hidden}
-#tv-info .info-kopf img{width:100%;height:100%;object-fit:cover;opacity:.6}
-#tv-info .info-titel{position:absolute;left:36px;bottom:18px;font-size:44px;
-  font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.8)}
-#tv-info .info-body{flex:1;overflow-y:auto;padding:18px 36px 40px;font-size:19px}
-#tv-info .info-meta{font-size:19px;color:#d8cec4;margin-bottom:10px}
-#tv-info .info-besch{max-width:900px;color:#e6ddd2;margin-bottom:12px}
+/* More-Info als ZENTRIERTES Modal (JB mit Netflix-Bildern: „es sollte etwas
+   zentrierter sein, so wie bei netflix eben") — Karte über abgedunkeltem
+   Hintergrund, X oben rechts, Kopfbild mit Titel + Balken + Knopfzeile. */
+#tv-info{position:fixed;inset:0;z-index:950;display:none;align-items:flex-start;
+  justify-content:center;background:rgba(8,6,5,.74);color:#f2ece5;
+  overflow-y:auto;padding:4vh 0}
+#tv-info .info-karte{width:min(940px,94vw);margin:auto;background:#141110;
+  border-radius:14px;overflow:hidden;box-shadow:0 14px 70px rgba(0,0,0,.85)}
+#tv-info .info-kopf{position:relative;aspect-ratio:16/8;min-height:240px;overflow:hidden}
+#tv-info .info-kopf img{width:100%;height:100%;object-fit:cover}
+#tv-info .info-kopf::after{content:'';position:absolute;inset:0;
+  background:linear-gradient(0deg,#141110 3%,transparent 48%)}
+#tv-info .info-x{position:absolute;top:14px;right:14px;z-index:2;width:44px;height:44px;
+  border-radius:50%;background:rgba(12,10,9,.75);color:#fff;border:3px solid transparent;
+  font-size:20px;cursor:pointer}
+#tv-info .info-x.tv-fokus{border-color:#e8b04b}
+#tv-info .info-titel{position:absolute;left:34px;bottom:88px;right:120px;z-index:1;
+  font-size:clamp(30px,3.4vw,48px);font-weight:900;line-height:1.05;
+  text-shadow:0 2px 12px rgba(0,0,0,.8)}
+#tv-info .info-kopfzeile{position:absolute;left:34px;right:34px;bottom:20px;z-index:1}
+#tv-info .info-body{padding:20px 34px 34px;font-size:18px}
+#tv-info .info-spalten{display:grid;grid-template-columns:1.7fr 1fr;gap:8px 30px;margin-bottom:6px}
+#tv-info .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+#tv-info .info-grid .tv-kachel{width:auto}
+#tv-info .info-grid .tv-kachel img{height:auto;aspect-ratio:16/9}
+#tv-info .info-meta{font-size:18px;color:#d8cec4;margin-bottom:10px}
+#tv-info .info-besch{color:#e6ddd2;margin-bottom:12px}
 #tv-info .info-neben{font-size:16px;color:#a99d92;margin:4px 0}
 #tv-info .info-btns{display:flex;gap:12px;margin:14px 0 6px;flex-wrap:wrap}
 #tv-info .info-badge{border:1px solid #8a7d74;border-radius:4px;padding:1px 8px;
@@ -6876,15 +6912,56 @@ function tvProfilSetzen(id){
   tvProfilModus=false; tvTab='home'; tvFokus={r:0,i:0};
   tvFilmReihen=null; tvLaden();
 }
-async function tvProfilNeu(){
-  const name=prompt('Name des Profils?'); if(!name)return;
-  const emoji=prompt('Ein Emoji fürs Profil? (z. B. 🦁)','🙂')||'🙂';
+/* Eigener TV-Dialog fürs Profil-Anlegen (JB: „bau den") — der native
+   prompt() warf den Browser aus dem Vollbild. Name + Emoji-Reihe, komplett
+   per Fernbedienung bedienbar (Ebenen: Feld → Emojis → Knöpfe). */
+let tvDialogOffen=false, tvDlgFokus={r:0,i:0}, tvDlgEmoji='🦊';
+const TV_EMOJIS=['🦊','🦁','🐼','🐸','🦄','🐯','🐙','🤖'];
+function tvProfilNeu(){
+  tvDialogOffen=true; tvDlgEmoji='🦊'; tvDlgFokus={r:0,i:0};
+  let el=document.getElementById('tv-dialog');
+  if(!el){el=document.createElement('div'); el.id='tv-dialog';}
+  (document.fullscreenElement||document.body).appendChild(el);   // Fullscreen-Regel
+  el.style.display='flex';
+  el.innerHTML=`<div class="dlg"><div class="tv-rtitel" style="margin-top:0">Neues Profil</div>`+
+    `<input id="tv-dlg-name" placeholder="Name" maxlength="24" autocomplete="off">`+
+    `<div class="emojis">${TV_EMOJIS.map((e,i)=>
+      `<button class="emo${e===tvDlgEmoji?' akt':''}" data-emo="${i}" onclick="tvDlgEmojiWahl(${i})">${e}</button>`).join('')}</div>`+
+    `<div class="info-btns" style="justify-content:center">`+
+      `<button class="tv-btn" data-dlg="0" onclick="tvDlgAnlegen()">✓ Anlegen</button>`+
+      `<button class="tv-btn zart" data-dlg="1" onclick="tvDialogZu()">✕ Abbrechen</button>`+
+    `</div></div>`;
+  const inp=document.getElementById('tv-dlg-name'); if(inp)inp.focus();
+}
+function tvDialogZu(){
+  tvDialogOffen=false;
+  const el=document.getElementById('tv-dialog'); if(el){el.style.display='none'; el.innerHTML='';}
+}
+function tvDlgEmojiWahl(i){
+  tvDlgEmoji=TV_EMOJIS[i]||'🦊';
+  document.querySelectorAll('#tv-dialog .emo').forEach((b,j)=>b.classList.toggle('akt',j===i));
+}
+async function tvDlgAnlegen(){
+  const inp=document.getElementById('tv-dlg-name');
+  const name=(inp&&inp.value.trim())||'';
+  if(!name){toast('👤 Bitte erst einen Namen eingeben.'); if(inp)inp.focus(); return;}
   try{
     const p=await (await fetch('/api/profil_anlegen',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name,emoji})})).json();
-    if(p&&p.id){await tvProfileLaden(); tvProfilSetzen(p.id); return;}
+      body:JSON.stringify({name, emoji:tvDlgEmoji})})).json();
+    if(p&&p.id){tvDialogZu(); await tvProfileLaden(); tvProfilSetzen(p.id); return;}
   }catch(e){}
   toast('👤 Profil anlegen fehlgeschlagen.');
+}
+function tvDlgFokusMalen(){
+  document.querySelectorAll('#tv-dialog .tv-fokus').forEach(x=>x.classList.remove('tv-fokus'));
+  if(tvDlgFokus.r===0){const i2=document.getElementById('tv-dlg-name'); if(i2)i2.focus(); return;}
+  const zeile=tvDlgFokus.r===1
+    ?document.querySelectorAll('#tv-dialog .emo')
+    :document.querySelectorAll('#tv-dialog [data-dlg]');
+  const z=zeile[Math.max(0,Math.min(zeile.length-1,tvDlgFokus.i))];
+  if(!z)return;
+  if(document.activeElement&&document.activeElement.id==='tv-dlg-name')document.activeElement.blur();
+  z.classList.add('tv-fokus'); z.scrollIntoView({block:'nearest'});
 }
 function tvTabWahl(id){tvTab=id; tvFokus={r:0,i:0};
   if(id==='herz'&&tvWuensche===null)tvWuenscheLaden().then(tvMalen);  // Wünsche einmalig ziehen
@@ -7127,7 +7204,7 @@ function tvInfoMalen(){
   const folgen=eps.filter(e=>e.staffel===tvInfoStaffel);
   const dauerS=(d.laufzeit_min||0)*60;
   const prozent=(d.position_s>0&&dauerS)?Math.min(99,Math.round(d.position_s/dauerS*100)):0;
-  const rest=dauerS?Math.max(1,Math.round((dauerS-d.position_s)/60)):0;
+  const posMin=Math.round((d.position_s||0)/60);
   const q=tvQualitaet(d.hoehe), ton=tvTon(d), subs=(d.sub_sprachen||[]).join(', ');
   const badges=[d.jahr||'', d.fsk?`<span class="info-badge">${esc(d.fsk)}</span>`:'',
     d.laufzeit_min?d.laufzeit_min+' min':'', q?`<span class="info-badge">${q}</span>`:'',
@@ -7136,40 +7213,46 @@ function tvInfoMalen(){
   const knoepfe=(d.typ==='serie'
     ?`<button class="tv-btn" data-info="0" onclick="tvSerienPlay()">▶ Weiterschauen</button>`
     :(d.position_s>30
-      ?`<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}',${d.position_s})">▶ Weiterschauen ab ${zeit(d.position_s)}</button>`+
+      ?`<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}',${d.position_s})">▶ Weiterschauen</button>`+
        `<button class="tv-btn zart" data-info="1" onclick="filmePlay('${esc(id)}',0)">↻ Von vorne</button>`
       :`<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}')">▶ Abspielen</button>`))+
-    `<button class="tv-btn zart" data-info="2" onclick="tvMerk('${esc(id)}')">${d.gemerkt?'✓ Gemerkt':'＋ Meine Liste'}</button>`+
-    `<button class="tv-btn zart" data-info="3" onclick="tvInfoZu()">✕ Zurück</button>`;
+    `<button class="tv-btn zart" data-info="2" onclick="tvMerk('${esc(id)}')">${d.gemerkt?'✓ Gemerkt':'＋ Meine Liste'}</button>`;
   const dieserFilm=d.tagline||((d.genres||[]).slice(0,3).join(' · '));
-  el.innerHTML=
-    `<div class="info-kopf"><img src="/api/filme/bild?id=${encodeURIComponent(id)}&art=Backdrop" `+
-      `onerror="this.onerror=null;this.src='/api/filme/bild?id=${encodeURIComponent(id)}'">`+
-      `<div class="info-titel">${esc(d.titel||'')}</div></div>`+
+  const querBild=(eid)=>`<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(eid)}&art=Backdrop" `+
+    `onerror="this.onerror=null;this.src='/api/filme/bild?id=${encodeURIComponent(eid)}'">`;
+  el.innerHTML=`<div class="info-karte">`+
+    `<div class="info-kopf">${querBild(id)}`+
+      `<button class="info-x" data-info="9" onclick="tvInfoZu()" title="Schließen (Esc)">✕</button>`+
+      `<div class="info-titel">${esc(d.titel||'')}</div>`+
+      `<div class="info-kopfzeile">`+
+        (prozent?`<div class="info-progresswrap"><div class="info-progress"><div style="width:${prozent}%"></div></div>`+
+          `<span class="info-rest">${posMin} von ${d.laufzeit_min} min</span></div>`:'')+
+        `<div class="info-btns">${knoepfe}</div>`+
+      `</div></div>`+
     `<div class="info-body">`+
-      `<div class="info-meta">${badges}</div>`+
-      (prozent?`<div class="info-progresswrap"><div class="info-progress"><div style="width:${prozent}%"></div></div>`+
-        `<span class="info-rest">Noch ${rest} min</span></div>`:'')+
-      `<div class="info-btns">${knoepfe}</div>`+
-      (d.tagline?`<div class="info-tagline">„${esc(d.tagline)}“</div>`:'')+
-      `<div class="info-besch">${esc(d.beschreibung||'')}</div>`+
-      (d.cast&&d.cast.length?`<div class="info-neben"><b>Besetzung:</b> ${esc(d.cast.slice(0,6).join(', '))}</div>`:'')+
-      (d.genres&&d.genres.length?`<div class="info-neben"><b>Genres:</b> ${esc(d.genres.join(', '))}</div>`:'')+
-      (ton?`<div class="info-neben"><b>Ton:</b> ${esc(ton)}</div>`:'')+
-      (subs?`<div class="info-neben"><b>Untertitel:</b> ${esc(subs)}</div>`:'')+
+      `<div class="info-spalten"><div>`+
+        `<div class="info-meta">${badges}</div>`+
+        (d.tagline?`<div class="info-tagline">„${esc(d.tagline)}“</div>`:'')+
+        `<div class="info-besch">${esc(d.beschreibung||'')}</div>`+
+      `</div><div>`+
+        (d.cast&&d.cast.length?`<div class="info-neben"><b>Besetzung:</b> ${esc(d.cast.slice(0,5).join(', '))}</div>`:'')+
+        (d.genres&&d.genres.length?`<div class="info-neben"><b>Genres:</b> ${esc(d.genres.join(', '))}</div>`:'')+
+        (dieserFilm?`<div class="info-neben"><b>${d.typ==='serie'?'Diese Serie ist':'Dieser Film ist'}:</b> ${esc(dieserFilm)}</div>`:'')+
+        (ton?`<div class="info-neben"><b>Ton:</b> ${esc(ton)}</div>`:'')+
+        (subs?`<div class="info-neben"><b>Untertitel:</b> ${esc(subs)}</div>`:'')+
+      `</div></div>`+
       (staffeln.length?`<div class="tv-rtitel" style="margin-top:14px">Staffeln</div><div class="tv-band">`+
         staffeln.map(n=>`<button class="tv-btn zart${n===tvInfoStaffel?' akt':''}" data-st="${n}" onclick="tvStaffel(${n})">Staffel ${n||'?'}</button>`).join('')+`</div>`+
         `<div class="tv-band">`+folgen.map((e,i)=>
           `<div class="tv-kachel quer" data-ep="${i}" onclick="filmePlay('${esc(e.id)}',${e.position_s>30&&!e.gesehen?e.position_s:0})" title="${esc(e.titel)}">`+
           `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
           `<div class="tv-ktitel">${e.gesehen?'✓ ':''}F${e.folge} · ${esc(e.titel)}${e.position_s>0&&!e.gesehen?' ⏸':''}</div></div>`).join('')+`</div>`:'')+
-      (mw.length?`<div class="tv-rtitel" style="margin-top:16px">Mehr wie das</div><div class="tv-band">`+
-        mw.slice(0,15).map((e,i)=>`<div class="tv-kachel" data-mw="${i}" onclick="tvInfo('${esc(e.id)}')">`+
-          `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
-          `<div class="tv-ktitel">${esc(e.titel)}</div></div>`).join('')+`</div>`:'')+
-      (d.trailer&&d.trailer.length?`<div class="tv-rtitel" style="margin-top:16px">Trailer & mehr</div><div class="tv-band">`+
-        d.trailer.map((t,i)=>`<div class="tv-kachel quer" data-trl="${i}" onclick="window.open('https://www.youtube.com/watch?v=${esc(t.key)}','_blank')" title="${esc(t.name)}">`+
-          `<img loading="lazy" src="https://i.ytimg.com/vi/${esc(t.key)}/mqdefault.jpg" onerror="this.style.visibility='hidden'">`+
+      (mw.length?`<div class="tv-rtitel" style="margin-top:16px">Mehr wie das</div><div class="info-grid">`+
+        mw.slice(0,9).map((e,i)=>`<div class="tv-kachel" data-mw="${i}" onclick="tvInfo('${esc(e.id)}')">`+
+          querBild(e.id)+`<div class="tv-ktitel">${esc(e.titel)}</div></div>`).join('')+`</div>`:'')+
+      (d.trailer&&d.trailer.length?`<div class="tv-rtitel" style="margin-top:16px">Trailer & mehr</div><div class="info-grid">`+
+        d.trailer.map((t,i)=>`<div class="tv-kachel" data-trl="${i}" onclick="window.open('https://www.youtube.com/watch?v=${esc(t.key)}','_blank')" title="${esc(t.name)}">`+
+          `<img loading="lazy" src="https://i.ytimg.com/vi/${esc(t.key)}/mqdefault.jpg" style="aspect-ratio:16/9;height:auto" onerror="this.style.visibility='hidden'">`+
           `<div class="tv-ktitel">▶ ${esc(t.name)}</div></div>`).join('')+`</div>`:'')+
       `<div class="info-ueber"><div class="tv-rtitel">Über ${esc(d.titel||'')}</div>`+
         ((d.regie||[]).length?`<div class="info-neben"><b>Regie:</b> ${esc(d.regie.join(', '))}</div>`:'')+
@@ -7179,7 +7262,7 @@ function tvInfoMalen(){
         (dieserFilm?`<div class="info-neben"><b>${d.typ==='serie'?'Diese Serie ist':'Dieser Film ist'}:</b> ${esc(dieserFilm)}</div>`:'')+
         (d.fsk?`<div class="info-neben"><b>Altersfreigabe:</b> <span class="info-badge">${esc(d.fsk)}</span></div>`:'')+
       `</div>`+
-    `</div>`;
+    `</div></div>`;
   tvInfoFokusMalen();
 }
 function tvInfoZu(){
@@ -7192,7 +7275,9 @@ function tvInfoEbenen(){
   // Generische Fokus-Zeilen der Info-Seite: Knöpfe → Staffeln → Folgen →
   // Mehr-wie. Leere Zeilen fallen raus — die Navigation bleibt lückenlos.
   return [
-    [...document.querySelectorAll('#tv-info [data-info]')],
+    // Sortiert nach data-info: der ✕ (9) steht im DOM zuerst (Kopf), soll
+    // aber der LETZTE Fokus der Knopf-Zeile sein — Start ist ▶.
+    [...document.querySelectorAll('#tv-info [data-info]')].sort((a,b)=>(+a.dataset.info)-(+b.dataset.info)),
     [...document.querySelectorAll('#tv-info [data-st]')],
     [...document.querySelectorAll('#tv-info [data-ep]')],
     [...document.querySelectorAll('#tv-info [data-mw]')],
@@ -7211,7 +7296,27 @@ function tvInfoFokusMalen(){
 function tvKey(ev){
   const tv=document.getElementById('tv');
   const tvOffen=tv&&tv.style.display!=='none';
-  if(!tvOffen&&!tvInfoOffen)return;                    // Info läuft auch ohne TV
+  if(!tvOffen&&!tvInfoOffen&&!tvDialogOffen)return;    // Info/Dialog auch ohne TV
+  // Profil-Dialog: eigene Ebenen (Feld → Emojis → Knöpfe), Tippen bleibt frei.
+  if(tvDialogOffen){
+    let getan=true;
+    const imFeld=ev.target&&ev.target.id==='tv-dlg-name';
+    if(ev.key==='Escape')tvDialogZu();
+    else if(imFeld&&ev.key==='Enter')tvDlgAnlegen();
+    else if(imFeld&&ev.key!=='ArrowDown'){getan=false;}          // tippen lassen
+    else if(ev.key==='ArrowDown'){tvDlgFokus={r:Math.min(2,(imFeld?0:tvDlgFokus.r)+1),i:0}; tvDlgFokusMalen();}
+    else if(ev.key==='ArrowUp'){tvDlgFokus={r:Math.max(0,tvDlgFokus.r-1),i:0}; tvDlgFokusMalen();}
+    else if(ev.key==='ArrowLeft'){tvDlgFokus.i=Math.max(0,tvDlgFokus.i-1); tvDlgFokusMalen();}
+    else if(ev.key==='ArrowRight'){tvDlgFokus.i=tvDlgFokus.i+1; tvDlgFokusMalen();}
+    else if(ev.key==='Enter'){
+      const zeile=tvDlgFokus.r===1?document.querySelectorAll('#tv-dialog .emo')
+                                  :document.querySelectorAll('#tv-dialog [data-dlg]');
+      const z=zeile[Math.max(0,Math.min(zeile.length-1,tvDlgFokus.i))]; if(z)z.click();
+    }
+    else getan=false;
+    if(getan){ev.preventDefault(); ev.stopPropagation();}
+    return;
+  }
   // Info-Seite offen? Dann navigiert die Fernbedienung DORT (eigene Ebene).
   if(tvInfoOffen){
     let getan=true;

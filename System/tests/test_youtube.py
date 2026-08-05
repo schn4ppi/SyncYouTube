@@ -3972,11 +3972,13 @@ def test_netflix_detailseite():
     assert 'onclick="tvInfo(' in block and 'onclick="filmePlay(' not in block
     i = quelle.index("function tvInfoMalen")
     block = quelle[i:_funktionsende(quelle, i)]
-    for teil in ("info-progress", "Noch ${rest} min", "Weiterschauen ab",
+    for teil in ("info-progress", "von ${d.laufzeit_min} min", "▶ Weiterschauen",
                  "↻ Von vorne", "Meine Liste", "<b>Ton:</b>",
                  "<b>Untertitel:</b>", "Trailer & mehr", "Über ",
                  "<b>Regie:</b>", "<b>Drehbuch:</b>", "Altersfreigabe",
-                 "Dieser Film ist"):
+                 "Dieser Film ist",
+                 # Netflix-Modal (JB mit Referenzbildern, Build 186):
+                 "info-karte", "info-x", "info-spalten", "info-grid"):
         assert teil in block, f"Detailseiten-Baustein fehlt: {teil}"
     assert "tvQualitaet" in quelle and "function tvTon" in quelle
     # Vollbild + Esc: Filme starten im VLC-Vollbild (nur ohne Huelle),
@@ -4011,3 +4013,32 @@ def test_fullscreen_umhaengung():
     block = quelle[i:_funktionsende(quelle, i)]
     assert "document.fullscreenElement||document.body" in block, \
         "Toasts waeren im Fernsehmodus unsichtbar"
+
+
+def test_tv_profil_dialog_statt_prompt():
+    # JB 05.08.: "der eigene tv-dialog fuers profil anlegen, bau den" - der
+    # native prompt() warf den Browser aus dem Vollbild.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function tvProfilNeu")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "prompt(" not in block, "prompt() wirft den Browser aus dem Vollbild"
+    assert "tv-dialog" in block and "fullscreenElement" in block
+    assert "function tvDlgAnlegen" in quelle and "TV_EMOJIS" in quelle
+    i = quelle.index("function tvKey")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "tvDialogOffen" in block, "Dialog braucht die Fernbedienung"
+    assert "tv-dlg-name" in block, "im Namensfeld muss man tippen koennen"
+
+
+def test_hero_und_modal_layout():
+    # JB mit Netflix-Referenzbildern: Hero nicht gequetscht (hoch, randlos,
+    # Verlauf statt Text-Box), Detail als zentrierte Karte mit Dimmer.
+    quelle = _oberflaeche_html()
+    i = quelle.index("#tv-hero{")
+    block = quelle[i:i + 400]
+    assert "56vh" in block, "Hero muss hoch sein (Netflix-Muster)"
+    assert "margin:0 -28px" in block, "Hero muss randlos laufen"
+    i = quelle.index("#tv-info{")
+    block = quelle[i:i + 400]
+    assert "justify-content:center" in block, "Modal muss zentriert sein"
+    assert "rgba(8,6,5,.74)" in block, "Dimmer hinter der Karte fehlt"
