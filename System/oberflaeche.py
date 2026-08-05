@@ -192,6 +192,17 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 .tv-btn.zart{background:rgba(255,255,255,.16);color:#fff}
 .tv-btn.akt{background:rgba(232,176,75,.35)}          /* gewählte Staffel */
 .tv-btn.tv-fokus{border-color:#e8b04b}
+/* Film-Player-Screen (Build 187): die Fernbedienung zum VLC-Vollbild */
+#tv-player{position:fixed;inset:0;z-index:970;display:none;align-items:flex-end;
+  justify-content:center;background:#0c0a09;color:#f2ece5}
+#tv-player .tvp-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.28}
+#tv-player .tvp-mitte{position:relative;z-index:1;width:min(980px,94vw);padding:0 0 7vh;text-align:center}
+#tv-player .tvp-titel{font-size:34px;font-weight:800;margin-bottom:10px}
+#tv-player .tvp-hinweis{font-size:16px;color:#b9aea4;margin-bottom:22px;line-height:1.5}
+#tv-player .tvp-leiste{display:flex;align-items:center;gap:12px;justify-content:center}
+#tv-player .tvp-balkenwrap{flex:1;max-width:420px;padding:12px 0;cursor:pointer}
+#tv-player .tvp-balken{height:6px;background:#3a322b;border-radius:3px;overflow:hidden}
+#tv-player .tvp-balken div{height:100%;width:0;background:#e5484d}
 /* TV-Profil-Dialog (eigener statt prompt(), JB: „bau den") */
 #tv-dialog{position:fixed;inset:0;z-index:980;display:none;align-items:center;
   justify-content:center;background:rgba(8,6,5,.82);color:#f2ece5}
@@ -3689,13 +3700,85 @@ async function filmeLaden(){
   }catch(e){ziel.innerHTML='<div class="hinweis">Filme-Reihen nicht erreichbar.</div>';}
 }
 async function filmePlay(id,pos){
+  // Vollbild-Ordnung (JB: „nicht im Vordergrund"): erst das BROWSER-Vollbild
+  // verlassen — sonst kämpfen zwei Fullscreens und das VLC-Bild liegt hinten.
+  if(document.fullscreenElement){try{document.exitFullscreen();}catch(e){}}
   try{
     const r=await fetch('/api/filme/play',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id, vol:plVol, pos:pos||0})});
     const d=await r.json();
-    if(d.fehler)toast('🎬 '+d.fehler);
-    else toast('🎬 Film läuft im VLC (Vollbild) — Esc beendet ihn.');
+    if(d.fehler){toast('🎬 '+d.fehler); return;}
+    const titel=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.titel)||'';
+    tvFilmPlayer(id,titel);                            // die Fernbedienung (Build 187)
   }catch(e){toast('🎬 Abspielen fehlgeschlagen.');}
+}
+/* ---- Film-Player-Screen (Build 187) ---------------------------------------
+   JB: „der Player hat keine controls, kein play, kein exit …" — das
+   VLC-Vollbild ist ein NACKTES Renderfenster (libvlc hat keine UI). Dieses
+   Overlay ist die Fernbedienung dazu: eigener 1-s-Status-Takt, Play/Pause,
+   ±10 s, klickbarer Balken, Lautstärke, Beenden. Tasten: Leertaste/Enter =
+   Pause · ←/→ = ±10 s · ↑/↓ = Lautstärke · Esc = Beenden. */
+let tvpTimer=null, tvpPos=0, tvpDauer=0, tvpOffen=false, tvpLief=false, tvpTicks=0;
+function tvFilmPlayer(id,titel){
+  tvpOffen=true; tvpPos=0; tvpDauer=0; tvpLief=false; tvpTicks=0;
+  let el=document.getElementById('tv-player');
+  if(!el){el=document.createElement('div'); el.id='tv-player';}
+  (document.fullscreenElement||document.body).appendChild(el);
+  el.style.display='flex';
+  el.innerHTML=
+    `<img class="tvp-bg" src="/api/filme/bild?id=${encodeURIComponent(id)}&art=Backdrop" onerror="this.style.visibility='hidden'">`+
+    `<div class="tvp-mitte"><div class="tvp-titel">${esc(titel||'')}</div>`+
+    `<div class="tvp-hinweis">Der Film läuft im VLC-Vollbild — hier ist die Fernbedienung.<br>`+
+      `Leertaste = Pause · ← → = ±10 s · ↑ ↓ = Lautstärke · Esc = Beenden</div>`+
+    `<div class="tvp-leiste">`+
+      `<button class="tv-btn zart" id="tvp-pp" onclick="vlcBefehl('toggle');setTimeout(tvpTick,300)">⏸</button>`+
+      `<button class="tv-btn zart" onclick="tvpRel(-10)">⏪ 10</button>`+
+      `<div class="tvp-balkenwrap" onclick="tvpSeek(event)"><div class="tvp-balken"><div id="tvp-fuell"></div></div></div>`+
+      `<span id="tvp-zeit" class="info-rest">–</span>`+
+      `<button class="tv-btn zart" onclick="tvpRel(10)">10 ⏩</button>`+
+      `<button class="tv-btn" onclick="filmStopp()">⏹ Beenden</button>`+
+    `</div></div>`;
+  if(!tvpTimer)tvpTimer=setInterval(tvpTick,1000);
+  setTimeout(tvpTick,600);
+}
+function tvpZu(){
+  tvpOffen=false;
+  if(tvpTimer){clearInterval(tvpTimer); tvpTimer=null;}
+  const el=document.getElementById('tv-player'); if(el){el.style.display='none'; el.innerHTML='';}
+}
+async function tvpTick(){
+  if(!tvpOffen)return;
+  let s=null;
+  try{s=await vlcBefehl('status');}catch(e){return;}
+  if(!s)return;
+  if(s.zustand==='spielt')tvpLief=true;
+  tvpTicks++;
+  // Ende-Erkennung mit ANLAUF-GNADE (live gefunden: der erste Tick kam vor
+  // VLCs „spielt" und schloss die Fernbedienung sofort wieder): erst
+  // schließen, wenn der Film nachweislich lief oder der Start nie kam.
+  if((!(s.key||'').startsWith('film:')||s.zustand==='aus')&&(tvpLief||tvpTicks>8)){
+    tvpZu();
+    if(tvInfoOffen)tvInfoMalen();
+    return;
+  }
+  tvpPos=s.pos||tvpPos; tvpDauer=s.dauer||tvpDauer;
+  const pp=document.getElementById('tvp-pp'); if(pp)pp.textContent=(s.zustand==='spielt')?'⏸':'▶';
+  const f=document.getElementById('tvp-fuell');
+  if(f&&tvpDauer)f.style.width=Math.min(100,tvpPos/tvpDauer*100)+'%';
+  const z=document.getElementById('tvp-zeit'); if(z)z.textContent=zeit(tvpPos)+' / '+zeit(tvpDauer);
+}
+function tvpRel(s){
+  tvpPos=Math.max(0,Math.min(tvpDauer||1e9,tvpPos+s));
+  vlcBefehl('seek',{wert:tvpPos});
+  setTimeout(tvpTick,300);
+}
+function tvpSeek(ev){
+  const wrap=ev.currentTarget.querySelector('.tvp-balken');
+  const r=wrap.getBoundingClientRect();
+  if(!tvpDauer||!r.width)return;
+  tvpPos=Math.max(0,Math.min(tvpDauer,(ev.clientX-r.left)/r.width*tvpDauer));
+  vlcBefehl('seek',{wert:tvpPos});
+  setTimeout(tvpTick,300);
 }
 /* Film beenden (JB 05.08.: „auch beendet werden können mit escape") — meldet
    den Spot an Jellyfin UND lokal, damit „Weiterschauen ab …" SOFORT stimmt,
@@ -3712,6 +3795,13 @@ async function filmStopp(){
     if(Array.isArray(v))v.forEach(merk);
     else if(v&&typeof v==='object')Object.values(v).forEach(a=>Array.isArray(a)&&a.forEach(merk));});}
   if(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id){tvInfoDaten.d.position_s=pos; tvInfoMalen();}
+  if(typeof tvpZu==='function')tvpZu();               // Fernbedienung mit abräumen
+  // Zurück ins TV-Vollbild, wenn der Fernsehmodus offen ist (die Esc-Taste
+  // ist die nötige Nutzer-Geste).
+  const tv=document.getElementById('tv');
+  if(tv&&tv.style.display!=='none'&&!document.fullscreenElement){
+    try{tv.requestFullscreen&&tv.requestFullscreen().catch(()=>{});}catch(e){}
+  }
   toast('🎬 Film beendet — gemerkt bei '+zeit(pos)+'.');
 }
 document.addEventListener('keydown',ev=>{
@@ -7296,7 +7386,20 @@ function tvInfoFokusMalen(){
 function tvKey(ev){
   const tv=document.getElementById('tv');
   const tvOffen=tv&&tv.style.display!=='none';
-  if(!tvOffen&&!tvInfoOffen&&!tvDialogOffen)return;    // Info/Dialog auch ohne TV
+  if(!tvOffen&&!tvInfoOffen&&!tvDialogOffen&&!tvpOffen)return;  // Overlays auch ohne TV
+  // Film-Fernbedienung offen? Sie hat Vorrang vor allen Ebenen.
+  if(tvpOffen){
+    let getan=true;
+    if(ev.key==='Escape')filmStopp();
+    else if(ev.key===' '||ev.key==='Enter'){vlcBefehl('toggle'); setTimeout(tvpTick,300);}
+    else if(ev.key==='ArrowLeft')tvpRel(-10);
+    else if(ev.key==='ArrowRight')tvpRel(10);
+    else if(ev.key==='ArrowUp'){plbVol(Math.min(100,plVol+5)); vlcBefehl('vol',{wert:plVol});}
+    else if(ev.key==='ArrowDown'){plbVol(Math.max(0,plVol-5)); vlcBefehl('vol',{wert:plVol});}
+    else getan=false;
+    if(getan){ev.preventDefault(); ev.stopPropagation();}
+    return;
+  }
   // Profil-Dialog: eigene Ebenen (Feld → Emojis → Knöpfe), Tippen bleibt frei.
   if(tvDialogOffen){
     let getan=true;

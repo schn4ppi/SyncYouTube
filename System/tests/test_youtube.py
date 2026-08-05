@@ -4042,3 +4042,29 @@ def test_hero_und_modal_layout():
     block = quelle[i:i + 400]
     assert "justify-content:center" in block, "Modal muss zentriert sein"
     assert "rgba(8,6,5,.74)" in block, "Dimmer hinter der Karte fehlt"
+
+
+def test_film_player_screen():
+    # JB 05.08.: "Wenn der Vollbildmodus beginnt ... der Player hat keine
+    # controls, kein play, kein exit." Wurzel: das VLC-Vollbild ist ein
+    # nacktes Renderfenster - das Overlay #tv-player ist die Fernbedienung.
+    quelle = _oberflaeche_html()
+    i = quelle.index("async function filmePlay")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "exitFullscreen" in block, "Browser-Vollbild muss dem VLC-Bild weichen"
+    assert "tvFilmPlayer(" in block, "nach dem Start muss die Fernbedienung kommen"
+    i = quelle.index("function tvFilmPlayer")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for teil in ("tvp-pp", "tvpSeek", "tvpRel(-10)", "⏹ Beenden", "Esc = Beenden"):
+        assert teil in block, f"Fernbedienungs-Baustein fehlt: {teil}"
+    i = quelle.index("async function tvpTick")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "film:" in block and "tvpZu()" in block, \
+        "Film-Ende muss die Fernbedienung selbst abraeumen"
+    # Tasten: Space/Enter/Pfeile/Esc am Player, Esc holt das TV-Vollbild zurueck
+    i = quelle.index("function tvKey")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "tvpOffen" in block and "tvpRel(10)" in block
+    i = quelle.index("async function filmStopp")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "tvpZu()" in block and "requestFullscreen" in block
