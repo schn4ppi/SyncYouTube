@@ -5668,6 +5668,43 @@ function subSpracheWechsel(){                          // zyklisch durch alle .v
   subLangWahl=subSprachen[(i+1)%subSprachen.length];
   const k=aktKey(); if(k)subLaden(k);
 }
+function subSpracheSetzen(l){                          // direkte Wahl (Untertitel-Panel)
+  subLangWahl=l; const k=aktKey(); if(k)subLaden(k);
+}
+/* Untertitel-Panel am 💬-Knopf (JB 05.08., Amazon/Netflix-Muster): ALLE
+   Untertitel-Einstellungen direkt im Player — Modus, Sprache, Größe, Stil,
+   Versatz. Gilt für Browser UND Gerät VLC; die Optionen-Zeile bleibt als
+   Zweitweg, Taste S wechselt weiter schnell den Modus. */
+function subMenu(ev){
+  ev.stopPropagation();
+  document.querySelectorAll('#subfly').forEach(x=>x.remove());
+  const m=document.createElement('div'); m.className='panelmenu'; m.id='subfly';
+  m.style.minWidth='250px';
+  const reihe=(name,knoepfe)=>'<div class="mzeile"><span>'+name+'</span><span style="display:flex;gap:4px;flex-wrap:wrap">'+knoepfe+'</span></div>';
+  const kn=(label,aktiv,js,titel)=>'<button class="btn mini'+(aktiv?' an':'')+'" '+(titel?'title="'+titel+'" ':'')+
+    'onclick="'+js+';subMenuFuellen()">'+label+'</button>';
+  function fuellen(){
+    let h='<div style="font-size:11.5px;color:#8a7d74;padding:2px 6px 7px">💬 Untertitel</div>';
+    h+=reihe('Modus', SUBMODES.map(md=>kn(md[2].split(' ')[0]==='aus'?'aus':md[2].split('—')[0].split('(')[0].trim(),
+      subMode===md[0], "subModusSetzen('"+md[0]+"')")).join(''));
+    if(subSprachen.length>1)
+      h+=reihe('Sprache', subSprachen.map(l=>kn(l, l===subLang, "subSpracheSetzen('"+l+"')")).join(''));
+    h+=reihe('Größe', [['0.8','klein'],['1','mittel'],['1.35','groß'],['1.8','riesig']]
+      .map(g=>kn(g[1], String(subStil.groesse)===g[0], "subStilSetzen('groesse','"+g[0]+"')")).join(''));
+    h+=reihe('Stil', [['dunkel','Aa dunkel'],['hell','Aa hell'],['gelb','Aa gelb'],['kontur','Aa Kontur']]
+      .map(p=>kn(p[1], subStil.preset===p[0], "subStilSetzen('preset','"+p[0]+"')")).join(''));
+    h+=reihe('Versatz', kn('−0,5 s', false, 'subOffsetSchieben(-0.5)', 'Text kommt später')+
+      '<b style="min-width:44px;text-align:center;color:var(--akz2)">'+
+      (subOffset>0?'+':'')+subOffset.toFixed(1).replace('.',',')+' s</b>'+
+      kn('+0,5 s', false, 'subOffsetSchieben(0.5)', 'Text kommt früher — je Titel gemerkt'));
+    m.innerHTML=h;
+  }
+  window.subMenuFuellen=()=>{if(document.getElementById('subfly'))fuellen();};
+  fuellen();
+  document.body.appendChild(m);
+  popoverBei(m, ev.currentTarget.getBoundingClientRect());
+  menuSchliesser(m);
+}
 function subRomajiToggle(){
   subRomaji=!subRomaji;
   try{localStorage.setItem('ytdl_subromaji',subRomaji?'1':'0');}catch(e){}
@@ -6110,7 +6147,7 @@ function plBarHTML(istVideo){
     `<span class="pl-bspacer"></span>`+
     // JB 05.08. (Netflix/YouTube-Muster): Untertitel + Lautstärke gehören zum
     // KERN — sie überleben jede Player-Größe (keine bo-Ausblende-Klasse).
-    `<button class="pl-bsp" id="plb-sub" onclick="subCycle()" title="Untertitel: aus → Zeile → Karaoke → Transkript">💬</button>`+
+    `<button class="pl-bsp" id="plb-sub" onclick="subMenu(event)" title="Untertitel: Modus, Sprache, Größe, Stil, Versatz (Taste S wechselt schnell den Modus)">💬</button>`+
     `<button class="pl-bsp bo3 weg-im-vollbild" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
     `<button class="pl-bsp bo3 weg-im-vollbild" id="plb-speed" onclick="speedMenu(event)" title="Geschwindigkeit wählen">${playSpeed}×</button>`+
     `<span class="pl-bvolwrap">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value)" title="Lautstärke"></span>`+

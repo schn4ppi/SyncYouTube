@@ -3524,3 +3524,15 @@ def test_vlc_ansicht_identisch_zum_player():
         i = quelle.index("function " + fn)
         assert "vlc" in quelle[i:_funktionsende(quelle, i)].lower(), \
             f"{fn} kennt das Geraet VLC nicht - die Leiste waere dort tot"
+
+
+def test_untertitel_panel_im_player():
+    # JB 05.08. (Amazon-Bild): Untertitel-Einstellungen DIREKT im Player am
+    # 💬-Knopf - Modus, Sprache, Groesse, Stil, Versatz in einem Panel.
+    quelle = _oberflaeche_html()
+    assert 'onclick="subMenu(event)"' in quelle, "💬 oeffnet nicht das Panel"
+    i = quelle.index("function subMenu")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for teil in ("subModusSetzen", "subSpracheSetzen", "subStilSetzen('groesse'",
+                 "subStilSetzen('preset'", "subOffsetSchieben"):
+        assert teil in block, f"Panel-Baustein {teil} fehlt"
