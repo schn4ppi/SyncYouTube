@@ -20,6 +20,23 @@
   function listenSetzen(id, da) { listenLokal.set(id, { da: !!da, ts: Date.now() }); }
   function listenWert(id) { const e = listenLokal.get(id); return !!(e && e.da); }
   function listenVeraltet(id) { const e = listenLokal.get(id); return !e || Date.now() - e.ts > 60000; }
+  // v1.2.0 (JB): Offline-Vormerkungen — gelbes „…" am Knopf. Der Wert kommt
+  // mit der hab-/hab_liste-Antwort mit (gleiche Frische wie hab).
+  const merkLokal = new Map();                         // id -> bool
+  function merkSetzen(id, m) { merkLokal.set(id, !!m); }
+  function merkWert(id) { return !!merkLokal.get(id); }
+  // Review-Fund 4: eine in-Flight-hab-Antwort darf eine GERADE entfernte
+  // Vormerkung nicht wieder gelb malen — jeder Unmerk-Klick erhöht die
+  // Sequenz, Antworten mit älterer Sequenz werden verworfen.
+  let merkSeq = 0;
+  // Review-Fund 12: der Ruhe-Titel sagt ehrlich, was der Klick TUT.
+  function titelNeutral() {
+    return appAn ? "Zur Download-Warteschlange hinzufügen"
+                 : "App ist aus — der Klick merkt vor (gelbes …), geladen wird beim nächsten App-Start";
+  }
+  const listenMerk = new Map();                        // list_id -> bool
+  function listenMerkSetzen(id, m) { listenMerk.set(id, !!m); }
+  function listenMerkWert(id) { return !!listenMerk.get(id); }
 
   // Hover-Knopf abschaltbar (JB v1.0.5, Popup-Schalter; Standard AN) —
   // wirkt sofort über storage.onChanged, das Rechtsklick-Menü bleibt immer.
@@ -68,6 +85,20 @@
     // confirm beim Ausschnitt-Loeschen).
     if (curListe) { listeDialog(curListe); return; }
     if (!curUrl) return;
+    // v1.2.0 (JB): gelbes „…" = vorgemerkt. „Wenn man nochmal draufklickt
+    // wird es wie sonst rot mit x" — der Klick nimmt die Vormerkung zurueck.
+    if (btn.classList.contains("merk")) {
+      const u = curUrl;
+      const mm = u.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
+      try { api.runtime.sendMessage({ typ: "unmerken", art: "video", url: u }); } catch (err) {}
+      if (mm) merkSetzen(mm[1], false);
+      merkSeq += 1;                                  // laufende hab-Antworten verwerfen (Fund 4)
+      btn.classList.remove("merk"); btn.classList.add("nein"); btn.textContent = "✗";
+      setTimeout(() => { if (curUrl !== u || curListe) return;
+                         btn.classList.remove("nein"); btn.textContent = "⬇";
+                         btn.title = titelNeutral(); }, 600);
+      return;
+    }
     // v1.0.7 (JB): schon in der Bibliothek -> Klick laedt NICHT doppelt;
     // anderes Format geht per Rechtsklick. v1.1.0 (JB): der Klick zeigt ROT
     // mit ✗ („hast du schon") und kehrt zum gruenen Haken zurueck.
@@ -85,24 +116,33 @@
     btn.textContent = "…";                             // ehrlich: erst nach Antwort ✓ oder ✗
     const fertig = (res) => {
       const ok = !!(res && res.ok);
+      const gemerkt = !!(res && res.gemerkt);          // v1.2.0: App aus -> vorgemerkt
       const mv = url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
-      if (ok && mv) habSetzen(mv[1], true);            // v1.1.1: sofort als „hab" merken
-      btn.classList.add(ok ? "ok" : "fehl");
-      btn.textContent = ok ? "✓" : "✗";
-      btn.title = ok ? "In der Warteschlange"
+      if (ok && !gemerkt && mv) habSetzen(mv[1], true);   // v1.1.1: sofort als „hab" merken
+      if (gemerkt && mv) merkSetzen(mv[1], true);
+      // Review-Fund 1: der Knopf kann inzwischen einem ANDEREN Video/einer
+      // Liste gehören — dann nur die Speicher aktualisieren, nichts malen.
+      if (curUrl !== url || curListe) return;
+      btn.classList.add(ok ? (gemerkt ? "merk" : "ok") : "fehl");
+      btn.textContent = ok ? (gemerkt ? "…" : "✓") : "✗";
+      btn.title = ok ? (gemerkt ? "Vorgemerkt — lädt beim nächsten App-Start (Klick entfernt)"
+                                : "In der Warteschlange")
                      : "Fehler: " + ((res && res.fehler) || "keine Antwort — läuft die App?");
       setTimeout(() => {
         btn.classList.remove("ok", "fehl");
         // Review-Finding 2/9: gehört der Knopf inzwischen einem anderen
         // Video oder einer Liste, hat DEREN zeigen() den Zustand gesetzt —
         // nichts überschreiben. Sonst zurück in den ehrlichen Ruhezustand
-        // (✓ wenn geladen, ⬇ wenn nicht).
+        // (✓ geladen · gelbes … vorgemerkt · ⬇ sonst).
         if (curUrl !== url || curListe) return;
         const da = mv && habWert(mv[1]);
+        const merk = mv && merkWert(mv[1]) && !da;
         btn.classList.toggle("hab", !!da);
-        btn.textContent = da ? "✓" : "⬇";
+        btn.classList.toggle("merk", !!merk);
+        btn.textContent = da ? "✓" : (merk ? "…" : "⬇");
         btn.title = da ? "Schon in der Bibliothek — Rechtsklick lädt bewusst in anderem Format"
-                       : "Zur Download-Warteschlange hinzufügen";
+                       : (merk ? "Vorgemerkt — lädt beim nächsten App-Start (Klick entfernt)"
+                               : titelNeutral());
       }, 1800);
     };
     api.storage.local.get("ytdl_quali").then((o) => {
@@ -157,24 +197,31 @@
     // v1.1.0 (JB): schon in der Bibliothek -> GRUEN mit Haken ✓, schon BEVOR
     // man klickt. v1.1.1: der Zustand kommt SOFORT aus dem lokalen Speicher
     // (kein ⬇-Flackern mehr); die Hintergrund-Antwort frischt nur noch auf.
-    const habAnwenden = (da) => {
+    const habAnwenden = (da, merk) => {
+      merk = !!merk && !da;                            // „hab" schlägt „vorgemerkt"
       btn.classList.toggle("hab", !!da);
-      btn.textContent = da ? "✓" : "⬇";
+      btn.classList.toggle("merk", merk);
+      btn.textContent = da ? "✓" : (merk ? "…" : "⬇");
       btn.title = da ? "Schon in der Bibliothek — Rechtsklick lädt bewusst in anderem Format"
-                     : "Zur Download-Warteschlange hinzufügen";
+                     : (merk ? "Vorgemerkt — lädt beim nächsten App-Start (Klick entfernt)"
+                             : titelNeutral());
     };
     // Läuft auf DIESEM Video gerade eine Klick-Rückmeldung (…/✓/✗), nicht
     // übermalen — sie endet über ihren eigenen (bewachten) Timer.
+    // v1.2.0: das DAUERHAFTE gelbe „…" (Klasse merk) ist KEINE Rückmeldung.
     const rueckmeldung = () => !wechsel && (btn.classList.contains("ok")
       || btn.classList.contains("fehl") || btn.classList.contains("nein")
-      || btn.textContent === "…");
+      || (btn.textContent === "…" && !btn.classList.contains("merk")));
     const m = url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
-    if (!rueckmeldung()) habAnwenden(m ? habWert(m[1]) : false);
+    if (!rueckmeldung()) habAnwenden(m ? habWert(m[1]) : false, m ? merkWert(m[1]) : false);
     if (m && habVeraltet(m[1])) {
+      const seq = merkSeq;                           // Fund 4: Unmerk-Klick macht die Antwort ungültig
       try {
         api.runtime.sendMessage({ typ: "hab", id: m[1] }).then((res) => {
+          if (seq !== merkSeq) return;               // inzwischen unmerkt -> veraltete Antwort verwerfen
           habSetzen(m[1], res && res.da);
-          if (curUrl === url && !curListe && !rueckmeldung()) habAnwenden(res && res.da);
+          merkSetzen(m[1], res && res.gemerkt);
+          if (curUrl === url && !curListe && !rueckmeldung()) habAnwenden(res && res.da, res && res.gemerkt);
         }, () => {});
       } catch (e) { /* Hintergrund nicht erreichbar -> Knopf bleibt neutral */ }
     }
@@ -229,21 +276,31 @@
     // Hinweis — „von 51 bis 100 nachladen" muss moeglich bleiben (Bekanntes
     // wird beim Einreihen ohnehin uebersprungen). Mixe sind endlos und
     // bekommen nie einen Haken.
-    const listeAnwenden = (da) => {
+    const listeAnwenden = (da, merk) => {
       if (!curListe || curListe.id !== lid) return;
       curListe.schonDa = !!da;
+      curListe.gemerkt = !!merk && !da;                // v1.2.0: vorgemerkte Liste
       btn.classList.toggle("hab", !!da);
-      btn.textContent = da ? "✓" : "⬇";
+      btn.classList.toggle("merk", curListe.gemerkt);
+      btn.textContent = da ? "✓" : (curListe.gemerkt ? "…" : "⬇");
       btn.title = da ? "Playlist schon eingereiht — Klick öffnet trotzdem den Von-bis-Dialog"
+                     : (curListe.gemerkt ? "Playlist vorgemerkt — Klick öffnet den Dialog (dort entfernbar)"
                      : (curListe.mix ? "Diesen Mix laden — Klick fragt, wie viele"
-                                     : "Diese Playlist laden — Klick fragt von–bis");
+                                     : "Diese Playlist laden — Klick fragt von–bis"));
     };
-    listeAnwenden(!curListe.mix && listenWert(lid));
-    if (lid && !curListe.mix && listenVeraltet(lid)) {
+    // Review-Fund 2: im Antwort-Callback NIE curListe dereferenzieren — der
+    // Anker kann längst weg sein (scroll -> verstecken -> curListe=null).
+    // Ob Mix, steht fest in der lid.
+    const istMix = /^RD/.test(lid);
+    listeAnwenden(!istMix && listenWert(lid), listenMerkWert(lid));
+    if (lid && listenVeraltet(lid)) {
+      const seq = merkSeq;
       try {
         api.runtime.sendMessage({ typ: "hab_liste", id: lid }).then((res) => {
+          if (seq !== merkSeq) return;
           listenSetzen(lid, res && res.da);
-          listeAnwenden(res && res.da);
+          listenMerkSetzen(lid, res && res.gemerkt);
+          listeAnwenden(!istMix && res && res.da, res && res.gemerkt);
         }, () => {});
       } catch (e) { /* Hintergrund nicht erreichbar -> Pfeil bleibt neutral */ }
     }
@@ -258,6 +315,9 @@
       '<div class="ytdl-ld-titel">' + (liste.mix ? "🎧 Mix laden" : "📃 Playlist laden") + "</div>" +
       // v1.1.2: ehrlicher Hinweis statt Verweigern — Nachladen bleibt moeglich.
       (liste.schonDa ? '<div class="ytdl-ld-hinweis" style="color:#6fcf7f">✓ Schon komplett eingereiht — Bekanntes wird übersprungen.</div>' : "") +
+      // v1.2.0: vorgemerkte Liste — hier kann man die Vormerkung zurücknehmen.
+      (liste.gemerkt ? '<div class="ytdl-ld-hinweis" style="color:#c9952b">… Vorgemerkt — lädt beim nächsten App-Start.</div>' +
+        '<div class="ytdl-ld-knoepfe" style="justify-content:flex-start;margin-bottom:6px"><button id="ytdl-ld-unmerk">Vormerkung entfernen</button></div>' : "") +
       '<div class="ytdl-ld-zeile"><label>Von Nr.</label><input type="number" min="1" id="ytdl-ld-von" placeholder="1"></div>' +
       '<div class="ytdl-ld-zeile"><label>Bis Nr.</label><input type="number" min="1" id="ytdl-ld-bis" placeholder="' +
         (liste.mix ? "50" : "Ende") + '"></div>' +
@@ -278,6 +338,20 @@
     const zu = () => { document.removeEventListener("keydown", esc, true); box.remove(); };
     document.addEventListener("keydown", esc, true);
     box.querySelector("#ytdl-ld-nein").onclick = zu;
+    const unmerkKnopf = box.querySelector("#ytdl-ld-unmerk");
+    if (unmerkKnopf) unmerkKnopf.onclick = () => {
+      try { api.runtime.sendMessage({ typ: "unmerken", art: "liste", url: liste.url }); } catch (e) {}
+      listenMerkSetzen(liste.id, false);
+      merkSeq += 1;                                  // laufende Antworten verwerfen (Fund 4)
+      // Review-Fund 3: der Knopf kann inzwischen einem ANDEREN Anker gehören
+      // (der Dialog bleibt offen, onMove läuft weiter) — nur den eigenen malen.
+      if (curListe && curListe.id === liste.id) {
+        curListe.gemerkt = false;
+        btn.classList.remove("merk");
+        if (!btn.classList.contains("hab")) btn.textContent = "⬇";
+      }
+      zu();
+    };
     box.querySelector("#ytdl-ld-ja").onclick = () => {
       const von = parseInt(box.querySelector("#ytdl-ld-von").value, 10) || null;
       let bis = parseInt(box.querySelector("#ytdl-ld-bis").value, 10) || null;
@@ -292,7 +366,15 @@
                                          qualitaet: (q && q !== "default") ? q : null });
       }, () => api.runtime.sendMessage({ typ: "add_liste", url: liste.url, von, bis }))
         .then((res) => {
-          ja.textContent = (res && res.ok) ? "✓ eingereiht" : "✗ App erreichbar?";
+          // v1.2.0: App aus -> ehrlich „vorgemerkt" statt ✗; Badge wird gelb.
+          if (res && res.ok && res.gemerkt) {
+            ja.textContent = "… vorgemerkt";
+            listenMerkSetzen(liste.id, true);
+            if (curListe && curListe.id === liste.id) { curListe.gemerkt = true;
+              btn.classList.add("merk"); btn.textContent = "…"; }
+          } else {
+            ja.textContent = (res && res.ok) ? "✓ eingereiht" : "✗ " + ((res && res.fehler) || "App erreichbar?");
+          }
           setTimeout(zu, 1200);
         }, () => { ja.textContent = "✗ App erreichbar?"; setTimeout(zu, 1500); });
     };
@@ -314,8 +396,11 @@
     if (now - lastMove < 60) return;            // Drosselung
     lastMove = now;
     if (!hoverAn) { verstecken(); return; }     // Knopf im Popup abgeschaltet (JB v1.0.5)
+    // v1.2.0 (JB): App aus -> der Knopf bleibt DA und merkt Klicks vor
+    // (persistente Offline-Warteschlange). Das alte Verstecken (22.07.) galt,
+    // solange ein Klick ins Leere lief — jetzt tut er etwas Sinnvolles.
+    // appPruefen läuft weiter: der Ping weckt im Hintergrund den Nachschub.
     appPruefen();
-    if (!appAn) { verstecken(); return; }       // App aus -> Knopf existiert nicht (JB 22.07.)
     if (!btn) mkBtn();
     if (e.target === btn || (btn && btn.contains(e.target))) { resetIdle(); return; }
     // Offener Von-bis-Dialog: nichts umbauen, solange JB darin tippt (v1.1.1).

@@ -3305,3 +3305,43 @@ def test_untertitel_stil_und_kern_knoepfe():
         "Lautstaerke haengt noch in der Ausblende-Kaskade (bo2)"
     assert ":fullscreen .pl-barrow .mp-btn{width:46px" in quelle, \
         "Vollbild-Knoepfe sind nicht Sofa-gross"
+
+
+def test_addon_merkliste_v120():
+    # v1.2.0 (JB): Offline-Warteschlange des Addons - Quelltext-Waechter fuer
+    # die Kernzusagen (das Addon laeuft im Browser, nicht unter pytest).
+    import io
+    basis = os.path.join(os.path.dirname(app.__file__), "browser-addon")
+    bg = io.open(os.path.join(basis, "shared", "background.js"), encoding="utf-8").read()
+    ct = io.open(os.path.join(basis, "shared", "content.js"), encoding="utf-8").read()
+    css = io.open(os.path.join(basis, "shared", "content.css"), encoding="utf-8").read()
+    mf = io.open(os.path.join(basis, "manifest.base.json"), encoding="utf-8").read()
+    # Persistenz (ueberlebt Firefox-Neustart) + Minuten-Wecker (Event-Page!)
+    assert "ytdl_merk" in bg and '"alarms"' in mf
+    assert "periodInMinutes" in bg, "Ohne Wecker schlaeft die Event-Page auf dem Rueckstau ein"
+    # HTTP-Fehler bei LAUFENDER App darf NICHT vormerken - nur echte Netz-Fehler
+    assert "err.http = true" in bg and "(!e.http)" in bg
+    assert "/api/addon_nachschub" in bg, "Die App erfaehrt sonst nie von den x Downloads"
+    assert "gemerktVideo" in bg and "gemerktListe" in bg and '"unmerken"' in bg
+    # Knopf lebt jetzt auch ohne App; gelbes ... mit Klick-Ruecknahme
+    assert "if (!appAn) { verstecken(); return; }" not in ct, \
+        "Der Knopf versteckt sich noch, wenn die App aus ist - dann kann nichts vorgemerkt werden"
+    assert 'classList.contains("merk")' in ct and '"unmerken"' in ct
+    assert ".ytdl-hoverbtn.merk" in css, "Gelber Vorgemerkt-Zustand fehlt im CSS"
+    assert '"version": "1.2.0"' in mf
+    # App-Seite: Route + Einmal-Toast (id-Zaehler, Erst-Lauf nur merken)
+    import inspect
+    q = inspect.getsource(app)
+    assert '"/api/addon_nachschub"' in q and "def addon_nachschub" in q
+    ui = _oberflaeche_html()
+    i = ui.index("function nachschubMelden")
+    block = ui[i:_funktionsende(ui, i)]
+    assert "_nachschubId===null" in block, "Erst-Lauf wuerde eine alte Meldung nachplappern"
+
+
+def test_addon_nachschub_zaehlt(monkeypatch):
+    monkeypatch.setattr(app, "_addon_nachschub", {"n": 0, "ts": 0, "id": 0})
+    app.addon_nachschub({"n": 3})
+    assert app._addon_nachschub["n"] == 3 and app._addon_nachschub["id"] == 1
+    app.addon_nachschub({"n": 0})
+    assert app._addon_nachschub["id"] == 1, "n=0 darf keinen Toast ausloesen"

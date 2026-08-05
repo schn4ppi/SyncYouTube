@@ -3,6 +3,16 @@
 > Diese Liste wird je Version auch als AMO-Versionsnotiz hinterlegt
 > (`amo_sign.py` liest den obersten passenden Eintrag beim Einreichen).
 
+## 1.2.0
+- Offline-Warteschlange: Läuft der Downloader gerade nicht, geht ein Klick
+  nicht mehr verloren — das Add-on merkt ihn sich dauerhaft (übersteht auch
+  einen Firefox-Neustart) und reiht alles automatisch ein, sobald die App
+  wieder läuft. Die App zeigt dann kurz „x vorgemerkte Downloads werden
+  geholt". Vorgemerkte Videos zeigen ein gelbes „…"; ein Klick darauf
+  entfernt die Vormerkung (blitzt rot mit ✗). Auch ganze Playlists/Mixe
+  samt Von-bis lassen sich vormerken. Der ⬇-Knopf erscheint dafür jetzt
+  auch, wenn die App aus ist.
+
 ## 1.1.2
 - Der Playlist-Pfeil wird grün mit Haken ✓, wenn die Playlist schon komplett
   eingereiht wurde — wie beim einzelnen Video. Der Klick verweigert aber

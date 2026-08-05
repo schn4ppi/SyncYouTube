@@ -51,3 +51,8 @@
 #ytdl-listendialog #ytdl-ld-ja { background: rgba(214, 119, 86, .85); border-color: rgba(214, 119, 86, .9); color: #fff; }
 #ytdl-listendialog button:hover { border-color: #c9952b; }
 .ytdl-hoverbtn.nein { background: rgba(192, 73, 42, .95) !important; }
+
+/* v1.2.0 (JB): GELBES „…" = vorgemerkt (App war aus, Klick ist gespeichert
+   und wird beim nächsten App-Start eingereiht). Klick entfernt die Vormerkung
+   (blitzt rot mit ✗, wie beim Haken). */
+.ytdl-hoverbtn.merk { background: rgba(201, 149, 43, .95); }

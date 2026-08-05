@@ -2113,6 +2113,21 @@ def _lan_ip():
 # Letzter Fernsteuer-Befehl vom Handy; der PC-Player pollt ihn über /api/status.
 _remote = {"n": 0, "cmd": "", "key": "", "wert": None, "ts": 0}
 
+# Addon-Nachschub (v1.2.0, JB 05.08.): das Firefox-Addon merkt sich Klicks,
+# während die App aus ist, und reicht sie beim nächsten Start nach — die App
+# zeigt dann EINMAL „x vorgemerkte Downloads werden geholt" (id-Zähler, das
+# UI toastet je id genau einmal; Muster wie _remote).
+_addon_nachschub = {"n": 0, "ts": 0, "id": 0}
+
+
+def addon_nachschub(daten):
+    n = int(daten.get("n") or 0)
+    if n > 0:
+        _addon_nachschub["n"] = n
+        _addon_nachschub["ts"] = time.time()
+        _addon_nachschub["id"] += 1
+    return {"ok": True}
+
 
 def remote_befehl(daten):
     cmd = daten.get("cmd")
@@ -4774,6 +4789,7 @@ class Handler(BaseHTTPRequestHandler):
                                      "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_pfad()),
                                      "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
                                      "remote": _remote, "fernsteuerung": fernsteuerung_info(),
+                                     "addon_nachschub": _addon_nachschub,
                                      "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
                                      "jetzt": time.time()})
         elif self.path == "/addon.xpi":
@@ -4927,6 +4943,8 @@ class Handler(BaseHTTPRequestHandler):
                 return _antwort(self, 200, vlc_kommando(daten))
             if self.path == "/api/wiedergabe":        # Grundeinstellungen: global/Playlist/Titel
                 return _antwort(self, 200, wiedergabe_setzen(daten))
+            if self.path == "/api/addon_nachschub":   # Addon reicht Vorgemerktes nach (v1.2.0)
+                return _antwort(self, 200, addon_nachschub(daten))
             if self.path == "/api/beenden":
                 # Sauberes Beenden aus der Suite (JB 14.07.2026: im Suite-Betrieb gibt es
                 # kein eigenes Tray mehr — Steuerung über SyncDashTray/Dashboard). Nur vom

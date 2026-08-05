@@ -3004,7 +3004,18 @@ async function laden(){
     daten=await r.json();
     apiStatus(true); configFuellen(); malen();
     remoteAusfuehren(daten.remote);                    // Befehle vom Handy ausführen
+    nachschubMelden(daten.addon_nachschub);            // Addon-Vormerkungen (v1.2.0)
   }catch(e){apiStatus(false);}
+}
+/* Addon-Nachschub (v1.2.0, JB): „eine kurze Info, dass jetzt x Downloads
+   getätigt werden" — je id genau EIN Toast (Muster wie _remoteN: beim
+   Seitenstart nur merken, Altes nicht nachplappern). */
+let _nachschubId=null;
+function nachschubMelden(a){
+  if(!a)return;
+  if(_nachschubId===null){_nachschubId=a.id; return;}
+  if(a.id===_nachschubId)return; _nachschubId=a.id;
+  if(a.n)toast('⬇ '+a.n+' vorgemerkte Downloads aus dem Firefox-Addon werden geholt.');
 }
 /* ---- Handy-Fernsteuerung: Befehle vom Handy am PC-Player ausführen ---- */
 let _remoteN=null;
