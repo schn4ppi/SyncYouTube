@@ -3392,3 +3392,40 @@ def test_vlc_selbstheilung_baut_neu(monkeypatch, tmp_path):
     assert len(gebaut) == 2, "Selbstheilung hat keine frische Instanz gebaut"
     assert not st.get("fehler") and st["zustand"] == "spielt", \
         "Nach der Heilung muss der wiederholte Befehl gelingen"
+
+
+def test_live_titel_regel(monkeypatch):
+    # Nirvana-Fall (JB 05.08.): sagt der QUELL-Titel "live/unplugged", gewinnt
+    # das offizielle LIVE-Album vor dem Studio-Album (die Aufnahme IST die
+    # Live-Fassung); ohne Live-Marker bleiben Live-Alben verboten (Bootleg-
+    # Schutz). Der Klammer-Zusatz traegt die Info auch in den Blank-Versuch.
+    such = {"recordings": [
+        {"id": "rec-studio", "score": 100, "title": "Song",
+         "artist-credit": [{"name": "K"}], "first-release-date": "1991",
+         "releases": [{"id": "rel-studio", "title": "Studio", "status": "Official",
+                       "date": "1991",
+                       "release-group": {"id": "rg-s", "primary-type": "Album",
+                                         "first-release-date": "1991"}}]},
+        {"id": "rec-live", "score": 100, "title": "Song",
+         "artist-credit": [{"name": "K"}], "first-release-date": "1994",
+         "releases": [{"id": "rel-live", "title": "Livealbum", "status": "Official",
+                       "date": "1994",
+                       "release-group": {"id": "rg-l", "primary-type": "Album",
+                                         "secondary-types": ["Live"],
+                                         "first-release-date": "1994"}}]}]}
+    lookup = {"title": "Song", "artist-credit": [{"name": "K"}],
+              "genres": [{"name": "rock", "count": 5}]}
+    monkeypatch.setattr(app, "_mb_get",
+                        lambda url, timeout=10: lookup if "/ws/2/recording/" in url else such)
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)
+
+    fund = app._mb_suche("K", "Song (Live)")
+    assert fund["album"] == "Livealbum" and fund["release_id"] == "rel-live", \
+        "Live-Titel muss das Live-Album gewinnen lassen"
+    fund = app._mb_suche("K", "Song")
+    assert fund["album"] == "Studio", "Ohne Live-Marker bleibt das Live-Album verboten"
+    fund = app._mb_suche("K", "Song", live_hinweis=True)
+    assert fund["album"] == "Livealbum", "Der Blank-Versuch muss den Live-Hinweis tragen"
+    assert app._ist_live_titel("X (Live On MTV Unplugged)") is True
+    assert app._ist_live_titel("Unplugged Session") is True
+    assert app._ist_live_titel("Staying Alive") is False, "Wortgrenze: 'Alive' ist nicht live"

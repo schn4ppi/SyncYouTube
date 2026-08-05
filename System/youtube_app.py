@@ -1304,7 +1304,16 @@ def _mb_norm_titel(t):
     return " ".join(t.replace(" ", " ").split())
 
 
-def _mb_suche(kuenstler, titel, timeout=10):
+def _ist_live_titel(t):
+    """Sagt der QUELL-Titel selbst, dass es eine Live-Aufnahme ist? (JB 05.08.,
+    Nirvana-Fall: „Live On MTV Unplugged" — dann ist das offizielle LIVE-Album
+    die richtige Quelle, nicht das Studio-Album.) Wortgrenzen, damit „Alive"
+    oder „Delivery" nicht zünden."""
+    return bool(re.search(r"\b(live|unplugged|konzert|concert|acoustic session)\b",
+                          (t or "").casefold()))
+
+
+def _mb_suche(kuenstler, titel, timeout=10, live_hinweis=None):
     """Künstler/Titel/Album via MusicBrainz. Zwei Stufen (die Recording-Suche allein
     ist voller gleichnamiger Live-Bootlegs — live ausgetestet 09.07.2026):
     1) Recording-SUCHE, gefiltert auf offizielle Studio-Alben, exakter Titel bevorzugt,
@@ -1353,23 +1362,35 @@ def _mb_suche(kuenstler, titel, timeout=10):
     # zugehörige Recording nehmen. Compilation-Schutz sitzt HIER: keine
     # secondary-types — außer Soundtrack, denn der IST das kanonische Album
     # (Purple Rain). Undatierte „Alben" sind fast immer Box-Sets/Datenmüll.
+    # Live-Titel-Regel (JB 05.08., Nirvana-Fall): sagt der QUELL-TitEL selbst
+    # „live/unplugged", zählen auch offizielle LIVE-Alben — und gewinnen sogar
+    # vor Studio-Alben (die Aufnahme IST die Live-Fassung; „MTV Unplugged in
+    # New York" schlägt „Nevermind"). Gibt es kein Live-Album, bleibt das
+    # Studio-Album der ehrliche Rückfall (Metadaten ja, der Live-Vermerk
+    # bleibt im eigenen Titel). OHNE Live-Marker bleiben Live-Alben verboten
+    # — der alte Bootleg-Schutz.
+    ist_live = live_hinweis if live_hinweis is not None else _ist_live_titel(titel)
     def _album_ok(rel):
         rg = rel.get("release-group") or {}
         sec = rg.get("secondary-types") or []
         return (rg.get("primary-type") == "Album"
-                and (not sec or sec == ["Soundtrack"])
+                and (not sec or sec == ["Soundtrack"]
+                     or (ist_live and sec == ["Live"]))
                 and (rel.get("status") or "Official") == "Official"
                 and (rel.get("date") or rg.get("first-release-date")))
-    kandidaten = []                                  # (datum, recording, release)
+    kandidaten = []                                  # (rang, datum, recording, release)
     for r in pool:
         for rel in (r.get("releases") or []):
             if _album_ok(rel):
                 rg = rel.get("release-group") or {}
-                kandidaten.append((rel.get("date") or rg.get("first-release-date") or "9999",
+                sec = rg.get("secondary-types") or []
+                rang = 0 if (ist_live and sec == ["Live"]) else (1 if ist_live else 0)
+                kandidaten.append((rang,
+                                   rel.get("date") or rg.get("first-release-date") or "9999",
                                    r, rel))
-    kandidaten.sort(key=lambda x: x[0])
-    rec = kandidaten[0][1] if kandidaten else pool[0]
-    rel = kandidaten[0][2] if kandidaten else None
+    kandidaten.sort(key=lambda x: (x[0], x[1]))
+    rec = kandidaten[0][2] if kandidaten else pool[0]
+    rel = kandidaten[0][3] if kandidaten else None
     album = (rel.get("title") or "") if rel else ""
     rg = (rel.get("release-group") or {}) if rel else {}
     jahr = ((rg.get("first-release-date") or (rel.get("date") if rel else "") or ""))[:4]
@@ -1764,7 +1785,9 @@ def autotag_lauf(keys=None):
                 # der häufigste Grund, warum ein Titel nicht gefunden wird.
                 blank = _titel_blank(ti)
                 if blank != ti:
-                    fund = _mb_suche(ku, blank)
+                    # Der Klammer-Zusatz trägt oft die Live-Info („(Live)") —
+                    # sie darf beim blanken Zweitversuch nicht verloren gehen.
+                    fund = _mb_suche(ku, blank, live_hinweis=_ist_live_titel(ti))
                     time.sleep(1.5)
             if not fund:
                 continue
