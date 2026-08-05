@@ -184,6 +184,7 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 .tv-btn{font-size:22px;padding:10px 26px;border-radius:10px;cursor:pointer;
   border:3px solid transparent;background:#f2ece5;color:#171310;font-weight:700}
 .tv-btn.zart{background:rgba(255,255,255,.16);color:#fff}
+.tv-btn.akt{background:rgba(232,176,75,.35)}          /* gewählte Staffel */
 .tv-btn.tv-fokus{border-color:#e8b04b}
 /* More-Info-Seite: Overlay ÜBER der TV-Ebene, gleiche Fernbedienungs-Regeln */
 #tv-info{position:fixed;inset:0;z-index:950;display:none;flex-direction:column;
@@ -6751,14 +6752,16 @@ function tvReihenFuer(){
   const genresAls=(filt)=>Object.entries(f.genres||{}).map(([g,a])=>[g,filt(a)])
     .filter(([,a])=>a.length).slice(0,4).map(([g,a])=>tvFilmReihe(g,a));
   if(tvTab==='home')return [
-    tvFilmReihe('Weiterschauen',f.weiterschauen), tvFilmReihe('Top 10',f.top),
+    tvFilmReihe('Weiterschauen',f.weiterschauen),
+    tvFilmReihe('🎞 Meine Liste',f.merkliste), tvFilmReihe('Top 10',f.top),
     tvFilmReihe('Neu auf dem Server',f.neu),
     tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz).slice(0,20)),
     tvTitelReihe('Zuletzt gespielt',zuletzt.slice(0,20))];
   if(tvTab==='filme')return [tvFilmReihe('Top',nurFilm(f.top))].concat(genresAls(nurFilm));
   if(tvTab==='serien')return [tvFilmReihe('Top',nurSerie(f.top))].concat(genresAls(nurSerie));
   if(tvTab==='neu')return [tvFilmReihe('Neu auf dem Server',f.neu), tvFilmReihe('Top 10',f.top)];
-  if(tvTab==='herz')return [tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz))];
+  if(tvTab==='herz')return [tvFilmReihe('🎞 Meine Liste',f.merkliste),
+    tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz))];
   if(tvTab==='yt')return [tvTitelReihe('Zuletzt geladen',neuste.filter(x=>!audio(x)).slice(0,20)),
     tvTitelReihe('Zuletzt gespielt',zuletzt.filter(x=>!audio(x)).slice(0,20)),
     tvTitelReihe('Meistgespielt',meist.filter(x=>!audio(x)).slice(0,20))];
@@ -6849,21 +6852,61 @@ async function tvHeroMalen(){
     `<div class="hero-meta">${tvMetaZeile(d)}</div>`+
     `<div class="hero-besch">${esc(d.beschreibung||'')}</div>`+
     `<div class="hero-btns">`+
-      `<button class="tv-btn" data-hero="0" onclick="filmePlay('${esc(kand.id)}')">▶ Abspielen</button>`+
+      (kand.typ==='serie'
+        ?`<button class="tv-btn" data-hero="0" onclick="tvInfo('${esc(kand.id)}')">▶ Weiterschauen</button>`
+        :`<button class="tv-btn" data-hero="0" onclick="filmePlay('${esc(kand.id)}')">▶ Abspielen</button>`)+
       `<button class="tv-btn zart" data-hero="1" onclick="tvInfo('${esc(kand.id)}')">ℹ Mehr Infos</button>`+
     `</div></div>`;
 }
+let tvInfoDaten=null, tvInfoStaffel=0;                 // {d, mw, eps} der offenen Info
 async function tvInfo(id){
-  tvInfoId=id; tvInfoOffen=true; tvInfoFokus={r:0,i:0};
+  tvInfoId=id; tvInfoOffen=true; tvInfoFokus={r:0,i:0}; tvInfoDaten=null; tvInfoStaffel=0;
   const el=document.getElementById('tv-info');
   el.style.display='flex';
   el.innerHTML='<div class="info-body" style="font-size:24px;padding:60px">Lade…</div>';
-  let d=null, mw=[];
+  let d=null, mw=[], eps=[];
   try{d=await (await fetch('/api/filme/detail?id='+encodeURIComponent(id))).json();}catch(e){}
   try{mw=((await (await fetch('/api/filme/mehrwie?id='+encodeURIComponent(id))).json())||{}).items||[];}catch(e){}
+  if(d&&d.typ==='serie'){                              // Staffeln + Folgen (JB-Go)
+    try{eps=((await (await fetch('/api/filme/episoden?id='+encodeURIComponent(id))).json())||{}).items||[];}catch(e){}
+  }
   if(!tvInfoOffen||tvInfoId!==id)return;               // inzwischen geschlossen/weiter
   if(!d||d.fehler){el.innerHTML='<div class="info-body" style="padding:60px">Film nicht gefunden. (Esc = zurück)</div>'; return;}
-  tvInfoMehr=mw;
+  tvInfoDaten={d,mw,eps}; tvInfoMehr=mw;
+  const st=[...new Set(eps.map(e=>e.staffel))];
+  tvInfoStaffel=st.includes(1)?1:(st[0]||0);
+  // Weiterschauen-Logik: erst die angefangene Folge, sonst die erste ungesehene
+  const weiter=eps.find(e=>e.position_s>0&&!e.gesehen)||eps.find(e=>!e.gesehen);
+  if(weiter)tvInfoStaffel=weiter.staffel||tvInfoStaffel;
+  tvInfoMalen();
+}
+function tvSerienPlay(){
+  // ▶ auf einer Serie = Netflix-Verhalten: angefangene Folge, sonst erste
+  // ungesehene, sonst die allererste.
+  const eps=(tvInfoDaten&&tvInfoDaten.eps)||[];
+  const e=eps.find(x=>x.position_s>0&&!x.gesehen)||eps.find(x=>!x.gesehen)||eps[0];
+  if(e)filmePlay(e.id); else toast('🎬 Keine Folgen gefunden.');
+}
+async function tvMerk(id){
+  try{
+    const r=await (await fetch('/api/filme/merk',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id})})).json();
+    if(tvInfoDaten)tvInfoDaten.d.gemerkt=!!r.an;
+    toast(r.an?'🎞 Auf deiner Liste.':'🎞 Von der Liste genommen.');
+    tvInfoMalen();
+    tvFilmReihen=null; tvLadenStill();                 // Home-Reihe frisch ziehen
+  }catch(e){toast('🎞 Merken fehlgeschlagen.');}
+}
+async function tvLadenStill(){
+  try{tvFilmReihen=await (await fetch('/api/filme/reihen')).json();}catch(e){}
+}
+function tvStaffel(n){tvInfoStaffel=n; tvInfoFokus={r:1,i:0}; tvInfoMalen();}
+function tvInfoMalen(){
+  const el=document.getElementById('tv-info');
+  if(!el||!tvInfoDaten)return;
+  const {d,mw,eps}=tvInfoDaten, id=tvInfoId;
+  const staffeln=[...new Set(eps.map(e=>e.staffel))];
+  const folgen=eps.filter(e=>e.staffel===tvInfoStaffel);
   el.innerHTML=
     `<div class="info-kopf"><img src="/api/filme/bild?id=${encodeURIComponent(id)}&art=Backdrop" `+
       `onerror="this.onerror=null;this.src='/api/filme/bild?id=${encodeURIComponent(id)}'">`+
@@ -6871,12 +6914,21 @@ async function tvInfo(id){
     `<div class="info-body">`+
       `<div class="info-meta">${tvMetaZeile(d)}</div>`+
       `<div class="info-btns">`+
-        `<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}')">▶ Abspielen</button>`+
-        `<button class="tv-btn zart" data-info="1" onclick="tvInfoZu()">✕ Zurück</button>`+
+        (d.typ==='serie'
+          ?`<button class="tv-btn" data-info="0" onclick="tvSerienPlay()">▶ Weiterschauen</button>`
+          :`<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}')">▶ Abspielen</button>`)+
+        `<button class="tv-btn zart" data-info="1" onclick="tvMerk('${esc(id)}')">${d.gemerkt?'✓ Gemerkt':'＋ Meine Liste'}</button>`+
+        `<button class="tv-btn zart" data-info="2" onclick="tvInfoZu()">✕ Zurück</button>`+
       `</div>`+
       `<div class="info-besch">${esc(d.beschreibung||'')}</div>`+
       (d.cast&&d.cast.length?`<div class="info-neben">Besetzung: ${esc(d.cast.slice(0,8).join(', '))}</div>`:'')+
       ((d.video_codec||d.audio_codec)?`<div class="info-neben">Technik: ${esc([d.video_codec,d.audio_codec].filter(Boolean).join(' / '))}</div>`:'')+
+      (staffeln.length?`<div class="tv-rtitel" style="margin-top:14px">Staffeln</div><div class="tv-band">`+
+        staffeln.map(n=>`<button class="tv-btn zart${n===tvInfoStaffel?' akt':''}" data-st="${n}" onclick="tvStaffel(${n})">Staffel ${n||'?'}</button>`).join('')+`</div>`+
+        `<div class="tv-band">`+folgen.map((e,i)=>
+          `<div class="tv-kachel quer" data-ep="${i}" onclick="filmePlay('${esc(e.id)}')" title="${esc(e.titel)}">`+
+          `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
+          `<div class="tv-ktitel">${e.gesehen?'✓ ':''}F${e.folge} · ${esc(e.titel)}${e.position_s>0&&!e.gesehen?' ⏸':''}</div></div>`).join('')+`</div>`:'')+
       (mw.length?`<div class="tv-rtitel" style="margin-top:16px">Mehr wie das</div><div class="tv-band">`+
         mw.slice(0,15).map((e,i)=>`<div class="tv-kachel" data-mw="${i}" onclick="tvInfo('${esc(e.id)}')">`+
           `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
@@ -6885,14 +6937,26 @@ async function tvInfo(id){
   tvInfoFokusMalen();
 }
 function tvInfoZu(){
-  tvInfoOffen=false;
+  tvInfoOffen=false; tvInfoDaten=null;
   const el=document.getElementById('tv-info'); if(el){el.style.display='none'; el.innerHTML='';}
+}
+function tvInfoEbenen(){
+  // Generische Fokus-Zeilen der Info-Seite: Knöpfe → Staffeln → Folgen →
+  // Mehr-wie. Leere Zeilen fallen raus — die Navigation bleibt lückenlos.
+  return [
+    [...document.querySelectorAll('#tv-info [data-info]')],
+    [...document.querySelectorAll('#tv-info [data-st]')],
+    [...document.querySelectorAll('#tv-info [data-ep]')],
+    [...document.querySelectorAll('#tv-info [data-mw]')],
+  ].filter(a=>a.length);
 }
 function tvInfoFokusMalen(){
   document.querySelectorAll('#tv-info .tv-fokus').forEach(x=>x.classList.remove('tv-fokus'));
-  const ziel=tvInfoFokus.r===0
-    ?document.querySelector(`#tv-info [data-info="${tvInfoFokus.i}"]`)
-    :document.querySelector(`#tv-info [data-mw="${tvInfoFokus.i}"]`);
+  const eb=tvInfoEbenen();
+  if(!eb.length)return;
+  tvInfoFokus.r=Math.max(0,Math.min(eb.length-1,tvInfoFokus.r));
+  tvInfoFokus.i=Math.max(0,Math.min(eb[tvInfoFokus.r].length-1,tvInfoFokus.i));
+  const ziel=eb[tvInfoFokus.r][tvInfoFokus.i];
   if(ziel){ziel.classList.add('tv-fokus'); ziel.scrollIntoView({block:'nearest',inline:'nearest'});}
 }
 function tvKey(ev){
@@ -6901,15 +6965,16 @@ function tvKey(ev){
   // Info-Seite offen? Dann navigiert die Fernbedienung DORT (eigene Ebene).
   if(tvInfoOffen){
     let getan=true;
-    const mwZahl=Math.min(15,(tvInfoMehr||[]).length);
+    const eb=tvInfoEbenen();
     if(ev.key==='Escape'||ev.key==='Backspace')tvInfoZu();
     else if(ev.key==='ArrowLeft')tvInfoFokus.i=Math.max(0,tvInfoFokus.i-1);
-    else if(ev.key==='ArrowRight')tvInfoFokus.i=Math.min((tvInfoFokus.r===0?1:mwZahl-1),tvInfoFokus.i+1);
-    else if(ev.key==='ArrowDown'){ if(tvInfoFokus.r===0&&mwZahl){tvInfoFokus={r:1,i:0};} }
-    else if(ev.key==='ArrowUp'){ if(tvInfoFokus.r===1){tvInfoFokus={r:0,i:0};} }
+    else if(ev.key==='ArrowRight')tvInfoFokus.i=tvInfoFokus.i+1;   // Malen klemmt
+    else if(ev.key==='ArrowDown')tvInfoFokus={r:tvInfoFokus.r+1,i:0};
+    else if(ev.key==='ArrowUp')tvInfoFokus={r:Math.max(0,tvInfoFokus.r-1),i:0};
     else if(ev.key==='Enter'){
-      if(tvInfoFokus.r===0){ if(tvInfoFokus.i===0)filmePlay(tvInfoId); else tvInfoZu(); }
-      else{const e=(tvInfoMehr||[])[tvInfoFokus.i]; if(e)tvInfo(e.id);}
+      const zeile=eb[Math.max(0,Math.min(eb.length-1,tvInfoFokus.r))]||[];
+      const el2=zeile[Math.max(0,Math.min(zeile.length-1,tvInfoFokus.i))];
+      if(el2)el2.click();
     }
     else getan=false;
     if(getan){ev.preventDefault(); ev.stopPropagation(); if(tvInfoOffen)tvInfoFokusMalen();}

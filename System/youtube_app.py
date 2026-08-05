@@ -5192,6 +5192,9 @@ class Handler(BaseHTTPRequestHandler):
                 _antwort(self, 200, d)
             else:
                 _antwort(self, 404, {"fehler": "unbekannter Film"})
+        elif self.path.startswith("/api/filme/episoden"):  # Serien: Staffeln + Folgen
+            fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            _antwort(self, 200, {"items": filme.episoden(fid)})
         elif self.path.startswith("/api/filme/mehrwie"):   # TMDB-Empfehlungen ∩ Katalog
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, {"items": filme.mehr_wie(fid)})
@@ -5392,6 +5395,9 @@ class Handler(BaseHTTPRequestHandler):
                      # globale Sprach-Präferenz (Optionen → Wiedergabe-Standard);
                      # film:-Keys haben keine Titel-Ebene, global genügt.
                      "ton": (CFG.get("wiedergabe") or {}).get("ton")}))
+            elif self.path == "/api/filme/merk":       # 🎞 Film-Watchlist an/aus
+                return _antwort(self, 200, {"an": filme.merkliste_toggle(
+                    daten.get("id") or "")})
             elif self.path == "/api/filme/fortschritt":
                 return _antwort(self, 200, {"ok": filme.fortschritt(
                     daten.get("id") or "", daten.get("position_s") or 0,

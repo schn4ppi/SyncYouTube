@@ -244,3 +244,42 @@ def test_token_invalidiert_einmal_neu_anmelden(tmp_path, monkeypatch):
     assert filme.fortschritt("f1", 42) is True, "401 muss geheilt werden, nicht in die Queue"
     assert ablauf.count("AuthenticateByName") == 2, "genau EINE Neu-Anmeldung"
     assert not os.path.exists(filme._pfade["queue"]), "nichts darf in der Queue landen"
+
+
+FAKE_EPS = {"Items": [
+    {"Id": "e2", "Name": "Zweite", "ParentIndexNumber": 1, "IndexNumber": 2,
+     "UserData": {"PlaybackPositionTicks": 3_000_000_000}},
+    {"Id": "e1", "Name": "Pilot", "ParentIndexNumber": 1, "IndexNumber": 1,
+     "RunTimeTicks": 18_000_000_000, "UserData": {"Played": True}},
+    {"Id": "e3", "Name": "Finale", "ParentIndexNumber": 2, "IndexNumber": 1,
+     "UserData": {}},
+]}
+
+
+def test_episoden(tmp_path, monkeypatch):
+    # JB-Go "weiter mit den serien episoden": ein Ruf liefert Staffel/Folge/
+    # Seh-Stand; Sortierung Staffel->Folge (Jellyfin liefert ungeordnet).
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Shows/s1/Episodes", 200, FAKE_EPS)]))
+    eps = filme.episoden("s1")
+    assert [e["id"] for e in eps] == ["e1", "e2", "e3"], "Sortierung Staffel->Folge"
+    assert eps[0]["gesehen"] is True and eps[0]["laufzeit_min"] == 30
+    assert eps[1]["position_s"] == 300 and eps[1]["staffel"] == 1 and eps[1]["folge"] == 2
+    assert filme.episoden("../boese") == [], "Pfad-Ausbruch verboten"
+
+
+def test_merkliste(tmp_path, monkeypatch):
+    # JB-Go "film watchlist": lokale Liste, Toggle, Reihe + gemerkt-Flag.
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, FAKE_ITEMS)]))
+    filme.katalog_abzug()
+    assert filme.merkliste_toggle("f1") is True
+    assert filme.reihen()["merkliste"][0]["id"] == "f1"
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "", "omdb": ""})
+    assert filme.detail("f1")["gemerkt"] is True
+    assert filme.merkliste_toggle("f1") is False, "zweiter Klick nimmt raus"
+    assert filme.reihen()["merkliste"] == []

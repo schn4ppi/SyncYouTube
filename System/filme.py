@@ -37,6 +37,7 @@ def einrichten(daten_dir):
     _pfade["meta"] = os.path.join(daten_dir, "filme_meta_cache.json")
     _pfade["queue"] = os.path.join(daten_dir, "filme_fortschritt_queue.json")
     _pfade["bilder"] = os.path.join(daten_dir, "filme_bilder")
+    _pfade["merk"] = os.path.join(daten_dir, "filme_merkliste.json")
 
 
 # ---------------------------------------------------------------- Zugang/Netz
@@ -335,7 +336,75 @@ def detail(item_id):
             "metacritic": m.get("metacritic") or "",
             "tomatometer": m.get("tomatometer") or "",
             "video_codec": m.get("video_codec") or e.get("video_codec") or "",
-            "audio_codec": m.get("audio_codec") or e.get("audio_codec") or ""}
+            "audio_codec": m.get("audio_codec") or e.get("audio_codec") or "",
+            "gemerkt": item_id in merkliste_lesen()}
+
+
+# ---------------------------------------------------------------- Serien
+
+def episoden(serien_id):
+    """Alle Episoden einer Serie (JB-Go „weiter mit den serien episoden"):
+    EIN Jellyfin-Ruf über /Shows/{id}/Episodes — liefert Staffel-/Folgen-
+    Nummern und den Seh-Stand gleich mit. On demand, kein Cache: der
+    Gesehen-Stand soll frisch sein."""
+    s = _anmelden()
+    z = _zugang()
+    if not (s and z):
+        return []
+    sauber = re.sub(r"[^A-Za-z0-9]", "", serien_id or "")
+    if not sauber:
+        return []
+    url = (f"{z['url']}/Shows/{sauber}/Episodes?userId={s['user_id']}"
+           f"&Fields=RunTimeTicks")
+    try:
+        st, roh = _http(url, kopf={"X-Emby-Token": s["token"]}, timeout=30)
+        if st == 401:                      # Token invalidiert ⇒ einmal frisch
+            _sitzung.clear()
+            s = _anmelden()
+            if not s:
+                return []
+            st, roh = _http(url, kopf={"X-Emby-Token": s["token"]}, timeout=30)
+    except Exception:                      # noqa: BLE001 — Ausfall = leere Liste
+        return []
+    if st != 200:
+        return []
+    out = []
+    for it in json.loads(roh).get("Items") or []:
+        ud = it.get("UserData") or {}
+        ticks = it.get("RunTimeTicks") or 0
+        out.append({"id": it.get("Id") or "", "titel": it.get("Name") or "",
+                    "staffel": it.get("ParentIndexNumber") or 0,
+                    "folge": it.get("IndexNumber") or 0,
+                    "laufzeit_min": round(ticks / 600_000_000) if ticks else None,
+                    "position_s": round((ud.get("PlaybackPositionTicks") or 0) / 10_000_000),
+                    "gesehen": bool(ud.get("Played"))})
+    out.sort(key=lambda e: (e["staffel"], e["folge"]))
+    return out
+
+
+# ---------------------------------------------------------------- Merkliste
+
+def merkliste_lesen():
+    try:
+        with open(_pfade["merk"], encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
+def merkliste_toggle(item_id):
+    """Film-Watchlist (JB-Go): LOKALE Liste — ausfallfest und schnell; ein
+    Jellyfin-Favoriten-Sync wäre ein späterer Kandidat (unbestätigt).
+    Rückgabe: ist der Titel JETZT gemerkt?"""
+    ids = merkliste_lesen()
+    if item_id in ids:
+        ids.remove(item_id)
+        an = False
+    else:
+        ids.append(item_id)
+        an = True
+    fam.json_schreiben(_pfade["merk"], ids)
+    return an
 
 
 # ---------------------------------------------------------------- Reihen
@@ -356,7 +425,11 @@ def reihen():
     genres = {}
     for g, _ in sorted(haeufig.items(), key=lambda kv: kv[1], reverse=True)[:8]:
         genres[g] = [e for e in alle if g in e["genres"]][:15]
-    return {"weiterschauen": weiter, "top": top, "neu": neu, "genres": genres}
+    merk_ids = merkliste_lesen()
+    merk = sorted((e for e in alle if e["id"] in set(merk_ids)),
+                  key=lambda e: merk_ids.index(e["id"]))
+    return {"weiterschauen": weiter, "top": top, "neu": neu, "genres": genres,
+            "merkliste": merk}
 
 
 def mehr_wie(item_id):

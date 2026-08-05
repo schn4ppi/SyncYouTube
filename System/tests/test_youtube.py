@@ -3876,8 +3876,11 @@ def test_tv_hero_und_more_info():
     assert 'id="tv-info"' in quelle and "function tvInfo" in quelle
     i = quelle.index("async function tvInfo")
     block = quelle[i:_funktionsende(quelle, i)]
-    for teil in ("/api/filme/detail", "/api/filme/mehrwie", "Besetzung:",
-                 "Technik:", "Mehr wie das", "tvInfoZu()"):
+    for teil in ("/api/filme/detail", "/api/filme/mehrwie"):
+        assert teil in block, f"Info-Datenquelle {teil} fehlt"
+    i = quelle.index("function tvInfoMalen")            # Renderer (seit Build 181 getrennt)
+    block = quelle[i:_funktionsende(quelle, i)]
+    for teil in ("Besetzung:", "Technik:", "Mehr wie das", "tvInfoZu()"):
         assert teil in block, f"Info-Baustein {teil} fehlt"
     # Netflix-Muster: Enter auf Film-Kachel oeffnet die Info-Seite.
     i = quelle.index("function tvWahl")
@@ -3891,3 +3894,27 @@ def test_tv_hero_und_more_info():
     # Server: mehrwie-Route verkabelt.
     src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
     assert "/api/filme/mehrwie" in src
+
+
+def test_tv_serien_und_watchlist():
+    # JB-Go: "weiter mit den serien episoden und der film watchlist."
+    quelle = _oberflaeche_html()
+    i = quelle.index("function tvInfoMalen")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "data-st=" in block and "data-ep=" in block, "Staffeln/Folgen fehlen"
+    assert "Meine Liste" in block and "✓ Gemerkt" in block, "Merk-Knopf fehlt"
+    assert "tvSerienPlay()" in block, "Serie braucht Weiterschauen-Play"
+    i = quelle.index("function tvSerienPlay")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "position_s>0" in block and "gesehen" in block, \
+        "Weiterschauen-Logik: angefangene vor ungesehener Folge"
+    assert "/api/filme/episoden" in quelle and "function tvStaffel" in quelle
+    assert "function tvMerk" in quelle and "/api/filme/merk" in quelle
+    assert "🎞 Meine Liste" in quelle, "Merkliste-Reihe fehlt (Home/Favoriten)"
+    # Generische Fokus-Zeilen: Knoepfe -> Staffeln -> Folgen -> Mehr-wie.
+    i = quelle.index("function tvInfoEbenen")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for teil in ("data-info", "data-st", "data-ep", "data-mw"):
+        assert teil in block, teil
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert "/api/filme/episoden" in src and "/api/filme/merk" in src
