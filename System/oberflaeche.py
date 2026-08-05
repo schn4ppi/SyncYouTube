@@ -5736,16 +5736,23 @@ function subMenu(ev){
      ['gelb','background:rgba(0,0,0,.82);color:#ffe94a;border-color:#555','gelb (klassisch)'],
      ['kontur','background:transparent;color:#fff;text-shadow:0 0 4px #000,0 1px 2px #000','nur Kontur']]
       .forEach(p=>kn(w,'Aa',subStil.preset===p[0],()=>subStilSetzen('preset',p[0]),p[1],p[2]));
-    // Versatz: fein bis grob (JB: ±0,1 / ±0,5 / ±1 / ±5 s), je Titel gemerkt
+    // Versatz kompakt (JB 05.08.: „dynamischer, weniger Fläche"): ‹ und ›
+    // schieben um die SCHRITTWEITE, der kleine Knopf dazwischen wechselt sie
+    // (0,1 → 0,5 → 1 → 5 s). Je Titel gemerkt.
     w=reihe('Versatz');
-    [-5,-1,-0.5,-0.1].forEach(d=>kn(w,String(d).replace('.',','),false,
-      ()=>subOffsetSchieben(d),'padding:2px 6px','Text kommt später'));
+    const st=String(subSchritt).replace('.',',');
+    kn(w,'‹',false,()=>subOffsetSchieben(-subSchritt),'padding:2px 11px',
+       'Text kommt '+st+' s später');
     const anz=document.createElement('b');
     anz.style.cssText='min-width:46px;text-align:center;color:var(--akz2)';
     anz.textContent=(subOffset>0?'+':'')+subOffset.toFixed(1).replace('.',',')+' s';
     w.appendChild(anz);
-    [0.1,0.5,1,5].forEach(d=>kn(w,'+'+String(d).replace('.',','),false,
-      ()=>subOffsetSchieben(d),'padding:2px 6px','Text kommt früher — je Titel gemerkt'));
+    kn(w,'›',false,()=>subOffsetSchieben(subSchritt),'padding:2px 11px',
+       'Text kommt '+st+' s früher — je Titel gemerkt');
+    kn(w,'± '+st,false,()=>{
+      const stufen=[0.1,0.5,1,5];
+      subSchritt=stufen[(stufen.indexOf(subSchritt)+1)%stufen.length];
+    },'padding:2px 7px;opacity:.8','Schrittweite wechseln: 0,1 → 0,5 → 1 → 5 s');
   };
   fuellen();
   document.body.appendChild(m);
@@ -5878,7 +5885,7 @@ function karLauf(el){
    „der karaoke text ist nicht exakt"): ±0,5-s-Schritte über , und . —
    je Titel ABSOLUT gemerkt (Wiedergabe-Regel sub_offset, Etappe-C-Speicher).
    Positiv = Text kommt früher, negativ = später. */
-let subOffset=0;
+let subOffset=0, subSchritt=0.5;                       // Schrittweite fürs Versatz-Panel
 function subOffsetSchieben(d){
   subOffset=Math.max(-30,Math.min(30,Math.round((subOffset+d)*10)/10));
   toast('💬 Untertitel-Versatz '+(subOffset>0?'+':'')+subOffset.toFixed(1).replace('.',',')+' s'+
@@ -5888,7 +5895,9 @@ function subOffsetSchieben(d){
 }
 function subTick(el){
   if(!subCues||subMode==='aus')return;
-  const t=el.currentTime+(subOffset||0);
+  // Zeit-Quelle je Gerät: Browser = <audio>/<video>, VLC = geschätzte
+  // Status-Zeit (JB-Fund 05.08.: am Gerät VLC kam nie ein Untertitel).
+  const t=(plGeraet==='vlc'?vlcPosGeschaetzt():(el?el.currentTime:0))+(subOffset||0);
   let i=subIdx;
   if(i<0||i>=subCues.length||t<subCues[i].start||t>=subCues[i].ende)
     i=subCues.findIndex(c=>t>=c.start&&t<c.ende);
@@ -6481,7 +6490,24 @@ function renderPlayerVlc(media,x,k){
   });
   if(!vlcTimer)vlcTimer=setInterval(vlcTick,1000);
 }
-let vlcPosLetzte=0, vlcDauerLetzte=0, vlcHeilt=false;
+let vlcPosLetzte=0, vlcDauerLetzte=0, vlcHeilt=false, vlcPosTs=0, vlcSpielt=false;
+function vlcPosGeschaetzt(){
+  // Zwischen zwei Status-Takten weiterzählen — Untertitel/Karaoke laufen
+  // sonst nur im 1-s-Ruck (JB: „untertitel an, aber kommt kein untertitel":
+  // ohne <audio>-Element trieb NICHTS die Anzeige).
+  return vlcPosLetzte+(vlcSpielt?((Date.now()-vlcPosTs)/1000)*(vlcRateLetzte||1):0);
+}
+function vlcKarLauf(){
+  // Karaoke-Wischer im Bildtakt auch am Gerät VLC (Pendant zu karLauf).
+  if(!window.requestAnimationFrame)return;
+  cancelAnimationFrame(karRAF);
+  const schritt=()=>{
+    if(plGeraet!=='vlc'||!vlcSpielt||subMode!=='karaoke'){karRAF=0; return;}
+    subTick(null);
+    karRAF=requestAnimationFrame(schritt);
+  };
+  karRAF=requestAnimationFrame(schritt);
+}
 function vlcNeustart(){
   // ↻ (JB: „Gibt es einen reload knopf wenn etwas abstürzt?"): VLC frisch
   // starten und an der letzten Stelle weiterspielen (3 s Anlauf).
@@ -6496,7 +6522,12 @@ async function vlcTick(){
   const s=await vlcBefehl('status'); if(!s||!s.verfuegbar)return;
   if(s.rate)vlcRateLetzte=s.rate;
   if(s.dauer)vlcDauerLetzte=s.dauer;
-  if(s.zustand==='spielt')vlcPosLetzte=s.pos;
+  vlcSpielt=(s.zustand==='spielt');
+  if(vlcSpielt){vlcPosLetzte=s.pos; vlcPosTs=Date.now();}
+  // Untertitel am Gerät VLC: der Status-Takt treibt die Anzeige (Zeilen/
+  // Transkript); Karaoke bekommt seinen eigenen Bildtakt mit Schätz-Zeit.
+  if(subMode!=='aus'&&subCues)subTick(null);
+  if(subMode==='karaoke'&&vlcSpielt&&!karRAF)vlcKarLauf();
   // Die NORMALE Player-Leiste spiegelt den VLC-Zustand (JB: identische
   // Optik): Play/Pause-Symbol überall, Tempo-Knopf zeigt die echte Rate.
   document.querySelectorAll('[data-tr="pp"]').forEach(b=>{
