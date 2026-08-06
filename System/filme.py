@@ -212,9 +212,12 @@ def sync_faellig(alter_s=6 * 3600):
 
 def bild_holen(item_id, art="Primary"):
     """Bild aus dem Platten-Cache, sonst von Jellyfin holen und ablegen.
-    Dateiname strikt gefiltert — eine Item-Id ist nie ein Pfad."""
+    Dateiname strikt gefiltert — eine Item-Id ist nie ein Pfad, und die
+    Bild-Art nur aus der Jellyfin-Palette (kommt vom Client!)."""
     sauber = re.sub(r"[^A-Za-z0-9]", "", item_id or "")
     if not sauber or sauber != (item_id or ""):
+        return None
+    if art not in ("Primary", "Backdrop", "Thumb", "Logo", "Banner"):
         return None
     pfad = os.path.join(_pfade["bilder"], f"{sauber}_{art}.jpg")
     try:
@@ -521,11 +524,12 @@ def reihen(profil="standard"):
         for g in e["genres"]:
             haeufig[g] = haeufig.get(g, 0) + 1
     # JB 06.08.: „nur <20 actionfilme … bei 4000 filmen?" — ALLE Genres
-    # (häufigste zuerst), je Reihe bis 60 Titel; die Oberfläche blättert
-    # mit Pfeilen wie Netflix statt hart zu deckeln.
+    # (häufigste zuerst), je Reihe bis 100 Titel (Netflix deckelt Reihen
+    # ähnlich und LOOPT am Ende — mehr macht die Antwort nur megabyteschwer,
+    # der GANZE Katalog steht im A–Z-Raster der Tabs).
     genres = {}
     for g, _ in sorted(haeufig.items(), key=lambda kv: kv[1], reverse=True):
-        genres[g] = [e for e in alle if g in e["genres"]][:60]
+        genres[g] = [e for e in alle if g in e["genres"]][:100]
     merk_ids = merkliste_lesen(profil)
     merk = sorted((e for e in alle if e["id"] in set(merk_ids)),
                   key=lambda e: merk_ids.index(e["id"]))

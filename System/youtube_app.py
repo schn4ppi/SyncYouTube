@@ -2473,6 +2473,15 @@ def vlc_kommando(daten):
                     sp.set_rate(max(0.25, min(4.0, float(daten.get("wert") or 1))))
                 except (TypeError, ValueError):
                     pass
+            elif cmd == "standbild":
+                # Pause-Schirm (JB 06.08.: „das pause bild nehmen in dem
+                # moment vom film"): VLC schreibt den Moment als Schnappschuss,
+                # die Oberfläche zeigt ihn hinter dem „Du siehst …"-Text.
+                try:
+                    sp.video_take_snapshot(
+                        0, os.path.join(DATEN_DIR, "vlc_standbild.png"), 0, 0)
+                except Exception:                    # noqa: BLE001 — Kür
+                    pass
             elif cmd == "spuren":
                 # Player-Settings (JB 06.08.: „es fehlen noch settings im
                 # player. Untertitel, playback speed"): Ton-+Untertitel-Spuren
@@ -5332,6 +5341,42 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/filme/mehrwie"):   # TMDB-Empfehlungen ∩ Katalog
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, {"items": filme.mehr_wie(fid)})
+        elif self.path.startswith("/api/vlc_standbild"):
+            try:
+                with open(os.path.join(DATEN_DIR, "vlc_standbild.png"), "rb") as f:
+                    _antwort(self, 200, f.read(), "image/png")
+            except OSError:
+                _antwort(self, 404, {"fehler": "kein Standbild"})
+        elif self.path.startswith("/api/filme/direkt"):
+            # Browser-Player (JB 06.08.: „Ich will wie bei netflix das im
+            # Browser öffnen"): der Server PROXYT den Jellyfin-Strom mit
+            # Range-Durchreichung — der Token bleibt auf diesem PC, der
+            # Client sieht nur diese Adresse.
+            q = parse_qs(urlparse(self.path).query)
+            url = filme.stream_url((q.get("id") or [""])[0])
+            if not url:
+                return _antwort(self, 503, {"fehler": "kein Zugang"})
+            globals()["_letzter_stream"] = time.time()   # Selbst-Neustart wartet
+            kopf = {}
+            if self.headers.get("Range"):
+                kopf["Range"] = self.headers["Range"]
+            try:
+                req = urllib.request.Request(url, headers=kopf)
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    self.send_response(r.status)
+                    for h in ("Content-Type", "Content-Length",
+                              "Content-Range", "Accept-Ranges"):
+                        if r.headers.get(h):
+                            self.send_header(h, r.headers[h])
+                    self.end_headers()
+                    while True:
+                        stueck = r.read(262144)
+                        if not stueck:
+                            break
+                        self.wfile.write(stueck)
+                        globals()["_letzter_stream"] = time.time()
+            except (OSError, ConnectionError):
+                pass                                     # Client weg / Netz — still
         elif self.path.startswith("/api/filme/bild"):
             q = parse_qs(urlparse(self.path).query)
             bild = filme.bild_holen((q.get("id") or [""])[0],

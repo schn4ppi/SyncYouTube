@@ -4185,8 +4185,8 @@ def test_kacheln_16zu9_blaettern_und_reihen_je_tab():
     assert b.count(".slice(0,10)") >= 3 and "genresAls(filt,99)" in b \
         and "genresAls(a=>a,6)" in b, "Top-10-Schnitt je Tab + Genre-Reihen fehlen"
     src = open(os.path.join(MODUL_DIR, "filme.py"), encoding="utf-8").read()
-    assert "[:30]" in src and "[:60]" in src and "[:120]" in src, \
-        "Server: top 30 / Genre 60 / Kandidaten 120"
+    assert "[:30]" in src and "[:100]" in src and "[:120]" in src, \
+        "Server: top 30 / Genre 100 / Kandidaten 120"
 
 
 def test_player_settings_und_huellen_maus():
@@ -4202,7 +4202,7 @@ def test_player_settings_und_huellen_maus():
         assert muss in b, f"Player-Leiste ohne Settings-Knopf: {muss}"
     i = quelle.index("async function tvpPanel")
     b = quelle[i:_funktionsende(quelle, i)]
-    assert "vlcBefehl('spuren')" in b and "[0.5,0.75,1,1.25,1.5]" in b
+    assert "tvpBefehl('spuren')" in b and "[0.5,0.75,1,1.25,1.5]" in b
     assert "function tvpSpur" in quelle.replace("async function", "function") \
         and "function tvpRate" in quelle.replace("async function", "function")
     src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
@@ -4211,6 +4211,49 @@ def test_player_settings_und_huellen_maus():
     hs = open(os.path.join(MODUL_DIR, "huelle.py"), encoding="utf-8").read()
     assert "MouseMove" in hs and "tvpWach" in hs and "MouseDown" in hs, \
         "die Huelle muss Maus-Bewegung/Klick ans Overlay weiterreichen"
+
+
+def test_browser_player_und_bild_kette():
+    # JB 06.08. frueh: (1) "Ich will wie bei netflix das im Browser oeffnen"
+    # -> <video> ueber den Server-Proxy /api/filme/direkt (Token bleibt am
+    # PC, Range durchgereicht), Codec-Weiche browserfaehig/VLC, Fallback bei
+    # error; (2) "Gibt es keine Coverbilder in der 16:9 ansicht?" ->
+    # Bild-Kette Thumb -> Backdrop -> Poster; (3) Reihen loopen am Ende und
+    # zeigen Seiten-Striche; (4) Pause-Schirm zeigt den ECHTEN Film-Moment.
+    quelle = _oberflaeche_html()
+    assert "function filmeBrowserKann" in quelle and "async function filmePlayVlc" in quelle
+    i = quelle.index("async function filmePlay(")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "filmeBrowserKann" in b and "tvpModus='browser'" in b
+    i = quelle.index("async function tvpBefehl")
+    b = quelle[i:_funktionsende(quelle, i)]
+    for muss in ("'toggle'", "'seek'", "'rate'", "playbackRate", "v.paused"):
+        assert muss in b, f"tvpBefehl unvollstaendig: {muss}"
+    i = quelle.index("function tvFilmPlayer")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "/api/filme/direkt?id=" in b and "filmePlayVlc(id,pos)" in b, \
+        "Browser-<video> + Codec-Fallback fehlen"
+    # Bild-Kette an den Kacheln:
+    i = quelle.index("function tvFilmReihe")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "art=Thumb" in b and "art=Backdrop" in b and "bild3" in b
+    # Loop + Striche:
+    i = quelle.index("function tvBlaettern")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "scrollTo" in b and "ende" in b, "Reihe muss am Ende zum Anfang loopen"
+    assert "function tvSeitenMalen" in quelle and ".tv-seiten" in quelle
+    # Pause-Standbild:
+    i = quelle.index("function tvpIdleTick")
+    assert "vlc_standbild" in quelle[i:_funktionsende(quelle, i)]
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    i = src.index('self.path.startswith("/api/filme/direkt")')
+    b = src[i:i + 1600]
+    assert "filme.stream_url" in b and '"Range"' in b and "_letzter_stream" in b, \
+        "Proxy: Token am PC, Range durchreichen, Neustart-Ruhe pflegen"
+    assert '"standbild"' in src and "video_take_snapshot" in src
+    fs = open(os.path.join(MODUL_DIR, "filme.py"), encoding="utf-8").read()
+    assert '("Primary", "Backdrop", "Thumb", "Logo", "Banner")' in fs, \
+        "bild_holen: Art-Whitelist (kommt vom Client)"
 
 
 def test_routen_inventur_und_aussen_gates():
@@ -4241,7 +4284,8 @@ def test_routen_inventur_und_aussen_gates():
             "/api/filme/episoden", "/api/filme/fortschritt", "/api/filme/katalog",
             "/api/filme/mehrwie", "/api/filme/merk", "/api/filme/play",
             "/api/filme/reihen", "/api/filme/snippet", "/api/filme/sync",
-            "/api/filme/wuenschen", "/api/geo_status", "/api/geo_test",
+            "/api/filme/wuenschen", "/api/filme/direkt", "/api/vlc_standbild",
+            "/api/geo_status", "/api/geo_test",
             "/api/geo_wireguard", "/api/geraet_anmelden", "/api/geraet_qr",
             "/api/geraet_status", "/api/importieren", "/api/kanal_info",
             "/api/link_deuten", "/api/live", "/api/lyrics", "/api/pfad_da",
