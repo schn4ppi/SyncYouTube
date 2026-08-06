@@ -4124,16 +4124,58 @@ def test_reihen_blaettern_und_alle_az():
 def test_kachel_zoom_und_monitor_regel():
     # JB-Funde: (1) Vollbild-Fernbedienung verdeckte auf EINEM Monitor das
     # VLC-Bild -> nur bei screen.isExtended selbst fullscreen; (2) Netflix-
-    # Zoom: Fokus-Kachel waechst, Snippet fuellt die GANZE Kachel (Beschnitt
-    # gewollt).
+    # Zoom: Fokus-Kachel waechst leicht, die HOVER-KARTE (siehe eigener
+    # Test) uebernimmt die grosse Ansicht.
     quelle = _oberflaeche_html()
     i = quelle.index("function tvFilmPlayer")
     assert "screen.isExtended" in quelle[i:_funktionsende(quelle, i)], \
         "ein Monitor gehoert dem Film"
     assert "scale(1.3)" in quelle, "Netflix-Zoom fehlt"
-    i = quelle.index("#tv .tv-snip{")
-    assert "object-fit:cover" in quelle[i:i + 220] and "inset:3px" in quelle[i:i + 220], \
-        "Snippet muss die ganze Kachel fuellen"
+
+
+def test_hover_karte_netflix():
+    # JB 06.08. („siehst du den unterschied?", 3 Netflix-Referenzbilder):
+    # das Snippet klebte als Hochkant-Streifen IN der Kachel — jetzt
+    # expandiert eine QUER-Karte: 16:9-Clip (Backdrop-Fallback) oben,
+    # Knopfzeile Play/Liste/Info, Fortschritt „X von Y Min." ODER Meta
+    # (FSK/HD) und Genre-Tags. Fixed positioniert (das Band clippt
+    # vertikal), im Vollbild am fullscreenElement.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function snippetAn")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for muss in ("tv-hoverkarte", "art=Backdrop", "/api/filme/snippet?id=",
+                 "filmePlay(", "tvMerk(", "tvInfo(", "hk-spur", "hk-tags",
+                 "von ${e.dauer} Min.", "fullscreenElement"):
+        assert muss in block, f"Hover-Karte unvollstaendig: {muss}"
+    # Die Kachel-Daten muessen dafuer FSK/Dauer/Position/Genres tragen.
+    i = quelle.index("function tvFilmReihe")
+    b2 = quelle[i:_funktionsende(quelle, i)]
+    assert "fsk:" in b2 and "dauer:" in b2 and "pos:" in b2 and "genres:" in b2
+    # Wandern von der Kachel AUF die Karte darf sie nicht schliessen.
+    i = quelle.index("function snippetVerkabeln")
+    assert ".tv-hoverkarte" in quelle[i:_funktionsende(quelle, i)]
+    assert ".tv-hoverkarte{position:fixed" in quelle, "Karte muss schweben"
+
+
+def test_worker_stirbt_nie_und_eigene_urls_gesperrt():
+    # Fund 06.08. (live): ein gezogenes Cover der EIGENEN Oberflaeche
+    # (http://127.0.0.1:8776/api/cover?...) wurde als Pseudo-Download
+    # eingereiht; die Ausnahme in herunterladen() riss dann den Worker-
+    # Thread mit in den Tod - der Eintrag blieb fuer immer "laeuft" und
+    # blockierte den Selbst-Neustart (der auf Leerlauf wartet).
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+
+    def _py_block(name):
+        i = src.index(name)
+        naechste = [k for k in (src.find("\ndef ", i + 1), src.find("\n    def ", i + 1))
+                    if k > 0]
+        return src[i:min(naechste) if naechste else len(src)]
+    block = _py_block("def worker_schleife")
+    assert "except Exception" in block and '"fehler"' in block, \
+        "der Worker muss Ausnahmen ueberleben und den Eintrag ehrlich melden"
+    block = _py_block("def _add(self")
+    assert "127.0.0.1" in block and "localhost" in block, \
+        "eigene Adressen duerfen nie in die Download-Queue"
 
 
 def test_info_kopf_netflix_fluss():

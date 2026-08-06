@@ -167,9 +167,33 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv .tv-kachel.tv-fokus,#tv .tv-band:not(.wrap) .tv-kachel:hover{transform:scale(1.3);z-index:5}
 #tv .tv-dauer{position:absolute;top:8px;right:8px;z-index:2;font-size:13px;
   color:#fff;background:rgba(12,10,9,.7);border-radius:5px;padding:1px 7px}
-/* … und das Szenen-Snippet füllt die GANZE Kachel (Beschnitt gewollt). */
-#tv .tv-snip{position:absolute;inset:3px;width:calc(100% - 6px);height:calc(100% - 6px);
-  object-fit:cover;border-radius:9px;z-index:1;background:#000}
+/* Hover-Karte (Netflix-Referenzbilder 06.08.): schwebende Quer-Karte über
+   der Kachel — 16:9-Clip oben, Knopfzeile, Fortschritt/Meta, Genre-Tags. */
+.tv-hoverkarte{position:fixed;z-index:80;background:#181310;border-radius:10px;
+  overflow:hidden;box-shadow:0 12px 44px rgba(0,0,0,.85);cursor:pointer;
+  animation:hkAuf .18s ease-out;padding-bottom:12px}
+@keyframes hkAuf{from{transform:scale(.75);opacity:.4}to{transform:scale(1);opacity:1}}
+.tv-hoverkarte .hk-bild{position:relative;aspect-ratio:16/9;background:#000}
+.tv-hoverkarte .hk-bild img,.tv-hoverkarte .tv-snip{position:absolute;inset:0;
+  width:100%;height:100%;object-fit:cover;display:block}
+.tv-hoverkarte .hk-titel{position:absolute;left:12px;bottom:8px;right:12px;z-index:2;
+  font-size:17px;font-weight:700;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.9);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv-hoverkarte .hk-zeile{display:flex;gap:8px;align-items:center;padding:10px 12px 6px}
+.tv-hoverkarte .hk-ib{width:36px;height:36px;border-radius:50%;border:2px solid #6e6259;
+  background:rgba(35,29,25,.9);color:#fff;font-size:16px;cursor:pointer;line-height:1}
+.tv-hoverkarte .hk-ib:hover{border-color:#fff}
+.tv-hoverkarte .hk-play{background:#fff;color:#111;border-color:#fff}
+.tv-hoverkarte .hk-rechts{margin-left:auto}
+.tv-hoverkarte .hk-balken{display:flex;gap:10px;align-items:center;padding:4px 12px 0;
+  font-size:13px;color:#b9aca2}
+.tv-hoverkarte .hk-spur{flex:1;height:4px;border-radius:2px;background:#4a4038}
+.tv-hoverkarte .hk-spur div{height:100%;border-radius:2px;background:#e50914}
+.tv-hoverkarte .hk-meta{display:flex;gap:10px;align-items:center;padding:4px 12px 0;
+  font-size:13px;color:#d7cdc5}
+.tv-hoverkarte .hk-fsk{border:1px solid #8a7d74;padding:0 6px;font-size:12px}
+.tv-hoverkarte .hk-hd{border:1px solid #8a7d74;border-radius:3px;padding:0 4px;font-size:11px}
+.tv-hoverkarte .hk-tags{padding:6px 12px 0;font-size:13px;color:#fff}
 #tv .tv-kachel img{width:100%;height:216px;object-fit:cover;border-radius:9px;
   background:#221c17;display:block}
 #tv .tv-kachel.quer img{height:96px}
@@ -7000,25 +7024,55 @@ function fernsehModus(){
   const o=document.getElementById('optionen'); if(o)o.remove();
   tvOeffnen();
 }
-/* Hover-Szenen-Snippet (JB-Go): nach 800 ms Verweilen läuft ein stummes
-   6-s-Loop-Video (eigener ffmpeg-Bäcker, Szene bei 27 % Laufzeit) über dem
-   Poster — Netflix-Gefühl; 404 heißt „backt gerade", nächstes Mal ist es da. */
+/* Hover-Karte (JB: „siehst du den unterschied?", Netflix-Referenz): nach
+   800 ms Verweilen expandiert die Kachel zur QUER-Karte — 16:9-Snippet
+   (ffmpeg-Bäcker, Fallback Backdrop-Bild) oben, darunter Knopfzeile
+   ▶ / ＋ / ⌄, dann Fortschritt „X von Y min" ODER Meta (FSK · Dauer) und
+   Genre-Tags. Die Karte schwebt FIXED über der Reihe (das Band clippt
+   sonst vertikal) und hängt im Vollbild am fullscreenElement. */
 let snipTimer=null;
 function snippetAn(kachel){
   const fid=kachel&&kachel.dataset&&kachel.dataset.fid; if(!fid)return;
   clearTimeout(snipTimer);
   snipTimer=setTimeout(()=>{
-    if(kachel.querySelector('.tv-snip'))return;
-    const v=document.createElement('video');
-    v.className='tv-snip'; v.muted=true; v.loop=true; v.autoplay=true; v.playsInline=true;
-    v.src='/api/filme/snippet?id='+encodeURIComponent(fid);
-    v.onerror=()=>v.remove();
-    kachel.appendChild(v);
+    if(document.querySelector('.tv-hoverkarte[data-fid="'+CSS.escape(fid)+'"]'))return;
+    document.querySelectorAll('.tv-hoverkarte').forEach(x=>x.remove());
+    const r=+kachel.dataset.r, i=+kachel.dataset.i;
+    const e=((tvReihenListe[r]||[])[1]||[])[i]||{};
+    const kr=kachel.getBoundingClientRect();
+    const w=Math.max(290, kr.width*1.6);
+    const kt=document.createElement('div');
+    kt.className='tv-hoverkarte'; kt.dataset.fid=fid;
+    kt.style.width=w+'px';
+    kt.style.left=Math.max(8, Math.min(innerWidth-w-8, kr.left+kr.width/2-w/2))+'px';
+    kt.style.top=Math.max(8, Math.min(innerHeight-260, kr.top-36))+'px';
+    const dauer=e.dauer?(e.dauer>=60?Math.floor(e.dauer/60)+' Std. '+(e.dauer%60)+' Min.'
+                                    :e.dauer+' Min.'):'';
+    const proz=(e.pos>30&&e.dauer)?Math.min(99,Math.round(e.pos/(e.dauer*60)*100)):0;
+    const fi=encodeURIComponent(fid);
+    kt.innerHTML=
+      `<div class="hk-bild"><img src="/api/filme/bild?id=${fi}&art=Backdrop" `+
+        `onerror="this.onerror=null;this.src='/api/filme/bild?id=${fi}'">`+
+      `<video class="tv-snip" muted loop autoplay playsinline `+
+        `src="/api/filme/snippet?id=${fi}" onerror="this.remove()"></video>`+
+      `<div class="hk-titel">${esc(e.name||'')}</div></div>`+
+      `<div class="hk-zeile">`+
+      `<button class="hk-ib hk-play" onclick="event.stopPropagation();snippetAus();filmePlay('${esc(fid)}',${e.pos||0})" title="Abspielen">▶</button>`+
+      `<button class="hk-ib" onclick="event.stopPropagation();tvMerk('${esc(fid)}')" title="Zur Liste">＋</button>`+
+      `<button class="hk-ib hk-rechts" onclick="event.stopPropagation();snippetAus();tvInfo('${esc(fid)}')" title="Mehr Infos">⌄</button></div>`+
+      (proz?`<div class="hk-balken"><div class="hk-spur"><div style="width:${proz}%"></div></div>`+
+            `<span>${Math.round(e.pos/60)} von ${e.dauer} Min.</span></div>`
+           :`<div class="hk-meta">${(e.fsk?`<span class="hk-fsk">${esc(e.fsk)}</span>`:'')}`+
+            `<span>${esc(dauer)}</span><span class="hk-hd">HD</span></div>`)+
+      ((e.genres&&e.genres.length)?`<div class="hk-tags">${esc(e.genres.slice(0,3).join(' · '))}</div>`:'');
+    kt.onclick=()=>{snippetAus(); tvInfo(fid);};
+    kt.onmouseleave=()=>snippetAus();
+    (document.fullscreenElement||document.body).appendChild(kt);
   },800);
 }
 function snippetAus(){
   clearTimeout(snipTimer);
-  document.querySelectorAll('#tv .tv-snip').forEach(x=>x.remove());
+  document.querySelectorAll('.tv-hoverkarte').forEach(x=>x.remove());
 }
 let _snipVerkabelt=false;
 function snippetVerkabeln(){
@@ -7026,11 +7080,14 @@ function snippetVerkabeln(){
   const inhalt=document.getElementById('tv-inhalt'); if(!inhalt)return;
   inhalt.addEventListener('mouseover',ev=>{
     const k=ev.target.closest&&ev.target.closest('.tv-kachel[data-fid]');
-    if(k&&!k.querySelector('.tv-snip')){snippetAus(); snippetAn(k);}
+    if(k&&!document.querySelector('.tv-hoverkarte[data-fid="'+CSS.escape(k.dataset.fid)+'"]')){
+      snippetAus(); snippetAn(k);}
   });
   inhalt.addEventListener('mouseout',ev=>{
     const k=ev.target.closest&&ev.target.closest('.tv-kachel[data-fid]');
-    if(k&&!k.contains(ev.relatedTarget))snippetAus();
+    const zu=ev.relatedTarget;
+    // Die Karte liegt AUSSERHALB der Kachel — Wandern auf die Karte ist kein Verlassen.
+    if(k&&!k.contains(zu)&&!(zu&&zu.closest&&zu.closest('.tv-hoverkarte')))snippetAus();
   });
 }
 async function tvOeffnen(){
@@ -7233,7 +7290,9 @@ function tvTitelReihe(name,arr){return [name, arr.map(x=>({art:'titel',id:x.id,
   name:x.titel, bild:x.cover_album?('/api/cover?id='+encodeURIComponent(x.id)):(x.thumb||''),
   quer:!x.cover_album}))];}
 function tvFilmReihe(name,arr){return [name, (arr||[]).map(e=>({art:'film',id:e.id,
-  name:e.titel, bild:'/api/filme/bild?id='+encodeURIComponent(e.id)}))];}
+  name:e.titel, bild:'/api/filme/bild?id='+encodeURIComponent(e.id),
+  fsk:e.fsk||'', dauer:e.laufzeit_min||0, pos:e.position_s||0,
+  genres:e.genres||[], typ:e.typ||'film'}))];}
 function tvReihenFuer(){
   const f=tvFilmReihen||{weiterschauen:[],top:[],neu:[],genres:{}};
   const lib=(typeof libdaten!=='undefined'&&libdaten)||[];

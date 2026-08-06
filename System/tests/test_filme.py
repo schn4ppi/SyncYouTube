@@ -174,13 +174,42 @@ def test_reihen(tmp_path, monkeypatch):
         ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
         ("/Items", 200, FAKE_ITEMS)]))
     filme.katalog_abzug()
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {})   # kein TMDB im Test
     r = filme.reihen()
     assert [e["id"] for e in r["weiterschauen"]] == ["f1"]
-    # Top relativiert (JB): Gesehenes fliegt raus - s1 (8.7) ist gesehen,
-    # also fuehrt f1 (7.7, ungesehen); >9.2 = Ein-Stimmen-Artefakt.
+    # Top (JB): Gesehenes fliegt raus - s1 (8.7) ist gesehen, f1 fuehrt.
     assert r["top"][0]["id"] == "f1"
     assert "Science-Fiction" in r["genres"]
     assert r["neu"][0]["id"] == "f1"                 # einziger mit DateCreated
+
+
+def test_top_bayes(tmp_path, monkeypatch):
+    # JB-Go 06.08. („Bei top mach so etwas wie einen bayes score"): Jellyfin
+    # hat keinen Vote-Count, also eicht TMDB - ein Film mit 8000 Stimmen
+    # (8.0) schlaegt das Ein-Stimmen-Artefakt (10.0, keine TMDB-Id), das am
+    # Prior 6.8 haengen bleibt. Beim ZWEITEN Lauf kommt alles aus dem Cache.
+    _einrichten(tmp_path, monkeypatch)
+    items = {"Items": [
+        dict(FAKE_ITEMS["Items"][0],
+             UserData={"PlaybackPositionTicks": 0, "Played": False}),
+        {"Id": "x9", "Name": "Geisterwertung", "Type": "Movie",
+         "CommunityRating": 10.0, "Genres": [], "ProviderIds": {},
+         "ImageTags": {}, "UserData": {"Played": False}},
+    ]}
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, items)]))
+    filme.katalog_abzug()
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "K"})
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("themoviedb.org/3/movie/286217", 200,
+         {"vote_count": 8000, "vote_average": 8.0})]))
+    r = filme.reihen()
+    assert [e["id"] for e in r["top"][:2]] == ["f1", "x9"], \
+        "Bayes muss die belegte 8.0 vor die unbelegte 10.0 setzen"
+    # Zweiter Lauf: KEIN Netz mehr noetig (Stimmen-Cache).
+    monkeypatch.setattr(filme, "_http", _fake_http([]))
+    assert filme.reihen()["top"][0]["id"] == "f1"
 
 
 # ---------------------------------------------------------------- Task 6

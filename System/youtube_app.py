@@ -4878,7 +4878,19 @@ def worker_schleife():
             time.sleep(1)
             continue
         Q.speichern()
-        herunterladen(item)
+        try:
+            herunterladen(item)
+        except Exception as e:                       # noqa: BLE001 — Worker darf NIE sterben
+            # Fund 06.08. (Zombie-„laeuft"): eine unbehandelte Ausnahme riss den
+            # Worker-Thread mit in den Tod — der Eintrag blieb für immer auf
+            # „laeuft" (und blockierte damit auch den Selbst-Neustart, der auf
+            # Leerlauf wartet), und es arbeitete ein Worker weniger. Jetzt wird
+            # der Eintrag ehrlich zum „fehler" und der Worker lebt weiter.
+            with Q.lock:
+                if item.get("status") == "laeuft":
+                    item["status"] = "fehler"
+                    item["fehler"] = _fehltext(e)
+            Q.speichern()
 
 
 _fehler_seit = {}   # item-id -> Zeitpunkt, seit dem der Eintrag „fehler" ist
@@ -5543,6 +5555,11 @@ class Handler(BaseHTTPRequestHandler):
         urls = [u.strip() for u in (daten.get("urls") or "").splitlines() if u.strip()]
         for url in urls:
             if not url.lower().startswith(("http://", "https://")):
+                continue
+            # Fund 06.08.: eine aus der EIGENEN Oberfläche gezogene Grafik
+            # (http://127.0.0.1:8776/api/cover?…) landete als Pseudo-Download
+            # in der Queue und fuhr sich fest. Eigene Adressen sind nie Ziel.
+            if (urlparse(url).hostname or "").lower() in ("127.0.0.1", "localhost"):
                 continue
             threading.Thread(target=aufloesen, args=(url, qualitaet, ganze_liste),
                              kwargs={"limit": limit, "ziel_playlist": ziel_pl,

@@ -467,12 +467,42 @@ def reihen(profil="standard"):
     bei Renés Ausfall steht (Spec „Ausfall-Verhalten")."""
     alle = katalog_lesen()["eintraege"]
     weiter = [e for e in alle if e["position_s"] > 0 and not e["gesehen"]]
-    # Top relativiert (JB: „irgendwelche schlechten filme"): GESEHENES fliegt
-    # raus, und Wertungen über 9.2 sind fast immer Ein-Stimmen-Artefakte
-    # (Jellyfin liefert keinen Vote-Count) — die dämpfen wir weg.
-    top = sorted((e for e in alle
-                  if e.get("rating") and not e["gesehen"] and e["rating"] <= 9.2),
-                 key=lambda e: e["rating"], reverse=True)[:10]
+    # Top als BAYES-SCORE (JB-Go): Jellyfin hat keinen Vote-Count, darum
+    # holen wir TMDB-Stimmen für die Roh-Kandidaten (einmalig gecacht, max 8
+    # neue Abrufe je Lauf — Top wird über wenige Aufrufe komplett geeicht).
+    # score = v/(v+m)*R + m/(v+m)*C  (m=500 Prior-Stimmen, C=6.8 Prior-Note);
+    # ohne Stimmen kommt keiner über den Prior — Ein-Stimmen-★10 sind tot.
+    cache = _meta_cache()
+    stimmen = cache.get("tmdb_stimmen") or {}
+    keys = _meta_keys()
+    kand = sorted((e for e in alle if e.get("rating") and not e["gesehen"]),
+                  key=lambda e: e["rating"], reverse=True)[:60]
+    neu = 0
+    for e in kand:
+        t = e.get("tmdb")
+        if not t or t in stimmen or not keys.get("tmdb") or neu >= 8:
+            continue
+        art = "tv" if e["typ"] == "serie" else "movie"
+        try:
+            st, roh = _http(f"https://api.themoviedb.org/3/{art}/{t}"
+                            f"?api_key={keys['tmdb']}")
+            if st == 200:
+                d2 = json.loads(roh)
+                stimmen[t] = [d2.get("vote_count") or 0, d2.get("vote_average") or 0]
+                neu += 1
+        except Exception:                  # noqa: BLE001 — nächster Lauf holt nach
+            pass
+    if neu:
+        cache["tmdb_stimmen"] = stimmen
+        fam.json_schreiben(_pfade["meta"], cache)
+
+    def _score(e):
+        s = stimmen.get(e.get("tmdb") or "")
+        if s and s[0]:
+            v, r = float(s[0]), float(s[1])
+            return (v / (v + 500.0)) * r + (500.0 / (v + 500.0)) * 6.8
+        return min(float(e["rating"]), 6.8)
+    top = sorted(kand, key=_score, reverse=True)[:10]
     neu = sorted((e for e in alle if e.get("hinzugefuegt")),
                  key=lambda e: e["hinzugefuegt"], reverse=True)[:20]
     haeufig = {}
