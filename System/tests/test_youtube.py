@@ -4213,6 +4213,58 @@ def test_player_settings_und_huellen_maus():
         "die Huelle muss Maus-Bewegung/Klick ans Overlay weiterreichen"
 
 
+def test_routen_inventur_und_aussen_gates():
+    # Nachtprüfung 06.08. (Riegel-Regel "Externe nur mit Zugangsdaten"):
+    # /api/status verriet den Fernsteuerungs-Code, /api/config war von
+    # aussen beschreibbar, /api/biblio loeschte, /api/vlc spielte beliebige
+    # URLs (SSRF). Wurzel-Fix statt Handliste: JEDE /api-Route muss hier
+    # ausdruecklich eingeordnet sein - eine neue Route ohne Eintrag ist rot.
+    import re as _re
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    routen = set(_re.findall(r'self\.path(?: == |\.startswith\()"(/api/[a-z_/.]+)"', src))
+    # frei  = hinter _hat_zugriff (Riegel), kein Zusatz-Gate
+    # lokal = zusaetzlich nur 127.0.0.1 (im Code belegt)
+    # teilw = Route frei, aber gefaehrliche Zweige nur lokal (Stichproben unten)
+    EINORDNUNG = {
+        "/api/status": "teilw", "/api/config": "lokal", "/api/biblio": "teilw",
+        "/api/action": "teilw", "/api/vlc": "teilw", "/api/live/play": "teilw",
+        "/api/beenden": "lokal", "/api/ordner_waehlen": "lokal",
+        "/api/migration_probelauf": "lokal", "/api/umbenennen": "lokal",
+        "/api/geraet_bestaetigen": "lokal", "/api/geraet_entfernen": "lokal",
+        "/api/geraete": "lokal",
+    }
+    FREI = {"/api/abo", "/api/abos", "/api/add", "/api/addon_hab",
+            "/api/addon_hab_liste", "/api/addon_nachschub", "/api/addon_update",
+            "/api/autotag", "/api/biblio_enrich", "/api/bibliothek", "/api/clip",
+            "/api/clip_favorit", "/api/cover", "/api/entdecken",
+            "/api/filme/anfragen", "/api/filme/bild", "/api/filme/detail",
+            "/api/filme/episoden", "/api/filme/fortschritt", "/api/filme/katalog",
+            "/api/filme/mehrwie", "/api/filme/merk", "/api/filme/play",
+            "/api/filme/reihen", "/api/filme/snippet", "/api/filme/sync",
+            "/api/filme/wuenschen", "/api/geo_status", "/api/geo_test",
+            "/api/geo_wireguard", "/api/geraet_anmelden", "/api/geraet_qr",
+            "/api/geraet_status", "/api/importieren", "/api/kanal_info",
+            "/api/link_deuten", "/api/live", "/api/lyrics", "/api/pfad_da",
+            "/api/played", "/api/playlist", "/api/playlist_export",
+            "/api/playlist_import", "/api/playlists", "/api/profil_anlegen",
+            "/api/profile", "/api/remote", "/api/schaetzfaktoren",
+            "/api/transkript_suche", "/api/untertitel", "/api/untertitel_laden",
+            "/api/wiedergabe"}
+    fehlend = sorted(r for r in routen if r not in EINORDNUNG and r not in FREI)
+    assert not fehlend, f"Routen ohne Sicherheits-Einordnung: {fehlend}"
+    # Stichproben: die vier Gates der Nachtpruefung stehen wirklich im Code.
+    i = src.index('elif self.path == "/api/status"')
+    assert "_ist_lokal" in src[i:i + 900], "Status muss nicht-lokal filtern"
+    i = src.index('elif self.path == "/api/config"')
+    assert "_ist_lokal" in src[i:i + 300], "Config nur lokal"
+    i = src.index("def _biblio")
+    assert "_ist_lokal" in src[i:i + 900], "Biblio-Aenderungen nur lokal"
+    i = src.index('if self.path == "/api/vlc"')
+    assert "_ist_lokal" in src[i:i + 500], "VLC-url/fenster nur lokal"
+    i = src.index('elif self.path == "/api/live/play"')
+    assert "live_tv.kanaele()" in src[i:i + 700], "Live-URL nur aus der Kanal-Liste"
+
+
 def test_worker_stirbt_nie_und_eigene_urls_gesperrt():
     # Fund 06.08. (live): ein gezogenes Cover der EIGENEN Oberflaeche
     # (http://127.0.0.1:8776/api/cover?...) wurde als Pseudo-Download

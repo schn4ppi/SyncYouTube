@@ -86,8 +86,14 @@ def _codes_aufraeumen(d):
 
 def geraet_anmelden(name):
     """Schritt 1 (vom NEUEN Gerät): anmelden → 6-stelliger Code, der DORT
-    angezeigt wird. Kein Token, bevor JB am PC freigibt."""
+    angezeigt wird. Kein Token, bevor JB am PC freigibt.
+    Flut-Deckel (Nachtprüfung 06.08.): höchstens 20 unbestätigte Anmeldungen —
+    die älteste fällt raus, verifizierte Geräte bleiben unangetastet."""
     d = _codes_aufraeumen(_lesen())
+    offen = [g for g in d["geraete"] if not g.get("verifiziert")]
+    if len(offen) >= 20:
+        aeltester = min(offen, key=lambda g: g.get("ts", 0))
+        d["geraete"].remove(aeltester)
     g = {"id": uuid.uuid4().hex[:12],
          "name": re.sub(r"[<>&\"']", "", (name or "Gerät"))[:40] or "Gerät",
          "code": uuid.uuid4().hex[:6].upper(),

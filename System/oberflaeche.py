@@ -147,24 +147,29 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
    der roadmap") — 10-Fuß-Regeln der Medienzentrale-Spec: große Schrift,
    Cover-Reihen, reine Pfeil-Navigation mit deutlichem Fokus-Rahmen, dunkles
    Theme, fixe Kopfleiste (Anti-Scroll: nur die Reihen bewegen sich). ---- */
+/* Netflix-Farbwelt NUR im TV-Modus (Nachtprüfung 06.08., JB: „Copycat …
+   Warum ist bei uns alles ähnlich aber nicht gleich?"): neutrales
+   #141414-Schwarz statt der warmen Familien-Brauntöne, EIN Brand-Rot. */
 #tv{position:fixed;inset:0;z-index:900;display:none;flex-direction:column;
-  background:#0c0a09;color:#f2ece5;font-size:22px;overflow:hidden}
+  background:#141414;color:#fff;font-size:22px;overflow:hidden}
 #tv-kopf{display:flex;gap:6px;align-items:center;padding:18px 28px;flex:0 0 auto;
-  background:linear-gradient(#0c0a09 70%,transparent)}
+  background:linear-gradient(#141414 70%,transparent)}
 #tv-kopf .tvtab{font-size:22px;padding:8px 18px;border-radius:999px;background:none;
-  border:2px solid transparent;color:#b9aea4;cursor:pointer;white-space:nowrap}
+  border:2px solid transparent;color:#b3b3b3;cursor:pointer;white-space:nowrap}
 #tv-kopf .tvtab.akt{color:#fff;font-weight:700}
-#tv-kopf .tvtab.tv-fokus,#tv .tv-kachel.tv-fokus{border-color:#e8b04b;outline:none}
+#tv-kopf .tvtab.tv-fokus,#tv .tv-kachel.tv-fokus{border-color:#fff;outline:none}
 #tv-kopf .tvzu{margin-left:auto;font-size:22px;background:none;border:2px solid transparent;
-  border-radius:999px;color:#b9aea4;padding:8px 16px;cursor:pointer}
+  border-radius:999px;color:#b3b3b3;padding:8px 16px;cursor:pointer}
 #tv-inhalt{flex:1;overflow-y:auto;padding:6px 28px 40px}
-#tv .tv-rtitel{font-size:26px;font-weight:700;margin:18px 2px 10px}
-#tv .tv-band{display:flex;gap:14px;overflow-x:auto;padding:6px 2px 10px;scrollbar-width:none}
+#tv .tv-rtitel{font-size:22px;font-weight:600;color:#e5e5e5;margin:18px 2px 10px}
+#tv .tv-band{display:flex;gap:8px;overflow-x:auto;padding:6px 2px 10px;scrollbar-width:none}
 #tv .tv-band.wrap{flex-wrap:wrap;overflow-x:visible}   /* „Alle A–Z"-Raster */
 #tv .tv-kachel{flex:0 0 auto;width:150px;cursor:pointer;border:3px solid transparent;
-  border-radius:12px;padding:3px;position:relative;transition:transform .25s}
-/* Netflix-Zoom (JB-Bild): die fokussierte/gehoverte Kachel tritt hervor … */
-#tv .tv-kachel.tv-fokus,#tv .tv-band:not(.wrap) .tv-kachel:hover{transform:scale(1.3);z-index:5}
+  border-radius:8px;padding:3px;position:relative;transition:transform .25s}
+/* Netflix-Zoom: D-Pad-Fokus tritt DEUTLICH hervor (10-Fuß), Maus-Hover nur
+   sanft — die große Ansicht übernimmt die Hover-Karte. */
+#tv .tv-kachel.tv-fokus{transform:scale(1.3);z-index:5}
+#tv .tv-band:not(.wrap) .tv-kachel:hover{transform:scale(1.06);z-index:5}
 /* Filme/Serien QUER in 16:9 (JB 06.08.: „Das ist immer noch nicht 16:9.
    Warum?" + Netflix-Referenz): Backdrop-Kacheln, sanfter Zoom — die große
    Ansicht übernimmt die Hover-Karte. */
@@ -174,23 +179,23 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 /* Karte offen: Quell-Kachel sofort ohne Zoom (transition aus, sonst misst
    die Karten-Platzierung die noch gezoomte Geometrie). */
 #tv .tv-kachel.hk-quelle{transform:none!important;transition:none!important}
-#tv .tv-kachel .tv-kbalken{height:4px;border-radius:2px;background:#4a4038;margin:5px 8px 0}
+#tv .tv-kachel .tv-kbalken{height:4px;border-radius:2px;background:rgba(255,255,255,.3);margin:5px 8px 0}
 #tv .tv-kachel .tv-kbalken div{height:100%;border-radius:2px;background:#e50914}
 /* Blätter-Pfeile an den Reihen-Enden (JB: „Mit pfeil nach rechts sollte
    doch immer mehr erscheinen") — sichtbar beim Verweilen, wie Netflix. */
 #tv .tv-reihe{position:relative}
-#tv .tv-pfeil{position:absolute;width:46px;top:52px;height:150px;border:none;cursor:pointer;
-  background:rgba(15,12,10,.55);color:#fff;font-size:38px;z-index:6;opacity:0;
-  transition:opacity .2s;border-radius:8px;display:flex;align-items:center;justify-content:center}
+#tv .tv-pfeil{position:absolute;width:46px;top:48px;bottom:36px;border:none;cursor:pointer;
+  background:rgba(20,20,20,.55);color:#fff;font-size:38px;z-index:6;opacity:0;
+  transition:opacity .2s;border-radius:4px;display:flex;align-items:center;justify-content:center}
 #tv .tv-reihe:hover .tv-pfeil{opacity:1}
 #tv .tv-pfeil.links{left:-6px}
 #tv .tv-pfeil.rechts{right:-6px}
-#tv .tv-pfeil:hover{background:rgba(15,12,10,.85)}
+#tv .tv-pfeil:hover{background:rgba(20,20,20,.85)}
 #tv .tv-dauer{position:absolute;top:8px;right:8px;z-index:2;font-size:13px;
   color:#fff;background:rgba(12,10,9,.7);border-radius:5px;padding:1px 7px}
 /* Hover-Karte (Netflix-Referenzbilder 06.08.): schwebende Quer-Karte über
    der Kachel — 16:9-Clip oben, Knopfzeile, Fortschritt/Meta, Genre-Tags. */
-.tv-hoverkarte{position:fixed;z-index:80;background:#181310;border-radius:10px;
+.tv-hoverkarte{position:fixed;z-index:930;background:#181818;border-radius:6px;
   overflow:hidden;box-shadow:0 12px 44px rgba(0,0,0,.85);cursor:pointer;
   animation:hkAuf .18s ease-out;padding-bottom:12px}
 @keyframes hkAuf{from{transform:scale(.75);opacity:.4}to{transform:scale(1);opacity:1}}
@@ -201,22 +206,23 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
   font-size:17px;font-weight:700;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.9);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tv-hoverkarte .hk-zeile{display:flex;gap:8px;align-items:center;padding:10px 12px 6px}
-.tv-hoverkarte .hk-ib{width:36px;height:36px;border-radius:50%;border:2px solid #6e6259;
-  background:rgba(35,29,25,.9);color:#fff;font-size:16px;cursor:pointer;line-height:1}
+.tv-hoverkarte .hk-ib{width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,.5);
+  background:rgba(42,42,42,.9);color:#fff;font-size:16px;cursor:pointer;line-height:1}
 .tv-hoverkarte .hk-ib:hover{border-color:#fff}
+.tv-hoverkarte .hk-ib svg{width:16px;height:16px;fill:currentColor;vertical-align:middle}
 .tv-hoverkarte .hk-play{background:#fff;color:#111;border-color:#fff}
 .tv-hoverkarte .hk-rechts{margin-left:auto}
 .tv-hoverkarte .hk-balken{display:flex;gap:10px;align-items:center;padding:4px 12px 0;
-  font-size:13px;color:#b9aca2}
-.tv-hoverkarte .hk-spur{flex:1;height:4px;border-radius:2px;background:#4a4038}
+  font-size:13px;color:#b3b3b3}
+.tv-hoverkarte .hk-spur{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.3)}
 .tv-hoverkarte .hk-spur div{height:100%;border-radius:2px;background:#e50914}
 .tv-hoverkarte .hk-meta{display:flex;gap:10px;align-items:center;padding:4px 12px 0;
-  font-size:13px;color:#d7cdc5}
-.tv-hoverkarte .hk-fsk{border:1px solid #8a7d74;padding:0 6px;font-size:12px}
-.tv-hoverkarte .hk-hd{border:1px solid #8a7d74;border-radius:3px;padding:0 4px;font-size:11px}
+  font-size:13px;color:#d2d2d2}
+.tv-hoverkarte .hk-fsk{border:1px solid rgba(255,255,255,.4);padding:0 6px;font-size:12px}
+.tv-hoverkarte .hk-hd{border:1px solid rgba(255,255,255,.4);border-radius:3px;padding:0 4px;font-size:11px}
 .tv-hoverkarte .hk-tags{padding:6px 12px 0;font-size:13px;color:#fff}
-#tv .tv-kachel img{width:100%;height:216px;object-fit:cover;border-radius:9px;
-  background:#221c17;display:block}
+#tv .tv-kachel img{width:100%;height:216px;object-fit:cover;border-radius:4px;
+  background:#2a2a2a;display:block}
 #tv .tv-kachel.quer img{height:96px}
 #tv .tv-kachel.quer{width:170px}
 #tv .tv-ktitel{font-size:15px;margin-top:6px;white-space:nowrap;overflow:hidden;
@@ -241,11 +247,11 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-hero .hero-besch{font-size:18px;color:#e6ddd2;max-width:640px;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 #tv-hero .hero-btns{display:flex;gap:12px;margin-top:18px}
-.tv-btn{font-size:22px;padding:10px 26px;border-radius:10px;cursor:pointer;
+.tv-btn{font-size:22px;padding:10px 26px;border-radius:4px;cursor:pointer;
   border:3px solid transparent;background:#f2ece5;color:#171310;font-weight:700}
-.tv-btn.zart{background:rgba(255,255,255,.16);color:#fff}
+.tv-btn.zart{background:rgba(109,109,110,.7);color:#fff}
 .tv-btn.akt{background:rgba(232,176,75,.35)}          /* gewählte Staffel */
-.tv-btn.tv-fokus{border-color:#e8b04b}
+.tv-btn.tv-fokus{border-color:#fff}
 /* Film-Player (Build 188, Netflix-Layout nach JBs Bildern): Leiste unten
    über volle Breite, ← oben links; Inaktivität blendet aus; Pause-Idle. */
 #tv-player{position:fixed;inset:0;z-index:970;display:none;background:#0c0a09;color:#f2ece5}
@@ -265,7 +271,8 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tvp-panel .tvpp-reihe .tvpp-knopf{display:inline-block}
 #tvp-panel .tvpp-knopf:hover{background:#333}
 #tvp-panel .tvpp-knopf.an{color:#fff;font-weight:700}
-#tvp-panel .tvpp-leer{color:#8a7d74;font-size:14px}
+#tvp-panel .tvpp-knopf.tv-fokus{background:#333;box-shadow:inset 0 0 0 2px #fff}
+#tvp-panel .tvpp-leer{color:#8a8a8a;font-size:14px}
 #tv-player .tvp-zurueck{position:absolute;top:22px;left:26px;font-size:34px;background:none;
   border:none;color:#fff;cursor:pointer;transition:opacity .5s}
 #tv-player .tvp-unten{position:absolute;left:0;right:0;bottom:0;padding:14px 30px 20px;
@@ -273,7 +280,7 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-player .tvp-balkenzeile{display:flex;align-items:center;gap:16px;margin-bottom:10px}
 #tv-player .tvp-balkenwrap{flex:1;padding:10px 0;cursor:pointer}
 #tv-player .tvp-balken{height:5px;background:rgba(255,255,255,.28);border-radius:3px;overflow:hidden}
-#tv-player .tvp-balken div{height:100%;width:0;background:#e5484d}
+#tv-player .tvp-balken div{height:100%;width:0;background:#e50914}
 #tv-player .tvp-zeit{font-size:16px;color:#fff;white-space:nowrap}
 #tv-player .tvp-reihe{display:flex;align-items:center;gap:16px}
 #tv-player .tvp-ib{background:none;border:none;color:#fff;font-size:26px;cursor:pointer;
@@ -286,7 +293,7 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-player .tvp-lade{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);
   display:flex;flex-direction:column;align-items:center;gap:14px;color:#d8cec4;font-size:18px}
 #tv-player .tvp-spin{width:54px;height:54px;border-radius:50%;border:5px solid rgba(255,255,255,.2);
-  border-top-color:#e5484d;animation:tvpdreh 1s linear infinite}
+  border-top-color:#e50914;animation:tvpdreh 1s linear infinite}
 @keyframes tvpdreh{to{transform:rotate(360deg)}}
 #tv-player .tvp-idle{position:absolute;left:6vw;top:30vh;max-width:640px;display:none;
   flex-direction:column;gap:10px}
@@ -349,7 +356,7 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-info .info-punkt{margin:0 10px;color:#6b6058}
 #tv-info .info-progresswrap{display:flex;align-items:center;gap:12px;max-width:520px;margin:10px 0 2px}
 #tv-info .info-progress{flex:1;height:5px;background:#3a322b;border-radius:3px;overflow:hidden}
-#tv-info .info-progress div{height:100%;background:#e5484d}
+#tv-info .info-progress div{height:100%;background:#e50914}
 #tv-info .info-rest{font-size:15px;color:#b9aea4;white-space:nowrap}
 #tv-info .info-tagline{font-style:italic;color:#b9aea4;margin:6px 0;font-size:18px}
 #tv-info .info-ueber{margin-top:26px;padding-top:8px;border-top:1px solid #2a241f;color:#b9aea4}
@@ -3818,7 +3825,9 @@ let tvpTimer=null, tvpPos=0, tvpDauer=0, tvpOffen=false, tvpLief=false, tvpTicks
 let tvpMeta=null, tvpAktiv=0;                          // Idle-Uhr (Netflix-Auto-Hide)
 function tvFilmPlayer(id,titel,pos){
   tvpOffen=true; tvpPos=pos||0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
-  tvpMeta=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)?tvInfoDaten.d:{titel:titel||''};
+  tvpMeta=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)?tvInfoDaten.d
+         :(typeof tvHeroDaten!=='undefined'&&tvHeroDaten&&tvHeroDaten.id===id)?tvHeroDaten
+         :{titel:titel||''};                           // Hero-Start: Meta trotzdem da
   let el=document.getElementById('tv-player');
   if(!el){el=document.createElement('div'); el.id='tv-player';}
   (document.fullscreenElement||document.body).appendChild(el);
@@ -3841,9 +3850,10 @@ function tvFilmPlayer(id,titel,pos){
           `<span class="pl-bvolwrap" style="color:#fff">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value);vlcBefehl('vol',{wert:plVol})"></span>`+
           `<div class="tvp-mtitel">${esc(tvpMeta.titel||'')}</div>`+
           `<span class="tvp-rechts">`+
-            `<button class="tvp-ib" onclick="tvpPanel('spuren')" title="Ton & Untertitel">💬</button>`+
-            `<button class="tvp-ib" onclick="tvpPanel('tempo')" title="Wiedergabetempo">⏲</button>`+
-            `<button class="tvp-ib" onclick="tvpVollbild()" title="Vollbild an/aus">⛶</button>`+
+            `<button class="tvp-ib" onclick="tvpPanel('spuren')" title="Ton & Untertitel">${ico('sub')}</button>`+
+            `<button class="tvp-ib" onclick="tvpPanel('tempo')" title="Wiedergabetempo">${ico('speed')}</button>`+
+            `<button class="tvp-ib" onclick="tvpVollbild()" title="Vollbild an/aus">${ico('full')}</button>`+
+            `<button class="tvp-ib" onclick="filmStopp()" title="Beenden (Esc)">${ico('kreuz')}</button>`+
           `</span>`+
         `</div>`+
       `</div>`+
@@ -3875,10 +3885,14 @@ function tvpWach(){
 }
 /* Player-Settings (JB 06.08.: „es fehlen noch settings im player. Untertitel,
    playback speed, Vollbild") — Panels im Netflix-Stil über der Leiste. */
-let tvpRateWert=1;
+let tvpRateWert=1, tvppFokus=0;
+function tvppFokusMalen(kn){
+  kn.forEach((k,i)=>k.classList.toggle('tv-fokus',i===tvppFokus));
+  const z=kn[tvppFokus]; if(z&&z.scrollIntoView)z.scrollIntoView({block:'nearest'});
+}
 async function tvpPanel(art){
   const p=document.getElementById('tvp-panel'); if(!p)return;
-  tvpWach();
+  tvpWach(); tvppFokus=0;
   if(p.dataset.art===art&&p.style.display!=='none'){p.style.display='none'; return;}
   p.dataset.art=art;
   if(art==='tempo'){
@@ -3888,6 +3902,9 @@ async function tvpPanel(art){
   }else{
     p.innerHTML='<div class="tvpp-titel">Lädt …</div>'; p.style.display='block';
     let s={}; try{s=await vlcBefehl('spuren')||{};}catch(e){}
+    // Race (Nachtprüfung): wurde das Panel während des Ladens geschlossen
+    // oder umgeschaltet, das späte Ergebnis NICHT mehr malen.
+    if(p.dataset.art!=='spuren'||p.style.display==='none')return;
     tvpRateWert=s.rate||tvpRateWert;
     const li=(arr,aktiv,art2)=>(arr||[]).filter(t=>art2==='sub'||t.id>=0).map(t=>
       `<button class="tvpp-knopf${t.id===aktiv?' an':''}" onclick="tvpSpur('${art2}',${t.id})">`+
@@ -3962,13 +3979,25 @@ async function tvpTick(){
   const pp=document.getElementById('tvp-pp'); if(pp)pp.innerHTML=ico(s.zustand==='spielt'?'pause':'play');
   // In der PROGRAMM-HÜLLE ist die Bedienung IM Player (JB): das eingebettete
   // VLC-Bild bekommt die Fläche BIS zur Leisten-Oberkante gemeldet.
+  // Nachtprüfung 06.08.: das NATIVE Panel verdeckte Settings-Panel,
+  // Lade-Spinner und Pause-Schirm — darum: Fläche endet auch an der
+  // Panel-Oberkante, und solange Spinner/Pause-Schirm sichtbar sind,
+  // wird das Panel ganz versteckt (der Browser zeigt Backdrop + Overlay).
   const api=window.pywebview&&window.pywebview.api;
   if(api&&api.video_rect){
     const u=document.querySelector('#tv-player .tvp-unten');
     const dpr=window.devicePixelRatio||1;
-    const bis=(u&&!document.getElementById('tv-player').classList.contains('idle'))
+    const el2=document.getElementById('tv-player');
+    let bis=(u&&!el2.classList.contains('idle'))
       ?u.getBoundingClientRect().top:window.innerHeight;
-    try{api.video_rect(0,0,Math.round(innerWidth*dpr),Math.round(bis*dpr),true);}catch(e){}
+    const pan=document.getElementById('tvp-panel');
+    if(pan&&pan.style.display!=='none')
+      bis=Math.min(bis,pan.getBoundingClientRect().top);
+    const idle2=document.getElementById('tvp-idle');
+    const spinner=lade&&lade.style.display!=='none';
+    const pauseSchirm=idle2&&idle2.style.display!=='none';
+    if(spinner||pauseSchirm){try{api.video_rect(0,0,0,0,false);}catch(e){}}
+    else{try{api.video_rect(0,0,Math.round(innerWidth*dpr),Math.round(bis*dpr),true);}catch(e){}}
   }
   const f=document.getElementById('tvp-fuell');
   if(f&&tvpDauer)f.style.width=Math.min(100,tvpPos/tvpDauer*100)+'%';
@@ -4837,6 +4866,15 @@ const ICONS={
   // Blau. Jetzt gefüllte SVG-Dreiecke wie play/prev/next, also dieselbe
   // Form-Sprache und dieselbe Farbe wie der Rest der Leiste.
   back:'M11 12 19 6.5v11L11 12zm-8 0 8-5.5v11L3 12z',
+  // Netflix-Parität (Nachtprüfung 06.08.): monochrome Flat-SVGs statt Emoji
+  // an Karte + Player-Settings — Emoji bringen eigene Farben/Formen mit.
+  plus:'M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z',
+  chevron:'M12 15.5 4.5 8l1.4-1.4L12 12.7l6.1-6.1L19.5 8z',
+  info2:'M11 10h2v7h-2zm0-3h2v2h-2zM12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z',
+  sub:'M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm2 8h6v2H6zm8 0h4v2h-4zM6 15h3v2H6zm5 0h7v2h-7z',
+  speed:'M12 4a9 9 0 0 0-9 9 8.9 8.9 0 0 0 1.2 4.5l1.7-1A7 7 0 1 1 19 13a7 7 0 0 1-.9 3.4l1.7 1A9 9 0 0 0 12 4zm-1 9a1.5 1.5 0 0 0 2.4 1.2l4.2-3.2-5-1.4A1.5 1.5 0 0 0 11 13z',
+  full:'M4 4h6v2H6v4H4V4zm10 0h6v6h-2V6h-4V4zM4 14h2v4h4v2H4v-6zm14 0h2v6h-6v-2h4v-4z',
+  kreuz:'m6 5 6 6 6-6 1.4 1.4L13.4 12l6 6L18 19.4l-6-6-6 6L4.6 18l6-6-6-6z',
   fwd:'M13 12 5 17.5v-11L13 12zm8 0-8 5.5v-11L21 12z'};
 const ICONS_VOLL={
   // 10-Sekunden-Kreispfeile (JB 05.08., Bild): unmissverständlich ±10 s —
@@ -7118,8 +7156,12 @@ function snippetAn(kachel){
   const fid=kachel&&kachel.dataset&&kachel.dataset.fid; if(!fid)return;
   clearTimeout(snipTimer);
   snipTimer=setTimeout(()=>{
+    // Nachtprüfung 06.08.: Timer traf eine ABGEHÄNGTE Kachel (Reihe neu
+    // gemalt) oder feuerte, während die Info-Seite schon offen war —
+    // die Karte hing dann hinter der Info bzw. das Sync-Intervall verwaiste.
+    if(tvInfoOffen||!kachel.isConnected)return;
     if(document.querySelector('.tv-hoverkarte[data-fid="'+CSS.escape(fid)+'"]'))return;
-    document.querySelectorAll('.tv-hoverkarte').forEach(x=>x.remove());
+    snippetAus();
     const r=+kachel.dataset.r, i=+kachel.dataset.i;
     const e=((tvReihenListe[r]||[])[1]||[])[i]||{};
     // JB 06.08. („Man sieht noch … im hintergrund. Das soll das alte fenster
@@ -7144,9 +7186,9 @@ function snippetAn(kachel){
         `src="/api/filme/snippet?id=${fi}" onerror="this.remove()"></video>`+
       `<div class="hk-titel">${esc(e.name||'')}</div></div>`+
       `<div class="hk-zeile">`+
-      `<button class="hk-ib hk-play" onclick="event.stopPropagation();snippetAus();filmePlay('${esc(fid)}',${e.pos||0})" title="Abspielen">▶</button>`+
-      `<button class="hk-ib" onclick="event.stopPropagation();tvMerk('${esc(fid)}')" title="Zur Liste">＋</button>`+
-      `<button class="hk-ib hk-rechts" onclick="event.stopPropagation();snippetAus();tvInfo('${esc(fid)}')" title="Mehr Infos">⌄</button></div>`+
+      `<button class="hk-ib hk-play" onclick="event.stopPropagation();snippetAus();filmePlay('${esc(fid)}',${e.pos||0})" title="Abspielen">${ico('play')}</button>`+
+      `<button class="hk-ib" onclick="event.stopPropagation();tvMerk('${esc(fid)}')" title="Zur Liste">${ico('plus')}</button>`+
+      `<button class="hk-ib hk-rechts" onclick="event.stopPropagation();snippetAus();tvInfo('${esc(fid)}')" title="Mehr Infos">${ico('chevron')}</button></div>`+
       (proz?`<div class="hk-balken"><div class="hk-spur"><div style="width:${proz}%"></div></div>`+
             `<span>${Math.round(e.pos/60)} von ${e.dauer} Min.</span></div>`
            :`<div class="hk-meta">${(e.fsk?`<span class="hk-fsk">${esc(e.fsk)}</span>`:'')}`+
@@ -7166,9 +7208,9 @@ function snippetAn(kachel){
       kt.style.left=Math.max(8, Math.min(innerWidth-w-8, kr.left+kr.width/2-w/2))+'px';
       kt.style.top=Math.max(8, Math.min(innerHeight-h-8, kr.top+kr.height/2-h/2))+'px';
     };
+    kt._sync=setInterval(setzen,120);                  // VOR setzen() — sonst Waise
     setzen();
-    kt._sync=setInterval(setzen,120);
-  },800);
+  },450);                                              // Netflix reagiert nach ~450 ms
 }
 function snippetAus(){
   clearTimeout(snipTimer);
@@ -7208,6 +7250,8 @@ async function tvOeffnen(){
 }
 function tvZu(){
   const tv=document.getElementById('tv'); if(!tv)return;
+  snippetAus();                                        // Karte + Sync-Takt abräumen
+  tvInfoStapel=[];                                     // sonst öffnet tvInfoZu wieder
   if(typeof tvInfoZu==='function')tvInfoZu();          // Info-Seite räumt mit ab
   tv.style.display='none';
   document.removeEventListener('keydown',tvKey,true);
@@ -7360,7 +7404,8 @@ function tvDlgFokusMalen(){
   const zeile=tvDlgFokus.r===1
     ?document.querySelectorAll('#tv-dialog .emo')
     :document.querySelectorAll('#tv-dialog [data-dlg]');
-  const z=zeile[Math.max(0,Math.min(zeile.length-1,tvDlgFokus.i))];
+  tvDlgFokus.i=Math.max(0,Math.min(zeile.length-1,tvDlgFokus.i));   // Klemme zurückschreiben
+  const z=zeile[tvDlgFokus.i];
   if(!z)return;
   if(document.activeElement&&document.activeElement.id==='tv-dlg-name')document.activeElement.blur();
   z.classList.add('tv-fokus'); z.scrollIntoView({block:'nearest'});
@@ -7522,12 +7567,18 @@ function tvMalen(){
         (e.bild?`<img loading="lazy" src="${e.bild}"${fb}>`:'<img>')+balken+
         `<div class="tv-ktitel">${esc(e.name)}</div></div>`;}).join('')+`</div>${pfeile}</div>`;}).join('');
   }
-  const s=document.getElementById('tv-suche'); if(s&&tvTab==='suche'){const v=s.value; s.focus(); s.value=''; s.value=v;}
+  const s=document.getElementById('tv-suche');
+  if(s&&tvTab==='suche'){const v=s.value; s.focus(); s.value=''; s.value=v;
+    tvFokus={r:-1,i:Math.max(0,TV_TABS.findIndex(t=>t[0]===tvTab))};}   // Fokus gehört dem Feld
   if(tvTab==='home')tvHeroMalen();                     // Billboard lädt asynchron nach
   tvFokusMalen();
 }
 function tvFokusMalen(){
   document.querySelectorAll('#tv .tv-fokus').forEach(x=>x.classList.remove('tv-fokus'));
+  // Suchfeld loslassen, sobald der Fokus in den Reihen ist (Fokus-Falle).
+  const feld=document.getElementById('tv-suche');
+  if(feld&&tvFokus.r>=0&&document.activeElement===feld)feld.blur();
+  if(tvFokus.r<0)snippetAus();                         // Kopf/Hero: keine Karte
   if(tvFokus.r===-2){                                  // Hero-Billboard-Knöpfe
     const b=document.querySelector(`#tv-hero [data-hero="${Math.max(0,Math.min(1,tvFokus.i))}"]`);
     if(b){b.classList.add('tv-fokus'); b.scrollIntoView({block:'nearest',inline:'nearest'});}
@@ -7568,6 +7619,7 @@ function tvBlaettern(btn,dir){
   if(band)band.scrollBy({left:dir*band.clientWidth*0.85,behavior:'smooth'});
 }
 function tvWahl(r,i){
+  snippetAus();                                        // Karte nie hinter Info/Player
   const e=(tvReihenListe[r]||[])[1]&&tvReihenListe[r][1][i]; if(!e)return;
   if(e.art==='live'){tvLivePlay(e); return;}           // 📡 Kanal (JB-Go)
   if(e.art==='seerr'){                                 // Wunsch-Kachel (Teilprojekt 4)
@@ -7580,7 +7632,8 @@ function tvWahl(r,i){
 }
 /* ---- Hero-Billboard + More-Info (JB-Go: „weiter mit dem tv feinschliff,
    hero und more-info seite") ---------------------------------------------- */
-let tvHeroId='', tvInfoOffen=false, tvInfoFokus={r:0,i:0}, tvInfoMehr=[], tvInfoId='';
+let tvHeroId='', tvHeroDaten=null, tvInfoOffen=false, tvInfoFokus={r:0,i:0}, tvInfoMehr=[], tvInfoId='';
+let tvInfoStapel=[];                                   // „Mehr wie das"-Rückweg (Netflix)
 function tvMetaZeile(d){
   const teile=[];
   if(d.jahr)teile.push(d.jahr);
@@ -7600,6 +7653,7 @@ async function tvHeroMalen(){
   tvHeroId=kand.id;
   let d=kand;
   try{d=await (await fetch('/api/filme/detail?id='+encodeURIComponent(kand.id))).json();}catch(e){}
+  tvHeroDaten=d;                                       // Meta für den Player (Hero-Direktstart)
   if(!document.getElementById('tv-hero'))return;       // Tab inzwischen gewechselt
   box.innerHTML=
     `<img class="hero-bg" src="/api/filme/bild?id=${encodeURIComponent(kand.id)}&art=Backdrop" `+
@@ -7616,6 +7670,9 @@ async function tvHeroMalen(){
 }
 let tvInfoDaten=null, tvInfoStaffel=0;                 // {d, mw, eps} der offenen Info
 async function tvInfo(id){
+  // „Mehr wie das"-Rückweg: der vorige Film kommt auf den Stapel — Esc
+  // führt erst zu IHM zurück, dann erst ganz raus (Netflix-Verhalten).
+  if(tvInfoOffen&&tvInfoId&&tvInfoId!==id)tvInfoStapel.push(tvInfoId);
   tvInfoId=id; tvInfoOffen=true; tvInfoFokus={r:0,i:0}; tvInfoDaten=null; tvInfoStaffel=0;
   // Die Detailseite gibt es auch OHNE TV-Modus (JB 05.08.: Klick im
   // 🎬-Fenster öffnet sie) — dann übernimmt tvKey nur für sie.
@@ -7751,6 +7808,7 @@ function tvInfoMalen(){
   tvInfoFokusMalen();
 }
 function tvInfoZu(){
+  if(tvInfoStapel.length){tvInfo(tvInfoStapel.pop()); return;}   // erst zurückblättern
   tvInfoOffen=false; tvInfoDaten=null;
   const el=document.getElementById('tv-info'); if(el){el.style.display='none'; el.innerHTML='';}
   const tv=document.getElementById('tv');              // ohne TV: Tasten wieder frei
@@ -7786,12 +7844,27 @@ function tvKey(ev){
   if(tvpOffen){
     let getan=true;
     tvpWach();                                         // jede Taste weckt die Leiste
+    const pan=document.getElementById('tvp-panel');
+    if(pan&&pan.style.display!=='none'){
+      // Offenes Settings-Panel (Nachtprüfung 06.08.: Esc beendete den GANZEN
+      // Film, Pfeile seekten blind weiter): Pfeile wandern durch die Knöpfe,
+      // Enter wählt, Esc schließt NUR das Panel.
+      const kn=[...pan.querySelectorAll('.tvpp-knopf')];
+      if(ev.key==='Escape'||ev.key==='Backspace')pan.style.display='none';
+      else if(ev.key==='ArrowDown'||ev.key==='ArrowRight'){tvppFokus=Math.min(kn.length-1,tvppFokus+1); tvppFokusMalen(kn);}
+      else if(ev.key==='ArrowUp'||ev.key==='ArrowLeft'){tvppFokus=Math.max(0,tvppFokus-1); tvppFokusMalen(kn);}
+      else if(ev.key==='Enter'){const z=kn[Math.max(0,Math.min(kn.length-1,tvppFokus))]; if(z)z.click();}
+      else getan=false;
+      if(getan){ev.preventDefault(); ev.stopPropagation();}
+      return;
+    }
     if(ev.key==='Escape')filmStopp();
     else if(ev.key===' '||ev.key==='Enter'){vlcBefehl('toggle'); setTimeout(tvpTick,300);}
     else if(ev.key==='ArrowLeft')tvpRel(-10);
     else if(ev.key==='ArrowRight')tvpRel(10);
     else if(ev.key==='ArrowUp'){plbVol(Math.min(100,plVol+5)); vlcBefehl('vol',{wert:plVol});}
     else if(ev.key==='ArrowDown'){plbVol(Math.max(0,plVol-5)); vlcBefehl('vol',{wert:plVol});}
+    else if(ev.key==='s'||ev.key==='S')tvpPanel('spuren');   // Sofa-Weg zu den Settings
     else getan=false;
     if(getan){ev.preventDefault(); ev.stopPropagation();}
     return;
@@ -7849,8 +7922,13 @@ function tvKey(ev){
     return;
   }
   if(ev.target&&ev.target.id==='tv-suche'){
+    // Nachtprüfung 06.08. („Fokus-Falle"): das Feld hielt den DOM-Fokus für
+    // immer — Enter suchte statt zu öffnen, Ergebnisse waren per D-Pad
+    // unerreichbar. Jetzt: Pfeil runter/hoch VERLÄSST das Feld (blur),
+    // danach navigiert das D-Pad normal und Enter öffnet die Kachel.
     if(ev.key==='Enter'){ev.preventDefault(); ev.stopPropagation(); tvSeerrSuche(); return;}
-    if(!['Escape','ArrowDown','ArrowUp'].includes(ev.key))return;
+    if(['ArrowDown','ArrowUp','Escape'].includes(ev.key))ev.target.blur();
+    else return;                                       // tippen lassen
   }
   const tabs=TV_TABS.length;
   const reihe=()=> (tvReihenListe[tvFokus.r]||[[],[]])[1]||[];

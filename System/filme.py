@@ -360,8 +360,11 @@ def detail(item_id, profil="standard"):
                                 m["sub_sprachen"].append(sp)
             except Exception:              # noqa: BLE001 — Technik ist Kür
                 pass
-        cache[item_id] = m
-        fam.json_schreiben(_pfade["meta"], cache)
+        # Zwei-Fragen-Regel (Nachtprüfung 06.08.): mehrere Server-Threads
+        # schreiben den Meta-Cache — json_aendern mischt NUR den eigenen
+        # Schlüssel ein, statt fremde frische Einträge zu überschreiben.
+        fam.json_aendern(_pfade["meta"],
+                         lambda d: d.__setitem__(item_id, m), standard={})
     return {**e, "beschreibung": m.get("beschreibung") or "",
             "cast": m.get("cast") or [],
             "empfehlungen_tmdb": m.get("empfehlungen_tmdb") or [],
@@ -496,8 +499,11 @@ def reihen(profil="standard"):
         except Exception:                  # noqa: BLE001 — nächster Lauf holt nach
             pass
     if neu:
-        cache["tmdb_stimmen"] = stimmen
-        fam.json_schreiben(_pfade["meta"], cache)
+        def _mischen(d):
+            alt = d.get("tmdb_stimmen") or {}
+            alt.update(stimmen)
+            d["tmdb_stimmen"] = alt
+        fam.json_aendern(_pfade["meta"], _mischen, standard={})
 
     def _score(e):
         s = stimmen.get(e.get("tmdb") or "")
@@ -744,8 +750,11 @@ def seerr_meine(n=20):
                     "id": (e or {}).get("id") or "",
                     "status": SEERR_STATUS.get(m.get("status") or 0, "kommt")})
     if neu:
-        cache["tmdb_titel"] = tt
-        fam.json_schreiben(_pfade["meta"], cache)
+        def _mischen(d):
+            alt = d.get("tmdb_titel") or {}
+            alt.update(tt)
+            d["tmdb_titel"] = alt
+        fam.json_aendern(_pfade["meta"], _mischen, standard={})
     return out
 
 

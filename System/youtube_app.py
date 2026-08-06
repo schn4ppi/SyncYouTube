@@ -2491,8 +2491,13 @@ def vlc_kommando(daten):
                         "sub_aktiv": sp.video_get_spu(),
                         "rate": round(sp.get_rate() or 1.0, 2)}
             elif cmd == "spur":
-                sid = int(daten.get("id") if daten.get("id") is not None else -1)
-                if daten.get("art") == "sub":
+                try:
+                    sid = int(daten.get("id") if daten.get("id") is not None else -1)
+                except (TypeError, ValueError):
+                    sid = None                       # Müll still ignorieren —
+                if sid is None:                      # nie in den Reset-Pfad fallen
+                    pass
+                elif daten.get("art") == "sub":
                     sp.video_set_spu(sid)            # -1 = Untertitel aus
                 elif sid >= 0:
                     sp.audio_set_track(sid)          # Ton nie auf 'Disable'
@@ -5199,14 +5204,26 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             _antwort(self, 200, oberflaeche.HTML.encode("utf-8"), "text/html")
         elif self.path == "/api/status":
+            # Nachtprüfung 06.08. (Riegel-Regel „Externe nur mit Zugangsdaten"):
+            # der volle Status verriet aus dem LAN den Fernsteuerungs-Code
+            # (Widerruf damit wirkungslos) und die ganze Config (Pfade,
+            # Proxys). Nicht-lokal bekommt nur, was die Handy-UI braucht.
             with Q.lock:
-                _antwort(self, 200, {"items": Q.items, "config": CFG,
-                                     "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_pfad()),
-                                     "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
-                                     "remote": _remote, "fernsteuerung": fernsteuerung_info(),
-                                     "addon_nachschub": _addon_nachschub,
-                                     "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
-                                     "jetzt": time.time()})
+                if self._ist_lokal():
+                    _antwort(self, 200, {"items": Q.items, "config": CFG,
+                                         "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_pfad()),
+                                         "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
+                                         "remote": _remote, "fernsteuerung": fernsteuerung_info(),
+                                         "addon_nachschub": _addon_nachschub,
+                                         "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
+                                         "jetzt": time.time()})
+                else:
+                    harmlos = {k: CFG.get(k) for k in
+                               ("standard_qualitaet", "unterordner", "metadaten",
+                                "untertitel", "parallel")}
+                    _antwort(self, 200, {"items": Q.items, "config": harmlos,
+                                         "ffmpeg": bool(_ffmpeg_pfad()),
+                                         "db": db_statistik(), "jetzt": time.time()})
         elif self.path == "/addon.xpi":
             # Signierte Firefox-Erweiterung direkt aus der App installieren —
             # richtiger MIME-Typ, damit Firefox den Installations-Dialog zeigt.
@@ -5429,6 +5446,10 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/remote":            # Befehl vom Handy an den PC-Player
                 return _antwort(self, 200, remote_befehl(daten))
             if self.path == "/api/vlc":               # Gerät „VLC": Befehl an den VLC-Motor
+                # Nachtprüfung 06.08.: play mit BELIEBIGER url (lokale Datei,
+                # LAN-Adresse) und das Fenster-Handle setzt nur der PC selbst.
+                if not self._ist_lokal() and (daten.get("url") or daten.get("cmd") == "fenster"):
+                    return _antwort(self, 403, {"fehler": "nur lokal"})
                 return _antwort(self, 200, vlc_kommando(daten))
             if self.path == "/api/wiedergabe":        # Grundeinstellungen: global/Playlist/Titel
                 return _antwort(self, 200, wiedergabe_setzen(daten))
@@ -5448,6 +5469,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/action":
                 self._action(daten)
             elif self.path == "/api/config":
+                # Grundeinstellungen (Zielordner!) schreibt nur der PC selbst.
+                if not self._ist_lokal():
+                    return _antwort(self, 403, {"fehler": "nur lokal"})
                 self._config(daten)
             elif self.path == "/api/played":         # ein Titel wurde abgespielt
                 with _io_lock:
@@ -5539,8 +5563,14 @@ class Handler(BaseHTTPRequestHandler):
                 return _antwort(self, 200, filme.seerr_anfragen(
                     daten.get("tmdb") or 0, daten.get("typ") or "film"))
             elif self.path == "/api/live/play":        # Live-Kanal in den VLC
+                # Nachtprüfung 06.08. (SSRF): die URL kommt NICHT vom Client,
+                # sondern wird über die Kanal-Liste nachgeschlagen — gespielt
+                # wird nur, was die kodinerds-Liste wirklich kennt.
+                gewuenscht = daten.get("url") or ""
+                if not any(k.get("url") == gewuenscht for k in live_tv.kanaele()):
+                    return _antwort(self, 403, {"fehler": "unbekannter Kanal"})
                 return _antwort(self, 200, vlc_kommando(
-                    {"cmd": "play", "url": daten.get("url") or "",
+                    {"cmd": "play", "url": gewuenscht,
                      "key": "live:" + (daten.get("name") or ""),
                      "vol": daten.get("vol"), "vollbild": True}))
             elif self.path == "/api/filme/fortschritt":
@@ -5581,9 +5611,15 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             # Fund 06.08.: eine aus der EIGENEN Oberfläche gezogene Grafik
             # (http://127.0.0.1:8776/api/cover?…) landete als Pseudo-Download
-            # in der Queue und fuhr sich fest. Eigene Adressen sind nie Ziel.
-            if (urlparse(url).hostname or "").lower() in ("127.0.0.1", "localhost"):
-                continue
+            # in der Queue und fuhr sich fest. Loopback ist nie Download-Ziel
+            # (deckt auch ::1 und das ganze 127.0.0.0/8 ab).
+            host = (urlparse(url).hostname or "").lower()
+            try:
+                import ipaddress
+                if host == "localhost" or ipaddress.ip_address(host).is_loopback:
+                    continue
+            except ValueError:                       # normaler Hostname
+                pass
             threading.Thread(target=aufloesen, args=(url, qualitaet, ganze_liste),
                              kwargs={"limit": limit, "ziel_playlist": ziel_pl,
                                      "menge": menge, "richtung": richtung,
@@ -5591,6 +5627,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _action(self, daten):
         art = daten.get("art")
+        # Nachtprüfung 06.08.: Explorer-Fenster öffnet nur der PC selbst —
+        # eine LAN-Anfrage startet keine Prozesse auf JBs Rechner.
+        if art in ("ordner_offen", "ordner") and not self._ist_lokal():
+            return
         if art == "ordner_offen":
             subprocess.Popen(["explorer", ziel_ordner()])
             return
@@ -5737,6 +5777,11 @@ class Handler(BaseHTTPRequestHandler):
         art = daten.get("art")
         if art == "herz":                            # ❤ Lieblingssong umschalten (JB 05.08.)
             return herz_umschalten(key)
+        # Nachtprüfung 06.08.: alles Verändernde (löschen/vergessen/bulk) und
+        # alles, was Prozesse auf JBs PC startet (extern/ordner), bleibt dem
+        # PC selbst vorbehalten — ein LAN-Gerät hört und schaut nur.
+        if not self._ist_lokal():
+            return
         if art == "bulk":                            # mehrere auf einmal (Mehrfachauswahl)
             op = daten.get("op")
             keys = [k for k in (daten.get("keys") or []) if k in _geladen]

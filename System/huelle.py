@@ -94,16 +94,25 @@ class VideoFenster:
         return self.hwnd
 
     def _js(self, code, drossel_s):
-        """JS in der Oberfläche ausführen (best-effort, MouseMove gedrosselt)."""
+        """JS in der Oberfläche ausführen (best-effort, MouseMove gedrosselt).
+        WICHTIG: nie auf dem WinForms-UI-Thread blocken — evaluate_js wartet
+        auf die WebView, die gerade den UI-Thread braucht (Deadlock-Fund der
+        Nachtprüfung). Darum feuert ein kleiner Daemon-Thread den Ruf ab."""
         jetzt = time.time()
         if drossel_s and jetzt - getattr(self, "_js_zuletzt", 0.0) < drossel_s:
             return
         self._js_zuletzt = jetzt
-        try:
-            if self.fenster is not None:
-                self.fenster.evaluate_js(code)
-        except Exception:                            # noqa: BLE001 — Weck-Ruf ist Kür
-            pass
+        fenster = self.fenster
+        if fenster is None:
+            return
+
+        def tu():
+            try:
+                fenster.evaluate_js(code)
+            except Exception:                        # noqa: BLE001 — Weck-Ruf ist Kür
+                pass
+        import threading
+        threading.Thread(target=tu, daemon=True).start()
 
     def vorbereiten(self, form):
         """Beim Hüllen-START Panel + hwnd anlegen und melden (JB-Fund: „Player
