@@ -48,6 +48,7 @@ def _einrichten(tmp_path, monkeypatch):
     filme.einrichten(str(tmp_path))
     filme._sitzung.clear()
     filme._fehlversuch_ts = 0.0
+    filme._anmelde_sperre_ts = 0.0         # Anmelde-Backoff nie zwischen Tests
     monkeypatch.setattr(filme, "_zugang", lambda: {
         "url": "https://jelly.example", "benutzer": "JBK", "passwort": "pw"})
 
@@ -210,6 +211,27 @@ def test_top_bayes(tmp_path, monkeypatch):
     # Zweiter Lauf: KEIN Netz mehr noetig (Stimmen-Cache).
     monkeypatch.setattr(filme, "_http", _fake_http([]))
     assert filme.reihen()["top"][0]["id"] == "f1"
+
+
+def test_anmelde_backoff_und_neuer_auth_kopf(tmp_path, monkeypatch):
+    # Fund 06.08.: Renés Server-Update (10.9.7 -> 10.11.11) + Anmelde-Sturm
+    # gleicher DeviceIds endeten in 403. (1) Beide Auth-Koepfe senden
+    # (X-Emby-Authorization ist in 10.11 abgekuendigt); (2) nach 403 ist
+    # 10 Minuten RUHE - kein weiterer Versuch hämmert die Sperre fest.
+    _einrichten(tmp_path, monkeypatch)
+    gesehen = {}
+
+    def http(url, daten=None, kopf=None, timeout=15):
+        gesehen.update(kopf or {})
+        return 403, b"{}"
+    monkeypatch.setattr(filme, "_http", http)
+    assert filme._anmelden() is None
+    assert "Authorization" in gesehen and "X-Emby-Authorization" in gesehen
+    assert filme._anmelde_sperre_ts > filme.time.time() + 500   # ~10 min Sperre
+    # Waehrend der Sperre: KEIN weiterer Netz-Versuch.
+    monkeypatch.setattr(filme, "_http", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("Anmeldung trotz Backoff versucht")))
+    assert filme._anmelden() is None
 
 
 # ---------------------------------------------------------------- Task 6

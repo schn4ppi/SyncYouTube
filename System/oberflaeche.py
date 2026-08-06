@@ -3831,8 +3831,19 @@ async function filmePlay(id,pos){
   let meta=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)?tvInfoDaten.d
           :(typeof tvHeroDaten!=='undefined'&&tvHeroDaten&&tvHeroDaten.id===id)?tvHeroDaten:null;
   if(!meta){try{meta=await (await fetch('/api/filme/detail?id='+encodeURIComponent(id))).json();}catch(e){}}
+  const inHuelle=!!window.pywebview;
   if(meta&&filmeBrowserKann(meta)){
-    tvpModus='browser';
+    tvpModus='browser'; tvpTc=false;                   // Direct Play im <video>
+    tvFilmPlayer(id,(meta.titel||''),pos||0);
+    return;
+  }
+  if(meta&&!inHuelle){
+    // JB-Go 06.08. („Geh das serverseitige Transcoding an"): im Browser
+    // wandelt ffmpeg unterwegs — h264 bleibt Kopie (nur Ton→AAC), Rest
+    // wird libx264. In der HÜLLE bleibt der eingebettete VLC der starke
+    // Weg (spielt alles nativ, null Transcode-Last).
+    tvpModus='browser'; tvpTc=true;
+    tvpTcVcopy=['h264','avc'].some(x=>((meta.video_codec||'').toLowerCase()).includes(x));
     tvFilmPlayer(id,(meta.titel||''),pos||0);
     return;
   }
@@ -3861,22 +3872,36 @@ async function filmePlayVlc(id,pos){
 let tvpTimer=null, tvpPos=0, tvpDauer=0, tvpOffen=false, tvpLief=false, tvpTicks=0;
 let tvpMeta=null, tvpAktiv=0;                          // Idle-Uhr (Netflix-Auto-Hide)
 let tvpModus='vlc', tvpIdAkt='';                       // Browser-<video> oder VLC
+let tvpTc=false, tvpTcOffset=0, tvpTcVcopy=false;      // Transcode-Strom (JB-Go)
+function tvpDirektSrc(start){
+  return '/api/filme/direkt?id='+encodeURIComponent(tvpIdAkt)+
+    (tvpTc?('&tc=1'+(tvpTcVcopy?'&vcopy=1':'')+'&start='+Math.max(0,Math.round(start||0))):'');
+}
 /* Eine Fernbedienung, zwei Motoren: im Browser-Modus steuern die Befehle
-   das <video>-Element direkt, sonst gehen sie an den VLC. */
+   das <video>-Element direkt, sonst gehen sie an den VLC. Beim
+   Transcode-Strom beginnt jedes <video> bei 0 — tvpTcOffset rechnet die
+   echte Film-Position dazu, Seek startet den Strom an neuer Stelle. */
 async function tvpBefehl(cmd,daten){
   if(tvpModus!=='browser')return vlcBefehl(cmd,daten);
   const v=document.getElementById('tvp-video');
   if(!v)return {zustand:'aus', key:'', verfuegbar:true};
   if(cmd==='toggle'){if(v.paused)v.play().catch(()=>{}); else v.pause();}
-  else if(cmd==='seek'){try{v.currentTime=(daten&&daten.wert)||0;}catch(e){}}
+  else if(cmd==='seek'){
+    const ziel=(daten&&daten.wert)||0;
+    if(tvpTc){tvpTcOffset=ziel; v.src=tvpDirektSrc(ziel); v.play().catch(()=>{});}
+    else{try{v.currentTime=ziel;}catch(e){}}
+  }
   else if(cmd==='vol')v.volume=Math.max(0,Math.min(1,((daten&&daten.wert)||0)/100));
   else if(cmd==='rate')v.playbackRate=(daten&&daten.wert)||1;
   else if(cmd==='stop'){v.pause(); v.removeAttribute('src'); try{v.load();}catch(e){}}
   else if(cmd==='spuren')return {ton:[],sub:[],rate:v.playbackRate||1};
   const aus=v.ended||!v.currentSrc;
+  const metaDauer=(tvpMeta&&tvpMeta.laufzeit_min)?tvpMeta.laufzeit_min*60:0;
   return {zustand:aus?'aus':(v.paused?'pause':'spielt'),
-          key:aus?'':'film:'+tvpIdAkt, pos:v.currentTime||0,
-          dauer:isFinite(v.duration)?v.duration:0, verfuegbar:true};
+          key:aus?'':'film:'+tvpIdAkt,
+          pos:(tvpTc?tvpTcOffset:0)+(v.currentTime||0),
+          dauer:tvpTc?metaDauer:(isFinite(v.duration)?v.duration:metaDauer),
+          verfuegbar:true};
 }
 function tvFilmPlayer(id,titel,pos){
   tvpOffen=true; tvpPos=pos||0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
@@ -3893,9 +3918,10 @@ function tvFilmPlayer(id,titel,pos){
   // der Titel mittig. Bei Inaktivität blendet alles aus (tvpIdleTick).
   // Browser-Modus: das <video> IST das Bild (Netflix-Weg, JB 06.08.) —
   // Pause zeigt automatisch das echte Standbild des Films.
+  if(tvpModus==='browser'&&tvpTc)tvpTcOffset=pos||0;   // Strom startet AB pos
   const medien=tvpModus==='browser'
     ?`<video id="tvp-video" class="tvp-video" autoplay playsinline `+
-     `src="/api/filme/direkt?id=${encodeURIComponent(id)}"></video>`
+     `src="${tvpDirektSrc(pos||0)}"></video>`
     :`<img class="tvp-bg" src="/api/filme/bild?id=${encodeURIComponent(id)}&art=Backdrop" onerror="this.style.visibility='hidden'">`;
   el.innerHTML=
     medien+
@@ -3936,9 +3962,15 @@ function tvFilmPlayer(id,titel,pos){
     const v=document.getElementById('tvp-video');
     if(v){
       v.volume=Math.max(0,Math.min(1,plVol/100));
-      if(pos>0)v.addEventListener('loadedmetadata',()=>{try{v.currentTime=pos;}catch(e){}},{once:true});
-      v.addEventListener('error',()=>{                 // Codec-Irrtum ⇒ VLC übernimmt
-        if(!tvpOffen)return;
+      if(pos>0&&!tvpTc)v.addEventListener('loadedmetadata',()=>{try{v.currentTime=pos;}catch(e){}},{once:true});
+      v.addEventListener('error',()=>{                 // Selbstheilungs-Kette:
+        if(!tvpOffen)return;                           // direkt → Transcoder → VLC
+        if(!tvpTc){
+          toast('🎬 Format sperrt sich — der Transcoder übernimmt.');
+          tvpTc=true; tvpTcVcopy=false; tvpTcOffset=tvpPos||pos||0;
+          v.src=tvpDirektSrc(tvpTcOffset); v.play().catch(()=>{});
+          return;
+        }
         toast('🎬 Browser kann dieses Format nicht — VLC übernimmt.');
         tvpZu(); filmePlayVlc(id,pos);
       });
@@ -4033,7 +4065,7 @@ function tvpIdleTick(spielt){
   if(bg)bg.style.display=(zeigen&&tvpModus!=='browser')?'block':'none';
 }
 function tvpZu(){
-  tvpOffen=false; tvpModus='vlc';                      // Modus nie hängen lassen
+  tvpOffen=false; tvpModus='vlc'; tvpTc=false; tvpTcOffset=0;   // nie hängen lassen
   if(tvpTimer){clearInterval(tvpTimer); tvpTimer=null;}
   const api=window.pywebview&&window.pywebview.api;   // Hüllen-Bild freigeben
   if(api&&api.video_rect){try{api.video_rect(0,0,0,0,false);}catch(e){}}
@@ -4944,6 +4976,18 @@ function mische(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random(
    Zyklus (JB 13.07.: „▶ sah aus wie Play, 🔁/🔂 zu klein, Modus nicht erkennbar").
    playShuffle = Zufall an/aus · playRepeat = aus/alle/eins. Die Knöpfe sind
    selbst gezeichnete SVGs (currentColor), aktiv = Akzentfarbe + Punkt darunter. */
+/* Fehler-Rekorder (JB 06.08.: „stürzt ab wenn ich ansicht klicke" — hier
+   nicht reproduzierbar): JEDER JS-Fehler landet ab jetzt im Server-Log
+   (System/js_fehler.jsonl), damit der nächste Absturz eine Spur hat. */
+window.addEventListener('error',ev=>{
+  try{fetch('/api/js_fehler',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({text:String(ev.message||'').slice(0,400),
+      quelle:String(ev.filename||'').slice(-80), zeile:ev.lineno||0})}).catch(()=>{});}catch(e){}
+});
+window.addEventListener('unhandledrejection',ev=>{
+  try{fetch('/api/js_fehler',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({text:('Promise: '+String(ev.reason||'')).slice(0,400)})}).catch(()=>{});}catch(e){}
+});
 const ICONS={
   play:'M8 5v14l11-7z',
   pause:'M6 5h4v14H6zm8 0h4v14h-4z',

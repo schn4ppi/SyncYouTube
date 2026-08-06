@@ -25,6 +25,7 @@ import familie as fam
 _pfade = {}                                # gesetzt von einrichten()
 _sitzung = {}                              # {"token","user_id","version"}
 _fehlversuch_ts = 0.0                      # letzter GESCHEITERTER Abzug (Backoff)
+_anmelde_sperre_ts = 0.0                   # Anmelde-Backoff (403 ⇒ 10 min Ruhe)
 FEHL_BACKOFF_S = 30 * 60                   # nach Fehlschlag frühestens in 30 min wieder
 META_HALTBAR_S = 14 * 24 * 3600            # Ratings altern langsam (Spec)
 OMDB_TAGES_DECKEL = 950                    # Free-Key: 1.000/Tag — Puffer lassen
@@ -82,18 +83,30 @@ def _http(url, daten=None, kopf=None, timeout=15):
 
 
 def _anmelden():
+    global _anmelde_sperre_ts
     if _sitzung.get("token"):
         return _sitzung
+    # Anmelde-Backoff (Fund 06.08.: Anmelde-STURM — Zweitprozesse mit gleicher
+    # DeviceId invalidierten sich gegenseitig die Tokens, jede Heilung meldete
+    # sich neu an, bis der Server 403 sperrte). Nach einem Fehlschlag ist
+    # RUHE: 403 = 10 Minuten (Anmeldesperre ausklingen lassen), sonst 60 s.
+    if time.time() < _anmelde_sperre_ts:
+        return None
     z = _zugang()
     if not z:
         return None
     try:
+        # Jellyfin 10.11 (Renés Server-Update 06.08.): der alte
+        # X-Emby-Authorization-Kopf ist abgekündigt — beide Formen senden.
         st, roh = _http(z["url"] + "/Users/AuthenticateByName",
                         daten={"Username": z["benutzer"], "Pw": z["passwort"]},
-                        kopf={"X-Emby-Authorization": GERAET_KOPF})
+                        kopf={"X-Emby-Authorization": GERAET_KOPF,
+                              "Authorization": GERAET_KOPF})
     except Exception:                      # noqa: BLE001 — Server aus/Netz weg
+        _anmelde_sperre_ts = time.time() + 60
         return None
     if st != 200:
+        _anmelde_sperre_ts = time.time() + (600 if st == 403 else 60)
         return None
     d = json.loads(roh or b"{}")
     _sitzung.update(token=d.get("AccessToken") or "",
@@ -225,6 +238,12 @@ def bild_holen(item_id, art="Primary"):
             return f.read()
     except OSError:
         pass
+    # Negativ-Cache: hat ein Titel z. B. kein Thumb, merkt eine Marker-Datei
+    # das — sonst feuert JEDER Reihen-Aufbau die 404-Kaskade der Bild-Kette
+    # (Thumb→Backdrop→Poster) erneut gegen Renés Server.
+    fehlt = pfad + ".fehlt"
+    if os.path.exists(fehlt):
+        return None
     s = _anmelden()
     z = _zugang()
     if not (s and z):
@@ -239,11 +258,17 @@ def bild_holen(item_id, art="Primary"):
                 return None
             st, roh = _http(f"{z['url']}/Items/{sauber}/Images/{art}",
                             kopf={"X-Emby-Token": s["token"]})
-    except Exception:                      # noqa: BLE001
+    except Exception:                      # noqa: BLE001 — Netzfehler: NICHT
+        return None                        # negativ cachen, nächster Versuch frei
+    os.makedirs(_pfade["bilder"], exist_ok=True)
+    if st == 404:                          # Titel HAT dieses Bild nicht ⇒ merken
+        try:
+            open(fehlt, "wb").close()
+        except OSError:
+            pass
         return None
     if st != 200 or not roh:
         return None
-    os.makedirs(_pfade["bilder"], exist_ok=True)
     with open(pfad, "wb") as f:
         f.write(roh)
     return roh

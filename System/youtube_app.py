@@ -5008,6 +5008,23 @@ def _fehler_aufraeumen():
 _HEISS_NACHLADBAR = {"oberflaeche.py", "handy.py"}   # laden pro Anfrage neu -> kein Neustart nötig
 NEUSTART_BERUHIGUNG = 3.0                             # s stabil, bevor neu gestartet wird
 STREAM_RUHE = 15.0                                   # s ohne Abspielen = sicher
+# Ein Transcode zur Zeit (JB zappt): der nächste Wunsch löst den alten ab.
+_tc_lock = threading.Lock()
+_tc_prozess = None
+
+
+def _tc_starten(cmd):
+    global _tc_prozess
+    with _tc_lock:
+        if _tc_prozess is not None and _tc_prozess.poll() is None:
+            try:
+                _tc_prozess.kill()
+            except OSError:
+                pass
+        _tc_prozess = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return _tc_prozess
 _letzter_stream = 0.0
 _START_SIGNATUR = None                               # in main() gesetzt
 _neu_sig = None
@@ -5351,12 +5368,56 @@ class Handler(BaseHTTPRequestHandler):
             # Browser-Player (JB 06.08.: „Ich will wie bei netflix das im
             # Browser öffnen"): der Server PROXYT den Jellyfin-Strom mit
             # Range-Durchreichung — der Token bleibt auf diesem PC, der
-            # Client sieht nur diese Adresse.
+            # Client sieht nur diese Adresse. Mit tc=1 (JB-Go: „Geh das
+            # serverseitige Transcoding an") wandelt ffmpeg unterwegs:
+            # Video bleibt Kopie, wenn der Browser es kann (vcopy=1, z. B.
+            # h264+AC3 → nur der Ton wird AAC), sonst libx264; Container
+            # wird fragmentiertes MP4 — das spielt jedes <video>.
             q = parse_qs(urlparse(self.path).query)
             url = filme.stream_url((q.get("id") or [""])[0])
             if not url:
-                return _antwort(self, 503, {"fehler": "kein Zugang"})
+                return _antwort(self, 503, {"fehler": "Anmeldung bei Jellyfin "
+                                            "gescheitert — heilt sich nach dem "
+                                            "Anmelde-Backoff von selbst."})
             globals()["_letzter_stream"] = time.time()   # Selbst-Neustart wartet
+            if (q.get("tc") or ["0"])[0] == "1":
+                ff = _ffmpeg_pfad()
+                if not ff:
+                    return _antwort(self, 503, {"fehler": "ffmpeg fehlt"})
+                try:
+                    start = max(0, int(float((q.get("start") or ["0"])[0])))
+                except (TypeError, ValueError):
+                    start = 0
+                cmd = [ff, "-hide_banner", "-loglevel", "error"]
+                if start:
+                    cmd += ["-ss", str(start)]           # Seek VOR dem Input: schnell
+                cmd += ["-i", url, "-map", "0:v:0", "-map", "0:a:0?"]
+                cmd += (["-c:v", "copy"] if (q.get("vcopy") or ["0"])[0] == "1" else
+                        ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+                         "-vf", "scale='min(1920,iw)':-2"])
+                cmd += ["-c:a", "aac", "-b:a", "192k", "-ac", "2",
+                        "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                        "-f", "mp4", "pipe:1"]
+                proz = _tc_starten(cmd)
+                self.send_response(200)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Accept-Ranges", "none")
+                self.end_headers()
+                try:
+                    while True:
+                        stueck = proz.stdout.read(262144)
+                        if not stueck:
+                            break
+                        self.wfile.write(stueck)
+                        globals()["_letzter_stream"] = time.time()
+                except (OSError, ConnectionError):
+                    pass                                 # Client weg — ffmpeg stirbt mit
+                finally:
+                    try:
+                        proz.kill()
+                    except OSError:
+                        pass
+                return
             kopf = {}
             if self.headers.get("Range"):
                 kopf["Range"] = self.headers["Range"]
@@ -5518,6 +5579,24 @@ class Handler(BaseHTTPRequestHandler):
                 if not self._ist_lokal():
                     return _antwort(self, 403, {"fehler": "nur lokal"})
                 self._config(daten)
+            elif self.path == "/api/js_fehler":      # Fehler-Rekorder der Oberfläche
+                try:
+                    pfad = os.path.join(SCRIPT_DIR, "js_fehler.jsonl")
+                    # Deckel 200 KB: Ältestes fällt weg, nie ungebremst wachsen.
+                    if os.path.exists(pfad) and os.path.getsize(pfad) > 200_000:
+                        with open(pfad, encoding="utf-8", errors="replace") as f:
+                            rest = f.readlines()[-200:]
+                        with open(pfad, "w", encoding="utf-8") as f:
+                            f.writelines(rest)
+                    with open(pfad, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                            "text": str(daten.get("text") or "")[:400],
+                                            "quelle": str(daten.get("quelle") or "")[:80],
+                                            "zeile": daten.get("zeile") or 0},
+                                           ensure_ascii=False) + "\n")
+                except OSError:
+                    pass
+                return _antwort(self, 200, {"ok": True})
             elif self.path == "/api/played":         # ein Titel wurde abgespielt
                 with _io_lock:
                     e = _geladen.get(daten.get("id") or "")

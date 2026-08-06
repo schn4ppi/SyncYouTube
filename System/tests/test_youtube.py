@@ -4231,8 +4231,18 @@ def test_browser_player_und_bild_kette():
         assert muss in b, f"tvpBefehl unvollstaendig: {muss}"
     i = quelle.index("function tvFilmPlayer")
     b = quelle[i:_funktionsende(quelle, i)]
-    assert "/api/filme/direkt?id=" in b and "filmePlayVlc(id,pos)" in b, \
+    assert "tvpDirektSrc" in b and "filmePlayVlc(id,pos)" in b, \
         "Browser-<video> + Codec-Fallback fehlen"
+    # Transcoding (JB-Go 06.08.): ffmpeg-Strom + Seek-Offset + Heil-Kette.
+    i = quelle.index("function tvpDirektSrc")
+    assert "tc=1" in quelle[i:_funktionsende(quelle, i)]
+    i = quelle.index("async function filmePlay(")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "tvpTc=true" in b and "inHuelle" in b, \
+        "Transcode-Weiche (Browser) + Huellen-VLC-Weg fehlen"
+    src2 = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert "_tc_starten" in src2 and "libx264" in src2 \
+        and "frag_keyframe+empty_moov" in src2, "ffmpeg-Transcode fehlt"
     # Bild-Kette an den Kacheln:
     i = quelle.index("function tvFilmReihe")
     b = quelle[i:_funktionsende(quelle, i)]
@@ -4247,7 +4257,7 @@ def test_browser_player_und_bild_kette():
     assert "vlc_standbild" in quelle[i:_funktionsende(quelle, i)]
     src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
     i = src.index('self.path.startswith("/api/filme/direkt")')
-    b = src[i:i + 1600]
+    b = src[i:src.index('elif self.path.startswith("/api/filme/bild")', i)]
     assert "filme.stream_url" in b and '"Range"' in b and "_letzter_stream" in b, \
         "Proxy: Token am PC, Range durchreichen, Neustart-Ruhe pflegen"
     assert '"standbild"' in src and "video_take_snapshot" in src
@@ -4285,7 +4295,7 @@ def test_routen_inventur_und_aussen_gates():
             "/api/filme/mehrwie", "/api/filme/merk", "/api/filme/play",
             "/api/filme/reihen", "/api/filme/snippet", "/api/filme/sync",
             "/api/filme/wuenschen", "/api/filme/direkt", "/api/vlc_standbild",
-            "/api/geo_status", "/api/geo_test",
+            "/api/js_fehler", "/api/geo_status", "/api/geo_test",
             "/api/geo_wireguard", "/api/geraet_anmelden", "/api/geraet_qr",
             "/api/geraet_status", "/api/importieren", "/api/kanal_info",
             "/api/link_deuten", "/api/live", "/api/lyrics", "/api/pfad_da",
