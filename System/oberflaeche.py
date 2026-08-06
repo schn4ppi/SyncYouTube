@@ -165,6 +165,27 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
   border-radius:12px;padding:3px;position:relative;transition:transform .25s}
 /* Netflix-Zoom (JB-Bild): die fokussierte/gehoverte Kachel tritt hervor … */
 #tv .tv-kachel.tv-fokus,#tv .tv-band:not(.wrap) .tv-kachel:hover{transform:scale(1.3);z-index:5}
+/* Filme/Serien QUER in 16:9 (JB 06.08.: „Das ist immer noch nicht 16:9.
+   Warum?" + Netflix-Referenz): Backdrop-Kacheln, sanfter Zoom — die große
+   Ansicht übernimmt die Hover-Karte. */
+#tv .tv-kachel.f16{width:288px}
+#tv .tv-kachel.f16 img{height:162px}
+#tv .tv-kachel.f16.tv-fokus,#tv .tv-band:not(.wrap) .tv-kachel.f16:hover{transform:scale(1.06)}
+/* Karte offen: Quell-Kachel sofort ohne Zoom (transition aus, sonst misst
+   die Karten-Platzierung die noch gezoomte Geometrie). */
+#tv .tv-kachel.hk-quelle{transform:none!important;transition:none!important}
+#tv .tv-kachel .tv-kbalken{height:4px;border-radius:2px;background:#4a4038;margin:5px 8px 0}
+#tv .tv-kachel .tv-kbalken div{height:100%;border-radius:2px;background:#e50914}
+/* Blätter-Pfeile an den Reihen-Enden (JB: „Mit pfeil nach rechts sollte
+   doch immer mehr erscheinen") — sichtbar beim Verweilen, wie Netflix. */
+#tv .tv-reihe{position:relative}
+#tv .tv-pfeil{position:absolute;width:46px;top:52px;height:150px;border:none;cursor:pointer;
+  background:rgba(15,12,10,.55);color:#fff;font-size:38px;z-index:6;opacity:0;
+  transition:opacity .2s;border-radius:8px;display:flex;align-items:center;justify-content:center}
+#tv .tv-reihe:hover .tv-pfeil{opacity:1}
+#tv .tv-pfeil.links{left:-6px}
+#tv .tv-pfeil.rechts{right:-6px}
+#tv .tv-pfeil:hover{background:rgba(15,12,10,.85)}
 #tv .tv-dauer{position:absolute;top:8px;right:8px;z-index:2;font-size:13px;
   color:#fff;background:rgba(12,10,9,.7);border-radius:5px;padding:1px 7px}
 /* Hover-Karte (Netflix-Referenzbilder 06.08.): schwebende Quer-Karte über
@@ -214,7 +235,8 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
              linear-gradient(0deg,#0c0a09 0,transparent 24%)}
 #tv-hero .hero-text{position:relative;z-index:1;max-width:46%;padding:0 28px 5vh 28px}
 #tv-hero .hero-titel{font-size:clamp(40px,4.6vw,74px);font-weight:900;line-height:1.05;
-  margin-bottom:14px;text-shadow:0 2px 14px rgba(0,0,0,.65)}
+  margin-bottom:14px;text-shadow:0 2px 14px rgba(0,0,0,.65);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 #tv-hero .hero-meta{font-size:18px;color:#d8cec4;margin-bottom:12px}
 #tv-hero .hero-besch{font-size:18px;color:#e6ddd2;max-width:640px;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
@@ -230,6 +252,20 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-player .tvp-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.28}
 #tv-player .tvp-ui{position:absolute;inset:0;z-index:1;transition:opacity .5s}
 #tv-player.idle .tvp-zurueck,#tv-player.idle .tvp-unten{opacity:0;pointer-events:none}
+#tv-player.idle #tvp-panel{display:none!important}
+/* Settings-Panel (Netflix-Referenz „Playback Speed"): dunkle Karte über der
+   Leiste rechts — Tempo-Reihe bzw. Ton-/Untertitel-Spalten. */
+#tvp-panel{position:absolute;right:28px;bottom:130px;background:#1c1c1c;border-radius:10px;
+  padding:16px 20px;box-shadow:0 8px 30px rgba(0,0,0,.7);z-index:6;max-width:560px}
+#tvp-panel .tvpp-titel{font-weight:700;font-size:17px;margin-bottom:10px;color:#fff}
+#tvp-panel .tvpp-reihe{display:flex;gap:6px;align-items:center}
+#tvp-panel .tvpp-spalten{display:flex;gap:28px;max-height:300px;overflow:auto}
+#tvp-panel .tvpp-knopf{display:block;background:none;border:none;color:#ddd;font-size:15px;
+  padding:6px 10px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap}
+#tvp-panel .tvpp-reihe .tvpp-knopf{display:inline-block}
+#tvp-panel .tvpp-knopf:hover{background:#333}
+#tvp-panel .tvpp-knopf.an{color:#fff;font-weight:700}
+#tvp-panel .tvpp-leer{color:#8a7d74;font-size:14px}
 #tv-player .tvp-zurueck{position:absolute;top:22px;left:26px;font-size:34px;background:none;
   border:none;color:#fff;cursor:pointer;transition:opacity .5s}
 #tv-player .tvp-unten{position:absolute;left:0;right:0;bottom:0;padding:14px 30px 20px;
@@ -3804,9 +3840,14 @@ function tvFilmPlayer(id,titel,pos){
           `<button class="tvp-ib" onclick="tvpRel(10)" title="10 s vor">${ico('f10')}</button>`+
           `<span class="pl-bvolwrap" style="color:#fff">🔊<input type="range" class="pl-bvol" min="0" max="100" value="${plVol}" oninput="plbVol(this.value);vlcBefehl('vol',{wert:plVol})"></span>`+
           `<div class="tvp-mtitel">${esc(tvpMeta.titel||'')}</div>`+
-          `<span class="tvp-rechts"></span>`+
+          `<span class="tvp-rechts">`+
+            `<button class="tvp-ib" onclick="tvpPanel('spuren')" title="Ton & Untertitel">💬</button>`+
+            `<button class="tvp-ib" onclick="tvpPanel('tempo')" title="Wiedergabetempo">⏲</button>`+
+            `<button class="tvp-ib" onclick="tvpVollbild()" title="Vollbild an/aus">⛶</button>`+
+          `</span>`+
         `</div>`+
       `</div>`+
+      `<div id="tvp-panel" style="display:none"></div>`+
       `<div class="tvp-lade" id="tvp-lade"><div class="tvp-spin"></div>`+
         `<span id="tvp-lade-text">${pos>0?'Springt zu '+zeit(pos)+' …':'Lädt …'}</span></div>`+
       `<div class="tvp-idle" id="tvp-idle" style="display:none">`+
@@ -3831,6 +3872,48 @@ function tvpWach(){
   tvpAktiv=Date.now();
   const el=document.getElementById('tv-player'); if(el)el.classList.remove('idle');
   const idle=document.getElementById('tvp-idle'); if(idle)idle.style.display='none';
+}
+/* Player-Settings (JB 06.08.: „es fehlen noch settings im player. Untertitel,
+   playback speed, Vollbild") — Panels im Netflix-Stil über der Leiste. */
+let tvpRateWert=1;
+async function tvpPanel(art){
+  const p=document.getElementById('tvp-panel'); if(!p)return;
+  tvpWach();
+  if(p.dataset.art===art&&p.style.display!=='none'){p.style.display='none'; return;}
+  p.dataset.art=art;
+  if(art==='tempo'){
+    p.innerHTML='<div class="tvpp-titel">Wiedergabetempo</div><div class="tvpp-reihe">'+
+      [0.5,0.75,1,1.25,1.5].map(x=>`<button class="tvpp-knopf${Math.abs(x-tvpRateWert)<0.01?' an':''}"`+
+        ` onclick="tvpRate(${x})">${x===1?'1x (Normal)':x+'x'}</button>`).join('')+'</div>';
+  }else{
+    p.innerHTML='<div class="tvpp-titel">Lädt …</div>'; p.style.display='block';
+    let s={}; try{s=await vlcBefehl('spuren')||{};}catch(e){}
+    tvpRateWert=s.rate||tvpRateWert;
+    const li=(arr,aktiv,art2)=>(arr||[]).filter(t=>art2==='sub'||t.id>=0).map(t=>
+      `<button class="tvpp-knopf${t.id===aktiv?' an':''}" onclick="tvpSpur('${art2}',${t.id})">`+
+      esc(art2==='sub'&&t.id<0?'Aus':(t.name||('Spur '+t.id)))+'</button>').join('');
+    p.innerHTML='<div class="tvpp-spalten">'+
+      `<div><div class="tvpp-titel">Ton</div>${li(s.ton,s.ton_aktiv,'ton')||'<span class="tvpp-leer">keine Spuren</span>'}</div>`+
+      `<div><div class="tvpp-titel">Untertitel</div>${li(s.sub,s.sub_aktiv,'sub')||'<span class="tvpp-leer">keine</span>'}</div>`+
+      '</div>';
+  }
+  p.style.display='block';
+}
+async function tvpSpur(art,id){
+  try{await vlcBefehl('spur',{art,id});}catch(e){}
+  const p=document.getElementById('tvp-panel'); if(p)p.style.display='none';
+  tvpPanel('spuren');                                  // neu öffnen = frische Häkchen
+}
+async function tvpRate(w){
+  tvpRateWert=w;
+  try{await vlcBefehl('rate',{wert:w});}catch(e){}
+  const p=document.getElementById('tvp-panel'); if(p)p.style.display='none';
+  tvpPanel('tempo');
+}
+function tvpVollbild(){
+  const el=document.getElementById('tv-player'); if(!el)return;
+  if(document.fullscreenElement){try{document.exitFullscreen();}catch(e){}}
+  else if(el.requestFullscreen)el.requestFullscreen().catch(()=>{});
 }
 function tvpIdleTick(spielt){
   // Netflix-Verhalten (JB-Bilder): Inaktivität blendet die Leiste aus; wer in
@@ -7039,13 +7122,17 @@ function snippetAn(kachel){
     document.querySelectorAll('.tv-hoverkarte').forEach(x=>x.remove());
     const r=+kachel.dataset.r, i=+kachel.dataset.i;
     const e=((tvReihenListe[r]||[])[1]||[])[i]||{};
-    const kr=kachel.getBoundingClientRect();
-    const w=Math.max(290, kr.width*1.6);
+    // JB 06.08. („Man sieht noch … im hintergrund. Das soll das alte fenster
+    // komplett verdecken"): ERST die Quell-Kachel entzoomen (hk-quelle,
+    // transition aus), DANN messen — sonst platziert sich die Karte auf die
+    // gezoomte Geometrie und die Kachel lugt nach dem Schrumpfen hervor.
+    document.querySelectorAll('.hk-quelle').forEach(x=>x.classList.remove('hk-quelle'));
+    kachel.classList.add('hk-quelle');
+    const w=Math.max(320, Math.round(kachel.getBoundingClientRect().width*1.5));
     const kt=document.createElement('div');
     kt.className='tv-hoverkarte'; kt.dataset.fid=fid;
     kt.style.width=w+'px';
-    kt.style.left=Math.max(8, Math.min(innerWidth-w-8, kr.left+kr.width/2-w/2))+'px';
-    kt.style.top=Math.max(8, Math.min(innerHeight-260, kr.top-36))+'px';
+    kt.style.left='-9999px'; kt.style.top='-9999px';   // erst messen, dann setzen
     const dauer=e.dauer?(e.dauer>=60?Math.floor(e.dauer/60)+' Std. '+(e.dauer%60)+' Min.'
                                     :e.dauer+' Min.'):'';
     const proz=(e.pos>30&&e.dauer)?Math.min(99,Math.round(e.pos/(e.dauer*60)*100)):0;
@@ -7068,11 +7155,27 @@ function snippetAn(kachel){
     kt.onclick=()=>{snippetAus(); tvInfo(fid);};
     kt.onmouseleave=()=>snippetAus();
     (document.fullscreenElement||document.body).appendChild(kt);
+    // Die fixed-Karte KLEBT an ihrer Kachel: ein Sync-Takt zieht die
+    // Position nach (Hero/Bilder laden nach, Bänder scrollen — einmalige
+    // Messungen hingen live neben der Kachel; gemessen 06.08.). Verwaiste
+    // Kacheln (Reihe neu gemalt) schließen die Karte.
+    const setzen=()=>{
+      if(!kachel.isConnected){snippetAus(); return;}
+      const kr=kachel.getBoundingClientRect();
+      const h=kt.getBoundingClientRect().height||240;
+      kt.style.left=Math.max(8, Math.min(innerWidth-w-8, kr.left+kr.width/2-w/2))+'px';
+      kt.style.top=Math.max(8, Math.min(innerHeight-h-8, kr.top+kr.height/2-h/2))+'px';
+    };
+    setzen();
+    kt._sync=setInterval(setzen,120);
   },800);
 }
 function snippetAus(){
   clearTimeout(snipTimer);
-  document.querySelectorAll('.tv-hoverkarte').forEach(x=>x.remove());
+  document.querySelectorAll('.tv-hoverkarte').forEach(x=>{
+    if(x._sync)clearInterval(x._sync);
+    x.remove();});
+  document.querySelectorAll('.hk-quelle').forEach(x=>x.classList.remove('hk-quelle'));
 }
 let _snipVerkabelt=false;
 function snippetVerkabeln(){
@@ -7290,7 +7393,9 @@ function tvTitelReihe(name,arr){return [name, arr.map(x=>({art:'titel',id:x.id,
   name:x.titel, bild:x.cover_album?('/api/cover?id='+encodeURIComponent(x.id)):(x.thumb||''),
   quer:!x.cover_album}))];}
 function tvFilmReihe(name,arr){return [name, (arr||[]).map(e=>({art:'film',id:e.id,
-  name:e.titel, bild:'/api/filme/bild?id='+encodeURIComponent(e.id),
+  name:e.titel,
+  bild:'/api/filme/bild?id='+encodeURIComponent(e.id)+'&art=Backdrop',
+  bild2:'/api/filme/bild?id='+encodeURIComponent(e.id),   // Poster-Fallback
   fsk:e.fsk||'', dauer:e.laufzeit_min||0, pos:e.position_s||0,
   genres:e.genres||[], typ:e.typ||'film'}))];}
 function tvReihenFuer(){
@@ -7302,19 +7407,23 @@ function tvReihenFuer(){
   const meist=[...da].filter(x=>x.plays).sort((a,b)=>b.plays-a.plays);
   const neuste=[...da].sort((a,b)=>(b.ts||0)-(a.ts||0));
   const nurFilm=a=>(a||[]).filter(e=>e.typ==='film'), nurSerie=a=>(a||[]).filter(e=>e.typ==='serie');
-  const genresAls=(filt)=>Object.entries(f.genres||{}).map(([g,a])=>[g,filt(a)])
-    .filter(([,a])=>a.length).slice(0,4).map(([g,a])=>tvFilmReihe(g,a));
+  // JB 06.08.: Server liefert top 30 (Bayes) — jede Ansicht filtert ihre Art
+  // und schneidet erst DANN auf 10, damit der Filme-Tab eine echte Top-10 hat.
+  const genresAls=(filt,n)=>Object.entries(f.genres||{}).map(([g,a])=>[g,filt(a)])
+    .filter(([,a])=>a.length).slice(0,n).map(([g,a])=>tvFilmReihe(g,a));
   if(tvTab==='home')return [
     tvFilmReihe('Weiterschauen',f.weiterschauen),
-    tvFilmReihe('🎞 Meine Liste',f.merkliste), tvFilmReihe('Top 10',f.top),
-    tvFilmReihe('Neu auf dem Server',f.neu),
-    tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz).slice(0,20)),
-    tvTitelReihe('Zuletzt gespielt',zuletzt.slice(0,20))];
+    tvFilmReihe('🎞 Meine Liste',f.merkliste),
+    tvFilmReihe('Top 10',(f.top||[]).slice(0,10)),
+    tvFilmReihe('Neu auf dem Server',f.neu)]
+    .concat(genresAls(a=>a,6))
+    .concat([tvTitelReihe('❤ Lieblingssongs',da.filter(x=>x.herz).slice(0,20)),
+    tvTitelReihe('Zuletzt gespielt',zuletzt.slice(0,20))]);
   if(tvTab==='filme'||tvTab==='serien'){
     // JB: „Wo sind eigentlich die restlichen Filme von René?" — die Reihen
     // deckeln bei 10–15; hier kommt der GANZE Katalog als A–Z-Raster dazu.
     const filt=tvTab==='filme'?nurFilm:nurSerie;
-    const kopf=[tvFilmReihe('Top',filt(f.top))].concat(genresAls(filt));
+    const kopf=[tvFilmReihe('Top 10',filt(f.top).slice(0,10))].concat(genresAls(filt,99));
     if(tvKatalog===null){tvKatalogLaden(); return kopf;}
     const alle=tvKatalog.filter(e=>e.typ===(tvTab==='filme'?'film':'serie'))
       .sort((a,b)=>(a.titel||'').localeCompare(b.titel||'','de'));
@@ -7322,7 +7431,8 @@ function tvReihenFuer(){
     azReihe[2]='wrap';                                 // Raster statt Band
     return kopf.concat([azReihe]);
   }
-  if(tvTab==='neu')return [tvFilmReihe('Neu auf dem Server',f.neu), tvFilmReihe('Top 10',f.top)];
+  if(tvTab==='neu')return [tvFilmReihe('Neu auf dem Server',f.neu),
+    tvFilmReihe('Top 10',(f.top||[]).slice(0,10))];
   if(tvTab==='live'){
     const gr={};
     (tvLive||[]).forEach(k=>{(gr[k.gruppe||'Sender']=gr[k.gruppe||'Sender']||[]).push(k);});
@@ -7397,10 +7507,20 @@ function tvMalen(){
   }else{
     inhalt.innerHTML=hero+suche+tvReihenListe.map((reihe,r)=>{
       const [name,items]=reihe;
+      const pfeile=reihe[2]==='wrap'?'':`<button class="tv-pfeil links" onclick="tvBlaettern(this,-1)" tabindex="-1">‹</button>`+
+        `<button class="tv-pfeil rechts" onclick="tvBlaettern(this,1)" tabindex="-1">›</button>`;
       return `<div class="tv-reihe"><div class="tv-rtitel">${esc(name)}</div><div class="tv-band${reihe[2]==='wrap'?' wrap':''}">`+
-      items.map((e,i)=>`<div class="tv-kachel${e.quer?' quer':''}" data-r="${r}" data-i="${i}"${e.art==='film'&&e.id?` data-fid="${esc(e.id)}"`:''} onclick="tvKachelKlick(event,${r},${i})">`+
-        (e.bild?`<img loading="lazy" src="${e.bild}" onerror="this.style.visibility='hidden'">`:'<img>')+
-        `<div class="tv-ktitel">${esc(e.name)}</div></div>`).join('')+`</div></div>`;}).join('');
+      items.map((e,i)=>{
+        const film=e.art==='film'&&e.id;
+        // Netflix-Referenz (JB 06.08.): 16:9-Backdrop, Poster als Fallback,
+        // Fortschrittsbalken unter angefangenen Titeln.
+        const fb=film&&e.bild2?` onerror="this.onerror=null;this.src='${e.bild2}'"`
+                              :` onerror="this.style.visibility='hidden'"`;
+        const balken=(film&&e.pos>30&&e.dauer)
+          ?`<div class="tv-kbalken"><div style="width:${Math.min(99,Math.round(e.pos/(e.dauer*60)*100))}%"></div></div>`:'';
+        return `<div class="tv-kachel${e.quer?' quer':''}${film?' f16':''}" data-r="${r}" data-i="${i}"${film?` data-fid="${esc(e.id)}"`:''} onclick="tvKachelKlick(event,${r},${i})">`+
+        (e.bild?`<img loading="lazy" src="${e.bild}"${fb}>`:'<img>')+balken+
+        `<div class="tv-ktitel">${esc(e.name)}</div></div>`;}).join('')+`</div>${pfeile}</div>`;}).join('');
   }
   const s=document.getElementById('tv-suche'); if(s&&tvTab==='suche'){const v=s.value; s.focus(); s.value=''; s.value=v;}
   if(tvTab==='home')tvHeroMalen();                     // Billboard lädt asynchron nach
@@ -7427,14 +7547,25 @@ function tvHeroDa(){return !!document.querySelector('#tv-hero [data-hero]');}
 function tvKachelKlick(ev,r,i){
   // Netflix-Verhalten (JB-Fund: „ganz rechts … bewegt er die ganze reihe"):
   // eine ANGESCHNITTENE Kachel blättert die Reihe eine Seite weiter, nur
-  // eine voll sichtbare öffnet.
+  // eine voll sichtbare öffnet. JB-Fund 06.08. („der mit gelber umrandung
+  // macht nichts"): die FOKUS-Kachel ragte durch ihren Zoom über den
+  // Band-Rand und galt als angeschnitten — am Anschlag blätterte nichts,
+  // der Klick war tot. Die Toleranz rechnet den Zoom mit, und wer nicht
+  // blättern KANN, öffnet.
   const k=ev.currentTarget, band=k.closest('.tv-band');
   if(band&&!band.classList.contains('wrap')){
     const kr=k.getBoundingClientRect(), br=band.getBoundingClientRect();
-    if(kr.right>br.right+8){band.scrollBy({left:band.clientWidth*0.85,behavior:'smooth'}); return;}
-    if(kr.left<br.left-8){band.scrollBy({left:-band.clientWidth*0.85,behavior:'smooth'}); return;}
+    const tol=8+kr.width*0.18;                       // Zoom-Überhang (scale ≤1.3)
+    const kannRechts=band.scrollLeft+band.clientWidth<band.scrollWidth-4;
+    const kannLinks=band.scrollLeft>4;
+    if(kr.right>br.right+tol&&kannRechts){band.scrollBy({left:band.clientWidth*0.85,behavior:'smooth'}); return;}
+    if(kr.left<br.left-tol&&kannLinks){band.scrollBy({left:-band.clientWidth*0.85,behavior:'smooth'}); return;}
   }
   tvWahl(r,i);
+}
+function tvBlaettern(btn,dir){
+  const band=btn.parentElement&&btn.parentElement.querySelector('.tv-band');
+  if(band)band.scrollBy({left:dir*band.clientWidth*0.85,behavior:'smooth'});
 }
 function tvWahl(r,i){
   const e=(tvReihenListe[r]||[])[1]&&tvReihenListe[r][1][i]; if(!e)return;

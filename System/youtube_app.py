@@ -2473,6 +2473,29 @@ def vlc_kommando(daten):
                     sp.set_rate(max(0.25, min(4.0, float(daten.get("wert") or 1))))
                 except (TypeError, ValueError):
                     pass
+            elif cmd == "spuren":
+                # Player-Settings (JB 06.08.: „es fehlen noch settings im
+                # player. Untertitel, playback speed"): Ton-+Untertitel-Spuren
+                # samt aktiver Wahl und Tempo für das 💬-/⏲-Panel.
+                def _liste(rohe):
+                    aus = []
+                    for tid, name in (rohe or []):
+                        n = (name.decode("utf-8", "replace")
+                             if isinstance(name, bytes) else str(name))
+                        aus.append({"id": tid, "name": n})
+                    return aus
+                return {**vlc_status(),
+                        "ton": _liste(sp.audio_get_track_description()),
+                        "sub": _liste(sp.video_get_spu_description()),
+                        "ton_aktiv": sp.audio_get_track(),
+                        "sub_aktiv": sp.video_get_spu(),
+                        "rate": round(sp.get_rate() or 1.0, 2)}
+            elif cmd == "spur":
+                sid = int(daten.get("id") if daten.get("id") is not None else -1)
+                if daten.get("art") == "sub":
+                    sp.video_set_spu(sid)            # -1 = Untertitel aus
+                elif sid >= 0:
+                    sp.audio_set_track(sid)          # Ton nie auf 'Disable'
             elif cmd == "fenster":
                 # Hüllen-Einbettung (Etappe set_hwnd, JB-Go): das Video
                 # rendert IN das übergebene Fenster statt in ein eigenes.

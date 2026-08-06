@@ -475,8 +475,11 @@ def reihen(profil="standard"):
     cache = _meta_cache()
     stimmen = cache.get("tmdb_stimmen") or {}
     keys = _meta_keys()
+    # 120 Kandidaten, damit nach dem Filme/Serien-Filter der Tabs (JB 06.08.:
+    # „Filme und Serien sind ihren eigenen tabs eigen zu listen") je Seite
+    # noch 10 übrig bleiben; geeicht wird weiter mit 8 Abrufen je Lauf.
     kand = sorted((e for e in alle if e.get("rating") and not e["gesehen"]),
-                  key=lambda e: e["rating"], reverse=True)[:60]
+                  key=lambda e: e["rating"], reverse=True)[:120]
     neu = 0
     for e in kand:
         t = e.get("tmdb")
@@ -502,16 +505,21 @@ def reihen(profil="standard"):
             v, r = float(s[0]), float(s[1])
             return (v / (v + 500.0)) * r + (500.0 / (v + 500.0)) * 6.8
         return min(float(e["rating"]), 6.8)
-    top = sorted(kand, key=_score, reverse=True)[:10]
+    # 30 statt 10: die Tabs Filme/Serien filtern clientseitig auf ihre Art
+    # und schneiden dann auf 10 — so bleibt jede Seite eine echte Top-10.
+    top = sorted(kand, key=_score, reverse=True)[:30]
     neu = sorted((e for e in alle if e.get("hinzugefuegt")),
                  key=lambda e: e["hinzugefuegt"], reverse=True)[:20]
     haeufig = {}
     for e in alle:
         for g in e["genres"]:
             haeufig[g] = haeufig.get(g, 0) + 1
+    # JB 06.08.: „nur <20 actionfilme … bei 4000 filmen?" — ALLE Genres
+    # (häufigste zuerst), je Reihe bis 60 Titel; die Oberfläche blättert
+    # mit Pfeilen wie Netflix statt hart zu deckeln.
     genres = {}
-    for g, _ in sorted(haeufig.items(), key=lambda kv: kv[1], reverse=True)[:8]:
-        genres[g] = [e for e in alle if g in e["genres"]][:15]
+    for g, _ in sorted(haeufig.items(), key=lambda kv: kv[1], reverse=True):
+        genres[g] = [e for e in alle if g in e["genres"]][:60]
     merk_ids = merkliste_lesen(profil)
     merk = sorted((e for e in alle if e["id"] in set(merk_ids)),
                   key=lambda e: merk_ids.index(e["id"]))

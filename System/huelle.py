@@ -62,6 +62,7 @@ class VideoFenster:
         self.hwnd = 0
         self.panel = None
         self.gemeldet = False                        # hwnd schon an den Server?
+        self.fenster = None                          # pywebview-Fenster (für _js)
 
     def _anlegen(self, form):
         # WICHTIG (live gemessen): ein rohes CreateWindowExW aus dem js_api-
@@ -78,10 +79,31 @@ class VideoFenster:
             p.Visible = False
             form.Controls.Add(p)
             p.BringToFront()                         # ÜBER der WebView (Video-Fläche)
+            # JB-Fund 06.08. („Wenn ich mit maus über den screen hover, dann
+            # sollte auch die bar angezeigt werden"): das NATIVE Panel liegt
+            # über der WebView — Mausbewegungen übers Video erreichen das
+            # Browser-Overlay nie. Darum reicht die Hülle sie selbst weiter:
+            # Bewegung weckt die Leiste (gedrosselt), Klick = Pause/Weiter
+            # (Netflix-Verhalten).
+            p.MouseMove += lambda s, e: self._js("tvpWach&&tvpWach()", 0.3)
+            p.MouseDown += lambda s, e: self._js(
+                "tvpWach&&tvpWach();vlcBefehl&&vlcBefehl('toggle')", 0)
             self.panel = p
             self.hwnd = int(p.Handle.ToInt64())
         form.Invoke(Action(tu))
         return self.hwnd
+
+    def _js(self, code, drossel_s):
+        """JS in der Oberfläche ausführen (best-effort, MouseMove gedrosselt)."""
+        jetzt = time.time()
+        if drossel_s and jetzt - getattr(self, "_js_zuletzt", 0.0) < drossel_s:
+            return
+        self._js_zuletzt = jetzt
+        try:
+            if self.fenster is not None:
+                self.fenster.evaluate_js(code)
+        except Exception:                            # noqa: BLE001 — Weck-Ruf ist Kür
+            pass
 
     def vorbereiten(self, form):
         """Beim Hüllen-START Panel + hwnd anlegen und melden (JB-Fund: „Player
@@ -167,6 +189,7 @@ def main():
         "SyncYouTube", ADRESSE, width=1360, height=860,
         background_color="#171310", min_size=(560, 420), js_api=api)
     api._fenster = fenster
+    api.video.fenster = fenster                      # für die Maus-Weiterleitung
     # Vollbild (TV): der ⛶-Knopf der Oberfläche nutzt die Fullscreen-API —
     # die trägt im WebView2 genauso wie im Browser; kein Sonderweg nötig.
     def frueh():

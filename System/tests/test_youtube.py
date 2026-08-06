@@ -4157,6 +4157,62 @@ def test_hover_karte_netflix():
     assert ".tv-hoverkarte{position:fixed" in quelle, "Karte muss schweben"
 
 
+def test_kacheln_16zu9_blaettern_und_reihen_je_tab():
+    # JB 06.08.: (1) "Das ist immer noch nicht 16:9" -> Film-Kacheln QUER
+    # mit Backdrop (Poster-Fallback) + Fortschrittsbalken; (2) "der mit
+    # gelber umrandung macht nichts" -> Fokus-Zoom-Ueberhang galt als
+    # angeschnitten, am Anschlag war der Klick tot; (3) "Mit pfeil nach
+    # rechts sollte doch immer mehr erscheinen" -> Blaetter-Pfeile je Reihe;
+    # (4) "Filme und Serien sind ihren eigenen tabs eigen zu listen" ->
+    # top 30 vom Server, jeder Tab filtert und schneidet auf 10.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function tvFilmReihe")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "art=Backdrop" in b and "bild2" in b, "Kacheln brauchen Backdrop+Fallback"
+    i = quelle.index("function tvMalen")
+    b = quelle[i:_funktionsende(quelle, i)]
+    for muss in ("f16", "tv-kbalken", "tv-pfeil", "tvBlaettern", "this.src="):
+        assert muss in b, f"tvMalen unvollstaendig: {muss}"
+    assert "#tv .tv-kachel.f16{width:288px" in quelle and "height:162px" in quelle, \
+        "16:9-Kachel-CSS fehlt"
+    assert "function tvBlaettern" in quelle
+    i = quelle.index("function tvKachelKlick")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "kannRechts" in b and "scrollLeft" in b, \
+        "am Anschlag muss der Klick oeffnen statt ins Leere zu blaettern"
+    i = quelle.index("function tvReihenFuer")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert b.count(".slice(0,10)") >= 3 and "genresAls(filt,99)" in b \
+        and "genresAls(a=>a,6)" in b, "Top-10-Schnitt je Tab + Genre-Reihen fehlen"
+    src = open(os.path.join(MODUL_DIR, "filme.py"), encoding="utf-8").read()
+    assert "[:30]" in src and "[:60]" in src and "[:120]" in src, \
+        "Server: top 30 / Genre 60 / Kandidaten 120"
+
+
+def test_player_settings_und_huellen_maus():
+    # JB 06.08.: "es fehlen noch settings im player. Untertitel, playback
+    # speed, Vollbild ... Wenn ich mit maus ueber den screen hover, dann
+    # sollte auch die bar angezeigt werden." Die Maus-Wurzel: das NATIVE
+    # Video-Panel der Huelle liegt ueber der WebView und schluckt jede
+    # Bewegung -> die Huelle reicht sie selbst weiter.
+    quelle = _oberflaeche_html()
+    i = quelle.index("function tvFilmPlayer")
+    b = quelle[i:_funktionsende(quelle, i)]
+    for muss in ("tvpPanel('spuren')", "tvpPanel('tempo')", "tvpVollbild()", "tvp-panel"):
+        assert muss in b, f"Player-Leiste ohne Settings-Knopf: {muss}"
+    i = quelle.index("async function tvpPanel")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "vlcBefehl('spuren')" in b and "[0.5,0.75,1,1.25,1.5]" in b
+    assert "function tvpSpur" in quelle.replace("async function", "function") \
+        and "function tvpRate" in quelle.replace("async function", "function")
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert '"spuren"' in src and "video_get_spu_description" in src \
+        and '"spur"' in src and "video_set_spu" in src, "VLC-Spuren-Kommandos fehlen"
+    hs = open(os.path.join(MODUL_DIR, "huelle.py"), encoding="utf-8").read()
+    assert "MouseMove" in hs and "tvpWach" in hs and "MouseDown" in hs, \
+        "die Huelle muss Maus-Bewegung/Klick ans Overlay weiterreichen"
+
+
 def test_worker_stirbt_nie_und_eigene_urls_gesperrt():
     # Fund 06.08. (live): ein gezogenes Cover der EIGENEN Oberflaeche
     # (http://127.0.0.1:8776/api/cover?...) wurde als Pseudo-Download
