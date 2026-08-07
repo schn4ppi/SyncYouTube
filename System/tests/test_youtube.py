@@ -4247,22 +4247,31 @@ def test_browser_player_und_bild_kette():
     i = quelle.index("function tvFilmReihe")
     b = quelle[i:_funktionsende(quelle, i)]
     assert "art=Thumb" in b and "art=Backdrop" in b and "bild3" in b
-    # Endlos-KREIS (JB 07.08.: kein Ruecksprung - der Anfang reiht sich
-    # hinter das Ende; Nachschlag: auch RUECKWAERTS ab Position 1):
-    # Klone + stiller scrollLeft-Kreis-Schluss, in beide Richtungen.
+    # Endlos-KREIS NUR VORWAERTS (JB 07.08., praezisiert: 1-2-3-4-5-1-2-...;
+    # rueckwaerts hoert es bei der echten Position 1 auf): Klone vorwaerts,
+    # SPAETER stiller Kreis-Schluss (wer ueber die Kante kam, kann zurueck),
+    # Links-Stopp + verschwindender <-Pfeil am echten Anfang.
     i = quelle.index("function tvKlonSichern")
     assert "cloneNode" in quelle[i:_funktionsende(quelle, i)]
     i = quelle.index("function tvBlaettern")
     b = quelle[i:_funktionsende(quelle, i)]
-    assert b.count("tvKlonSichern(band)") >= 2 and "origBreite" in b \
-        and "scrollLeft-=W" in b.replace(" ", ""), \
-        "Reihe muss als Kreis laufen - vorwaerts UND rueckwaerts ab Position 1"
+    assert "tvKlonSichern(band)" in b and "origBreite" in b \
+        and "scrollLeft-=W" in b.replace(" ", ""), "Kreis-Bahn fehlt"
+    assert "dir<0&&band.scrollLeft<=8)return" in b.replace(" ", ""), \
+        "Position 1 darf NICHT nach links (JB 07.08.)"
     assert "function tvSeitenMalen" in quelle and ".tv-seiten" in quelle
     i = quelle.index("function tvSeitenMalen")
     b = quelle[i:_funktionsende(quelle, i)]
     assert "%W" in b, "Striche rechnen modulo (Kreis)"
     assert "passt" in b and "tv-pfeil" in b, \
         "ohne Ueberlauf keine Pfeile/Striche (JB 07.08.)"
+    assert "tv-pfeil.links" in b, "der <-Pfeil verschwindet am echten Anfang"
+    # Pause-Schirm (JB 07.08.): Text liegt UEBER dem stehenden Bild - das
+    # Extra-Standbild gibt es NUR in der Huelle mit VLC.
+    i = quelle.index("function tvpIdleTick")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "huelleVlc" in b and "window.pywebview" in b, \
+        "Standbild-Ersatz nur in der Huelle (Browser zeigt das <video> selbst)"
     # Pause-Standbild:
     i = quelle.index("function tvpIdleTick")
     assert "vlc_standbild" in quelle[i:_funktionsende(quelle, i)]

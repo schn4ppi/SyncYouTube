@@ -308,11 +308,15 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 @keyframes tvpdreh{to{transform:rotate(360deg)}}
 #tv-player .tvp-idle{position:absolute;left:6vw;top:30vh;max-width:640px;display:none;
   flex-direction:column;gap:10px}
-#tv-player .tvp-idle-klein{font-size:19px;color:#d8cec4}
-#tv-player .tvp-idle-titel{font-size:56px;font-weight:900;line-height:1.05}
-#tv-player .tvp-idle-meta{font-size:20px;color:#d8cec4;font-weight:700}
-#tv-player .tvp-idle-besch{font-size:17px;color:#cfc5ba}
-#tv-player .tvp-idle-paused{position:fixed;right:6vw;bottom:10vh;font-size:22px;color:#d8cec4}
+/* Pause-Text liegt ÜBER dem stehenden Filmbild (JB 07.08.): weiß mit
+   leichtem Schatten — lesbar auf jedem Untergrund, kein Dimmen. */
+#tv-player .tvp-idle{text-shadow:0 1px 8px rgba(0,0,0,.9)}
+#tv-player .tvp-idle-klein{font-size:19px;color:#fff}
+#tv-player .tvp-idle-titel{font-size:56px;font-weight:900;line-height:1.05;color:#fff}
+#tv-player .tvp-idle-meta{font-size:20px;color:#fff;font-weight:700}
+#tv-player .tvp-idle-besch{font-size:17px;color:#f0f0f0}
+#tv-player .tvp-idle-paused{position:fixed;right:6vw;bottom:10vh;font-size:22px;
+  color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.9)}
 /* TV-Profil-Dialog (eigener statt prompt(), JB: „bau den") */
 #tv-dialog{position:fixed;inset:0;z-index:980;display:none;align-items:center;
   justify-content:center;background:rgba(8,6,5,.82);color:#f2ece5}
@@ -4053,18 +4057,20 @@ function tvpIdleTick(spielt){
   const idle=document.getElementById('tvp-idle');
   if(!idle)return;
   const zeigen=still&&!spielt;
+  // JB 07.08.: „kein neues bild — das pause gehaltene Bild nehmen und den
+  // Text darüberlegen." Im Browser-Modus steht das <video> selbst als
+  // Standbild, der Text liegt einfach darüber. NUR in der HÜLLE mit VLC
+  // (natives Panel, Text kann nicht darüber) ersetzt ein frischer
+  // Schnappschuss den Moment.
   const bg=document.getElementById('tvp-standbild');
-  if(zeigen&&idle.style.display==='none'&&tvpModus!=='browser'){
-    // JB 06.08.: „das pause bild nehmen in dem moment vom film" — im
-    // VLC-Modus liefert ein Schnappschuss den Moment (das native Panel
-    // ist im Pause-Schirm versteckt); im Browser-Modus steht das <video>
-    // ohnehin als echtes Standbild da.
+  const huelleVlc=tvpModus!=='browser'&&!!window.pywebview;
+  if(zeigen&&idle.style.display==='none'&&huelleVlc){
     vlcBefehl('standbild').then(()=>{
       if(bg)bg.src='/api/vlc_standbild?t='+Date.now();
     }).catch(()=>{});
   }
   idle.style.display=zeigen?'flex':'none';
-  if(bg)bg.style.display=(zeigen&&tvpModus!=='browser')?'block':'none';
+  if(bg)bg.style.display=(zeigen&&huelleVlc)?'block':'none';
 }
 function tvpZu(){
   tvpOffen=false; tvpModus='vlc'; tvpTc=false; tvpTcOffset=0;   // nie hängen lassen
@@ -7784,24 +7790,21 @@ function tvKlonSichern(band){
 function tvBlaettern(btn,dir){
   const band=btn.parentElement&&btn.parentElement.querySelector('.tv-band');
   if(!band)return;
-  // ENDLOS-KREIS (JB 07.08.: „nicht zurück zur position, sondern die erste
-  // position reiht sich hinter der letzten an — wie ein flacher kreis"):
-  // vor dem Ende wird der Reihen-ANFANG einmal geklont und angehängt, das
-  // Blättern läuft nahtlos weiter; steht man komplett im Klon-Teil, springt
-  // scrollLeft UNSICHTBAR um die Original-Breite zurück (identisches Bild).
-  // AUCH RÜCKWÄRTS ab Position 1 (JB-Nachschlag): erst still in den
-  // Klon-Teil springen, dann zurückblättern — der Kreis hat keine Kante.
+  // ENDLOS-KREIS NUR VORWÄRTS (JB 07.08., präzisiert: „1-2-3-4-5-1-2-…" —
+  // vor dem Ende klont sich der Reihen-Anfang einmal hinten an, es geht
+  // nahtlos weiter. RÜCKWÄRTS läuft es nur bis zur echten Position 1:
+  // „5-4-3-2-1 und da hört es auf" — wer gerade über die Kante kam, kann
+  // durch sie zurück; der stille Kreis-Schluss springt deshalb erst am
+  // ENDE des Klon-Teils, nicht sofort.
   if(!band.dataset.origBreite)band.dataset.origBreite=band.scrollWidth;
   const W=+band.dataset.origBreite;
   if(dir>0&&band.scrollLeft+band.clientWidth*2>=band.scrollWidth)
     tvKlonSichern(band);
-  if(dir<0&&band.scrollLeft<=8){
-    tvKlonSichern(band);
-    band.scrollLeft+=W;                                // still in den Klon-Teil
-  }
+  if(dir<0&&band.scrollLeft<=8)return;                 // Position 1: kein Links-Weg
   band.scrollBy({left:dir*band.clientWidth*0.85,behavior:'smooth'});
   setTimeout(()=>{
-    if(band.scrollLeft>=W)band.scrollLeft-=W;          // stiller Kreis-Schluss
+    const spaet=Math.max(W, 2*W-band.clientWidth*1.5);
+    if(band.scrollLeft>=spaet)band.scrollLeft-=W;      // stiller Kreis-Schluss (spät)
     tvSeitenMalen(btn.parentElement);
   },600);
 }
@@ -7817,6 +7820,10 @@ function tvSeitenMalen(reihe){
   const passt=!band.dataset.klon&&band.scrollWidth<=band.clientWidth+4;
   reihe.querySelectorAll('.tv-pfeil').forEach(p=>p.style.display=passt?'none':'');
   if(passt){box.innerHTML=''; return;}
+  // Am echten Anfang gibt es keinen Links-Weg (JB: „Erste Position geht
+  // nicht nach links") — der ◀ verschwindet dort wie bei Netflix.
+  const links=reihe.querySelector('.tv-pfeil.links');
+  if(links)links.style.display=band.scrollLeft<=8?'none':'';
   const W=+(band.dataset.origBreite||band.scrollWidth);
   const n=Math.ceil(W/Math.max(1,band.clientWidth));
   if(n<2||n>24){box.innerHTML=''; return;}
