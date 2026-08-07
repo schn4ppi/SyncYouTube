@@ -160,9 +160,11 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-kopf .tvtab.tv-fokus,#tv .tv-kachel.tv-fokus{border-color:#fff;outline:none}
 #tv-kopf .tvzu{margin-left:auto;font-size:22px;background:none;border:2px solid transparent;
   border-radius:999px;color:#b3b3b3;padding:8px 16px;cursor:pointer}
-#tv-inhalt{flex:1;overflow-y:auto;padding:6px 28px 40px}
+/* Mehr Rand beidseits (JB 07.08.: Fokus-Rahmen der ERSTEN Kachel war links
+   abgeschnitten — „etwas mehr zentrieren die beiden seiten"). */
+#tv-inhalt{flex:1;overflow-y:auto;padding:6px 48px 40px}
 #tv .tv-rtitel{font-size:22px;font-weight:600;color:#e5e5e5;margin:18px 2px 10px}
-#tv .tv-band{display:flex;gap:8px;overflow-x:auto;padding:6px 2px 10px;scrollbar-width:none}
+#tv .tv-band{display:flex;gap:8px;overflow-x:auto;padding:6px 8px 10px;scrollbar-width:none}
 #tv .tv-band.wrap{flex-wrap:wrap;overflow-x:visible}   /* „Alle A–Z"-Raster */
 #tv .tv-kachel{flex:0 0 auto;width:150px;cursor:pointer;border:3px solid transparent;
   border-radius:8px;padding:3px;position:relative;transition:transform .25s}
@@ -188,8 +190,8 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
   background:rgba(20,20,20,.55);color:#fff;font-size:38px;z-index:6;opacity:0;
   transition:opacity .2s;border-radius:4px;display:flex;align-items:center;justify-content:center}
 #tv .tv-reihe:hover .tv-pfeil{opacity:1}
-#tv .tv-pfeil.links{left:-6px}
-#tv .tv-pfeil.rechts{right:-6px}
+#tv .tv-pfeil.links{left:-40px}
+#tv .tv-pfeil.rechts{right:-40px}
 #tv .tv-pfeil:hover{background:rgba(20,20,20,.85)}
 #tv .tv-seiten{position:absolute;right:4px;top:26px;display:flex;gap:2px;
   opacity:0;transition:opacity .2s}
@@ -7770,6 +7772,15 @@ function tvKachelKlick(ev,r,i){
   }
   tvWahl(r,i);
 }
+function tvKlonSichern(band){
+  // Reihen-Anfang EINMAL hinter das Ende klonen (Kreis-Bahn).
+  if(band.dataset.klon)return;
+  if(!band.dataset.origBreite)band.dataset.origBreite=band.scrollWidth;
+  [...band.children].forEach(k=>{
+    const c=k.cloneNode(true); c.classList.remove('tv-fokus','hk-quelle');
+    band.appendChild(c);});
+  band.dataset.klon='1';
+}
 function tvBlaettern(btn,dir){
   const band=btn.parentElement&&btn.parentElement.querySelector('.tv-band');
   if(!band)return;
@@ -7778,17 +7789,16 @@ function tvBlaettern(btn,dir){
   // vor dem Ende wird der Reihen-ANFANG einmal geklont und angehängt, das
   // Blättern läuft nahtlos weiter; steht man komplett im Klon-Teil, springt
   // scrollLeft UNSICHTBAR um die Original-Breite zurück (identisches Bild).
+  // AUCH RÜCKWÄRTS ab Position 1 (JB-Nachschlag): erst still in den
+  // Klon-Teil springen, dann zurückblättern — der Kreis hat keine Kante.
   if(!band.dataset.origBreite)band.dataset.origBreite=band.scrollWidth;
   const W=+band.dataset.origBreite;
-  if(dir>0&&!band.dataset.klon&&
-     band.scrollLeft+band.clientWidth*2>=band.scrollWidth){
-    [...band.children].forEach(k=>{
-      const c=k.cloneNode(true); c.classList.remove('tv-fokus','hk-quelle');
-      band.appendChild(c);});
-    band.dataset.klon='1';
+  if(dir>0&&band.scrollLeft+band.clientWidth*2>=band.scrollWidth)
+    tvKlonSichern(band);
+  if(dir<0&&band.scrollLeft<=8){
+    tvKlonSichern(band);
+    band.scrollLeft+=W;                                // still in den Klon-Teil
   }
-  if(dir<0&&band.scrollLeft<=8&&band.dataset.klon)
-    band.scrollLeft+=W;                                // rückwärts: erst still in den Klon-Teil
   band.scrollBy({left:dir*band.clientWidth*0.85,behavior:'smooth'});
   setTimeout(()=>{
     if(band.scrollLeft>=W)band.scrollLeft-=W;          // stiller Kreis-Schluss
@@ -7802,6 +7812,11 @@ function tvSeitenMalen(reihe){
   if(!reihe||!reihe.querySelector)return;
   const band=reihe.querySelector('.tv-band'), box=reihe.querySelector('.tv-seiten');
   if(!band||!box||band.classList.contains('wrap'))return;
+  // JB 07.08.: passt ALLES in den Rahmen, braucht es weder Pfeile noch
+  // Striche — die Reihe ist dann keine Bahn, sondern ein Regal.
+  const passt=!band.dataset.klon&&band.scrollWidth<=band.clientWidth+4;
+  reihe.querySelectorAll('.tv-pfeil').forEach(p=>p.style.display=passt?'none':'');
+  if(passt){box.innerHTML=''; return;}
   const W=+(band.dataset.origBreite||band.scrollWidth);
   const n=Math.ceil(W/Math.max(1,band.clientWidth));
   if(n<2||n>24){box.innerHTML=''; return;}

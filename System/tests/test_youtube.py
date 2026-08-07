@@ -4248,14 +4248,21 @@ def test_browser_player_und_bild_kette():
     b = quelle[i:_funktionsende(quelle, i)]
     assert "art=Thumb" in b and "art=Backdrop" in b and "bild3" in b
     # Endlos-KREIS (JB 07.08.: kein Ruecksprung - der Anfang reiht sich
-    # hinter das Ende): Klone + stiller scrollLeft-Kreis-Schluss.
+    # hinter das Ende; Nachschlag: auch RUECKWAERTS ab Position 1):
+    # Klone + stiller scrollLeft-Kreis-Schluss, in beide Richtungen.
+    i = quelle.index("function tvKlonSichern")
+    assert "cloneNode" in quelle[i:_funktionsende(quelle, i)]
     i = quelle.index("function tvBlaettern")
     b = quelle[i:_funktionsende(quelle, i)]
-    assert "cloneNode" in b and "origBreite" in b and "scrollLeft-=W" in b.replace(" ", ""), \
-        "Reihe muss als Kreis weiterlaufen, nicht zurueckspringen"
+    assert b.count("tvKlonSichern(band)") >= 2 and "origBreite" in b \
+        and "scrollLeft-=W" in b.replace(" ", ""), \
+        "Reihe muss als Kreis laufen - vorwaerts UND rueckwaerts ab Position 1"
     assert "function tvSeitenMalen" in quelle and ".tv-seiten" in quelle
     i = quelle.index("function tvSeitenMalen")
-    assert "%W" in quelle[i:_funktionsende(quelle, i)], "Striche rechnen modulo (Kreis)"
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "%W" in b, "Striche rechnen modulo (Kreis)"
+    assert "passt" in b and "tv-pfeil" in b, \
+        "ohne Ueberlauf keine Pfeile/Striche (JB 07.08.)"
     # Pause-Standbild:
     i = quelle.index("function tvpIdleTick")
     assert "vlc_standbild" in quelle[i:_funktionsende(quelle, i)]
