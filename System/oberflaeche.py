@@ -175,8 +175,16 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 /* Filme/Serien QUER in 16:9 (JB 06.08.: „Das ist immer noch nicht 16:9.
    Warum?" + Netflix-Referenz): Backdrop-Kacheln, sanfter Zoom — die große
    Ansicht übernimmt die Hover-Karte. */
-#tv .tv-kachel.f16{width:288px}
-#tv .tv-kachel.f16 img{height:162px}
+/* Responsive Spalten (JB 07.08.: „der Film soll am anfang und am ende
+   komplett anfangen und abschließen — für alle Displaygrößen"): die
+   Kachelbreite rechnet sich aus dem Viewport, sodass IMMER eine ganze
+   Anzahl in die Bahn passt — wie bei Netflix 6/5/4/3 Spalten je Breite.
+   112px = Seitenränder (2×48) + Band-Innenabstand (2×8). */
+#tv .tv-kachel.f16{width:calc((100vw - 152px)/6)}
+@media(max-width:1499px){#tv .tv-kachel.f16{width:calc((100vw - 144px)/5)}}
+@media(max-width:1099px){#tv .tv-kachel.f16{width:calc((100vw - 136px)/4)}}
+@media(max-width:799px){#tv .tv-kachel.f16{width:calc((100vw - 128px)/3)}}
+#tv .tv-kachel.f16 img{height:auto;aspect-ratio:16/9}
 #tv .tv-kachel.f16.tv-fokus,#tv .tv-band:not(.wrap) .tv-kachel.f16:hover{transform:scale(1.06)}
 /* Karte offen: Quell-Kachel sofort ohne Zoom (transition aus, sonst misst
    die Karten-Platzierung die noch gezoomte Geometrie). */
@@ -4084,7 +4092,13 @@ function tvpIdleTick(spielt){
   const huelleVlc=tvpModus!=='browser'&&!!window.pywebview;
   if(zeigen&&idle.style.display==='none'&&huelleVlc){
     vlcBefehl('standbild').then(()=>{
-      if(bg)bg.src='/api/vlc_standbild?t='+Date.now();
+      if(bg){
+        bg.src='/api/vlc_standbild?t='+Date.now();
+        // gleiche Fläche wie das Video-Panel (bis zur Leiste) — sonst
+        // springt die Bildgröße beim Pause-Schirm (JB 07.08.).
+        const u=document.querySelector('#tv-player .tvp-unten');
+        if(u)bg.style.bottom=(innerHeight-u.getBoundingClientRect().top)+'px';
+      }
     }).catch(()=>{});
   }
   idle.style.display=zeigen?'flex':'none';
@@ -4138,9 +4152,10 @@ async function tvpTick(){
   }else if(api&&api.video_rect){
     const u=document.querySelector('#tv-player .tvp-unten');
     const dpr=window.devicePixelRatio||1;
-    const el2=document.getElementById('tv-player');
-    let bis=(u&&!el2.classList.contains('idle'))
-      ?u.getBoundingClientRect().top:window.innerHeight;
+    // JB 07.08.: „das bild wird plötzlich größer wenn die Bedienung
+    // ausblendet" — die Leisten-Fläche bleibt jetzt IMMER reserviert
+    // (auch im Idle nur Inhalte ausgeblendet), das Bild ist konstant.
+    let bis=u?u.getBoundingClientRect().top:window.innerHeight;
     const pan=document.getElementById('tvp-panel');
     if(pan&&pan.style.display!=='none')
       bis=Math.min(bis,pan.getBoundingClientRect().top);
@@ -7819,7 +7834,14 @@ function tvBlaettern(btn,dir){
   if(dir>0&&band.scrollLeft+band.clientWidth*2>=band.scrollWidth)
     tvKlonSichern(band);
   if(dir<0&&band.scrollLeft<=8)return;                 // Position 1: kein Links-Weg
-  band.scrollBy({left:dir*band.clientWidth*0.85,behavior:'smooth'});
+  // Kachelbündig blättern (JB 07.08.): Schritt = GANZE Kachelspalten und
+  // das Ziel rastet auf eine Kachelkante — links beginnt immer eine
+  // Kachel komplett, auf jeder Displaygröße.
+  const k0=band.querySelector('.tv-kachel');
+  const schritt=k0?(k0.getBoundingClientRect().width+8):band.clientWidth*0.85;
+  const proSeite=Math.max(1,Math.floor((band.clientWidth+8)/schritt));   // letzte Kachel hat keinen Gap
+  const ziel=Math.max(0,Math.round((band.scrollLeft+dir*proSeite*schritt)/schritt)*schritt);
+  band.scrollTo({left:ziel,behavior:'smooth'});
   setTimeout(()=>{
     const spaet=Math.max(W, 2*W-band.clientWidth*1.5);
     if(band.scrollLeft>=spaet)band.scrollLeft-=W;      // stiller Kreis-Schluss (spät)

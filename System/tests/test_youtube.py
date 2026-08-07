@@ -4173,8 +4173,15 @@ def test_kacheln_16zu9_blaettern_und_reihen_je_tab():
     b = quelle[i:_funktionsende(quelle, i)]
     for muss in ("f16", "tv-kbalken", "tv-pfeil", "tvBlaettern", "this.src="):
         assert muss in b, f"tvMalen unvollstaendig: {muss}"
-    assert "#tv .tv-kachel.f16{width:288px" in quelle and "height:162px" in quelle, \
-        "16:9-Kachel-CSS fehlt"
+    # JB 07.08.: Spalten rechnen sich aus dem Viewport (immer GANZE Kacheln
+    # in der Bahn, 6/5/4/3 je Breite) - keine fixe Pixelbreite mehr.
+    assert "calc((100vw" in quelle and "aspect-ratio:16/9" in quelle \
+        and quelle.count("#tv .tv-kachel.f16{width:calc") >= 4, \
+        "16:9-Kacheln muessen responsive Spalten sein"
+    i = quelle.index("function tvBlaettern")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "proSeite" in b and "Math.round" in b, \
+        "Blaettern muss kachelbuendig rasten (JB 07.08.)"
     assert "function tvBlaettern" in quelle
     i = quelle.index("function tvKachelKlick")
     b = quelle[i:_funktionsende(quelle, i)]
