@@ -5234,6 +5234,13 @@ class Handler(BaseHTTPRequestHandler):
             # der volle Status verriet aus dem LAN den Fernsteuerungs-Code
             # (Widerruf damit wirkungslos) und die ganze Config (Pfade,
             # Proxys). Nicht-lokal bekommt nur, was die Handy-UI braucht.
+            # ui_stand: mtime der Oberfläche — alte Browser-Tabs erneuern
+            # sich selbst, wenn hier neuer Code liegt (Wurzel-Fix 07.08.).
+            try:
+                ui_stand = round(os.path.getmtime(
+                    os.path.join(SCRIPT_DIR, "oberflaeche.py")), 2)
+            except OSError:
+                ui_stand = 0
             with Q.lock:
                 if self._ist_lokal():
                     _antwort(self, 200, {"items": Q.items, "config": CFG,
@@ -5242,14 +5249,15 @@ class Handler(BaseHTTPRequestHandler):
                                          "remote": _remote, "fernsteuerung": fernsteuerung_info(),
                                          "addon_nachschub": _addon_nachschub,
                                          "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
-                                         "jetzt": time.time()})
+                                         "ui_stand": ui_stand, "jetzt": time.time()})
                 else:
                     harmlos = {k: CFG.get(k) for k in
                                ("standard_qualitaet", "unterordner", "metadaten",
                                 "untertitel", "parallel")}
                     _antwort(self, 200, {"items": Q.items, "config": harmlos,
                                          "ffmpeg": bool(_ffmpeg_pfad()),
-                                         "db": db_statistik(), "jetzt": time.time()})
+                                         "db": db_statistik(),
+                                         "ui_stand": ui_stand, "jetzt": time.time()})
         elif self.path == "/addon.xpi":
             # Signierte Firefox-Erweiterung direkt aus der App installieren —
             # richtiger MIME-Typ, damit Firefox den Installations-Dialog zeigt.

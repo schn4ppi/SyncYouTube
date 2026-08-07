@@ -62,7 +62,11 @@ class VideoFenster:
         self.hwnd = 0
         self.panel = None
         self.gemeldet = False                        # hwnd schon an den Server?
-        self.fenster = None                          # pywebview-Fenster (für _js)
+        # WICHTIG (Hüllen-Hänger 07.08., live seziert): das pywebview-Fenster
+        # MUSS ein _unterstrich-Attribut sein — pywebview introspektiert die
+        # js_api rekursiv, und über fenster.native (WinForms) läuft es in
+        # .NET-Selbstbezüge (Bounds.Empty.Empty…) bis zur Endlos-Rekursion.
+        self._fenster = None
 
     def _anlegen(self, form):
         # WICHTIG (live gemessen): ein rohes CreateWindowExW aus dem js_api-
@@ -102,7 +106,7 @@ class VideoFenster:
         if drossel_s and jetzt - getattr(self, "_js_zuletzt", 0.0) < drossel_s:
             return
         self._js_zuletzt = jetzt
-        fenster = self.fenster
+        fenster = self._fenster
         if fenster is None:
             return
 
@@ -198,7 +202,7 @@ def main():
         "SyncYouTube", ADRESSE, width=1360, height=860,
         background_color="#171310", min_size=(560, 420), js_api=api)
     api._fenster = fenster
-    api.video.fenster = fenster                      # für die Maus-Weiterleitung
+    api.video._fenster = fenster                     # für die Maus-Weiterleitung
     # Vollbild (TV): der ⛶-Knopf der Oberfläche nutzt die Fullscreen-API —
     # die trägt im WebView2 genauso wie im Browser; kein Sonderweg nötig.
     def frueh():

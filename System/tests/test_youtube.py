@@ -4211,6 +4211,19 @@ def test_player_settings_und_huellen_maus():
     hs = open(os.path.join(MODUL_DIR, "huelle.py"), encoding="utf-8").read()
     assert "MouseMove" in hs and "tvpWach" in hs and "MouseDown" in hs, \
         "die Huelle muss Maus-Bewegung/Klick ans Overlay weiterreichen"
+    # Huellen-Haenger 07.08. (live seziert): pywebview introspektiert die
+    # js_api rekursiv - ein PUBLIC-Attribut mit dem Fenster-Objekt fuehrt
+    # ueber .native in .NET-Selbstbezuege (Bounds.Empty.Empty...) bis zur
+    # Endlos-Rekursion. Das Fenster haengt IMMER am _unterstrich.
+    assert "api.video._fenster" in hs and "self.fenster" not in hs, \
+        "pywebview-Fenster nie als public js_api-Attribut (Rekursionsfalle)"
+    # Alte Tabs erneuern sich selbst (JB testete tagelang mit altem Stand).
+    assert '"ui_stand"' in src and "getmtime" in src
+    q2 = _oberflaeche_html()
+    i = q2.index("function uiStandPruefen")
+    b2 = q2[i:_funktionsende(q2, i)]
+    assert "location.reload()" in b2 and "tvpOffen" in b2, \
+        "Selbst-Erneuerung: nur sanft (nie im Film/Dialog/beim Tippen)"
 
 
 def test_browser_player_und_bild_kette():

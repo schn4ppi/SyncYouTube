@@ -3328,7 +3328,25 @@ async function laden(){
     remoteAusfuehren(daten.remote);                    // Befehle vom Handy ausführen
     nachschubMelden(daten.addon_nachschub);            // Addon-Vormerkungen (v1.2.0)
     subStilVomServer();                                // Untertitel-Stil: Server-Stand gewinnt
+    uiStandPruefen(daten.ui_stand);                    // alte Tabs erneuern sich selbst
   }catch(e){apiStatus(false);}
+}
+/* Selbst-Erneuerung (Wurzel-Fix 07.08.: JB testete mehrfach mit einem TAGE
+   alten Tab — die Oberfläche lädt heiß vom Server, aber nur bei einem
+   RELOAD, den nie jemand machte). Ändert sich der Stand der Oberfläche auf
+   der Platte, lädt die Seite sich selbst neu — sanft: nie mitten im Film,
+   in einem Dialog oder beim Tippen, höchstens einmal je Minute. */
+let uiStand=null;
+function uiStandPruefen(stand){
+  if(!stand)return;
+  if(uiStand===null){uiStand=stand; return;}
+  if(stand===uiStand)return;
+  const tippt=document.activeElement&&['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
+  if(tvpOffen||tvInfoOffen||tvDialogOffen||tippt)return;
+  const letzter=+sessionStorage.getItem('ui_reload_ts')||0;
+  if(Date.now()-letzter<60000)return;
+  sessionStorage.setItem('ui_reload_ts',String(Date.now()));
+  location.reload();
 }
 /* Addon-Nachschub (v1.2.0, JB): „eine kurze Info, dass jetzt x Downloads
    getätigt werden" — je id genau EIN Toast (Muster wie _remoteN: beim
