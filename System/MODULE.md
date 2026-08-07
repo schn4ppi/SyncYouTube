@@ -23,6 +23,7 @@
 | `oberflaeche.py` | Die gesamte PC-Oberfläche als ein HTML/CSS/JS-String; wird bei jedem Seitenaufruf heiß nachgeladen (`importlib.reload`) | von `youtube_app` ausgeliefert; enthält den `LAYOUT_KERN`-Inline-Block (Wächter `test_layout_kern` im Familien-Repo erzwingt Gleichheit mit `SyncDashTray/System/layout_kern.js`) |
 | `handy.py` | Schlanke Touch-Oberfläche der Handy-Fernsteuerung (Route `/m`, opt-in mit Code) | von `youtube_app` ausgeliefert |
 | `update.py` | Selbst-Aktualisierung: prüft `releases/latest`, lädt die neue Fassung, tauscht sie aus | eigenständig; **MERKE:** Setup-Installationen nie auf die onefile-Form zurückfallen lassen |
+| `tools/quellstart_paket.py` | Werkstatt: baut `SyncYouTube-Quellstart.zip` (signiertes python.org-Embeddable + Skripte) für Smart-App-Control-Nutzer (Pete-Fall 07.08.) | von Hand vor einem Release; Ergebnis nach `dist_exe/` |
 | `familie.py` | gemeinsamer Kern der Familie (Pfade/json/status) — byte-gleiche Kopie | Wächter `test_familie_kern` im Familien-Repo erzwingt Gleichheit; Verteilung über `vendor_kern.py` |
 | `layout_kern.js` | gemeinsamer Layout-Mathe-Kern (Snapping/Überlappung/Viewport-Einpassung, DOM-frei) — vendorte Kopie | Master liegt in `SyncDashTray/System/layout_kern.js` |
 

@@ -4247,11 +4247,15 @@ def test_browser_player_und_bild_kette():
     i = quelle.index("function tvFilmReihe")
     b = quelle[i:_funktionsende(quelle, i)]
     assert "art=Thumb" in b and "art=Backdrop" in b and "bild3" in b
-    # Loop + Striche:
+    # Endlos-KREIS (JB 07.08.: kein Ruecksprung - der Anfang reiht sich
+    # hinter das Ende): Klone + stiller scrollLeft-Kreis-Schluss.
     i = quelle.index("function tvBlaettern")
     b = quelle[i:_funktionsende(quelle, i)]
-    assert "scrollTo" in b and "ende" in b, "Reihe muss am Ende zum Anfang loopen"
+    assert "cloneNode" in b and "origBreite" in b and "scrollLeft-=W" in b.replace(" ", ""), \
+        "Reihe muss als Kreis weiterlaufen, nicht zurueckspringen"
     assert "function tvSeitenMalen" in quelle and ".tv-seiten" in quelle
+    i = quelle.index("function tvSeitenMalen")
+    assert "%W" in quelle[i:_funktionsende(quelle, i)], "Striche rechnen modulo (Kreis)"
     # Pause-Standbild:
     i = quelle.index("function tvpIdleTick")
     assert "vlc_standbild" in quelle[i:_funktionsende(quelle, i)]

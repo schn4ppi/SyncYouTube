@@ -30,6 +30,7 @@
 !System/geo.py
 !System/vpn.py
 !System/tests/*.py
+!System/tools/quellstart_paket.py
 !System/browser-addon/build.py
 !System/browser-addon/amo_sign.py
 !System/browser-addon/manifest.base.json

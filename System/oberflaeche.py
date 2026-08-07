@@ -7773,24 +7773,41 @@ function tvKachelKlick(ev,r,i){
 function tvBlaettern(btn,dir){
   const band=btn.parentElement&&btn.parentElement.querySelector('.tv-band');
   if(!band)return;
-  // Netflix-Loop (JB 06.08.): am Ende springt ▶ zurück zum Anfang, am
-  // Anfang springt ◀ ans Ende — die Reihe „wiederholt sich".
-  const ende=band.scrollLeft+band.clientWidth>=band.scrollWidth-8;
-  const anfang=band.scrollLeft<=8;
-  if(dir>0&&ende)band.scrollTo({left:0,behavior:'smooth'});
-  else if(dir<0&&anfang)band.scrollTo({left:band.scrollWidth,behavior:'smooth'});
-  else band.scrollBy({left:dir*band.clientWidth*0.85,behavior:'smooth'});
-  setTimeout(()=>tvSeitenMalen(btn.parentElement),400);
+  // ENDLOS-KREIS (JB 07.08.: „nicht zurück zur position, sondern die erste
+  // position reiht sich hinter der letzten an — wie ein flacher kreis"):
+  // vor dem Ende wird der Reihen-ANFANG einmal geklont und angehängt, das
+  // Blättern läuft nahtlos weiter; steht man komplett im Klon-Teil, springt
+  // scrollLeft UNSICHTBAR um die Original-Breite zurück (identisches Bild).
+  if(!band.dataset.origBreite)band.dataset.origBreite=band.scrollWidth;
+  const W=+band.dataset.origBreite;
+  if(dir>0&&!band.dataset.klon&&
+     band.scrollLeft+band.clientWidth*2>=band.scrollWidth){
+    [...band.children].forEach(k=>{
+      const c=k.cloneNode(true); c.classList.remove('tv-fokus','hk-quelle');
+      band.appendChild(c);});
+    band.dataset.klon='1';
+  }
+  if(dir<0&&band.scrollLeft<=8&&band.dataset.klon)
+    band.scrollLeft+=W;                                // rückwärts: erst still in den Klon-Teil
+  band.scrollBy({left:dir*band.clientWidth*0.85,behavior:'smooth'});
+  setTimeout(()=>{
+    if(band.scrollLeft>=W)band.scrollLeft-=W;          // stiller Kreis-Schluss
+    tvSeitenMalen(btn.parentElement);
+  },600);
 }
 function tvSeitenMalen(reihe){
   // Seiten-Striche oben rechts (Netflix): wie weit bin ich in der Reihe?
+  // Mit Klon-Teil (Endlos-Kreis) zählt nur die ORIGINAL-Breite; die
+  // Position rechnet modulo — der Kreis hat keine Enden.
   if(!reihe||!reihe.querySelector)return;
   const band=reihe.querySelector('.tv-band'), box=reihe.querySelector('.tv-seiten');
   if(!band||!box||band.classList.contains('wrap'))return;
-  const n=Math.ceil(band.scrollWidth/Math.max(1,band.clientWidth));
+  const W=+(band.dataset.origBreite||band.scrollWidth);
+  const n=Math.ceil(W/Math.max(1,band.clientWidth));
   if(n<2||n>24){box.innerHTML=''; return;}
-  const max=Math.max(1,band.scrollWidth-band.clientWidth);
-  const akt=Math.min(n-1,Math.round((band.scrollLeft/max)*(n-1)));
+  const max=Math.max(1,W-band.clientWidth);
+  const pos=Math.min(band.scrollLeft%W,max);
+  const akt=Math.min(n-1,Math.round((pos/max)*(n-1)));
   box.innerHTML=Array.from({length:n},(_,i)=>`<span${i===akt?' class="an"':''}></span>`).join('');
 }
 function tvWahl(r,i){

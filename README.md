@@ -98,6 +98,24 @@ Firefox-Erweiterung (+ `updates.json`, ihr Update-Kanal: einmal installiert, hä
 sie ab v1.0.4 selbst aktuell). Updates holt die exe auf Wunsch selbst (Einstellungen →
 „Selbst-Update“, oder Tray → „Nach Updates suchen…“).
 
+### Windows „Smart App Control" blockiert die exe?
+
+Smart App Control (Windows 11) lässt nur Programme laufen, die **signiert** sind oder
+in Microsofts Cloud eine **bekannte Reputation** haben. Unsere exe ist beides (noch)
+nicht: jeder PyInstaller-Build ist ein frisch gehashtes Unikat ohne Herausgeber-
+Signatur — SAC blockiert sie darum ohne „Trotzdem ausführen"-Knopf. Eine
+Code-Signatur ist in Arbeit; bis dahin gibt es den **Quellstart-Weg**, der ohne
+Tricks auskommt:
+
+1. `SyncYouTube-Quellstart.zip` aus den Releases laden und entpacken.
+2. `SyncYouTube-Quellstart.bat` doppelklicken — gestartet wird der **offizielle,
+   von der Python Software Foundation signierte** Python-Interpreter; unsere
+   `.py`-Dateien sind für SAC Daten, keine Programme.
+
+Alternativ mit eigenem Python (von [python.org](https://python.org), signiert):
+Repo laden, `pip install yt-dlp pystray pillow mutagen pykakasi keyring qrcode python-vlc`,
+dann `pythonw System\youtube_app.py`.
+
 ## Lizenz
 
 **GPL-3.0-or-later** (siehe [LICENSE](LICENSE)). Enthaltene/beigelegte Komponenten:

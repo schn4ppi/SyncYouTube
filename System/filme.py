@@ -601,8 +601,14 @@ def snippet_backen(item_id):
         import subprocess
         os.makedirs(_pfade["snippets"], exist_ok=True)
         tmp = pfad + ".tmp.mp4"
+        # ffmpeg IMMER absolut aus System/bin (Fund 07.08.: nackt "ffmpeg"
+        # hängt am Prozess-PATH — und ein Fehllauf hinterließ die
+        # Müll-Datei "-movflags" im System-Ordner).
+        ff = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "ffmpeg.exe")
+        if not os.path.exists(ff):
+            ff = "ffmpeg"
         subprocess.run(
-            ["ffmpeg", "-y", "-ss", str(start), "-i", strom, "-t", "6", "-an",
+            [ff, "-y", "-ss", str(start), "-i", strom, "-t", "6", "-an",
              "-vf", "scale=480:-2", "-movflags", "+faststart", tmp],
             capture_output=True, timeout=90,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
