@@ -983,6 +983,28 @@ _VLC_KANDIDATEN = (r"C:\Program Files\VideoLAN\VLC\vlc.exe",
                    r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe")
 
 
+def ordner_zeigen(pfad=None):
+    """Explorer öffnen und IN DEN VORDERGRUND holen (JB 07.08.: „Zielordner
+    öffnet sich im Hintergrund").
+
+    Wurzel: Windows verweigert einem Hintergrundprozess (unser pythonw-Server
+    hat keinen Eingabe-Fokus) das Setzen des Vordergrundfensters —
+    `Popen(["explorer", …])` erbt diese Sperre. Der Umweg über die Shell
+    (`os.startfile`, intern ShellExecute) gilt als Nutzer-veranlasst; die
+    Shell darf ihr Fenster nach vorn holen.
+    """
+    ziel = pfad or ziel_ordner()
+    try:
+        if pfad and os.path.isfile(pfad):
+            # Datei markieren: dafür braucht es explorer /select — danach
+            # das Fenster per ShellExecute-Regel nach vorn holen.
+            subprocess.Popen(["explorer", "/select,", os.path.normpath(pfad)])
+            return
+        os.startfile(os.path.normpath(ziel))         # noqa: Windows-Weg (Vordergrund!)
+    except (OSError, AttributeError):
+        subprocess.Popen(["explorer", os.path.normpath(ziel)])
+
+
 def extern_abspielen(pfad):
     """In VLC öffnen, falls installiert, sonst im Windows-Standardplayer."""
     for v in _VLC_KANDIDATEN:
@@ -2798,6 +2820,8 @@ def playlist_aktion(daten):
                     pl["sync_ordner"] = daten["sync_ordner"].strip()
                 if daten.get("sync_modus") in ("kopieren", "spiegeln"):
                     pl["sync_modus"] = daten["sync_modus"]
+                if "sync_auto" in daten:              # JB 07.08.: Auto-Sync
+                    pl["sync_auto"] = bool(daten["sync_auto"])
         _json_speichern(PLAYLIST_PFAD, _playlists)
 
 
@@ -5120,6 +5144,33 @@ def filme_sync_pruefen():
         threading.Thread(target=lauf, daemon=True).start()
 
 
+_auto_sync_stand = {}                                 # playlist-id -> zuletzt gesyncte Signatur
+
+
+def auto_sync_pruefen():
+    """Playlists mit „Automatisch synchronisieren" abgleichen (JB 07.08.).
+
+    Last-Budget-Regel: KEIN eigener Zeitplan — das hängt im bestehenden
+    5-s-Ticker und tut nur etwas, wenn sich die Playlist wirklich geändert
+    hat UND der Zielordner gerade erreichbar ist (Stick/Platte ab = still
+    warten, kein Fehler-Sturm).
+    """
+    for pl in list(_playlists.values()):
+        if not (pl.get("sync_auto") and pl.get("sync_ordner")):
+            continue
+        sig = (len(pl.get("items") or []), tuple(pl.get("items") or [])[:400],
+               pl.get("sync_modus"))
+        if _auto_sync_stand.get(pl.get("id")) == sig:
+            continue
+        if not os.path.isdir(pl["sync_ordner"]):      # Ziel weg ⇒ später erneut
+            continue
+        try:
+            playlist_sync(pl)
+            _auto_sync_stand[pl.get("id")] = sig
+        except Exception:                             # noqa: BLE001 — nächster Takt
+            pass
+
+
 def ticker_schleife():
     """Fortschritt alle 5 s sichern, damit ein Absturz höchstens 5 s Anzeige kostet."""
     while True:
@@ -5130,6 +5181,7 @@ def ticker_schleife():
         queue_heilen()                                # Build 137: hängende Aufträge (JB Punkt 6)
         _neustart_pruefen()                           # Build 144m: neuer Code -> Selbst-Neustart
         filme_sync_pruefen()                          # Film-Fundament: 6-h-Abzug
+        auto_sync_pruefen()                           # JB 07.08.: Playlist -> Gerät automatisch
 
 
 # ---------------------------------------------------------------- HTTP-Server
@@ -5764,7 +5816,7 @@ class Handler(BaseHTTPRequestHandler):
         if art in ("ordner_offen", "ordner") and not self._ist_lokal():
             return
         if art == "ordner_offen":
-            subprocess.Popen(["explorer", ziel_ordner()])
+            ordner_zeigen()
             return
         if art == "fertige_raus":
             with Q.lock:
@@ -5813,10 +5865,7 @@ class Handler(BaseHTTPRequestHandler):
                     Q.items.insert(ziel, Q.items.pop(i))
             elif art == "ordner":
                 pfad = it.get("datei")
-                if pfad and os.path.exists(pfad):
-                    subprocess.Popen(["explorer", "/select,", pfad])
-                else:
-                    subprocess.Popen(["explorer", ziel_ordner()])
+                ordner_zeigen(pfad if (pfad and os.path.exists(pfad)) else None)
         Q.speichern()
 
     def _geo_wireguard(self, daten):
@@ -5961,10 +6010,7 @@ class Handler(BaseHTTPRequestHandler):
                 pfad = e.get("pfad")
                 if not (pfad and os.path.exists(pfad)):
                     pfad = _datei_aus(_datei_index().get(vid), key.partition("|")[2])
-                if pfad and os.path.exists(pfad):
-                    subprocess.Popen(["explorer", "/select,", pfad])
-                else:
-                    subprocess.Popen(["explorer", ziel_ordner()])
+                ordner_zeigen(pfad if (pfad and os.path.exists(pfad)) else None)
                 return
             if art == "neuladen":                    # verschobenen/gelöschten Titel neu holen
                 vid = key.split("|")[0]
@@ -6076,7 +6122,7 @@ def _tray_icon(url):
         webbrowser.open(url)
 
     def ordner(icon=None, item=None):
-        subprocess.Popen(["explorer", ziel_ordner()])
+        ordner_zeigen()
 
     def beenden(icon=None, item=None):
         icon.stop()

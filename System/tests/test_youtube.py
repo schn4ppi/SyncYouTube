@@ -4306,6 +4306,40 @@ def test_browser_player_und_bild_kette():
         "bild_holen: Art-Whitelist (kommt vom Client)"
 
 
+def test_bibliothek_auswahl_ordner_und_autosync():
+    # JB 07.08.: (1) mehrere Markierte wandern GESAMT in die Playlist, mit
+    # Zahl im Menue; (2) Strg+A waehlt die GEFILTERTE Sicht, auch als
+    # Rechtsklick-Punkt; (3) Zielordner kam im HINTERGRUND hoch (Windows
+    # verweigert Hintergrundprozessen den Vordergrund -> ShellExecute-Weg);
+    # (4) Auto-Sync als Option, im BESTEHENDEN Ticker (Last-Budget).
+    quelle = _oberflaeche_html()
+    i = quelle.index("function plAddListe")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "libAuswahl" in b and "for(const k of keys)" in b and "wieViele" in b, \
+        "Playlist-Menue muss die ganze Auswahl nehmen und sie zaehlen"
+    assert "function libAllesWaehlen" in quelle
+    i = quelle.index("function libAllesWaehlen")
+    assert "libGefiltert()" in quelle[i:_funktionsende(quelle, i)], \
+        "Strg+A darf nur die GEFILTERTE Sicht waehlen"
+    i = quelle.index("function libItemMenu")
+    assert "Alles auswählen" in quelle[i:_funktionsende(quelle, i)], \
+        "Rechtsklick braucht den Alles-auswaehlen-Punkt"
+    assert "sync-auto" in quelle and "sync_auto" in quelle, "Auto-Sync-Schalter fehlt"
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert "def ordner_zeigen" in src and "os.startfile" in src, \
+        "Explorer muss ueber ShellExecute in den Vordergrund"
+    assert 'subprocess.Popen(["explorer", ziel_ordner()])' not in src, \
+        "kein direkter Popen-Explorer mehr (Hintergrund-Falle)"
+    assert "def auto_sync_pruefen" in src
+    i = src.index("def ticker_schleife")
+    assert "auto_sync_pruefen()" in src[i:i + 1200], \
+        "Auto-Sync gehoert in den BESTEHENDEN Ticker (kein neuer Zeitplan)"
+    i = src.index("def auto_sync_pruefen")
+    b = src[i:src.index("def ticker_schleife")]
+    assert "os.path.isdir" in b and "_auto_sync_stand" in b, \
+        "nur bei Aenderung und erreichbarem Ziel"
+
+
 def test_routen_inventur_und_aussen_gates():
     # Nachtprüfung 06.08. (Riegel-Regel "Externe nur mit Zugangsdaten"):
     # /api/status verriet den Fernsteuerungs-Code, /api/config war von

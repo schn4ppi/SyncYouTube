@@ -4837,6 +4837,25 @@ function libSelectToggle(){
   libMalen();
 }
 function libSelektierend(ev){return libSelectMode||ev.ctrlKey||ev.metaKey||ev.shiftKey;}
+/* Strg+A wählt die GEFILTERTE Sicht (JB 07.08.: „wenn ich z.B. gefiltert
+   habe, dann sollte nur die gefilterten dateien angewählt werden") — genau
+   wie im Abo-Fenster. Zweites Strg+A hebt die Auswahl wieder auf. */
+function libAllesWaehlen(){
+  const arr=libGefiltert();
+  if(libAuswahl.size>=arr.length&&arr.length){libAuswahl.clear();}
+  else{arr.forEach(x=>libAuswahl.add(x.id));}
+  libMalen();
+  plInfo(libAuswahl.size?libAuswahl.size+' Titel markiert':'Auswahl aufgehoben');
+}
+document.addEventListener('keydown',ev=>{
+  if(!((ev.ctrlKey||ev.metaKey)&&ev.key.toLowerCase()==='a'))return;
+  const el=document.activeElement;
+  if(el&&['INPUT','TEXTAREA','SELECT'].includes(el.tagName))return;   // Text markieren bleibt
+  const lib=document.getElementById('view-lib');
+  if(!lib||!lib.offsetParent)return;                                  // nur in sichtbarer Bibliothek
+  if(document.getElementById('tv')&&document.getElementById('tv').style.display!=='none')return;
+  ev.preventDefault(); libAllesWaehlen();
+});
 function libSelectClick(ev,id){
   const arr=libGefiltert();
   if(ev.shiftKey&&libLastClick){
@@ -5935,12 +5954,18 @@ function mixeMenu(ev){
 
 /* „Zu Playlist" — Auswahl-Liste direkt am Titel (kein Dropdown-Vorwählen nötig) */
 function plAddListe(m,key){
+  // JB 07.08.: „Bei mehreren markierten dateien wird nur die erste zur
+  // Playlist hinzugefügt" — ist der geklickte Titel Teil der Auswahl,
+  // wandert die GANZE Auswahl mit; die Zahl steht in der Überschrift.
+  const inAuswahl=typeof libAuswahl!=='undefined'&&libAuswahl&&libAuswahl.has&&libAuswahl.has(key);
+  const keys=inAuswahl?[...libAuswahl]:[key];
+  const wieViele=keys.length>1?` (${keys.length})`:'';
   // Ab 9 Playlists erscheint ein Suchfeld (tippen filtert die Liste live).
   const suche=plState.length>8
     ?'<input class="km-such" placeholder="Playlist suchen…" onclick="event.stopPropagation()" '+
      'oninput="const q=this.value.toLowerCase();this.parentNode.querySelectorAll(\\'button[data-pl]\\').forEach(b=>{if(b.dataset.pl!==\\'__neu\\')b.style.display=b.textContent.toLowerCase().includes(q)?\\'\\':\\'none\\'})">'
     :'';
-  m.innerHTML='<div class="sm-titel">＋ Zu Playlist hinzufügen</div>'+suche+'<div class="km-sub">'+
+  m.innerHTML=`<div class="sm-titel">＋ Zu Playlist hinzufügen${wieViele}</div>`+suche+'<div class="km-sub">'+
     plState.map(p=>`<button data-pl="${p.id}">${esc(p.name)} <span style="color:#8a7d74">(${p.items.length})</span></button>`).join('')+
     '<button data-pl="__neu">＋ Neue Playlist…</button></div>';
   m.querySelectorAll('button').forEach(b=>b.onclick=async(e2)=>{
@@ -5950,9 +5975,12 @@ function plAddListe(m,key){
       const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim()){m.remove();return;}
       await plApi({art:'create',name:n.trim()}); id=(plState[plState.length-1]||{}).id;
     }
-    if(id){ await plApi({art:'add',id,key});
-      const p=plState.find(x=>x.id===id), t=libFind(key);
-      if(p)plInfo('„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓'); }
+    if(id){
+      for(const k of keys)await plApi({art:'add',id,key:k});
+      const p=plState.find(x=>x.id===id), t=libFind(keys[0]);
+      if(p)plInfo(keys.length>1
+        ? keys.length+' Titel → '+p.name+' ✓'
+        : '„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓'); }
     m.remove();
   });
 }
@@ -5977,7 +6005,11 @@ function libItemMenu(ev,id){
   if(x.vorhanden)eintraege.push(['▶ Abspielen', ()=>playerPlay([id])]);
   if(x.vorhanden)eintraege.push(['⏭ Als Nächstes abspielen', ()=>queueAlsNaechstes(id)]);
   if(x.vorhanden)eintraege.push(['➕ Ans Ende der Warteschlange', ()=>queueAnsEnde(id)]);
-  eintraege.push(['＋ Zu Playlist…', (m)=>plAddListe(m,id), 'bleib']);
+  const nAus=(libAuswahl&&libAuswahl.has&&libAuswahl.has(id))?libAuswahl.size:0;
+  eintraege.push([`＋ Zu Playlist…${nAus>1?' ('+nAus+')':''}`, (m)=>plAddListe(m,id), 'bleib']);
+  // JB 07.08.: „Eventuell auch einen knopf im rechtsklick menü für alles
+  // anwählen?" — wählt die GEFILTERTE Sicht (wie Strg+A).
+  eintraege.push(['☑ Alles auswählen (Strg+A)', ()=>libAllesWaehlen()]);
   if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(id,'ordner')]);
   if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
   if(x.vorhanden)eintraege.push(['✂ Ausschnitt schneiden…', ()=>clipDialog(id)]);
@@ -9612,6 +9644,12 @@ async function plSyncConfig(){
       '<input type="text" id="sync-pfad" style="flex:1" placeholder="z. B. E:\\\\Musik — USB-Stick oder Handy-Ordner" value="'+esc(p.sync_ordner||letzter)+'">'+
       '<button class="btn mini" onclick="syncOrdnerWaehlen(this)" title="Nativen Windows-Ordnerdialog öffnen (erscheint auf deinem Bildschirm)">📁 wählen</button></div>'+
     '<div id="sync-tot" style="display:none;margin:6px 4px 0;color:#e0a030;font-size:.85em">⏳ Ordner gerade nicht erreichbar — Platte/Stick anschließen, das Fenster merkt es von selbst.</div>'+
+    // JB 07.08.: „es sollte auch eine option für automatisch synchronisieren
+    // existieren" — hängt sich in den bestehenden 5-s-Ticker (Last-Budget:
+    // kein neuer Zeitplan) und läuft nur, wenn der Zielordner erreichbar ist.
+    '<label style="display:flex;gap:8px;align-items:center;margin:8px 4px 0;font-size:.9em">'+
+      '<input type="checkbox" id="sync-auto"'+(p.sync_auto?' checked':'')+'>'+
+      'Automatisch synchronisieren — sobald sich die Playlist ändert und der Ordner da ist</label>'+
     '<div class="abo-staffel" style="margin-top:8px"><span style="opacity:.7">Spiegeln löscht im Ziel nur Dateien, die die App selbst kopiert hat.</span><span class="spacer"></span>'+
       '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',false)" title="Nur kopieren — es wird nie etwas gelöscht">Nur kopieren</button>'+
       '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',true)" title="Exakt spiegeln — Entferntes verschwindet auch im Ziel (nur App-eigene Kopien)">Exakt spiegeln</button></div>';
@@ -9662,10 +9700,13 @@ async function syncOrdnerWaehlen(btn){
 async function syncSpeichern(id,spiegeln){
   const inp=document.getElementById('sync-pfad');
   const ordner=(inp&&inp.value||'').trim();
+  const auto=!!(document.getElementById('sync-auto')||{}).checked;
   try{if(ordner)localStorage.setItem('ytdl_sync_letzter',ordner);}catch(e){}
-  await plApi({art:'sync_config',id,sync_ordner:ordner,sync_modus:spiegeln?'spiegeln':'kopieren'});
+  await plApi({art:'sync_config',id,sync_ordner:ordner,
+               sync_modus:spiegeln?'spiegeln':'kopieren',sync_auto:auto});
   const f=document.getElementById('sync-fly'); if(f)f.remove();
-  if(ordner){toast('⇄ Sync: '+(spiegeln?'spiegeln':'kopieren')+' → '+ordner); plSyncNow(id);}
+  if(ordner){toast('⇄ Sync: '+(spiegeln?'spiegeln':'kopieren')+(auto?', automatisch':'')+' → '+ordner);
+    plSyncNow(id);}
 }
 async function plSyncNow(id){
   id=(typeof id==='string')?id:document.getElementById('plsel').value;
