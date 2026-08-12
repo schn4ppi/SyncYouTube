@@ -9351,6 +9351,20 @@ async function plRemove(key){
   await plApi({art:'remove',id:libPlaylistView,key});   // plApi lädt plState neu → plMalen → plViewRender
   libMalen();
 }
+/* Entf in der Playlist-Ansicht (JB 07.08.): nimmt die MARKIERTEN Titel aus
+   der Liste — Dateien bleiben (nicht-destruktiv). Ein Rückgängig gibt es
+   über das ＋-Menü; darum kein Nachfrage-Dialog bei wenigen, aber eine
+   Sicherheitsfrage ab 5 Titeln. */
+async function plAuswahlEntfernen(){
+  if(!libPlaylistView||!libAuswahl.size)return;
+  const keys=[...libAuswahl];
+  const p=plState.find(x=>x.id===libPlaylistView);
+  if(keys.length>=5&&!confirm(keys.length+' Titel aus „'+((p&&p.name)||'')+
+     '" entfernen? Die Dateien bleiben auf der Platte.'))return;
+  for(const k of keys)await plApi({art:'remove',id:libPlaylistView,key:k});
+  libAuswahl.clear(); libMalen();
+  plInfo(keys.length+(keys.length===1?' Titel':' Titel')+' aus der Playlist entfernt (Dateien bleiben)');
+}
 async function plApi(body){await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); await plLaden();}
 
 /* ---- Titel auf eine Playlist ziehen (Build 135, JB Punkt 4) --------------
@@ -9862,6 +9876,14 @@ document.addEventListener('keydown',e=>{
     if(e.key==='ArrowUp'){e.preventDefault(); plqMoveSel(-1); return;}
     if(e.key==='Enter'){e.preventDefault(); if(plqSel!==null)plQueueKlick(plqSel); return;}
     if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault(); plqAuswahlLoeschen(); return;}
+  }
+  // Playlist-ANSICHT der Bibliothek (JB 07.08.: „möchte mit delete lieder aus
+  // einer playlist löschen"): Entf nimmt die markierten Titel AUS DER LISTE —
+  // die Dateien bleiben (nicht-destruktiv, harte Regel). Greift nur, wenn
+  // eine Playlist-Ansicht offen ist und wirklich etwas markiert war.
+  if((e.key==='Delete'||e.key==='Backspace')&&libPlaylistView&&libAuswahl.size){
+    const lib=document.getElementById('view-lib');
+    if(lib&&lib.offsetParent){e.preventDefault(); plAuswahlEntfernen(); return;}
   }
   const el=document.getElementById('pl-el');
   // Build 132: springt UND zeigt es an (JB). J/L bleiben bei 10 s wie bisher,

@@ -1105,6 +1105,116 @@ def _oberflaeche_html():
     return oberflaeche.HTML
 
 
+def _offene_js_strings(text):
+    """Zeilen, die MITTEN in einem einzeiligen JS-String enden.
+
+    Die Falle (JB-Vorfall 07.08.): `oberflaeche.py` ist ein Python-Triple-
+    String — ein `\\n` im JS-Text wird von Python zum ECHTEN Zeilenumbruch
+    und zerreisst das String-Literal. Der Browser bricht dann das GANZE
+    Skript ab: die Seite zeigt nur noch ihr statisches Grundgeruest (JB:
+    „jetzt seh ich den player und die bibliothek nicht mehr"). Python
+    bleibt dabei fehlerfrei, kein bestehender Test merkt es.
+
+    Zeichen-Scanner mit Zustaenden (String ' " `, Zeilen-/Blockkommentar).
+    Template-Literale duerfen ueber Zeilen gehen, ' und " nicht.
+    """
+    zustand = None            # None | "'" | '"' | '`' | '//' | '/*' | 're'
+    offen = []
+    zeile = 1
+    vorher = ""               # letztes bedeutendes Zeichen (fuer Regex-Erkennung)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if zustand == "re":                   # Regex-Literal /…/flags
+            if c == "\\":
+                i += 2
+                continue
+            if c == "/":
+                zustand = None
+                vorher = "/"
+            elif c == "\n":
+                zustand = None                # unbeendet ⇒ war doch Division
+                zeile += 1
+            i += 1
+            continue
+        if c == "\n":
+            if zustand in ("'", '"'):
+                offen.append(zeile)
+                zustand = None            # nicht ewig weiterschleppen
+            elif zustand == "//":
+                zustand = None
+            zeile += 1
+            i += 1
+            continue
+        if zustand in ("'", '"', "`"):
+            if c == "\\":
+                i += 2
+                continue
+            if c == zustand:
+                zustand = None
+            i += 1
+            continue
+        if zustand == "//":
+            i += 1
+            continue
+        if zustand == "/*":
+            if text.startswith("*/", i):
+                zustand = None
+                i += 2
+                continue
+            i += 1
+            continue
+        if text.startswith("//", i):
+            zustand = "//"
+            i += 2
+            continue
+        if text.startswith("/*", i):
+            zustand = "/*"
+            i += 2
+            continue
+        if c == "/" and vorher in "(,=:[!&|?{};+~^*%<>" + "":
+            zustand = "re"                    # Regex-Literal, kein Division-/
+            i += 1
+            continue
+        if c in "'\"`":
+            zustand = c
+            i += 1
+            continue
+        if not c.isspace():
+            vorher = c
+        i += 1
+    return offen
+
+
+def _js_teile(html):
+    """Nur die <script>-Inhalte (mit Start-Zeilennummer) — HTML-Kommentare
+    und mehrzeilige Attribute sind KEIN JavaScript."""
+    import re as _re
+    aus = []
+    for m in _re.finditer(r"<script\b[^>]*>(.*?)</script>", html, _re.S | _re.I):
+        aus.append((html[:m.start(1)].count("\n") + 1, m.group(1)))
+    return aus
+
+
+def test_oberflaeche_js_bleibt_ausfuehrbar():
+    """JB-Vorfall 07.08.: EIN zerrissener String legte die ganze Oberflaeche
+    lahm (nur Kopfzeile blieb). Dieser Waechter prueft das Ausgelieferte."""
+    html = _oberflaeche_html()
+    teile = _js_teile(html)
+    assert teile, "kein <script> in der Oberflaeche gefunden — Waechter waere blind"
+    offen = [ab + z - 1 for ab, js in teile for z in _offene_js_strings(js)]
+    assert not offen, (
+        "Zerrissenes String-Literal in der Oberflaeche (Zeilen "
+        f"{offen[:5]}) — im Python-Triple-String muss \\n verdoppelt werden "
+        "(\\\\n), sonst bricht der Browser das GANZE Skript ab.")
+    # GEGENPROBE (SCHEMA-Regel „gruen beweist nichts"): der echte Fehler von
+    # 07.08. — ein Python-\n mitten im JS-String — muss auffliegen.
+    kaputt = "const t='Titel entfernen?\n\n'+'Rest';"
+    assert _offene_js_strings(kaputt), "Waechter erkennt den echten Fehler nicht"
+    assert not _offene_js_strings("const s='a\\\\nb'; // JB's Kommentar\nlet x=`\nmehrzeilig\n`;"), \
+        "Waechter darf Escapes, Apostrophe in Kommentaren und Templates nicht melden"
+
+
 def _funktionsende(quelle, start):
     """Ende der JS-Funktion, die bei `start` beginnt (Anfang der naechsten).
 
@@ -2121,7 +2231,10 @@ def test_selbst_neustart_haengt_in_bestehender_schleife():
     # die Wiedergabe setzt den Ruhe-Zeitstempel in _stream_datei.
     quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
     i = quelle.index("def ticker_schleife")
-    assert "_neustart_pruefen()" in quelle[i:quelle.index("\ndef ", i + 1)], (
+    tick = quelle[i:quelle.index("\ndef ", i + 1)]
+    # Seit 07.08. ruft die Schleife ihre Aufgaben ueber eine Liste von
+    # Referenzen auf (jede einzeln gekapselt) — beide Bauformen gelten.
+    assert "_neustart_pruefen" in tick, (
         "Neustart-Pruefung haengt nicht in der bestehenden 5-s-Schleife")
     j = quelle.index("def _stream_datei")
     assert "_letzter_stream" in quelle[j:quelle.index("\ndef ", j + 1)], (
@@ -4332,12 +4445,22 @@ def test_bibliothek_auswahl_ordner_und_autosync():
         "kein direkter Popen-Explorer mehr (Hintergrund-Falle)"
     assert "def auto_sync_pruefen" in src
     i = src.index("def ticker_schleife")
-    assert "auto_sync_pruefen()" in src[i:i + 1200], \
+    tick = src[i:i + 1600]
+    assert "auto_sync_pruefen" in tick, \
         "Auto-Sync gehoert in den BESTEHENDEN Ticker (kein neuer Zeitplan)"
+    # Fund 07.08. (JBs Spiegel-Sync lief nie): ein Fehler in EINER
+    # Ticker-Aufgabe riss die ganze Schleife mit - jede Aufgabe einzeln
+    # kapseln, sonst sterben Neustart/Queue/Film-Abzug stillschweigend mit.
+    assert "except Exception" in tick and "aufgabe()" in tick, \
+        "Ticker muss jede Aufgabe einzeln kapseln (Herzschlag stirbt sonst)"
     i = src.index("def auto_sync_pruefen")
     b = src[i:src.index("def ticker_schleife")]
     assert "os.path.isdir" in b and "_auto_sync_stand" in b, \
         "nur bei Aenderung und erreichbarem Ziel"
+    # Aufruf statt Erwaehnung (SCHEMA-Regel): der Kommentar DARF .values()
+    # nennen, der CODE nicht — _playlists ist eine Liste.
+    assert "_playlists.values()" not in b, \
+        "_playlists ist eine LISTE (AttributeError-Falle)"
 
 
 def test_routen_inventur_und_aussen_gates():

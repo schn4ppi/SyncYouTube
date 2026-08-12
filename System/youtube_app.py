@@ -5155,7 +5155,10 @@ def auto_sync_pruefen():
     hat UND der Zielordner gerade erreichbar ist (Stick/Platte ab = still
     warten, kein Fehler-Sturm).
     """
-    for pl in list(_playlists.values()):
+    # _playlists ist eine LISTE (Fund 07.08.: .values() warf AttributeError —
+    # und riss, weil ungefangen, den ganzen Ticker mit; JBs Spiegel-Sync lief
+    # deshalb nie und auch der Selbst-Neustart stand still).
+    for pl in list(_playlists):
         if not (pl.get("sync_auto") and pl.get("sync_ordner")):
             continue
         sig = (len(pl.get("items") or []), tuple(pl.get("items") or [])[:400],
@@ -5172,16 +5175,28 @@ def auto_sync_pruefen():
 
 
 def ticker_schleife():
-    """Fortschritt alle 5 s sichern, damit ein Absturz höchstens 5 s Anzeige kostet."""
+    """Fortschritt alle 5 s sichern, damit ein Absturz höchstens 5 s Anzeige kostet.
+
+    JEDE Aufgabe einzeln gekapselt (Fund 07.08.): ein Fehler in EINER Aufgabe
+    (hier: `.values()` auf der Playlist-LISTE) riss bisher die ganze Schleife
+    mit — danach standen still: Fortschritt-Sicherung, Queue-Heilung, der
+    Selbst-Neustart und der Film-Abzug. Ein Herzschlag darf nie an einem
+    einzelnen Schlag sterben.
+    """
     while True:
         time.sleep(5)
-        if any(it["status"] == "laeuft" for it in Q.items):
-            Q.speichern()
-        _fehler_aufraeumen()
-        queue_heilen()                                # Build 137: hängende Aufträge (JB Punkt 6)
-        _neustart_pruefen()                           # Build 144m: neuer Code -> Selbst-Neustart
-        filme_sync_pruefen()                          # Film-Fundament: 6-h-Abzug
-        auto_sync_pruefen()                           # JB 07.08.: Playlist -> Gerät automatisch
+        for name, aufgabe in (
+                ("speichern", lambda: Q.speichern()
+                 if any(it["status"] == "laeuft" for it in Q.items) else None),
+                ("fehler", _fehler_aufraeumen),
+                ("queue", queue_heilen),              # Build 137: hängende Aufträge
+                ("neustart", _neustart_pruefen),      # Build 144m: neuer Code
+                ("filme", filme_sync_pruefen),        # Film-Fundament: 6-h-Abzug
+                ("autosync", auto_sync_pruefen)):     # JB 07.08.: Playlist -> Gerät
+            try:
+                aufgabe()
+            except Exception as e:                    # noqa: BLE001 — Takt lebt weiter
+                _sag(f"Ticker-Aufgabe {name}: {_fehltext(e)}")
 
 
 # ---------------------------------------------------------------- HTTP-Server
