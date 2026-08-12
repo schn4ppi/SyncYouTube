@@ -1196,13 +1196,49 @@ def _js_teile(html):
     return aus
 
 
+def _html_literale():
+    """ALLE ausgelieferten HTML-Strings von SyncYouTube — per Auto-Discovery.
+
+    Handliste waere hier der Fehler (SCHEMA-Regel): eine neue Oberflaeche
+    faende niemand. Darum ueber den Syntaxbaum JEDER System-.py-Datei —
+    `ast` liefert den String NACH Pythons Escape-Verarbeitung, also genau
+    das, was der Browser bekommt. Kein Import noetig (keine Nebenwirkungen).
+    """
+    import ast
+    import glob
+    aus = []
+    muster = os.path.join(MODUL_DIR, "*.py")
+    for pfad in sorted(glob.glob(muster)):
+        try:
+            baum = ast.parse(open(pfad, encoding="utf-8").read())
+        except (OSError, SyntaxError):
+            continue
+        for knoten in ast.walk(baum):
+            if (isinstance(knoten, ast.Constant) and isinstance(knoten.value, str)
+                    and "<script" in knoten.value):
+                aus.append((os.path.basename(pfad), knoten.lineno, knoten.value))
+    return aus
+
+
 def test_oberflaeche_js_bleibt_ausfuehrbar():
     """JB-Vorfall 07.08.: EIN zerrissener String legte die ganze Oberflaeche
-    lahm (nur Kopfzeile blieb). Dieser Waechter prueft das Ausgelieferte."""
+    lahm (nur Kopfzeile blieb). Geprueft wird JEDE ausgelieferte Oberflaeche
+    (oberflaeche.py, handy.py, PAIRING_HTML …) per Auto-Discovery."""
     html = _oberflaeche_html()
     teile = _js_teile(html)
     assert teile, "kein <script> in der Oberflaeche gefunden — Waechter waere blind"
     offen = [ab + z - 1 for ab, js in teile for z in _offene_js_strings(js)]
+    # Alle WEITEREN Oberflaechen desselben Programms mitpruefen.
+    literale = _html_literale()
+    assert len(literale) >= 2, (
+        "Auto-Discovery findet weniger als 2 HTML-Literale — sie greift nicht "
+        "(erwartet mindestens oberflaeche.py und handy.py)")
+    weitere = []
+    for datei, zeile, text in literale:
+        for ab, js in _js_teile(text):
+            for z in _offene_js_strings(js):
+                weitere.append(f"{datei}:~{zeile + ab + z - 2}")
+    assert not weitere, f"Zerrissene JS-Strings in weiteren Oberflaechen: {weitere[:5]}"
     assert not offen, (
         "Zerrissenes String-Literal in der Oberflaeche (Zeilen "
         f"{offen[:5]}) — im Python-Triple-String muss \\n verdoppelt werden "
