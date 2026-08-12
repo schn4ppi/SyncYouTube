@@ -1220,6 +1220,37 @@ def _html_literale():
     return aus
 
 
+def test_auslieferung_ohne_nutzerdaten():
+    """JB-Dauerregel (07.08.): „die jellyfin datenbank darf nicht dabei sein".
+
+    Zwei Auslieferungswege, zwei Riegel:
+    1. Die exe-Bauvorschrift (.spec) darf NUR Programm-Bestandteile buendeln
+       (bin/, Bibliotheken) — niemals Daten neben dem Code (Renes Katalog,
+       Bilder-Cache, Profile mit Geraete-Token, JBs Playlists/Log).
+    2. Das Quellstart-Paket kopiert ausschliesslich VERSIONIERTE Dateien
+       (git ls-files) — die Daten sind per .gitignore draussen, also kann
+       nichts Privates hineinrutschen, auch kuenftig nicht.
+    """
+    spec = open(os.path.join(MODUL_DIR, "SyncYouTube.spec"), encoding="utf-8").read()
+    verboten = ("filme_katalog", "filme_meta_cache", "filme_bilder", "filme_snippets",
+                "filme_merkliste", "profile.json", "playlists.json", "geladen_log",
+                "config.json", "token", "abos.json", "wiedergabe")
+    drin = [w for w in verboten if w in spec]
+    assert not drin, f"Nutzerdaten in der exe-Bauvorschrift: {drin}"
+    # datas kommt NUR aus collect_all(<bibliothek>) — keine eigenen Datei-Paare.
+    assert "datas = []" in spec, "datas muss leer starten (keine Daten neben dem Code)"
+    for zeile in spec.splitlines():
+        if zeile.strip().startswith("datas +="):
+            assert "tmp_ret[0]" in zeile, f"eigene Daten in der exe: {zeile.strip()}"
+
+    quell = open(os.path.join(MODUL_DIR, "tools", "quellstart_paket.py"),
+                 encoding="utf-8").read()
+    assert '"git", "ls-files"' in quell.replace("'", '"'), \
+        "Quellstart-Paket muss NUR versionierte Dateien kopieren (git ls-files)"
+    for w in ("filme_katalog", "filme_bilder", "profile.json"):
+        assert w not in quell, f"Quellstart-Paket fasst Nutzerdaten an: {w}"
+
+
 def test_oberflaeche_js_bleibt_ausfuehrbar():
     """JB-Vorfall 07.08.: EIN zerrissener String legte die ganze Oberflaeche
     lahm (nur Kopfzeile blieb). Geprueft wird JEDE ausgelieferte Oberflaeche

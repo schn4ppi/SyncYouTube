@@ -52,7 +52,10 @@ def _python_holen(ziel):
 
 
 def _pakete_holen(lib):
-    print("Installiere Abhängigkeiten →", lib)
+    # ASCII-Ausgaben: die Windows-Konsole laeuft auf cp1252 und wirft bei
+    # Sonderzeichen einen UnicodeEncodeError — der Bau starb daran lautlos
+    # und liess die ALTE zip liegen (Fund 07.08., fast ausgeliefert).
+    print("Installiere Abhaengigkeiten nach:", lib)
     subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade",
                     "--target", lib, *PAKETE], check=True)
 
@@ -81,6 +84,12 @@ def _start_bat(ziel):
 
 
 def main():
+    # Altes Ergebnis WEG, bevor gebaut wird: bricht der Bau ab, darf keine
+    # veraltete zip zurueckbleiben, die jemand fuer frisch haelt (Fund 07.08.).
+    altes = os.path.join(SYSTEM, "dist_exe", "SyncYouTube-Quellstart.zip")
+    for weg in (altes, altes + ".sha256"):
+        if os.path.exists(weg):
+            os.remove(weg)
     os.makedirs(BAU, exist_ok=True)
     _python_holen(os.path.join(BAU, "paket", "python"))
     _pakete_holen(os.path.join(BAU, "paket", "lib"))
