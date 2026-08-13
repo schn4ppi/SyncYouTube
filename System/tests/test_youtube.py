@@ -4765,3 +4765,74 @@ def test_transcode_befehl_startet_ein_programm():
     # Inhaltliche Form: Seek vor dem Input (schnell), fragmentiertes MP4 in die Pipe
     assert cmd.index("-ss") < cmd.index("-i"), "Seek muss VOR dem Input stehen"
     assert cmd[-1] == "pipe:1" and "frag_keyframe+empty_moov+default_base_moof" in cmd
+
+
+def test_genre_reihen_zeigen_das_beste_nicht_den_anfang_des_alphabets():
+    """Genre-Reihen sortieren nach Score und deckeln JE TYP (Befunde 13.08.2026).
+
+    Drei Fehler mit einer Wurzel, alle erst mit Renés echten 4885 Titeln sichtbar:
+    1. `[:100]` ohne sort schnitt aus dem alphabetisch sortierten Spiegel den
+       ANFANG DES ALPHABETS heraus — „Action" reichte von „2 Fast 2 Furious" bis
+       „Bee and PuppyCat"; Interstellar, Matrix und Terminator kamen in KEINER
+       Genre-Reihe vor.
+    2. Der Deckel griff VOR dem Typ-Filter der Oberfläche: aus 100 gemischten
+       wurden im Serien-Tab 7 von 41 Horror-Serien.
+    3. Renés Bibliothek ist zweisprachig getaggt — „Comedy" und „Komödie" standen
+       als zwei Reihen nebeneinander (neun solcher Paare).
+
+    Mit einer 3-Eintrag-Attrappe nimmt `[:100]` alles und alle drei Fehler sind
+    unsichtbar — deshalb prüft dieser Wächter mit genug Eintragen, dass der
+    Deckel überhaupt greift (Lehrbuch L19: die Attrappe muss den Unterschied
+    modellieren)."""
+    import filme
+    # 260 Filme + 260 Serien in EINEM Genre, absichtlich alphabetisch aufsteigend
+    # angelegt und mit FALLENDER Bewertung — wer alphabetisch schneidet, erwischt
+    # genau die schlechtesten.
+    eintraege = []
+    for i in range(260):
+        for typ in ("film", "serie"):
+            eintraege.append({
+                "id": f"{typ}{i:03d}", "titel": f"{chr(65 + i // 26)}{i:03d} {typ}",
+                "typ": typ, "jahr": 2000, "genres": ["Comedy" if i % 2 else "Komödie"],
+                "fsk": "", "rating": 9.9 - i * 0.03, "laufzeit_min": 90,
+                "imdb": "", "tmdb": "", "video_codec": "", "audio_codec": "",
+                "bild_tag": "", "hinzugefuegt": "2026-01-01T00:00:00.0000000Z",
+                "position_s": 0, "gesehen": False})
+    alt_lesen, alt_merk = filme.katalog_lesen, filme.merkliste_lesen
+    alt_http, alt_meta = filme._http, filme._meta_cache
+    try:
+        filme.katalog_lesen = lambda: {"stand": 0, "server_version": "?", "eintraege": eintraege}
+        filme.merkliste_lesen = lambda profil="standard": []
+        filme._meta_cache = lambda: {}
+        filme._http = lambda *a, **k: (_ for _ in ()).throw(AssertionError("kein Netz"))
+        g = filme.reihen()["genres"]
+    finally:
+        filme.katalog_lesen, filme.merkliste_lesen = alt_lesen, alt_merk
+        filme._http, filme._meta_cache = alt_http, alt_meta
+
+    assert "Comedy" not in g, "englische und deutsche Schreibweise wurden nicht zusammengeführt"
+    assert "Komödie" in g, f"erwartete Reihe 'Komödie', bekam {list(g)}"
+    reihe = g["Komödie"]
+    filme_ = [e for e in reihe if e["typ"] == "film"]
+    serien = [e for e in reihe if e["typ"] == "serie"]
+    assert len(filme_) == filme.GENRE_JE_TYP and len(serien) == filme.GENRE_JE_TYP, (
+        f"je Typ muss gedeckelt werden, bekam {len(filme_)} Filme / {len(serien)} Serien — "
+        "sonst halbiert der Typ-Filter der Oberfläche jede Reihe")
+    # Die BESTEN müssen drin sein, nicht die alphabetisch ersten
+    noten = [e["rating"] for e in reihe]
+    assert min(noten) > 6.0, f"schwache Titel in der Reihe (min {min(noten):.2f}) — wird noch alphabetisch geschnitten?"
+    assert reihe[0]["rating"] == max(noten), "Reihe ist nicht nach Score sortiert"
+
+
+def test_tv_suche_durchsucht_den_ganzen_katalog():
+    """Die TV-Suche darf nicht im Reihen-Ausschnitt suchen (Befund 13.08.2026).
+
+    Gemessen: der Korpus kam aus top+neu+genres und deckte 1864 von 4885 Titeln
+    ab. „tatort" fand 0 von 1, „matrix" 1 von 4. Wer seinen Film nicht findet,
+    wünscht ihn über Jellyseerr nochmal — obwohl er auf Renés Server liegt."""
+    quelle = _oberflaeche_html()
+    i = quelle.index("if(tvTab==='suche')")
+    block = quelle[i:i + 1400]
+    assert "tvKatalog||" in block, \
+        "Such-Korpus muss den vollen tvKatalog nutzen (Reihen nur als Übergang beim Laden)"
+    assert "tvKatalogLaden()" in block, "Suche muss den Katalog nachladen, wenn er fehlt"

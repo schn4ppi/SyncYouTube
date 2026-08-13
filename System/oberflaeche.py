@@ -7847,10 +7847,20 @@ function tvReihenFuer(){
   if(tvTab==='suche'){
     const q=(document.getElementById('tv-suche')||{value:''}).value.trim().toLowerCase();
     if(!q)return [];
-    const filme=[...(f.top||[]),...(f.neu||[]),...[].concat(...Object.values(f.genres||{}))];
+    /* Der Such-Korpus MUSS der ganze Katalog sein. Bis 13.08.2026 suchte er in
+       den REIHEN — und die decken nur einen Teil ab: gemessen 1864 von 4885
+       Titeln. JB tippte vom Sofa einen Film, den René nachweislich hat, und
+       bekam „Hier ist noch nichts"; die naheliegende Reaktion ist, ihn über
+       Jellyseerr nochmal zu wünschen, obwohl er längst auf dem Server liegt.
+       Bis der Katalog nachgeladen ist, wird in den Reihen gesucht (sofortige
+       Antwort), danach zeichnet tvKatalogLaden() über tvMalen() neu. */
+    if(tvKatalog===null)tvKatalogLaden();
+    const filme=tvKatalog||[...(f.top||[]),...(f.neu||[]),
+      ...[].concat(...Object.values(f.genres||{}))];
     const gesehen=new Set(); const treffF=filme.filter(e=>{if(gesehen.has(e.id))return false;
       gesehen.add(e.id); return (e.titel||'').toLowerCase().includes(q);});
-    return [tvFilmReihe('Filme & Serien',treffF.slice(0,20)),
+    return [tvFilmReihe(treffF.length>20?`Filme & Serien (20 von ${treffF.length})`
+      :'Filme & Serien',treffF.slice(0,20)),
       tvTitelReihe('Deine Bibliothek',da.filter(x=>(x.titel||'').toLowerCase().includes(q)).slice(0,20)),
       tvWunschReihe('➕ Wünschen — ganzer Katalog (Enter im Suchfeld)',tvSeerrErgebnis||[])];
   }

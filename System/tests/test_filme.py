@@ -180,7 +180,13 @@ def test_reihen(tmp_path, monkeypatch):
     assert [e["id"] for e in r["weiterschauen"]] == ["f1"]
     # Top (JB): Gesehenes fliegt raus - s1 (8.7) ist gesehen, f1 fuehrt.
     assert r["top"][0]["id"] == "f1"
-    assert "Science-Fiction" in r["genres"]
+    # Seit 13.08.2026 werden Sprach-/Schreibvarianten zusammengeführt: Renés
+    # echte Bibliothek taggt zweisprachig, „Science-Fiction" und „Science
+    # Fiction" (ebenso Comedy/Komödie, neun Paare) standen als getrennte Reihen
+    # nebeneinander. Die Attrappe nutzt die Bindestrich-Schreibweise, die Reihe
+    # heißt jetzt einheitlich wie der Anzeigename.
+    assert "Science Fiction" in r["genres"]
+    assert "Science-Fiction" not in r["genres"]
     assert r["neu"][0]["id"] == "f1"                 # einziger mit DateCreated
 
 

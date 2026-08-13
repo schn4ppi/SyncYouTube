@@ -31,6 +31,37 @@ META_HALTBAR_S = 14 * 24 * 3600            # Ratings altern langsam (Spec)
 OMDB_TAGES_DECKEL = 950                    # Free-Key: 1.000/Tag — Puffer lassen
 GERAET_KOPF = ('MediaBrowser Client="Sync", Device="SyncYouTube", '
                'DeviceId="sync-jb", Version="1.0"')
+GENRE_JE_TYP = 100                         # Filme UND Serien je bis hierhin (s. reihen())
+# Renés Bibliothek ist ZWEISPRACHIG getaggt (gemessen 13.08.2026 an 4885 Titeln):
+# dieselbe Kategorie steht mal englisch, mal deutsch am Werk. Ohne Zusammenführung
+# entstehen zwei Reihen für dieselbe Sache, und die Rangfolge stimmt nicht —
+# „Komödie" hat in Wahrheit 1453 Titel (938 + 515) und gehört auf Platz 3, stand
+# aber aufgeteilt auf den Plätzen 4 und 8. Deutsch gewinnt, weil die Oberfläche
+# deutsch ist. Nur EINDEUTIGE Sprachpaare, keine inhaltlichen Umgruppierungen:
+# „Sci-Fi & Fantasy" und „Action & Adventure" sind Jellyfins Serien-Mischgenres
+# und bleiben eigenständig, „Anime" bleibt neben „Animation" stehen.
+GENRE_GLEICH = {
+    "Comedy": "Komödie",
+    "Adventure": "Abenteuer",
+    "Crime": "Krimi",
+    "Family": "Familie",
+    "War": "Kriegsfilm",
+    "History": "Historie",
+    "Documentary": "Dokumentarfilm",
+    "Romance": "Liebesfilm",
+    "Science-Fiction": "Science Fiction",
+    "Sci-Fi": "Science Fiction",
+    "Children": "Kinder",
+    "Kids": "Kinder",
+    "Music": "Musik",
+    "Sport": "Sport",
+    "Biography": "Biografie",
+}
+
+
+def genre_name(g):
+    """Ein Genre auf seinen Anzeigenamen bringen (Sprach-Dubletten zusammen)."""
+    return GENRE_GLEICH.get(g, g)
 
 
 def einrichten(daten_dir):
@@ -538,23 +569,48 @@ def reihen(profil="standard"):
         if s and s[0]:
             v, r = float(s[0]), float(s[1])
             return (v / (v + 500.0)) * r + (500.0 / (v + 500.0)) * 6.8
-        return min(float(e["rating"]), 6.8)
+        # Ohne Stimmen kommt niemand über den Prior — und ohne Bewertung
+        # (79 der 4885 echten Einträge) darf es keinen Absturz geben: die
+        # Genre-Reihen sortieren seit 13.08. den GANZEN Katalog, nicht mehr
+        # nur die 120 bewerteten Kandidaten.
+        try:
+            return min(float(e.get("rating") or 0.0), 6.8)
+        except (TypeError, ValueError):
+            return 0.0
     # 30 statt 10: die Tabs Filme/Serien filtern clientseitig auf ihre Art
     # und schneiden dann auf 10 — so bleibt jede Seite eine echte Top-10.
     top = sorted(kand, key=_score, reverse=True)[:30]
     neu = sorted((e for e in alle if e.get("hinzugefuegt")),
                  key=lambda e: e["hinzugefuegt"], reverse=True)[:20]
+    # JB 06.08.: „nur <20 actionfilme … bei 4000 filmen?" — ALLE Genres
+    # (häufigste zuerst). Drei Dinge, die erst der Lauf gegen Renés echte 4885
+    # Titel sichtbar gemacht hat (13.08.2026, alle drei einzeln nachgemessen):
+    #
+    # 1. Der Deckel schnitt ein ALPHABET ab, keine Auswahl. Der Spiegel kommt in
+    #    Jellyfins SortName-Reihenfolge; `[:100]` ohne sort lieferte deshalb je
+    #    Genre nur den Anfang des Alphabets — „Action" reichte von „2 Fast 2
+    #    Furious" bis „Bee and PuppyCat", Interstellar/Matrix/Terminator kamen in
+    #    KEINER Reihe vor. Über alle Reihen zusammen erreichten nur 1933 der 4885
+    #    Titel (40 %) überhaupt eine Kachel. Jetzt entscheidet derselbe Bayes-
+    #    Score wie bei „Top": die Reihe zeigt das Beste des Genres.
+    # 2. Der Deckel griff VOR dem Typ-Filter der Oberfläche. Der Client filtert
+    #    jede Reihe auf seinen Tab (Filme/Serien) — aus 100 gemischten wurden im
+    #    Serien-Tab 7 von 41 Horror-Serien. Jetzt wird JE TYP gedeckelt, damit
+    #    beide Tabs eine volle Reihe bekommen.
+    # 3. Sprach-Dubletten (s. GENRE_GLEICH oben).
     haeufig = {}
     for e in alle:
-        for g in e["genres"]:
+        for g in {genre_name(g) for g in e["genres"]}:
             haeufig[g] = haeufig.get(g, 0) + 1
-    # JB 06.08.: „nur <20 actionfilme … bei 4000 filmen?" — ALLE Genres
-    # (häufigste zuerst), je Reihe bis 100 Titel (Netflix deckelt Reihen
-    # ähnlich und LOOPT am Ende — mehr macht die Antwort nur megabyteschwer,
-    # der GANZE Katalog steht im A–Z-Raster der Tabs).
     genres = {}
     for g, _ in sorted(haeufig.items(), key=lambda kv: kv[1], reverse=True):
-        genres[g] = [e for e in alle if g in e["genres"]][:100]
+        drin = [e for e in alle if g in {genre_name(x) for x in e["genres"]}]
+        drin.sort(key=_score, reverse=True)
+        filme_ = [e for e in drin if e["typ"] != "serie"][:GENRE_JE_TYP]
+        serien = [e for e in drin if e["typ"] == "serie"][:GENRE_JE_TYP]
+        # zurück in Score-Reihenfolge, damit die Reihe im gemischten Desktop-Blick
+        # nicht erst alle Filme und dann alle Serien zeigt
+        genres[g] = sorted(filme_ + serien, key=_score, reverse=True)
     merk_ids = merkliste_lesen(profil)
     merk = sorted((e for e in alle if e["id"] in set(merk_ids)),
                   key=lambda e: merk_ids.index(e["id"]))
