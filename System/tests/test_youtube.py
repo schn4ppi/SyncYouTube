@@ -4874,3 +4874,35 @@ def test_ausfall_ist_in_der_oberflaeche_sichtbar():
     assert "/api/filme/katalog" not in block, \
         "der Stand darf nicht mehr den ganzen 2,4-MB-Katalog laden"
     assert "#tv-warnung{" in quelle, "die Warnung braucht ein sichtbares Aussehen"
+
+
+def test_esc_ist_attribut_sicher():
+    """esc() muss Anführungszeichen maskieren — Titel sind FREMDE Daten.
+
+    Gefunden 13.08.2026: `textContent→innerHTML` maskiert < > &, aber keine
+    Anführungszeichen. In `title="${esc(t)}"` bricht ein " aus dem Attribut aus.
+    Kein Grenzfall — Renés echte Bibliothek enthält »Der Fall "Air Cocaine" -
+    Schmuggler in 10000 Meter Höhe«; im Browser gemessen zerfiel das Tag damit
+    in ACHT fremde Attribute (air, cocaine", schmuggler …) und der Tooltip
+    endete nach »Der Fall «. Mit einem präparierten Titel landete `onmouseover`
+    als echtes Event-Attribut im DOM: ausführbarer Code aus einem Filmtitel.
+    Die Titel kommen von einem Server, den JB nicht kontrolliert.
+
+    Zusätzlich die BAUFORM (Lehrbuch: nicht nur den Einzelfall prüfen): In
+    JS-Strings innerhalb von Attributen — `onclick="tvInfo('${esc(x)}')"` —
+    darf nur eine ID stehen, nie ein Titel. Dort greift eine zweite Auswertung
+    (HTML entschlüsselt &#39; zurück zu ', das den JS-String bricht), gegen die
+    HTML-Maskierung allein nicht schützt."""
+    import re as _re
+    quelle = _oberflaeche_html()
+    i = quelle.index("function esc(t)")
+    block = quelle[i:i + 400]
+    assert "&quot;" in block and "&#39;" in block, \
+        "esc() maskiert keine Anführungszeichen — Attribute sind ausbrechbar"
+
+    js_in_attribut = _re.findall(r"on[a-z]+=\"[^\"]*'\$\{esc\(([^)]*)\)\}'", quelle)
+    erlaubt = _re.compile(r"(^|\.)(id|fid|key|sid)$")
+    verdaechtig = [a for a in js_in_attribut if not erlaubt.search(a.strip())]
+    assert not verdaechtig, (
+        "In einem JS-String innerhalb eines Attributs steht etwas anderes als eine ID: "
+        f"{verdaechtig} — dort wird zweimal ausgewertet, HTML-Maskierung reicht nicht.")

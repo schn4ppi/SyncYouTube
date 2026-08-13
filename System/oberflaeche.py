@@ -2049,7 +2049,15 @@ if(root)root.LK=LK;
 /* ================= Helfer & globaler Zustand ================= */
 let daten = null;                                    // letzter /api/status (Sekundentakt via laden())
 
-function esc(t){const d=document.createElement('div');d.textContent=t||'';return d.innerHTML;}
+/* esc() muss ATTRIBUT-sicher sein, nicht nur text-sicher. textContent→innerHTML
+   maskiert < > &, aber KEINE Anführungszeichen — in `title="${esc(t)}"` bricht
+   ein " aus dem Attribut aus und zerlegt das Tag. Kein Grenzfall: Renés echte
+   Bibliothek enthält »Der Fall "Air Cocaine" - Schmuggler in 10000 Meter Höhe«
+   und 100 Titel mit Apostroph (»Abi '97«, »Angel's Egg«). Titel sind FREMDE
+   Daten von einem Server, den JB nicht kontrolliert — ein Titel mit " und
+   onerror= wäre sonst ausführbarer Code. Gefunden 13.08.2026. */
+function esc(t){const d=document.createElement('div');d.textContent=t||'';
+  return d.innerHTML.replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 let _toastTimer=null;
 function toast(text){                                  // kurze, dezente Rückmeldung (calm — kein Alert-Stopp)
   let t=document.getElementById('toast');
