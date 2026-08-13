@@ -7350,7 +7350,39 @@ function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)retu
 const TV_TABS=[['suche','🔍'],['home','Home'],['filme','Filme'],['serien','Serien'],
   ['neu','Neu & Beliebt'],['live','📡 Live'],['herz','❤ Favoriten'],['yt','▶ YouTube'],['musik','🎵 Musik']];
 let tvTab='home', tvFokus={r:0,i:0}, tvReihenListe=[], tvFilmReihen=null;
+/* Fake-Fernbedienung (JB 07.08.): ein kleines Fenster unter /fernbedienung
+   schickt Tastennamen über einen BroadcastChannel. Hier landen sie — und
+   werden als ECHTE Tastatur-Ereignisse in die bestehende tvKey-Behandlung
+   geworfen. Kein zweiter Bedienpfad, der auseinanderlaufen könnte. */
+let _fbKanal=null;
+function fbEmpfangVerkabeln(){
+  if(_fbKanal||!('BroadcastChannel' in window))return;
+  _fbKanal=new BroadcastChannel('syncyoutube-fb');
+  _fbKanal.onmessage=ev=>{
+    const n=ev.data||{};
+    if(n.art==='hallo'){_fbKanal.postMessage({art:'hier'}); return;}
+    if(n.art==='tv'){fernsehModus(); return;}
+    if(n.art!=='taste'||!n.taste)return;
+    const ziel=document.activeElement&&document.activeElement.tagName==='INPUT'
+      ?document.activeElement:document.body;
+    ziel.dispatchEvent(new KeyboardEvent('keydown',
+      {key:n.taste, bubbles:true, cancelable:true}));
+  };
+}
+window.addEventListener('message',ev=>{                 // Rückweg ohne BroadcastChannel
+  if(ev.origin!==location.origin||!ev.data)return;
+  const n=ev.data;
+  if(n.art==='tv')fernsehModus();
+  else if(n.art==='taste'&&n.taste)
+    document.body.dispatchEvent(new KeyboardEvent('keydown',
+      {key:n.taste, bubbles:true, cancelable:true}));
+});
+function fernbedienungOeffnen(){
+  window.open('/fernbedienung','syncyoutube-fb',
+    'width=300,height=560,menubar=no,toolbar=no,location=no,status=no');
+}
 function fernsehModus(){
+  fbEmpfangVerkabeln();                                 // Fernbedienung darf mitreden
   if(typeof ansichtZu==='function')ansichtZu();
   const o=document.getElementById('optionen'); if(o)o.remove();
   tvOeffnen();
@@ -7393,8 +7425,8 @@ function snippetAn(kachel){
       `<div class="hk-bild"><img src="/api/filme/bild?id=${fi}&art=Thumb" `+
         `onerror="if(!this.dataset.s){this.dataset.s=1;this.src='/api/filme/bild?id=${fi}&art=Backdrop'}`+
         `else{this.onerror=null;this.src='/api/filme/bild?id=${fi}'}">`+
-      `<video class="tv-snip" muted loop autoplay playsinline `+
-        `src="/api/filme/snippet?id=${fi}" onerror="this.remove()"></video>`+
+      `<video class="tv-snip" muted loop playsinline data-snip="${fi}" `+
+        `onerror="this.remove()"></video>`+
       `<div class="hk-titel">${esc(e.name||'')}</div></div>`+
       `<div class="hk-zeile">`+
       `<button class="hk-ib hk-play" onclick="event.stopPropagation();snippetAus();filmePlay('${esc(fid)}',${e.pos||0})" title="Abspielen">${ico('play')}</button>`+
@@ -7424,12 +7456,23 @@ function snippetAn(kachel){
     };
     kt._sync=setInterval(setzen,120);                  // VOR setzen() — sonst Waise
     setzen();
-  },450);                                              // Netflix reagiert nach ~450 ms
+    // Der CLIP startet erst nach ein paar Sekunden (JB 07.08.: „man sollte
+    // ein paar Sekunden auf einem video sein bevor der clip abspielt") —
+    // genau wie Netflix: erst das Standbild, dann bewegtes Bild. Wer nur
+    // durch die Reihe fährt, bekommt kein Video-Gewitter.
+    kt._clip=setTimeout(()=>{
+      const v=kt.querySelector('video.tv-snip');
+      if(!v||!kt.isConnected)return;
+      v.src='/api/filme/snippet?id='+v.dataset.snip;
+      v.play().catch(()=>{});
+    },2200);
+  },450);                                              // Karte: Netflix-Tempo ~450 ms
 }
 function snippetAus(){
   clearTimeout(snipTimer);
   document.querySelectorAll('.tv-hoverkarte').forEach(x=>{
     if(x._sync)clearInterval(x._sync);
+    if(x._clip)clearTimeout(x._clip);                  // Clip-Start nie verwaisen
     x.remove();});
   document.querySelectorAll('.hk-quelle').forEach(x=>x.classList.remove('hk-quelle'));
 }
@@ -7489,6 +7532,7 @@ function tvKopfMalen(){
   k.innerHTML=TV_TABS.map(([id,name])=>
     `<button class="tvtab${tvTab===id?' akt':''}" data-tv="${id}" onclick="tvTabWahl('${id}')">${name}</button>`).join('')+
     `<button class="tvzu" onclick="tvProfilWahl()" title="Profil wechseln — ${esc(p.name)}" style="margin-left:auto">${p.emoji}</button>`+
+    `<button class="tvzu" style="margin-left:0" onclick="fernbedienungOeffnen()" title="Fernbedienung in einem kleinen Fenster öffnen">🎮</button>`+
     `<button class="tvzu" style="margin-left:0" onclick="tvZu()" title="Fernsehmodus verlassen (Esc)">✕</button>`;
 }
 /* ---- Geräte koppeln (Teilprojekt 3, nur am PC) ----------------------------
@@ -9936,6 +9980,8 @@ transportRender();
 vizFarbeAktualisieren(); vizModeRender();
 geraetMalen();                                    // Gerät-Knopf (Browser/VLC) mit gemerktem Stand
 cmdNowRender();
+fbEmpfangVerkabeln();                             // Fernbedienung: hört AB START zu —
+                                                  // sonst wäre ihr „TV an"-Knopf tot
 laden();
 libLaden();                                       // Bibliothek sofort laden (Player braucht sie)
 plLaden();

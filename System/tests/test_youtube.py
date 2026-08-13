@@ -1220,6 +1220,44 @@ def _html_literale():
     return aus
 
 
+def test_fake_fernbedienung():
+    """JB-Wunsch 07.08.: „ein kleines Browserfenster das wie die
+    fernbedienung funktioniert" — und der Clip startet erst nach ein paar
+    Sekunden Verweilen, nicht sofort."""
+    import fernbedienung
+    html = fernbedienung.HTML
+    for taste in ("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+                  "Enter", "Escape", "Backspace"):
+        assert f'data-taste="{taste}"' in html, f"Fernbedienung ohne Taste {taste}"
+    assert "BroadcastChannel" in html and "syncyoutube-fb" in html
+    assert "window.opener" in html, "Rueckweg ohne BroadcastChannel fehlt"
+    # Die Oberflaeche empfaengt und wirft ECHTE Tasten-Ereignisse (ein Pfad!)
+    quelle = _oberflaeche_html()
+    i = quelle.index("function fbEmpfangVerkabeln")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "syncyoutube-fb" in b and "KeyboardEvent" in b and "keydown" in b, \
+        "Empfaenger muss die bestehende Tastatur-Behandlung nutzen"
+    assert "function fernbedienungOeffnen" in quelle and "/fernbedienung" in quelle
+    # Der Empfang laeuft AB SEITENSTART (Fund am lebenden Objekt 07.08.:
+    # nur im Fernsehmodus zu lauschen machte den „TV an"-Knopf der
+    # Fernbedienung tot — der soll den Modus ja gerade erst oeffnen).
+    init = quelle[quelle.rindex("cmdNowRender();"):]
+    assert "fbEmpfangVerkabeln();" in init, \
+        "Empfang muss beim Seitenstart verkabelt werden, nicht erst im TV-Modus"
+    # Clip-Verzoegerung (JB): Karte sofort, Video erst spaeter.
+    i = quelle.index("function snippetAn")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "_clip=setTimeout" in b.replace(" ", "") and "2200" in b, \
+        "der Clip muss verzoegert starten (JB: ein paar Sekunden)"
+    assert "autoplay" not in b.split("tv-snip")[1][:200], \
+        "das Snippet-Video darf nicht sofort autoplayen"
+    i = quelle.index("function snippetAus")
+    assert "_clip" in quelle[i:_funktionsende(quelle, i)], \
+        "Clip-Timer muss beim Schliessen aufgeraeumt werden"
+    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert '"/fernbedienung"' in src and "fernbedienung.HTML" in src
+
+
 def test_auslieferung_ohne_nutzerdaten():
     """JB-Dauerregel (07.08.): „die jellyfin datenbank darf nicht dabei sein".
 
@@ -4560,6 +4598,7 @@ def test_routen_inventur_und_aussen_gates():
             "/api/filme/reihen", "/api/filme/snippet", "/api/filme/sync",
             "/api/filme/wuenschen", "/api/filme/direkt", "/api/vlc_standbild",
             "/api/js_fehler", "/api/geo_status", "/api/geo_test",
+            "/fernbedienung",
             "/api/geo_wireguard", "/api/geraet_anmelden", "/api/geraet_qr",
             "/api/geraet_status", "/api/importieren", "/api/kanal_info",
             "/api/link_deuten", "/api/live", "/api/lyrics", "/api/pfad_da",

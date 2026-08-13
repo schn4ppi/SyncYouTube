@@ -27,6 +27,7 @@
 !System/update.py
 !System/oberflaeche.py
 !System/handy.py
+!System/fernbedienung.py
 !System/geo.py
 !System/vpn.py
 !System/tests/*.py

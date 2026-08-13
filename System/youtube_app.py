@@ -5276,6 +5276,14 @@ class Handler(BaseHTTPRequestHandler):
             return _antwort(self, 403, {"fehler": "Kein Zugriff — Gerät nicht gekoppelt."})
         if urlparse(self.path).path == "/koppeln":       # Pairing-Seite direkt
             return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
+        if urlparse(self.path).path == "/fernbedienung":  # Fake-Fernbedienung (JB 07.08.)
+            import importlib
+            import fernbedienung
+            try:
+                importlib.reload(fernbedienung)          # heiß wie die Oberfläche
+            except Exception:                            # noqa: BLE001
+                pass
+            return _antwort(self, 200, fernbedienung.HTML.encode("utf-8"), "text/html")
         if urlparse(self.path).path in ("/m", "/handy"):     # schlanke Handy-Oberfläche
             import importlib
             import handy
