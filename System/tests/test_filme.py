@@ -717,3 +717,47 @@ def test_nur_ein_abzug_gleichzeitig():
         time.sleep(0.6)
     finally:
         filme.katalog_abzug = echt
+
+
+def test_kein_anmelde_sturm_im_eigenen_prozess(tmp_path, monkeypatch):
+    """Viele gleichzeitige Anfragen erzeugen EINE Anmeldung, nicht zwölf.
+
+    Der Kommentar in `_anmelden` schrieb den 403 vom 06.08.2026 den
+    „Zweitprozessen" zu. Nachgemessen am 13.08.: Der Sturm passt vollständig in
+    EINEN Prozess. Der Fernsehmodus lädt dutzende Kacheln gleichzeitig, jede ruft
+    `bild_holen`, alle sehen im selben Moment „kein Token" und melden sich an —
+    und weil Jellyfin Tokens je DeviceId entwertet, bekommt jede vorherige
+    Sitzung 401 und meldet sich WIEDER an. Diese Kaskade ist der plausibelste
+    Erzeuger der Kontosperre, die Renés Server sieben Tage dicht hielt.
+
+    Ohne diesen Wächter wäre der Fix ein Vorsatz: Er misst die Zahl der
+    tatsächlichen Anmelde-Rufe unter echter Nebenläufigkeit."""
+    import threading
+    _einrichten(tmp_path, monkeypatch)
+    anmeldungen = []
+
+    def http(url, daten=None, kopf=None, timeout=15):
+        if "AuthenticateByName" in url:
+            anmeldungen.append(time.time())
+            time.sleep(0.05)               # eine Anmeldung dauert
+            return 200, json.dumps(FAKE_AUTH).encode()
+        if "/System/Info" in url:
+            return 200, json.dumps(FAKE_INFO).encode()
+        if "/Images/" in url:
+            return 200, b"JPEGDATEN"
+        raise AssertionError("unerwartete URL: " + url)
+    monkeypatch.setattr(filme, "_http", http)
+
+    start = threading.Barrier(12)
+
+    def kachel(n):
+        start.wait()                       # alle zwölf gleichzeitig losreißen
+        filme.bild_holen(f"{n:032x}")
+    faeden = [threading.Thread(target=kachel, args=(n,)) for n in range(12)]
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join()
+    assert len(anmeldungen) == 1, (
+        f"{len(anmeldungen)} Anmeldungen fuer einen Bildschirm voller Kacheln — "
+        "genau diese Kaskade hat Renes Server gesperrt")

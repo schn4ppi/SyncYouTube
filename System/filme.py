@@ -15,6 +15,7 @@ Regeln (Spec „Zugriff & Sicherheit"):
 import json
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -26,6 +27,9 @@ _pfade = {}                                # gesetzt von einrichten()
 _sitzung = {}                              # {"token","user_id","version"}
 _fehlversuch_ts = 0.0                      # letzter GESCHEITERTER Abzug (Backoff)
 _anmelde_sperre_ts = 0.0                   # Anmelde-Backoff (403 ⇒ 10 min Ruhe)
+_anmelde_lock = threading.Lock()           # EINE Anmeldung zur Zeit (s. _anmelden)
+_datei_locks = {}                          # je Pfad ein Lock (s. _json_aendern)
+_datei_locks_lock = threading.Lock()
 FEHL_BACKOFF_S = 30 * 60                   # nach Fehlschlag frühestens in 30 min wieder
 META_HALTBAR_S = 14 * 24 * 3600            # Ratings altern langsam (Spec)
 OMDB_TAGES_DECKEL = 950                    # Free-Key: 1.000/Tag — Puffer lassen
@@ -62,6 +66,24 @@ GENRE_GLEICH = {
 def genre_name(g):
     """Ein Genre auf seinen Anzeigenamen bringen (Sprach-Dubletten zusammen)."""
     return GENRE_GLEICH.get(g, g)
+
+
+def _json_aendern(pfad, aenderung, standard=None):
+    """`fam.json_aendern` — aber die eigenen Threads stellen sich vorher an.
+
+    Die Dateisperre des Familien-Kerns schützt gegen andere PROZESSE, und sie ist
+    bewusst nicht-destruktiv: Wer sie nach 5 s nicht bekommt, lässt seine Änderung
+    lieber aus, als fremde Arbeit zu überschreiben. Drängeln aber viele Threads
+    DESSELBEN Prozesses um dieselbe Datei, verhungert einer — gemessen 13.08.2026
+    bei 24 gleichzeitigen Herz-Klicks: 23 kamen an, einer fiel still weg. Der
+    Server ist mehrfädig (jede Kachel eine Anfrage), also ist das kein Laborfall.
+
+    Ein Lock je Pfad ordnet die eigenen Fäden, bevor sie um die Datei ringen —
+    danach ist immer höchstens einer im Rennen und die 5 s reichen sicher."""
+    with _datei_locks_lock:
+        lock = _datei_locks.setdefault(str(pfad), threading.Lock())
+    with lock:
+        return fam.json_aendern(pfad, aenderung, standard=standard)
 
 
 def einrichten(daten_dir):
@@ -118,10 +140,26 @@ def _anmelden():
     global _anmelde_sperre_ts
     if _sitzung.get("token"):
         return _sitzung
-    # Anmelde-Backoff (Fund 06.08.: Anmelde-STURM — Zweitprozesse mit gleicher
-    # DeviceId invalidierten sich gegenseitig die Tokens, jede Heilung meldete
-    # sich neu an, bis der Server 403 sperrte). Nach einem Fehlschlag ist
-    # RUHE: 403 = 10 Minuten (Anmeldesperre ausklingen lassen), sonst 60 s.
+    # EINE Anmeldung zur Zeit — der Sturm passt in EINEN Prozess.
+    #
+    # Der Kommentar unten schrieb den 403 vom 06.08. den „Zweitprozessen" zu.
+    # Nachgemessen am 13.08.: Er entsteht schon hier. Der Fernsehmodus lädt
+    # dutzende Kacheln gleichzeitig; jede ruft `bild_holen`, alle sehen im selben
+    # Moment „kein Token" und melden sich an. Jede Anmeldung mit derselben
+    # DeviceId entwertet die vorherige, deren Besitzer daraufhin 401 bekommt und
+    # sich WIEDER anmeldet — genau die Kaskade, die Renés Server sieben Tage lang
+    # aussperrte. Mit der Sperre meldet sich einer an, alle anderen nehmen dessen
+    # Token (zweite Prüfung IN der Sperre, weil der Erste inzwischen fertig ist).
+    with _anmelde_lock:
+        if _sitzung.get("token"):
+            return _sitzung
+        return _anmelden_ungesperrt()
+
+
+def _anmelden_ungesperrt():
+    global _anmelde_sperre_ts
+    # Anmelde-Backoff (Fund 06.08.): Nach einem Fehlschlag ist RUHE —
+    # 403 = 10 Minuten (Anmeldesperre ausklingen lassen), sonst 60 s.
     if time.time() < _anmelde_sperre_ts:
         return None
     z = _zugang()
@@ -253,7 +291,7 @@ def _zustand_merken(erg):
         if erg.get("ok"):
             d.pop("fehler_seit", None)
     try:
-        fam.json_aendern(_pfade["zustand"], _setzen, standard={})
+        _json_aendern(_pfade["zustand"], _setzen, standard={})
     except (OSError, ValueError):          # Melden darf den Abzug nie kippen
         pass
     return erg
@@ -534,7 +572,7 @@ def detail(item_id, profil="standard"):
         # Zwei-Fragen-Regel (Nachtprüfung 06.08.): mehrere Server-Threads
         # schreiben den Meta-Cache — json_aendern mischt NUR den eigenen
         # Schlüssel ein, statt fremde frische Einträge zu überschreiben.
-        fam.json_aendern(_pfade["meta"],
+        _json_aendern(_pfade["meta"],
                          lambda d: d.__setitem__(item_id, m), standard={})
     return {**e, "beschreibung": m.get("beschreibung") or "",
             "cast": m.get("cast") or [],
@@ -643,7 +681,7 @@ def merkliste_toggle(item_id, profil="standard"):
         gd[profil] = ids
         return gd
 
-    if fam.json_aendern(_pfade["merk"], _kippen, standard={}) is None:
+    if _json_aendern(_pfade["merk"], _kippen, standard={}) is None:
         return item_id in (d.get(profil) or [])   # Sperre besetzt: Stand bleibt
     return ergebnis.get("an", False)
 
@@ -688,7 +726,7 @@ def reihen(profil="standard"):
             alt = d.get("tmdb_stimmen") or {}
             alt.update(stimmen)
             d["tmdb_stimmen"] = alt
-        fam.json_aendern(_pfade["meta"], _mischen, standard={})
+        _json_aendern(_pfade["meta"], _mischen, standard={})
 
     def _score(e):
         s = stimmen.get(e.get("tmdb") or "")
@@ -971,7 +1009,7 @@ def seerr_meine(n=20):
             alt = d.get("tmdb_titel") or {}
             alt.update(tt)
             d["tmdb_titel"] = alt
-        fam.json_aendern(_pfade["meta"], _mischen, standard={})
+        _json_aendern(_pfade["meta"], _mischen, standard={})
     return out
 
 
@@ -1037,7 +1075,7 @@ def fortschritt(item_id, position_s, gesehen=False):
         return True
     neu = {"item": item_id, "position_s": int(position_s),
            "gesehen": bool(gesehen), "ts": time.time()}
-    fam.json_aendern(_pfade["queue"], lambda q: (q or []) + [neu], standard=[])
+    _json_aendern(_pfade["queue"], lambda q: (q or []) + [neu], standard=[])
     return False
 
 
@@ -1067,7 +1105,7 @@ def fortschritt_nachreichen():
         erledigt.append(_q_schluessel(m))
     if erledigt:
         weg = set(erledigt)
-        fam.json_aendern(
+        _json_aendern(
             _pfade["queue"],
             lambda liste: [m for m in (liste or []) if _q_schluessel(m) not in weg],
             standard=[])
