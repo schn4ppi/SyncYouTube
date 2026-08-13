@@ -5167,18 +5167,29 @@ def _neustart_pruefen():
 _filme_sync_laeuft = threading.Lock()
 
 
+def _filme_abzug_anstossen():
+    """Startet EINEN Abzug im Hintergrund — oder gar keinen, wenn schon einer läuft.
+
+    Die EINE Stelle für beide Auslöser (6-h-Ticker und Sync-Knopf). Vorher hatte
+    nur der Ticker eine Sperre; der Knopf startete blind einen zweiten Thread."""
+    if not _filme_sync_laeuft.acquire(blocking=False):
+        return False
+
+    def lauf():
+        try:
+            filme.katalog_abzug()          # hält seinen Ausgang selbst fest
+        finally:
+            _filme_sync_laeuft.release()
+    threading.Thread(target=lauf, daemon=True).start()
+    return True
+
+
 def filme_sync_pruefen():
     """6-h-Katalog-Abzug im BESTEHENDEN Ticker (Last-Budget: kein neuer Timer);
     ohne Keyring-Zugang still (der Film-Teil ist dann einfach aus)."""
     if not filme.sync_faellig() or not filme._zugang():
         return
-    if _filme_sync_laeuft.acquire(blocking=False):
-        def lauf():
-            try:
-                filme.katalog_abzug()
-            finally:
-                _filme_sync_laeuft.release()
-        threading.Thread(target=lauf, daemon=True).start()
+    _filme_abzug_anstossen()
 
 
 _auto_sync_stand = {}                                 # playlist-id -> zuletzt gesyncte Signatur
@@ -5768,7 +5779,13 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/autotag":
                 threading.Thread(target=autotag_lauf, args=(daten.get("keys"),), daemon=True).start()
             elif self.path == "/api/filme/sync":       # manueller Katalog-Abzug
-                threading.Thread(target=filme.katalog_abzug, daemon=True).start()
+                # Unter DERSELBEN Sperre wie der 6-h-Ticker. Ohne sie liefen zwei
+                # Voll-Abzüge parallel gegen Renés Server — bei 4885 Titeln zehn
+                # 1000er-Seiten gleichzeitig — und beide endeten mit
+                # `fortschritt_nachreichen()`, das jede Meldung doppelt schickte.
+                if not _filme_abzug_anstossen():
+                    return _antwort(self, 200, {"gestartet": False,
+                                                "hinweis": "Ein Abzug läuft bereits."})
                 return _antwort(self, 200, {"gestartet": True})
             elif self.path == "/api/filme/play":       # Jellyfin-Strom in den LOKALEN VLC
                 strom = filme.stream_url(daten.get("id") or "")

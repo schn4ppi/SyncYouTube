@@ -5,6 +5,7 @@ Jellyfin/TMDB/OMDb-Antworten sind Fakes — genau wie die Manga-Quellen-Tests.""
 import json
 import os
 import sys
+import time
 
 MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if MODUL_DIR not in sys.path:
@@ -621,3 +622,98 @@ def test_folge_wird_direkt_bei_jellyfin_geholt(tmp_path, monkeypatch):
     monkeypatch.setattr(filme, "_http", kein_ruf)
     for boese in ("", "../boese", "kurz", "a" * 200, "hallo welt"):
         assert filme._folge_holen(boese) is None, boese
+
+
+def test_geteilter_zustand_geht_nicht_verloren(tmp_path, monkeypatch):
+    """Merkliste und Fortschritts-Warteschlange überleben gleichzeitige Schreiber.
+
+    Zwei belegte Verluste (13.08.2026), beide dasselbe Muster — Lesen, Ändern,
+    Schreiben ohne Sperre:
+    1. Merkliste: PC, Fernsehmodus und Handy schreiben in dieselbe Datei. Zwei
+       gleichzeitige Herz-Klicks löschten nicht einen Eintrag, sondern den ganzen
+       Profil-Schlüssel des anderen.
+    2. Warteschlange: `fortschritt_nachreichen()` las die Liste, SENDETE (das
+       dauert), und schrieb dann den Rest über den inzwischen aktuellen Stand.
+       Wer in diesen Sekunden einen Film stoppte, verlor seinen Spot spurlos —
+       und zwar bevorzugt während des 6-h-Abzugs, der mit genau diesem Nachreichen
+       endet.
+
+    Geprüft wird das ERGEBNIS unter echter Nebenläufigkeit, nicht die Schreibweise."""
+    import threading
+    _einrichten(tmp_path, monkeypatch)
+
+    # --- 1) Merkliste: 24 gleichzeitige Klicks auf verschiedene Profile
+    def klick(n):
+        filme.merkliste_toggle(f"id{n:03d}", profil=("A" if n % 2 else "B"))
+    faeden = [threading.Thread(target=klick, args=(n,)) for n in range(24)]
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join()
+    a, b = filme.merkliste_lesen("A"), filme.merkliste_lesen("B")
+    assert len(a) + len(b) == 24, f"Einträge verloren: A={len(a)} B={len(b)} (soll 24)"
+
+    # --- 2) Warteschlange: während des Nachreichens kommen neue Meldungen dazu
+    monkeypatch.setattr(filme, "_zugang", lambda: {
+        "url": "https://jelly.example", "benutzer": "JBK", "passwort": "pw"})
+    for n in range(5):                       # 5 liegengebliebene Meldungen
+        fam_liste = {"item": f"alt{n}", "position_s": n, "gesehen": False, "ts": 100.0 + n}
+        filme.fam.json_aendern(filme._pfade["queue"],
+                               lambda q, m=fam_liste: (q or []) + [m], standard=[])
+    assert len(filme._queue_lesen()) == 5
+
+    dazwischen = threading.Event()
+
+    def langsam_senden(item_id, position_s, gesehen=False):
+        dazwischen.set()                     # Signal: das Senden läuft
+        time.sleep(0.05)                     # …und dauert
+        return True
+    monkeypatch.setattr(filme, "_fortschritt_senden", langsam_senden)
+
+    def stoerer():
+        dazwischen.wait(2)
+        time.sleep(0.02)
+        filme.fam.json_aendern(               # JB stoppt mitten im Nachreichen einen Film
+            filme._pfade["queue"],
+            lambda q: (q or []) + [{"item": "GERADE_GESTOPPT", "position_s": 2520,
+                                    "gesehen": False, "ts": 999.0}], standard=[])
+    t = threading.Thread(target=stoerer)
+    t.start()
+    geschafft = filme.fortschritt_nachreichen()
+    t.join()
+
+    assert geschafft == 5
+    rest = filme._queue_lesen()
+    assert any(m["item"] == "GERADE_GESTOPPT" for m in rest), \
+        "der Spot des gerade gestoppten Films wurde vom Nachreichen überschrieben"
+    assert not any(m["item"].startswith("alt") for m in rest), \
+        "erledigte Meldungen blieben liegen"
+
+
+def test_nur_ein_abzug_gleichzeitig():
+    """Sync-Knopf und 6-h-Ticker teilen sich EINE Sperre.
+
+    Vorher hatte nur der Ticker eine; der Knopf startete blind einen zweiten
+    Thread. Zwei Voll-Abzüge parallel gegen Renés Server sind bei 4885 Titeln
+    zehn gleichzeitige 1000er-Seiten — und beide enden mit
+    `fortschritt_nachreichen()`, das dann jede Meldung doppelt schickt."""
+    import youtube_app as app
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    assert "def _filme_abzug_anstossen" in quelle
+    i = quelle.index('elif self.path == "/api/filme/sync"')
+    block = quelle[i:i + 600]
+    assert "_filme_abzug_anstossen()" in block, "der Sync-Knopf umgeht die Sperre"
+    assert "threading.Thread(target=filme.katalog_abzug" not in quelle, \
+        "es gibt noch einen ungesperrten Abzug-Start"
+    # Ergebnis statt Schreibweise: der zweite Anstoß muss abgelehnt werden
+    gestartet = []
+    echt = filme.katalog_abzug
+    try:
+        filme.katalog_abzug = lambda: (time.sleep(0.4), gestartet.append(1))[1]
+        assert app._filme_abzug_anstossen() is True
+        assert app._filme_abzug_anstossen() is False, "zwei Abzüge gleichzeitig möglich"
+        time.sleep(0.6)
+        assert app._filme_abzug_anstossen() is True, "Sperre wird nicht freigegeben"
+        time.sleep(0.6)
+    finally:
+        filme.katalog_abzug = echt

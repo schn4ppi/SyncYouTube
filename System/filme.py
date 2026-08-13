@@ -622,16 +622,30 @@ def merkliste_toggle(item_id, profil="standard"):
         d = {}
     if isinstance(d, list):                # Altformat einmalig heben
         d = {"standard": d}
-    ids = d.get(profil) or []
-    if item_id in ids:
-        ids.remove(item_id)
-        an = False
-    else:
-        ids.append(item_id)
-        an = True
-    d[profil] = ids
-    fam.json_schreiben(_pfade["merk"], d)
-    return an
+    # Unter Sperre kippen (JB-Dauerregel „geteilter Zustand, zwei Fragen"):
+    # PC, Fernsehmodus und Handy schreiben in dieselbe Datei. Ohne Sperre
+    # überschrieben sich zwei gleichzeitige Herz-Klicks — und zwar nicht nur
+    # einen Eintrag, sondern den ganzen Profil-Schlüssel des anderen (gemessen
+    # 13.08.2026). Der frisch geladene Stand IN der Sperre entscheidet, nicht
+    # der vorher gelesene.
+    ergebnis = {}
+
+    def _kippen(gd):
+        if isinstance(gd, list):           # Altformat einmalig heben
+            gd = {"standard": gd}
+        ids = list(gd.get(profil) or [])
+        if item_id in ids:
+            ids.remove(item_id)
+            ergebnis["an"] = False
+        else:
+            ids.append(item_id)
+            ergebnis["an"] = True
+        gd[profil] = ids
+        return gd
+
+    if fam.json_aendern(_pfade["merk"], _kippen, standard={}) is None:
+        return item_id in (d.get(profil) or [])   # Sperre besetzt: Stand bleibt
+    return ergebnis.get("an", False)
 
 
 # ---------------------------------------------------------------- Reihen
@@ -1021,26 +1035,40 @@ def fortschritt(item_id, position_s, gesehen=False):
     Queue und geht beim nächsten Erfolg/Abzug nach (nichts geht verloren)."""
     if _fortschritt_senden(item_id, position_s, gesehen):
         return True
-    q = _queue_lesen()
-    q.append({"item": item_id, "position_s": int(position_s),
-              "gesehen": bool(gesehen), "ts": time.time()})
-    fam.json_schreiben(_pfade["queue"], q)
+    neu = {"item": item_id, "position_s": int(position_s),
+           "gesehen": bool(gesehen), "ts": time.time()}
+    fam.json_aendern(_pfade["queue"], lambda q: (q or []) + [neu], standard=[])
     return False
+
+
+def _q_schluessel(m):
+    return (m.get("item"), int(m.get("position_s") or 0), bool(m.get("gesehen")),
+            round(float(m.get("ts") or 0), 3))
 
 
 def fortschritt_nachreichen():
     """Liegengebliebene Meldungen senden; bei erneutem Fehlschlag bleibt der
-    Rest liegen. Gibt die Zahl der erfolgreich nachgereichten zurück."""
+    Rest liegen. Gibt die Zahl der erfolgreich nachgereichten zurück.
+
+    Lesen — Senden — GEZIELT entfernen, statt die ganze Datei zurückzuschreiben:
+    Der alte Weg las die Warteschlange, sendete (dauert), und schrieb dann den
+    Rest über den inzwischen aktuellen Stand. Wer in diesen Sekunden einen Film
+    stoppte, verlor seinen Spot spurlos (gemessen 13.08.2026 — genau während des
+    6-h-Abzugs, der ja mit `fortschritt_nachreichen()` endet).
+
+    Bewusste Richtung: Im Zweifel lieber doppelt melden als verlieren. Einen
+    Fortschritt zu setzen ist idempotent — ihn zu verlieren nicht."""
     q = _queue_lesen()
-    geschafft = 0
-    rest = []
+    geschafft, erledigt = 0, []
     for m in q:
-        if rest:                           # einmal gescheitert ⇒ Reihenfolge halten
-            rest.append(m)
-        elif _fortschritt_senden(m["item"], m["position_s"], m.get("gesehen")):
-            geschafft += 1
-        else:
-            rest.append(m)
-    if geschafft or (len(rest) != len(q)):
-        fam.json_schreiben(_pfade["queue"], rest)
+        if not _fortschritt_senden(m["item"], m["position_s"], m.get("gesehen")):
+            break                          # Reihenfolge halten: Rest bleibt liegen
+        geschafft += 1
+        erledigt.append(_q_schluessel(m))
+    if erledigt:
+        weg = set(erledigt)
+        fam.json_aendern(
+            _pfade["queue"],
+            lambda liste: [m for m in (liste or []) if _q_schluessel(m) not in weg],
+            standard=[])
     return geschafft
