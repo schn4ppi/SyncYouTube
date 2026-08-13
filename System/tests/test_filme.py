@@ -575,3 +575,49 @@ def test_ausfall_bleibt_nicht_still(tmp_path, monkeypatch):
     filme.katalog_abzug()
     z = filme.zustand()
     assert not z["fehler"] and z["fehlversuche"] == 0
+
+
+def test_folge_wird_direkt_bei_jellyfin_geholt(tmp_path, monkeypatch):
+    """detail() findet auch Serien-FOLGEN — die stehen nie im Spiegel.
+
+    Der Abzug holt bewusst nur `IncludeItemTypes=Movie,Series` (Renés Simpsons
+    allein haben 553 Folgen). Bis 13.08.2026 gab `detail(folgen_id)` deshalb
+    None, die Route antwortete 404 mit `{"fehler": …}` — und die Oberfläche las
+    dieses Fehler-Objekt als gültige Meta. Für JB hieß das bei JEDER Folge:
+    kein Titel, Dauer 0 (tote Zeitleiste) und immer die schwerste
+    Transcode-Gangart, obwohl viele Folgen h264 sind."""
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, FAKE_ITEMS)]))
+    filme.katalog_abzug()
+    assert not any(e["typ"] == "folge" for e in filme.katalog_lesen()["eintraege"])
+
+    # Echte Jellyfin-Id (32 Hex) — die Kurzform "ep1" der übrigen Attrappen
+    # würde die ID-Form-Prüfung nicht passieren, und genau diese Prüfung soll
+    # hier ja mitlaufen (L19: die Attrappe muss den Unterschied modellieren).
+    EP = "9f2c41ab7d3e40aab6c5e81d2f0a7c63"
+    folge = {"Id": EP, "Name": "Geheimnisse", "Type": "Episode",
+             "SeriesName": "Dark", "SeriesId": "s1", "ParentIndexNumber": 1,
+             "IndexNumber": 1, "ProductionYear": 2017, "Genres": [],
+             "RunTimeTicks": 30_600_000_000, "ProviderIds": {},
+             "MediaStreams": [{"Type": "Video", "Codec": "h264"},
+                              {"Type": "Audio", "Codec": "ac3"}],
+             "ImageTags": {}, "UserData": {}}
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {})
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items/" + EP, 200, folge)]))
+    d = filme.detail(EP)
+    assert d, "Folge wird nicht nachgeschlagen"
+    assert d["titel"] == "Dark · S1 F1 — Geheimnisse", d["titel"]
+    assert d["typ"] == "folge" and d["serie_id"] == "s1"
+    assert d["laufzeit_min"] == 51, "ohne Dauer bleibt die Zeitleiste tot"
+    assert d["video_codec"] == "h264", "ohne Codec wählt die Weiche immer den schwersten Weg"
+
+    # Unsinnige Ids dürfen KEINEN Ruf an Renés Server auslösen
+    def kein_ruf(*a, **k):
+        raise AssertionError("unerlaubter Netz-Ruf")
+    monkeypatch.setattr(filme, "_http", kein_ruf)
+    for boese in ("", "../boese", "kurz", "a" * 200, "hallo welt"):
+        assert filme._folge_holen(boese) is None, boese

@@ -177,6 +177,56 @@ def _eintrag(it):
             "gesehen": bool(ud.get("Played"))}
 
 
+_ID_FORM = re.compile(r"^[0-9a-fA-F-]{16,64}$")
+
+
+def _folge_holen(item_id):
+    """Eine EPISODE direkt bei Jellyfin nachschlagen (steht nie im Spiegel).
+
+    Der Katalog-Abzug holt `IncludeItemTypes=Movie,Series` — Folgen sind absichtlich
+    nicht dabei (bei Renés Bestand wären das zehntausende Einträge; die Simpsons
+    allein haben 553). Folge: `detail(folgen_id)` fand nichts und gab None zurück,
+    die Route antwortete 404 mit `{"fehler": …}` — und die Oberfläche las dieses
+    Fehler-Objekt als gültige Meta. Ergebnis für JB (gemessen 13.08.2026): beim
+    Abspielen einer Folge blieb der Titel leer, die Zeitleiste tot (Dauer 0), und
+    die Weiche wählte immer die schwerste Gangart (voller libx264-Lauf), obwohl
+    viele Folgen h264 sind und kopiert werden könnten.
+
+    Kein Cache nötig: Der Ruf passiert genau einmal beim Öffnen einer Folge.
+    Die ID-Form wird geprüft, damit ein fremdes Gerät im WLAN nicht mit
+    beliebigen Zeichenketten Rufe an Renés Server auslösen kann."""
+    if not item_id or not _ID_FORM.match(item_id):
+        return None
+    s = _anmelden()
+    if not s:
+        return None
+    try:
+        st, roh = _http(f"{_zugang()['url']}/Users/{s['user_id']}/Items/{item_id}",
+                        kopf={"X-Emby-Token": s["token"]})
+    except Exception:                          # noqa: BLE001 — Netz weg
+        return None
+    if st != 200:
+        return None
+    try:
+        it = json.loads(roh)
+    except ValueError:
+        return None
+    if not it.get("Id"):
+        return None
+    e = _eintrag(it)
+    if it.get("Type") == "Episode":
+        # Sprechender Titel wie in der Folgenliste: „Dark · S1 F3 — Gestern und heute"
+        teile = [it.get("SeriesName") or ""]
+        st_nr, fo_nr = it.get("ParentIndexNumber"), it.get("IndexNumber")
+        if st_nr is not None and fo_nr is not None:
+            teile.append(f"S{st_nr} F{fo_nr}")
+        e["titel"] = " · ".join([t for t in teile if t]) + (
+            f" — {it.get('Name')}" if it.get("Name") else "")
+        e["typ"] = "folge"
+        e["serie_id"] = it.get("SeriesId") or ""
+    return e
+
+
 def _zustand_merken(erg):
     """Den Ausgang JEDES Abzugs auf Platte festhalten — und zwar hier.
 
@@ -387,6 +437,8 @@ def detail(item_id, profil="standard"):
     Fehlender Key oder tote Quelle ⇒ Felder bleiben leer, NIE eine Fehlerseite
     (Selbstheilungs-Regel)."""
     e = next((x for x in katalog_lesen()["eintraege"] if x["id"] == item_id), None)
+    if not e:
+        e = _folge_holen(item_id)
     if not e:
         return None
     cache = _meta_cache()

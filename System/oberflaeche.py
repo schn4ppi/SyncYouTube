@@ -3921,6 +3921,12 @@ async function filmePlay(id,pos){
   let meta=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)?tvInfoDaten.d
           :(typeof tvHeroDaten!=='undefined'&&tvHeroDaten&&tvHeroDaten.id===id)?tvHeroDaten:null;
   if(!meta){try{meta=await (await fetch('/api/filme/detail?id='+encodeURIComponent(id))).json();}catch(e){}}
+  /* Ein Fehler-Objekt ist KEINE Meta. Die Route antwortet bei unbekannter Id mit
+     {"fehler": …}; das ist in JS wahr, also lief der ganze Weiche-Code darauf
+     weiter — mit leerem Titel, Dauer 0 (tote Zeitleiste) und der schwersten
+     Transcode-Gangart. Traf bis 13.08.2026 JEDE Serien-Folge, weil Folgen nicht
+     im Katalog-Spiegel stehen (Server-Seite jetzt: filme._folge_holen). */
+  if(meta&&meta.fehler)meta=null;
   const inHuelle=!!window.pywebview;
   if(meta&&filmeBrowserKann(meta)){
     tvpModus='browser'; tvpTc=false;                   // Direct Play im <video>
@@ -8127,7 +8133,8 @@ async function tvHeroMalen(){
   if(!kand){box.style.display='none'; return;}
   tvHeroId=kand.id;
   let d=kand;
-  try{d=await (await fetch('/api/filme/detail?id='+encodeURIComponent(kand.id))).json();}catch(e){}
+  try{const a=await (await fetch('/api/filme/detail?id='+encodeURIComponent(kand.id))).json();
+      if(a&&!a.fehler)d=a;}catch(e){}                  // Fehler-Objekt ist keine Meta
   tvHeroDaten=d;                                       // Meta für den Player (Hero-Direktstart)
   if(!document.getElementById('tv-hero'))return;       // Tab inzwischen gewechselt
   box.innerHTML=

@@ -4906,3 +4906,17 @@ def test_esc_ist_attribut_sicher():
     assert not verdaechtig, (
         "In einem JS-String innerhalb eines Attributs steht etwas anderes als eine ID: "
         f"{verdaechtig} — dort wird zweimal ausgewertet, HTML-Maskierung reicht nicht.")
+
+
+def test_fehler_objekt_gilt_nie_als_meta():
+    """`{"fehler": …}` ist in JS wahr — der Player darf darauf nicht weiterlaufen.
+
+    Genau daran hingen bis 13.08.2026 alle Serien-Folgen: leerer Titel, tote
+    Zeitleiste, schwerster Transcode. Die Info-Seite prüfte `d.fehler` schon
+    richtig, `filmePlay` und der Hero nicht."""
+    quelle = _oberflaeche_html()
+    i = quelle.index("async function filmePlay")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "meta.fehler" in block, "filmePlay hält ein Fehler-Objekt für gültige Meta"
+    i = quelle.index("tvHeroDaten=d;")
+    assert "!a.fehler" in quelle[i - 400:i], "der Hero übernimmt ein Fehler-Objekt als Meta"
