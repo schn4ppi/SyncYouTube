@@ -1253,9 +1253,30 @@ def test_fake_fernbedienung():
         "tvAn)tvZu();elsefernsehModus()", "tvAn)tvZu(); else fernsehModus()") \
         or ("tvZu()" in b and "fernsehModus()" in b), "TV-Umschalter fehlt"
     assert "fbMausBewegen" in quelle and "fbMausKlick" in quelle
+    # JB 07.08.: der Maus-Punkt geht mit dem Mauspad (im TV steuert das D-Pad)
+    assert "function fbZeigerWeg" in quelle
+    i = quelle.index("function fernsehModus")
+    assert "fbZeigerWeg()" in quelle[i:_funktionsende(quelle, i)], \
+        "Fernsehmodus muss den Maus-Punkt entfernen"
+    i = quelle.index("function fbMausBewegen")
+    assert "style.display!=='none')return" in quelle[i:_funktionsende(quelle, i)].replace(" ", ""), \
+        "im Fernsehmodus darf kein Zeiger wandern"
+    # Wiederholung: zeitbasiert (ev.repeat allein traegt nicht) + Spul-Stufen
     i = quelle.index("function tvWiederholungBremst")
     b = quelle[i:_funktionsende(quelle, i)]
-    assert "ev.repeat" in b and "260" in b, "Wiederholung muss beschleunigen"
+    assert "420" in b and "240" in b and "_wdhZahl" in b, \
+        "Wiederholung muss zeitbasiert beschleunigen"
+    assert "function tvSpulWeite" in quelle and "120" in quelle
+    i = quelle.index("function tvKey")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "tvpRel(-tvSpulWeite())" in b and "tvpRel(tvSpulWeite())" in b, \
+        "Pfeile im Player muessen mit Beschleunigung spulen"
+    # Senkrecht = geometrisch (JB: „die direkt darunter liegende kachel")
+    assert "function tvNachbarSenkrecht" in quelle
+    i = quelle.index("function tvNachbarSenkrecht")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "getBoundingClientRect" in b and "Math.abs" in b, \
+        "senkrechte Navigation muss die naechste Kachel GEOMETRISCH suchen"
     i = quelle.index("function tvKey")
     b = quelle[i:_funktionsende(quelle, i)]
     assert "tvWiederholungBremst(ev)" in b, "tvKey muss die Bremse nutzen"
@@ -4312,7 +4333,9 @@ def test_film_player_screen():
     # Tasten: Space/Enter/Pfeile/Esc am Player, Esc holt das TV-Vollbild zurueck
     i = quelle.index("function tvKey")
     block = quelle[i:_funktionsende(quelle, i)]
-    assert "tvpOffen" in block and "tvpRel(10)" in block
+    # Seit 07.08. spulen die Pfeile MIT BESCHLEUNIGUNG (JB-Wunsch) — die
+    # feste 10-s-Weite steckt jetzt in tvSpulWeite().
+    assert "tvpOffen" in block and "tvpRel(tvSpulWeite())" in block
     i = quelle.index("async function filmStopp")
     block = quelle[i:_funktionsende(quelle, i)]
     assert "tvpZu()" in block and "requestFullscreen" in block

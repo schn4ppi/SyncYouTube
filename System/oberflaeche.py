@@ -7386,7 +7386,7 @@ function fbEmpfangVerkabeln(){
                  '#tvp-pp svg path[d^="M6 5"]'))});
       return;}
     if(n.art==='tv'){                                   // EIN Knopf für an UND aus
-      if(tvAn)tvZu(); else fernsehModus();
+      if(tvAn)tvZu(); else {fbZeigerWeg(); fernsehModus();}
       return;}
     if(n.art==='maus'){fbMausBewegen(n.dx||0,n.dy||0); return;}
     if(n.art==='klick'){fbMausKlick(n.knopf||'links'); return;}
@@ -7428,7 +7428,15 @@ function fbZeigerHolen(){
   _fbX=innerWidth/2; _fbY=innerHeight/2;
   return _fbZeiger;
 }
+function fbZeigerWeg(){
+  // JB 07.08.: „im Fernsehmodus sollte der Punkt verschwinden mit dem
+  // Mauspad" — dort steuert das D-Pad, ein zweiter Zeiger verwirrt nur.
+  if(_fbZeiger){_fbZeiger.remove(); _fbZeiger=null;}
+  _fbZeigerZiel=null;
+}
 function fbMausBewegen(dx,dy){
+  const tv=document.getElementById('tv');
+  if(tv&&tv.style.display!=='none')return;              // im TV kein Zeiger
   const z=fbZeigerHolen();
   _fbX=Math.max(0,Math.min(innerWidth-1,_fbX+dx));
   _fbY=Math.max(0,Math.min(innerHeight-1,_fbY+dy));
@@ -7456,6 +7464,7 @@ function fbMausKlick(knopf){
 }
 function fernsehModus(){
   fbEmpfangVerkabeln();                                 // Fernbedienung darf mitreden
+  fbZeigerWeg();                                        // Maus-Punkt geht mit dem Mauspad
   if(typeof ansichtZu==='function')ansichtZu();
   const o=document.getElementById('optionen'); if(o)o.remove();
   tvOeffnen();
@@ -8246,13 +8255,44 @@ function tvInfoFokusMalen(){
    durch lange Reihen. */
 let _wdhTaste='', _wdhZahl=0, _wdhLetzte=0;
 function tvWiederholungBremst(ev){
-  if(!ev.repeat){_wdhTaste=ev.key; _wdhZahl=0; _wdhLetzte=Date.now(); return false;}
-  if(ev.key!==_wdhTaste){_wdhTaste=ev.key; _wdhZahl=0; _wdhLetzte=Date.now(); return false;}
   const jetzt=Date.now();
-  const abstand=Math.max(60,260-_wdhZahl*28);          // 260 ms → 60 ms
+  // Neue Taste ODER echte Pause seit dem letzten Anschlag ⇒ neu anfangen.
+  // (`ev.repeat` allein trägt nicht: manche Tastaturen/Layouts setzen es
+  // nicht, dann wandert der Fokus mit voller Systemrate — JB 07.08.:
+  // „das gedrückt halten … funktioniert nicht".)
+  if(ev.key!==_wdhTaste||jetzt-_wdhLetzte>420){
+    _wdhTaste=ev.key; _wdhZahl=0; _wdhLetzte=jetzt; return false;
+  }
+  const abstand=Math.max(55,240-_wdhZahl*30);          // 240 ms → 55 ms
   if(jetzt-_wdhLetzte<abstand)return true;             // zu früh: verwerfen
   _wdhLetzte=jetzt; _wdhZahl++;
   return false;
+}
+/* Spul-Stufe beim Halten (JB 07.08.: „gedrückt halten soll dann schneller
+   und schneller vorspulen"): 10 s → 30 s → 60 s → 120 s. */
+function tvSpulWeite(){
+  return [10,10,30,30,60,60,120][Math.min(6,_wdhZahl)];
+}
+/* Senkrecht wandern heißt: zur Kachel, die WIRKLICH darüber/darunter liegt
+   (JB 07.08.: „nicht auf die xte Position"). Reihen sind unterschiedlich
+   weit gescrollt — der bloße Index führt sonst quer durchs Bild. Wir
+   nehmen die Kachel, deren Mitte der aktuellen X-Mitte am nächsten ist. */
+function tvNachbarSenkrecht(zielReihe){
+  const jetzt=document.querySelector(
+    `#tv .tv-kachel[data-r="${tvFokus.r}"][data-i="${tvFokus.i}"]`);
+  const kacheln=[...document.querySelectorAll(`#tv .tv-kachel[data-r="${zielReihe}"]`)];
+  if(!jetzt||!kacheln.length){
+    const n=((tvReihenListe[zielReihe]||[[],[]])[1]||[]).length;
+    return Math.max(0,Math.min(tvFokus.i,n-1));        // Rückweg: alter Index
+  }
+  const r=jetzt.getBoundingClientRect(), mitte=r.left+r.width/2;
+  let beste=kacheln[0], abstand=Infinity;
+  kacheln.forEach(k=>{
+    const kr=k.getBoundingClientRect();
+    const d=Math.abs(kr.left+kr.width/2-mitte);
+    if(d<abstand){abstand=d; beste=k;}
+  });
+  return +beste.dataset.i||0;
 }
 function tvKey(ev){
   const tv=document.getElementById('tv');
@@ -8280,8 +8320,16 @@ function tvKey(ev){
     }
     if(ev.key==='Escape')filmStopp();
     else if(ev.key===' '||ev.key==='Enter'){tvpBefehl('toggle'); setTimeout(tvpTick,300);}
-    else if(ev.key==='ArrowLeft')tvpRel(-10);
-    else if(ev.key==='ArrowRight')tvpRel(10);
+    // Spulen mit Beschleunigung (JB): kurz tippen = 10 s, halten wird
+    // immer weiter — die Bremse zählt die Wiederholungen mit.
+    else if(ev.key==='ArrowLeft'){
+      if(tvWiederholungBremst(ev)){ev.preventDefault(); return;}
+      tvpRel(-tvSpulWeite());
+    }
+    else if(ev.key==='ArrowRight'){
+      if(tvWiederholungBremst(ev)){ev.preventDefault(); return;}
+      tvpRel(tvSpulWeite());
+    }
     else if(ev.key==='ArrowUp'){plbVol(Math.min(100,plVol+5)); tvpBefehl('vol',{wert:plVol});}
     else if(ev.key==='ArrowDown'){plbVol(Math.max(0,plVol-5)); tvpBefehl('vol',{wert:plVol});}
     else if(ev.key==='s'||ev.key==='S')tvpPanel('spuren');   // Sofa-Weg zu den Settings
@@ -8367,12 +8415,13 @@ function tvKey(ev){
   else if(ev.key==='ArrowUp'){
     if(tvFokus.r===0){tvFokus=tvHeroDa()?{r:-2,i:0}:{r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};}
     else if(tvFokus.r===-2){tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};}
-    else if(tvFokus.r>0){tvFokus.r--; tvFokus.i=Math.min(tvFokus.i,Math.max(0,(tvReihenListe[tvFokus.r][1]||[]).length-1));}
+    else if(tvFokus.r>0)tvFokus={r:tvFokus.r-1,i:tvNachbarSenkrecht(tvFokus.r-1)};
   }
   else if(ev.key==='ArrowDown'){
     if(tvFokus.r===-1){tvFokus=tvHeroDa()?{r:-2,i:0}:{r:0,i:0};}
     else if(tvFokus.r===-2){tvFokus={r:0,i:0};}
-    else if(tvFokus.r<tvReihenListe.length-1){tvFokus.r++; tvFokus.i=Math.min(tvFokus.i,Math.max(0,(tvReihenListe[tvFokus.r][1]||[]).length-1));}
+    else if(tvFokus.r<tvReihenListe.length-1)
+      tvFokus={r:tvFokus.r+1,i:tvNachbarSenkrecht(tvFokus.r+1)};
   }
   else if(ev.key==='Enter'){
     if(tvFokus.r===-2){const b=document.querySelector(`#tv-hero [data-hero="${tvFokus.i}"]`); if(b)b.click();}
