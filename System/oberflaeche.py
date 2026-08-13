@@ -154,6 +154,7 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
   background:#141414;color:#fff;font-size:22px;overflow:hidden}
 #tv-kopf{display:flex;gap:6px;align-items:center;padding:18px 28px;flex:0 0 auto;
   background:linear-gradient(#141414 70%,transparent)}
+#tv-warnung{flex:0 0 auto;margin:0 28px 6px;padding:10px 16px;border-radius:10px;background:rgba(255,176,32,.14);border:1px solid rgba(255,176,32,.45);color:#ffd489;font-size:19px;line-height:1.35}
 #tv-kopf .tvtab{font-size:22px;padding:8px 18px;border-radius:999px;background:none;
   border:2px solid transparent;color:#b3b3b3;cursor:pointer;white-space:nowrap}
 #tv-kopf .tvtab.akt{color:#fff;font-weight:700}
@@ -3847,13 +3848,45 @@ async function aboLaden(){try{const r=await fetch('/api/abos'); aboState=(await 
    Anzeige-Minimum: die serverseitigen Reihen als Poster-Bänder, Klick spielt
    den Jellyfin-Strom im LOKALEN VLC. Das eigentliche TV-Design ist
    Teilprojekt 2 — hier geht es um den sichtbaren Beweis der Engine. */
+/* Ein Ausfall muss man SEHEN. Renés Server antwortete vom 06. bis 13.08.2026
+   mit 403 — sieben Tage lang, und nichts hat davon erzählt: der Spiegel steht
+   bei einem Ausfall bewusst weiter (Spec), die Poster kommen aus dem Cache,
+   nur „Neu auf dem Server" wuchs still nicht mehr. Ein alter Spiegel sah exakt
+   aus wie ein frischer. Calm-Design heißt „nur bei Handlungsbedarf anzeigen" —
+   nicht „nie". Ein einzelner Fehlversuch (Server startet neu) bleibt still;
+   gemeldet wird erst, wenn der 6-Stunden-Rhythmus nachweislich gerissen ist. */
+function filmDauerGrob(s){
+  const st=Math.round((s||0)/3600);
+  if(st<1)return 'weniger als einer Stunde';
+  if(st<48)return st+' Stunden';
+  return Math.round(st/24)+' Tagen';
+}
+function filmWarnung(z){
+  if(!z)return '';
+  if(!z.zugang)return '⚙ Kein Jellyfin-Zugang eingerichtet — der Filmteil ist aus.';
+  if(z.fehler&&(z.still_seit_s||0)>8*3600)
+    return '⚠ Renés Server antwortet seit '+filmDauerGrob(z.still_seit_s)+' nicht ('
+      +z.fehler+'). Gezeigt wird der letzte Spiegel von '+(z.anzahl||0)+' Titeln.';
+  if((z.still_seit_s||0)>24*3600)
+    return '⏳ Der letzte Abgleich mit Renés Server war vor '+filmDauerGrob(z.still_seit_s)
+      +' — neue Filme fehlen hier noch.';
+  return '';
+}
 async function filmeLaden(){
   const ziel=document.getElementById('filme-reihen'); if(!ziel)return;
   try{
     const r=await fetch('/api/filme/reihen'); const d=await r.json();
     const stand=document.getElementById('filme-stand');
-    const kat=await (await fetch('/api/filme/katalog')).json();
-    if(stand)stand.textContent=kat.stand?('Stand '+new Date(kat.stand*1000).toLocaleString('de-DE')+' · Server '+(kat.server_version||'?')):'';
+    /* Früher wurde hier der GANZE Katalog geholt (2,4 MB), nur um ein Datum
+       anzuzeigen. Der Zustand ist ein paar hundert Byte und sagt mehr. */
+    const z=await (await fetch('/api/filme/zustand')).json();
+    const warn=filmWarnung(z);
+    if(stand){
+      stand.textContent=z.stand?('Stand '+new Date(z.stand*1000).toLocaleString('de-DE')
+        +' · Server '+(z.server_version||'?')+' · '+(z.anzahl||0)+' Titel'):'';
+      stand.style.color=warn?'#ffb020':'';
+      if(warn)stand.textContent=warn+'  ('+stand.textContent+')';
+    }
     const reihen=[['Weiterschauen',d.weiterschauen],['Top 10',d.top],['Neu auf dem Server',d.neu]]
       .concat(Object.entries(d.genres||{}));
     const html=reihen.filter(([,liste])=>liste&&liste.length).map(([name,liste])=>
@@ -7366,7 +7399,7 @@ function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)retu
    Titel spielt ihn im Player. Feinschliff-Runden folgen mit JBs Blick. */
 const TV_TABS=[['suche','🔍'],['home','Home'],['filme','Filme'],['serien','Serien'],
   ['neu','Neu & Beliebt'],['live','📡 Live'],['herz','❤ Favoriten'],['yt','▶ YouTube'],['musik','🎵 Musik']];
-let tvTab='home', tvFokus={r:0,i:0}, tvReihenListe=[], tvFilmReihen=null;
+let tvTab='home', tvFokus={r:0,i:0}, tvReihenListe=[], tvFilmReihen=null, tvFilmZustand=null;
 /* Fake-Fernbedienung (JB 07.08.): ein kleines Fenster unter /fernbedienung
    schickt Tastennamen über einen BroadcastChannel. Hier landen sie — und
    werden als ECHTE Tastatur-Ereignisse in die bestehende tvKey-Behandlung
@@ -7606,6 +7639,10 @@ async function tvLaden(){
   tvProfilModus=false;
   try{tvFilmReihen=await (await fetch('/api/filme/reihen?profil='+encodeURIComponent(tvProfil()))).json();}
   catch(e){tvFilmReihen={weiterschauen:[],top:[],neu:[],genres:{}};}
+  /* Auch vom Sofa aus muss ein Ausfall sichtbar sein: hier sah JB sieben Tage
+     lang eine völlig normale Netflix-Oberfläche, während der Spiegel alterte. */
+  try{tvFilmZustand=await (await fetch('/api/filme/zustand')).json();}
+  catch(e){tvFilmZustand=null;}
   tvMalen();
 }
 function tvKopfMalen(){
@@ -7616,6 +7653,14 @@ function tvKopfMalen(){
     `<button class="tvzu" onclick="tvProfilWahl()" title="Profil wechseln — ${esc(p.name)}" style="margin-left:auto">${p.emoji}</button>`+
     `<button class="tvzu" style="margin-left:0" onclick="fernbedienungOeffnen()" title="Fernbedienung in einem kleinen Fenster öffnen">🎮</button>`+
     `<button class="tvzu" style="margin-left:0" onclick="tvZu()" title="Fernsehmodus verlassen (Esc)">✕</button>`;
+  const warn=filmWarnung(tvFilmZustand);
+  const alt=document.getElementById('tv-warnung');
+  if(alt)alt.remove();
+  if(warn){
+    const d=document.createElement('div');
+    d.id='tv-warnung'; d.textContent=warn;
+    k.insertAdjacentElement('afterend',d);
+  }
 }
 /* ---- Geräte koppeln (Teilprojekt 3, nur am PC) ----------------------------
    Fluss: Neues Gerät öffnet die LAN-Adresse (QR abfotografieren) → sieht die

@@ -5420,6 +5420,17 @@ class Handler(BaseHTTPRequestHandler):
         # und lokal gecachte Bilder gehen raus — nie Token/Server-Adresse.
         elif self.path.startswith("/api/filme/katalog"):
             _antwort(self, 200, filme.katalog_lesen())
+        elif self.path.startswith("/api/filme/zustand"):
+            # Damit ein Ausfall SICHTBAR wird: der 403 vom 06.08. lief sieben
+            # Tage, ohne dass irgendetwas davon erzählt hat — auch vom Sofa aus
+            # muss man das sehen, die Route ist deshalb nicht lokal-only.
+            # ABER: der rohe Fehlertext kann eine urllib-Ausnahme MIT Renés
+            # Server-Adresse enthalten. Fremde Geräte im WLAN bekommen deshalb
+            # nur die Tatsache, nicht den Wortlaut.
+            z = filme.zustand()
+            if not self._ist_lokal() and z.get("fehler"):
+                z["fehler"] = "Server nicht erreichbar"
+            _antwort(self, 200, z)
         elif self.path.startswith("/api/filme/reihen"):
             _antwort(self, 200, filme.reihen(self._geraet_profil()))
         elif self.path.startswith("/api/filme/detail"):

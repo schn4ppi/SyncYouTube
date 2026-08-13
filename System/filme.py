@@ -72,6 +72,7 @@ def einrichten(daten_dir):
     _pfade["bilder"] = os.path.join(daten_dir, "filme_bilder")
     _pfade["merk"] = os.path.join(daten_dir, "filme_merkliste.json")
     _pfade["snippets"] = os.path.join(daten_dir, "filme_snippets")
+    _pfade["zustand"] = os.path.join(daten_dir, "filme_zustand.json")
 
 
 # ---------------------------------------------------------------- Zugang/Netz
@@ -176,9 +177,68 @@ def _eintrag(it):
             "gesehen": bool(ud.get("Played"))}
 
 
+def _zustand_merken(erg):
+    """Den Ausgang JEDES Abzugs auf Platte festhalten — und zwar hier.
+
+    Der Ausfall vom 06.–13.08.2026 blieb sieben Tage unbemerkt, obwohl
+    `katalog_abzug()` sein Scheitern sauber zurückgab: beide Aufrufstellen
+    warfen den Rückgabewert weg. Die Oberfläche sah normal aus, der Spiegel
+    wurde nur nicht mehr jünger — gutes Ausfall-Verhalten hat den Ausfall
+    unsichtbar gemacht. Konsequenz: Der Zustand gehört nicht in die Hand des
+    Aufrufers (der ihn vergessen kann), sondern in den Abzug selbst; und er
+    muss den Prozess überleben, weil die App sich bei jeder Code-Änderung
+    selbst neu startet und ein Prozess-Merker damit ständig vergisst."""
+    def _setzen(d):
+        jetzt = time.time()
+        d["letzter_versuch"] = jetzt
+        if erg.get("ok"):
+            d["letzter_erfolg"] = jetzt
+            d["anzahl"] = erg.get("anzahl") or 0
+            d["fehler"] = ""
+            d["fehlversuche"] = 0
+        else:
+            d["fehler"] = erg.get("fehler") or "unbekannt"
+            d["fehlversuche"] = int(d.get("fehlversuche") or 0) + 1
+            d.setdefault("fehler_seit", jetzt)
+        if erg.get("ok"):
+            d.pop("fehler_seit", None)
+    try:
+        fam.json_aendern(_pfade["zustand"], _setzen, standard={})
+    except (OSError, ValueError):          # Melden darf den Abzug nie kippen
+        pass
+    return erg
+
+
+def zustand():
+    """Wie es um den Spiegel steht — für Anzeige und Dashboard.
+
+    `still_seit_s` ist die Zeit seit dem letzten ERFOLG (nicht seit dem letzten
+    Versuch): genau die Größe, die beim 403-Ausfall niemand sah."""
+    d = fam.json_laden(_pfade.get("zustand") or "", {}) or {}
+    kat = katalog_lesen()
+    stand = kat.get("stand") or 0
+    erfolg = d.get("letzter_erfolg") or stand
+    return {
+        "stand": stand,
+        "anzahl": len(kat.get("eintraege") or []),
+        "server_version": kat.get("server_version") or "?",
+        "letzter_erfolg": erfolg,
+        "letzter_versuch": d.get("letzter_versuch") or 0,
+        "fehler": d.get("fehler") or "",
+        "fehlversuche": int(d.get("fehlversuche") or 0),
+        "still_seit_s": max(0.0, time.time() - erfolg) if erfolg else 0.0,
+        "zugang": bool(_zugang()),
+    }
+
+
 def katalog_abzug():
     """Voll-Abzug → filme_katalog.json (atomar; scheitert er, bleibt der alte
-    Spiegel stehen — Ausfall-Verhalten laut Spec)."""
+    Spiegel stehen — Ausfall-Verhalten laut Spec). Der Ausgang wird IMMER in
+    `filme_zustand.json` festgehalten, siehe `_zustand_merken`."""
+    return _zustand_merken(_katalog_abzug())
+
+
+def _katalog_abzug():
     global _fehlversuch_ts
     z = _zugang()
     if not z:                              # kein Backoff: Einrichtung fehlt nur

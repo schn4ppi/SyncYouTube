@@ -517,3 +517,61 @@ def test_snippet_baecker(tmp_path, monkeypatch):
     assert filme.snippet_lesen("f1"), "fertiges Snippet muss lesbar sein"
     assert filme.snippet_backen("f1") is False, "zweites Backen ist ein No-op"
     assert filme.snippet_lesen("gibtsnicht") is None
+
+
+def test_ausfall_bleibt_nicht_still(tmp_path, monkeypatch):
+    """Ein gescheiterter Abzug muss auf der Platte landen — und sichtbar werden.
+
+    Der Ausfall vom 06.–13.08.2026 lief SIEBEN TAGE, ohne dass irgendetwas davon
+    erzählt hat: `katalog_abzug()` gab `{"ok": False, "fehler": …}` sauber
+    zurück, aber beide Aufrufstellen warfen den Rückgabewert weg
+    (`youtube_app.py` Ticker + Sync-Route). Es gab keine Film-Karte im Dashboard,
+    kein Banner, keinen Leer-Hinweis. Das gute Ausfall-Verhalten — der Spiegel
+    steht bei Serverausfall bewusst weiter — hat den Ausfall damit unsichtbar
+    gemacht: ein alter Spiegel sah exakt aus wie ein frischer.
+
+    Wurzel-Lösung: Der Ausgang wird IM Abzug festgehalten, nicht beim Aufrufer,
+    und auf Platte, weil die App sich bei jeder Code-Änderung selbst neu startet
+    und ein Prozess-Merker dabei vergisst."""
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, FAKE_ITEMS)]))
+    assert filme.katalog_abzug()["ok"]
+    z = filme.zustand()
+    da = z["anzahl"]
+    assert da > 0 and not z["fehler"] and z["fehlversuche"] == 0
+    assert z["still_seit_s"] < 60, "nach einem Erfolg darf nichts 'still' sein"
+
+    # Jetzt sperrt der Server (403 wie am 06.08.) — Prozess-Zustand zurücksetzen,
+    # damit die Anmeldung wirklich neu versucht wird.
+    filme._sitzung.clear()
+    filme._anmelde_sperre_ts = 0.0
+    monkeypatch.setattr(filme, "_http", lambda *a, **k: (403, b"{}"))
+    erg = filme.katalog_abzug()
+    assert not erg["ok"]
+    z = filme.zustand()
+    assert z["fehler"], "der Fehlschlag steht nirgends — genau das war der 7-Tage-Fehler"
+    assert z["fehlversuche"] == 1
+    assert z["anzahl"] == da, "der Spiegel muss stehen bleiben (Ausfall-Verhalten laut Spec)"
+
+    # Und er überlebt den Prozess: frisch geladen ist er immer noch da.
+    import importlib
+    importlib.reload(filme)
+    filme.einrichten(str(tmp_path))
+    assert filme.zustand()["fehler"], "Zustand überlebt den Neustart nicht"
+
+    # Zweiter Fehlschlag zählt hoch, ein Erfolg löscht alles wieder.
+    filme._sitzung.clear()
+    filme._anmelde_sperre_ts = 0.0
+    monkeypatch.setattr(filme, "_http", lambda *a, **k: (403, b"{}"))
+    filme.katalog_abzug()
+    assert filme.zustand()["fehlversuche"] == 2
+    filme._sitzung.clear()
+    filme._anmelde_sperre_ts = 0.0
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, FAKE_ITEMS)]))
+    filme.katalog_abzug()
+    z = filme.zustand()
+    assert not z["fehler"] and z["fehlversuche"] == 0

@@ -4644,6 +4644,10 @@ def test_routen_inventur_und_aussen_gates():
         "/api/migration_probelauf": "lokal", "/api/umbenennen": "lokal",
         "/api/geraet_bestaetigen": "lokal", "/api/geraet_entfernen": "lokal",
         "/api/geraete": "lokal",
+        # Zustand darf jedes Geraet sehen (auch vom Sofa muss ein Ausfall
+        # auffallen) — der ROHE Fehlertext aber nicht: eine urllib-Ausnahme
+        # traegt Renes Server-Adresse. Nicht-lokal: "Server nicht erreichbar".
+        "/api/filme/zustand": "teilw",
     }
     FREI = {"/api/abo", "/api/abos", "/api/add", "/api/addon_hab",
             "/api/addon_hab_liste", "/api/addon_nachschub", "/api/addon_update",
@@ -4836,3 +4840,37 @@ def test_tv_suche_durchsucht_den_ganzen_katalog():
     assert "tvKatalog||" in block, \
         "Such-Korpus muss den vollen tvKatalog nutzen (Reihen nur als Übergang beim Laden)"
     assert "tvKatalogLaden()" in block, "Suche muss den Katalog nachladen, wenn er fehlt"
+
+
+def test_ausfall_ist_in_der_oberflaeche_sichtbar():
+    """Beide Ansichten zeigen einen Ausfall — und schweigen, wenn alles gut ist.
+
+    Sieben Tage lang (06.–13.08.2026) zeigte der Fernsehmodus eine völlig
+    normale Netflix-Oberfläche, während Renés Server mit 403 antwortete; der
+    Filme-Tab zeigte nur ein graues Datum ohne jede Alterswarnung. Ein alter
+    Spiegel sah exakt aus wie ein frischer.
+
+    Calm-Design (JB) heißt „nur bei Handlungsbedarf anzeigen" — hier geprüft in
+    BEIDE Richtungen: ein einzelner Fehlversuch bei frischem Spiegel bleibt
+    still, ein gerissener 6-Stunden-Rhythmus nicht."""
+    quelle = _oberflaeche_html()
+    assert "function filmWarnung" in quelle
+    i = quelle.index("function filmWarnung")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "z.zugang" in block, "fehlender Zugang muss anders klingen als ein Ausfall"
+    assert "8*3600" in block, "ein einzelner Fehlversuch darf nicht schon warnen"
+    assert "24*3600" in block, "ein veralteter Spiegel ohne Fehler braucht einen Hinweis"
+    # Beide Anzeige-Orte holen den Zustand und nutzen dieselbe Funktion (eine Quelle)
+    i = quelle.index("async function tvLaden")
+    assert "/api/filme/zustand" in quelle[i:_funktionsende(quelle, i)], \
+        "Fernsehmodus lädt den Zustand nicht"
+    i = quelle.index("function tvKopfMalen")
+    assert "filmWarnung(" in quelle[i:_funktionsende(quelle, i)], \
+        "Fernsehmodus zeigt die Warnung nicht"
+    i = quelle.index("async function filmeLaden")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "filmWarnung(" in block and "/api/filme/zustand" in block, \
+        "Filme-Fenster zeigt die Warnung nicht"
+    assert "/api/filme/katalog" not in block, \
+        "der Stand darf nicht mehr den ganzen 2,4-MB-Katalog laden"
+    assert "#tv-warnung{" in quelle, "die Warnung braucht ein sichtbares Aussehen"
