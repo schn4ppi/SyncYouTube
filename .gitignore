@@ -17,6 +17,7 @@
 !SyncYouTube (ohne Fenster).vbs
 !System/_ARCHITEKTUR.md
 !System/MODULE.md
+!System/docs/*.md
 !System/familie.py
 !System/layout_kern.js
 !System/youtube_app.py
