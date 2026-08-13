@@ -4730,3 +4730,38 @@ def test_lade_spinner():
     assert "function tvpLadeZeigen" in quelle
     i = quelle.index("function tvpRel")
     assert "tvpLadeZeigen(" in quelle[i:_funktionsende(quelle, i)], "Seek zeigt den Sprung"
+
+
+def test_transcode_befehl_startet_ein_programm():
+    """cmd[0] der Transcode-Weiche muss ein PROGRAMM sein, nie ein Ordner.
+
+    Blocker, gefunden am 13.08.2026 beim ersten Lauf gegen Renés echte
+    Bibliothek: `_ffmpeg_pfad()` lieferte den bin-ORDNER, die Route übergab ihn
+    als cmd[0] an Popen — `PermissionError: [WinError 5] Zugriff verweigert`,
+    und zwar für 18 von 20 gemessenen Titeln (alles mit AC3/E-AC3/DTS/HEVC
+    braucht den Transcode). Die Route hat keinen Auffang-Block: der Browser
+    bekam gar keine Antwort, das Bild blieb schwarz.
+
+    Zwei Jahre lang unsichtbar, weil der Befehl mitten in `do_GET` entstand und
+    kein Test ihn ansehen konnte — deshalb prüft dieser Wächter das ERGEBNIS
+    der jetzt herausgezogenen reinen Funktion, nicht die Schreibweise."""
+    cmd = app._transcode_befehl("http://beispiel/strom", start=90, vcopy=False)
+    ff = cmd[0]
+    assert ff, "kein ffmpeg im Befehl"
+    assert not os.path.isdir(ff), (
+        f"cmd[0] ist ein ORDNER, kein Programm: {ff} — Popen stirbt hier mit WinError 5")
+    assert os.path.isfile(ff), f"cmd[0] zeigt auf keine Datei: {ff}"
+    assert ff.lower().endswith(".exe"), f"cmd[0] ist kein Programm: {ff}"
+    # Die beiden Namen beantworten verschiedene Fragen und dürfen nie dasselbe liefern
+    assert app._ffmpeg_ordner() != app._ffmpeg_exe(), \
+        "_ffmpeg_ordner() und _ffmpeg_exe() liefern dasselbe — der Unterschied ist der Fix"
+    assert os.path.isdir(app._ffmpeg_ordner()), "_ffmpeg_ordner() muss ein Ordner sein"
+    # yt-dlp will den Ordner: diese Zuordnung darf nicht kippen
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    i = quelle.index('opts["ffmpeg_location"]')
+    zeile_davor = quelle[:i].rsplit("\n", 3)[1:]
+    assert any("_ffmpeg_ordner()" in z for z in zeile_davor), \
+        "yt-dlp braucht den ORDNER als ffmpeg_location, nicht die exe"
+    # Inhaltliche Form: Seek vor dem Input (schnell), fragmentiertes MP4 in die Pipe
+    assert cmd.index("-ss") < cmd.index("-i"), "Seek muss VOR dem Input stehen"
+    assert cmd[-1] == "pipe:1" and "frag_keyframe+empty_moov+default_base_moof" in cmd

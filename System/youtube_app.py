@@ -327,9 +327,26 @@ def ziel_ordner():
     return pfad
 
 
-def _ffmpeg_pfad():
+def _ffmpeg_ordner():
+    """Der ORDNER, in dem ffmpeg.exe liegt — genau das erwartet yt-dlp als
+    `ffmpeg_location`. Rückgabe None, wenn ffmpeg fehlt."""
     exe = os.path.join(BIN_DIR, "ffmpeg.exe")
     return BIN_DIR if os.path.exists(exe) else None
+
+
+def _ffmpeg_exe():
+    """Das PROGRAMM selbst — für alles, was ffmpeg startet (subprocess).
+
+    Bewusst getrennt von `_ffmpeg_ordner()`: Der frühere gemeinsame Name
+    `_ffmpeg_pfad()` beantwortete zwei verschiedene Fragen („wo liegt es?" und
+    „womit starte ich es?") und wurde genau einmal falsch verstanden — die
+    Transcode-Weiche übergab den Ordner als Programm an Popen und starb mit
+    `WinError 5: Zugriff verweigert`. Gemessen 13.08.2026 gegen Renés echte
+    Bibliothek: 18 von 20 Titeln (AC3/E-AC3/DTS/HEVC) brauchen den Transcode,
+    der Fehler traf also fast jeden Film im Browser-Player. Ein Name, eine
+    Frage (Lehrbuch L20)."""
+    exe = os.path.join(BIN_DIR, "ffmpeg.exe")
+    return exe if os.path.exists(exe) else None
 
 
 def _kategorie(qualitaet, hoehe):
@@ -354,7 +371,7 @@ def _ordner_fuer(kategorie):
 
 def _hoehe_ffprobe(pfad):
     """Echte Videohöhe der fertigen Datei (v:0 = echtes Video, nicht das Cover)."""
-    if not pfad or not os.path.exists(pfad) or not _ffmpeg_pfad():
+    if not pfad or not os.path.exists(pfad) or not _ffmpeg_exe():
         return None
     try:
         out = subprocess.run(
@@ -372,7 +389,7 @@ def _technik(pfad):
     """Codec-/Qualitäts-Infos der fertigen Datei per ffprobe:
     {vcodec, height, acodec, abr(kbps), asr(Hz)}. Das eingebettete Cover (mjpeg
     mit attached_pic) wird als Videospur ignoriert."""
-    if not pfad or not os.path.isfile(pfad) or not _ffmpeg_pfad():
+    if not pfad or not os.path.isfile(pfad) or not _ffmpeg_exe():
         return {}
     try:
         out = subprocess.run(
@@ -547,7 +564,7 @@ def _ydl_basis_opts(mit_cookies=True):
         # der in den Backoff geht — und der Worker nimmt den nächsten Eintrag.
         "socket_timeout": 30,
     }
-    ff = _ffmpeg_pfad()
+    ff = _ffmpeg_ordner()
     if ff:
         opts["ffmpeg_location"] = ff
     browser = CFG.get("cookies_browser", "firefox")
@@ -3842,11 +3859,10 @@ def metadaten_backfill():
     `-c copy` bewahrt Audio UND Cover, geschrieben wird atomar (tmp + replace);
     Dateien, die schon einen Titel-Tag haben, bleiben unberührt."""
     global _metadaten_laeuft
-    ff = _ffmpeg_pfad()
-    if _metadaten_laeuft or not ff:
+    ffmpeg = _ffmpeg_exe()
+    if _metadaten_laeuft or not ffmpeg:
         return 0
     _metadaten_laeuft = True
-    ffmpeg = os.path.join(BIN_DIR, "ffmpeg.exe")
     ffprobe = os.path.join(BIN_DIR, "ffprobe.exe")
     geheilt = 0
     try:
@@ -4787,7 +4803,7 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
     # OHNE ffmpeg kann yt-dlp Bild+Ton nicht zusammenfügen -> Videos schlugen fehl
     # (z.B. nackte exe ohne bin\-Ordner). Fallback: fertige Kombi-Formate (progressive),
     # begrenzt auf die gewünschte Höhe — läuft ohne Zusammenfügen, max. ~720p.
-    if not _ffmpeg_pfad() and item["qualitaet"] != "audio":
+    if not _ffmpeg_exe() and item["qualitaet"] != "audio":
         h = {"2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720}.get(item["qualitaet"])
         grenze = f"[height<={h}]" if h else ""
         opts["format"] = (f"best{grenze}[vcodec!=none][acodec!=none]"
@@ -4803,7 +4819,7 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
         opts.update({"writesubtitles": True, "writeautomaticsub": True,
                      "subtitleslangs": _untertitel_sprachen(), "subtitlesformat": "vtt/best"})
 
-    hat_ff = bool(_ffmpeg_pfad())
+    hat_ff = bool(_ffmpeg_exe())
     pps = []
     # SponsorBlock: Werbe-/Intro-Segmente rausschneiden (zuerst in der PP-Kette,
     # damit danach Metadaten/Cover auf die geschnittene Datei angewandt werden).
@@ -5035,6 +5051,27 @@ STREAM_RUHE = 15.0                                   # s ohne Abspielen = sicher
 # Ein Transcode zur Zeit (JB zappt): der nächste Wunsch löst den alten ab.
 _tc_lock = threading.Lock()
 _tc_prozess = None
+
+
+def _transcode_befehl(url, start=0, vcopy=False):
+    """Die ffmpeg-Kommandozeile für den Browser-Player — als REINE Funktion.
+
+    Bewusst herausgezogen (13.08.2026): Solange der Befehl mitten in `do_GET`
+    entstand, konnte kein Test ihn ansehen, und der Blocker blieb unsichtbar —
+    `cmd[0]` war der bin-ORDNER statt `ffmpeg.exe`, jeder Aufruf starb mit
+    `WinError 5`. Jetzt prüft `test_transcode_befehl_startet_ein_programm` das
+    Ergebnis direkt. Fehlende Testbarkeit war die eigentliche Ursache."""
+    cmd = [_ffmpeg_exe(), "-hide_banner", "-loglevel", "error"]
+    if start:
+        cmd += ["-ss", str(int(start))]              # Seek VOR dem Input: schnell
+    cmd += ["-i", url, "-map", "0:v:0", "-map", "0:a:0?"]
+    cmd += (["-c:v", "copy"] if vcopy else
+            ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+             "-vf", "scale='min(1920,iw)':-2"])
+    cmd += ["-c:a", "aac", "-b:a", "192k", "-ac", "2",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+            "-f", "mp4", "pipe:1"]
+    return cmd
 
 
 def _tc_starten(cmd):
@@ -5319,7 +5356,7 @@ class Handler(BaseHTTPRequestHandler):
             with Q.lock:
                 if self._ist_lokal():
                     _antwort(self, 200, {"items": Q.items, "config": CFG,
-                                         "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_pfad()),
+                                         "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_exe()),
                                          "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
                                          "remote": _remote, "fernsteuerung": fernsteuerung_info(),
                                          "addon_nachschub": _addon_nachschub,
@@ -5330,7 +5367,7 @@ class Handler(BaseHTTPRequestHandler):
                                ("standard_qualitaet", "unterordner", "metadaten",
                                 "untertitel", "parallel")}
                     _antwort(self, 200, {"items": Q.items, "config": harmlos,
-                                         "ffmpeg": bool(_ffmpeg_pfad()),
+                                         "ffmpeg": bool(_ffmpeg_exe()),
                                          "db": db_statistik(),
                                          "ui_stand": ui_stand, "jetzt": time.time()})
         elif self.path == "/addon.xpi":
@@ -5464,23 +5501,14 @@ class Handler(BaseHTTPRequestHandler):
                                             "Anmelde-Backoff von selbst."})
             globals()["_letzter_stream"] = time.time()   # Selbst-Neustart wartet
             if (q.get("tc") or ["0"])[0] == "1":
-                ff = _ffmpeg_pfad()
-                if not ff:
+                if not _ffmpeg_exe():
                     return _antwort(self, 503, {"fehler": "ffmpeg fehlt"})
                 try:
                     start = max(0, int(float((q.get("start") or ["0"])[0])))
                 except (TypeError, ValueError):
                     start = 0
-                cmd = [ff, "-hide_banner", "-loglevel", "error"]
-                if start:
-                    cmd += ["-ss", str(start)]           # Seek VOR dem Input: schnell
-                cmd += ["-i", url, "-map", "0:v:0", "-map", "0:a:0?"]
-                cmd += (["-c:v", "copy"] if (q.get("vcopy") or ["0"])[0] == "1" else
-                        ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
-                         "-vf", "scale='min(1920,iw)':-2"])
-                cmd += ["-c:a", "aac", "-b:a", "192k", "-ac", "2",
-                        "-movflags", "frag_keyframe+empty_moov+default_base_moof",
-                        "-f", "mp4", "pipe:1"]
+                cmd = _transcode_befehl(
+                    url, start, (q.get("vcopy") or ["0"])[0] == "1")
                 proz = _tc_starten(cmd)
                 self.send_response(200)
                 self.send_header("Content-Type", "video/mp4")
