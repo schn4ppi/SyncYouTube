@@ -58,15 +58,30 @@ HTML = """<!doctype html>
 </div>
 
 <div class="reihe">
-  <button data-taste="Backspace" title="Eine Ebene zurück">↩ Zurück</button>
-  <button data-taste="Escape" title="Schließen / Film beenden">✕ Aus</button>
+  <button data-taste="Backspace" title="Eine Ebene zurück (beendet den Fernsehmodus NIE)">↩ Zurück</button>
+  <button data-taste="Escape" title="Film beenden / Fernsehmodus schließen">✕ Aus</button>
 </div>
 <div class="reihe">
-  <button data-taste=" " title="Pause / Weiter">⏯</button>
+  <button id="pp" data-taste=" " title="Pause / Weiter">⏸</button>
   <button data-taste="s" title="Ton &amp; Untertitel">💬</button>
 </div>
 <div class="reihe">
-  <button data-tv="1" title="Fernsehmodus im Hauptfenster öffnen">📺 TV an</button>
+  <button id="tvknopf" data-tv="1" title="Fernsehmodus an/aus">📺 TV an</button>
+</div>
+
+<!-- Maus-Feld (JB 07.08.): bei ausgeschaltetem Fernsehmodus wird die
+     Fernbedienung zum Trackpad — wischen bewegt den Zeiger im
+     Hauptfenster, tippen klickt. -->
+<div id="mausbox" style="display:none;width:100%;max-width:230px">
+  <div id="maus" style="height:150px;background:var(--panel);border:1px dashed var(--rand);
+       border-radius:10px;display:flex;align-items:center;justify-content:center;
+       color:var(--grau);font-size:12px;touch-action:none;cursor:crosshair">
+    Wischen = Zeiger · Tippen = Klick
+  </div>
+  <div class="reihe" style="margin-top:8px">
+    <button data-maus="links" title="Linksklick">Klick</button>
+    <button data-maus="rechts" title="Rechtsklick">Rechtsklick</button>
+  </div>
 </div>
 
 <p class="hinweis">Die Tasten wirken im Hauptfenster von SyncYouTube.
@@ -81,11 +96,16 @@ const status = document.getElementById('status');
 function melde(text, gut){ status.textContent = text; status.classList.toggle('an', !!gut); }
 
 function senden(nachricht){
+  // GENAU EIN Weg (Fund 07.08.: beide gleichzeitig liessen jede Taste
+  // DOPPELT ankommen — der Fokus sprang zwei Felder weit). Kanal zuerst,
+  // das Fenster nur als Rueckweg, wenn es keinen Kanal gibt.
   let weg = false;
   if (kanal) { kanal.postMessage(nachricht); weg = true; }
-  try {
-    if (window.opener && !window.opener.closed) { window.opener.postMessage(nachricht, location.origin); weg = true; }
-  } catch (e) { /* anderer Ursprung — Kanal genügt */ }
+  else {
+    try {
+      if (window.opener && !window.opener.closed) { window.opener.postMessage(nachricht, location.origin); weg = true; }
+    } catch (e) { /* anderer Ursprung */ }
+  }
   melde(weg ? 'verbunden' : 'kein Hauptfenster gefunden', weg);
 }
 
@@ -93,7 +113,31 @@ document.querySelectorAll('button[data-taste]').forEach(b => {
   b.addEventListener('click', () => senden({ art: 'taste', taste: b.dataset.taste }));
 });
 document.querySelectorAll('button[data-tv]').forEach(b => {
-  b.addEventListener('click', () => senden({ art: 'tv' }));
+  b.addEventListener('click', () => senden({ art: 'tv' }));   // EIN Knopf, schaltet um
+});
+
+/* Maus-Feld (JB: „kann ich dann die maus simulieren wie die remote maus
+   app?"): Wischen bewegt den Zeiger im Hauptfenster relativ, Tippen klickt.
+   Nur sichtbar, wenn der Fernsehmodus AUS ist — dort steuert das D-Pad. */
+const maus = document.getElementById('maus');
+let letzte = null, gewandert = 0;
+maus.addEventListener('pointerdown', ev => {
+  maus.setPointerCapture(ev.pointerId);
+  letzte = { x: ev.clientX, y: ev.clientY }; gewandert = 0;
+});
+maus.addEventListener('pointermove', ev => {
+  if (!letzte) return;
+  const dx = ev.clientX - letzte.x, dy = ev.clientY - letzte.y;
+  letzte = { x: ev.clientX, y: ev.clientY };
+  gewandert += Math.abs(dx) + Math.abs(dy);
+  if (dx || dy) senden({ art: 'maus', dx: dx * 2.2, dy: dy * 2.2 });   // Beschleunigung
+});
+maus.addEventListener('pointerup', ev => {
+  if (letzte && gewandert < 6) senden({ art: 'klick', knopf: 'links' });  // Tippen = Klick
+  letzte = null;
+});
+document.querySelectorAll('button[data-maus]').forEach(b => {
+  b.addEventListener('click', () => senden({ art: 'klick', knopf: b.dataset.maus }));
 });
 
 /* Wer lieber die echte Tastatur nutzt, kann es auch hier tun. */
@@ -104,10 +148,23 @@ document.addEventListener('keydown', ev => {
   }
 });
 
-/* Lebenszeichen des Hauptfensters: es antwortet auf 'hallo'. */
+/* Lebenszeichen + Zustand: das Hauptfenster meldet, ob der Fernsehmodus an
+   ist und ob gerade gespielt wird — danach richten sich der TV-Knopf
+   (an/aus in EINER Taste) und das Pause-Symbol (JB 07.08.). */
+function zustandAnzeigen(z){
+  const tv = document.getElementById('tvknopf'), pp = document.getElementById('pp');
+  const box = document.getElementById('mausbox');
+  if (tv) { tv.textContent = z.tv ? '📺 TV aus' : '📺 TV an';
+            tv.title = z.tv ? 'Fernsehmodus schliessen' : 'Fernsehmodus oeffnen'; }
+  if (pp) pp.textContent = z.spielt ? '⏸' : '▶';
+  if (box) box.style.display = z.tv ? 'none' : 'block';   // Maus nur ausserhalb des TV
+  melde('verbunden', true);
+}
 if (kanal) {
-  kanal.onmessage = ev => { if (ev.data && ev.data.art === 'hier') melde('verbunden', true); };
-  kanal.postMessage({ art: 'hallo' });
+  kanal.onmessage = ev => { const d = ev.data || {}; if (d.art === 'hier') zustandAnzeigen(d); };
+  const fragen = () => kanal.postMessage({ art: 'hallo' });
+  fragen();
+  setInterval(fragen, 1000);                              // Zustand aktuell halten
   setTimeout(() => { if (!status.classList.contains('an')) melde('Hauptfenster nicht erreichbar — SyncYouTube offen?', false); }, 1200);
 }
 </script>

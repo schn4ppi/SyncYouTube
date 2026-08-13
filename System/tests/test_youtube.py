@@ -1238,6 +1238,32 @@ def test_fake_fernbedienung():
     assert "syncyoutube-fb" in b and "KeyboardEvent" in b and "keydown" in b, \
         "Empfaenger muss die bestehende Tastatur-Behandlung nutzen"
     assert "function fernbedienungOeffnen" in quelle and "/fernbedienung" in quelle
+    # JB-Nachschlag 07.08.: EIN Weg pro Taste (doppelt = zwei Felder Sprung),
+    # EIN Knopf fuer TV an/aus, Zurueck beendet den TV NIE, Maus-Modus,
+    # Pause-Symbol folgt dem Zustand, Wiederholung beschleunigt.
+    assert "else {" in html and "window.opener" in html, \
+        "Fernbedienung darf NUR EINEN Sendeweg nutzen (sonst Doppelsprung)"
+    assert "data-maus" in html and "art: 'maus'" in html.replace('"', "'"), \
+        "Maus-Modus fehlt"
+    assert "zustandAnzeigen" in html and "TV aus" in html, \
+        "TV-Knopf muss an UND aus koennen; Pause-Symbol folgt dem Zustand"
+    i = quelle.index("function fbEmpfangVerkabeln")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "tvAn)tvZu(); else fernsehModus()" in b.replace(" ", "").replace(
+        "tvAn)tvZu();elsefernsehModus()", "tvAn)tvZu(); else fernsehModus()") \
+        or ("tvZu()" in b and "fernsehModus()" in b), "TV-Umschalter fehlt"
+    assert "fbMausBewegen" in quelle and "fbMausKlick" in quelle
+    i = quelle.index("function tvWiederholungBremst")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "ev.repeat" in b and "260" in b, "Wiederholung muss beschleunigen"
+    i = quelle.index("function tvKey")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "tvWiederholungBremst(ev)" in b, "tvKey muss die Bremse nutzen"
+    assert "if(tvFokus.r>=0)tvFokus={r:-1" in b.replace(" ", "").replace(
+        "if(tvFokus.r>=0)tvFokus={r:-1", "if(tvFokus.r>=0)tvFokus={r:-1"), \
+        "Backspace darf NUR eine Ebene hoch, nie schliessen"
+    # Fokus muss sichtbar sein (JB: „Ich sehe bei Weiterschauen nicht …")
+    assert "box-shadow:0 0 0 2px #fff" in quelle, "Fokus-Rahmen zu unauffaellig"
     # Der Empfang laeuft AB SEITENSTART (Fund am lebenden Objekt 07.08.:
     # nur im Fernsehmodus zu lauschen machte den „TV an"-Knopf der
     # Fernbedienung tot — der soll den Modus ja gerade erst oeffnen).
@@ -4348,7 +4374,7 @@ def test_kachel_zoom_und_monitor_regel():
     i = quelle.index("function tvFilmPlayer")
     assert "screen.isExtended" in quelle[i:_funktionsende(quelle, i)], \
         "ein Monitor gehoert dem Film"
-    assert "scale(1.3)" in quelle, "Netflix-Zoom fehlt"
+    assert "scale(1.08)" in quelle, "Fokus-Zoom fehlt (einheitlich seit 07.08.)"
 
 
 def test_hover_karte_netflix():
@@ -4392,10 +4418,18 @@ def test_kacheln_16zu9_blaettern_und_reihen_je_tab():
     for muss in ("f16", "tv-kbalken", "tv-pfeil", "tvBlaettern", "this.src="):
         assert muss in b, f"tvMalen unvollstaendig: {muss}"
     # JB 07.08.: Spalten rechnen sich aus dem Viewport (immer GANZE Kacheln
-    # in der Bahn, 6/5/4/3 je Breite) - keine fixe Pixelbreite mehr.
-    assert "calc((100vw" in quelle and "aspect-ratio:16/9" in quelle \
-        and quelle.count("#tv .tv-kachel.f16{width:calc") >= 4, \
-        "16:9-Kacheln muessen responsive Spalten sein"
+    # in der Bahn, 6/5/4/3 je Breite) - keine fixe Pixelbreite mehr. Und
+    # seit dem Nachschlag („Youtube + Musik haben unterschiedliche
+    # Groessen") gilt EIN Raster fuer ALLE Kacheln, nicht nur fuer Filme.
+    assert quelle.count("#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc") \
+        + quelle.count("#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc") >= 1, \
+        "Kachelbreite muss fuer ALLE Kacheln gelten"
+    assert quelle.count("calc((100vw") >= 4 and "aspect-ratio:16/9" in quelle, \
+        "16:9-Kacheln muessen responsive Spalten sein (4 Stufen)"
+    # Kein Sonderformat mehr, das Reihen uneinheitlich macht:
+    assert "#tv .tv-kachel.quer img{height:96px}" not in quelle \
+        and "#tv .tv-kachel.quer{width:170px}" not in quelle, \
+        "alte Sonderformate machten Musik-/YouTube-Reihen ungleich"
     i = quelle.index("function tvBlaettern")
     b = quelle[i:_funktionsende(quelle, i)]
     assert "proSeite" in b and "Math.round" in b, \

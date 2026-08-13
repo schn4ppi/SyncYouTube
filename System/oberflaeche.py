@@ -157,7 +157,14 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-kopf .tvtab{font-size:22px;padding:8px 18px;border-radius:999px;background:none;
   border:2px solid transparent;color:#b3b3b3;cursor:pointer;white-space:nowrap}
 #tv-kopf .tvtab.akt{color:#fff;font-weight:700}
-#tv-kopf .tvtab.tv-fokus,#tv .tv-kachel.tv-fokus{border-color:#fff;outline:none}
+/* Auswahl MUSS man sehen (JB 07.08.: „Ich sehe bei Weiterschauen nicht,
+   das ich das angewählt habe") — Netflix-Art: kräftiger weißer Rahmen,
+   heller Schein ringsum und leichte Aufhellung. Wirkt auch auf hellen
+   Kacheln und auf der ersten Reihe. */
+#tv-kopf .tvtab.tv-fokus{border-color:#fff;outline:none}
+#tv .tv-kachel.tv-fokus{border-color:#fff;outline:none;
+  box-shadow:0 0 0 2px #fff,0 0 22px 6px rgba(255,255,255,.35);
+  filter:brightness(1.12)}
 #tv-kopf .tvzu{margin-left:auto;font-size:22px;background:none;border:2px solid transparent;
   border-radius:999px;color:#b3b3b3;padding:8px 16px;cursor:pointer}
 /* Mehr Rand beidseits (JB 07.08.: Fokus-Rahmen der ERSTEN Kachel war links
@@ -168,24 +175,29 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv .tv-band.wrap{flex-wrap:wrap;overflow-x:visible}   /* „Alle A–Z"-Raster */
 #tv .tv-kachel{flex:0 0 auto;width:150px;cursor:pointer;border:3px solid transparent;
   border-radius:8px;padding:3px;position:relative;transition:transform .25s}
-/* Netflix-Zoom: D-Pad-Fokus tritt DEUTLICH hervor (10-Fuß), Maus-Hover nur
-   sanft — die große Ansicht übernimmt die Hover-Karte. */
-#tv .tv-kachel.tv-fokus{transform:scale(1.3);z-index:5}
+/* EIN Zoom für alle Kacheln (seit alle dieselbe Größe haben): dezent —
+   die Sichtbarkeit macht der weiße Ring, nicht die Vergrößerung. */
+#tv .tv-kachel.tv-fokus{transform:scale(1.08);z-index:6}
 #tv .tv-band:not(.wrap) .tv-kachel:hover{transform:scale(1.06);z-index:5}
 /* Filme/Serien QUER in 16:9 (JB 06.08.: „Das ist immer noch nicht 16:9.
    Warum?" + Netflix-Referenz): Backdrop-Kacheln, sanfter Zoom — die große
    Ansicht übernimmt die Hover-Karte. */
-/* Responsive Spalten (JB 07.08.: „der Film soll am anfang und am ende
-   komplett anfangen und abschließen — für alle Displaygrößen"): die
-   Kachelbreite rechnet sich aus dem Viewport, sodass IMMER eine ganze
-   Anzahl in die Bahn passt — wie bei Netflix 6/5/4/3 Spalten je Breite.
-   112px = Seitenränder (2×48) + Band-Innenabstand (2×8). */
-#tv .tv-kachel.f16{width:calc((100vw - 152px)/6)}
-@media(max-width:1499px){#tv .tv-kachel.f16{width:calc((100vw - 144px)/5)}}
-@media(max-width:1099px){#tv .tv-kachel.f16{width:calc((100vw - 136px)/4)}}
-@media(max-width:799px){#tv .tv-kachel.f16{width:calc((100vw - 128px)/3)}}
-#tv .tv-kachel.f16 img{height:auto;aspect-ratio:16/9}
-#tv .tv-kachel.f16.tv-fokus,#tv .tv-band:not(.wrap) .tv-kachel.f16:hover{transform:scale(1.06)}
+/* EIN Raster für ALLE Kacheln (JB 07.08.: „Youtube + Musik hat ebenso
+   unterschiedliche Größen") — Netflix macht keine Ausnahmen: gleiche
+   Breite, gleiches 16:9-Fenster, Bildinhalt wird beschnitten statt
+   verzerrt (object-fit:cover). Album-Cover (quadratisch) und
+   YouTube-Vorschaubilder (16:9) sehen so in einer Reihe gleich aus.
+   Die Breite rechnet sich aus dem Viewport, damit IMMER eine ganze Anzahl
+   in die Bahn passt (6/5/4/3 Spalten je Bildschirmbreite). */
+#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc((100vw - 152px)/6)}
+@media(max-width:1499px){#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc((100vw - 144px)/5)}}
+@media(max-width:1099px){#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc((100vw - 136px)/4)}}
+@media(max-width:799px){#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc((100vw - 128px)/3)}}
+#tv .tv-kachel img,#tv .tv-kachel.f16 img,#tv .tv-kachel.quer img{
+  height:auto;aspect-ratio:16/9;object-fit:cover}
+/* Zwei Zeilen Titel — sonst reißt die Kachelhöhe je nach Titellänge. */
+#tv .tv-ktitel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;white-space:normal;min-height:2.6em}
 /* Karte offen: Quell-Kachel sofort ohne Zoom (transition aus, sonst misst
    die Karten-Platzierung die noch gezoomte Geometrie). */
 #tv .tv-kachel.hk-quelle{transform:none!important;transition:none!important}
@@ -236,12 +248,10 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 .tv-hoverkarte .hk-fsk{border:1px solid rgba(255,255,255,.4);padding:0 6px;font-size:12px}
 .tv-hoverkarte .hk-hd{border:1px solid rgba(255,255,255,.4);border-radius:3px;padding:0 4px;font-size:11px}
 .tv-hoverkarte .hk-tags{padding:6px 12px 0;font-size:13px;color:#fff}
-#tv .tv-kachel img{width:100%;height:216px;object-fit:cover;border-radius:6px;
-  background:#2a2a2a;display:block}                    /* leichte Rundung (JB 06.08.) */
-#tv .tv-kachel.quer img{height:96px}
-#tv .tv-kachel.quer{width:170px}
-#tv .tv-ktitel{font-size:15px;margin-top:6px;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis;text-align:center}
+#tv .tv-kachel img{width:100%;border-radius:6px;background:#2a2a2a;display:block}
+/* Höhe/Format kommen aus der EINEN Raster-Regel oben — keine Sonderfälle
+   mehr für „quer" (die machten Musik-/YouTube-Reihen uneinheitlich). */
+#tv .tv-ktitel{font-size:15px;margin-top:6px;text-align:center}
 #tv .tv-leer{color:#8a7d74;font-size:18px;padding:30px 4px}
 #tv-suche{font-size:26px;padding:12px 20px;border-radius:12px;border:2px solid #3a322b;
   background:#171310;color:#fff;width:min(600px,80%);margin:10px 0}
@@ -370,11 +380,18 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
 #tv-info .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 #tv-info .info-grid .tv-kachel{width:auto}
 /* JB-Fund 06.08. („die Bilder haben unterschiedliche größen"): die
-   Info-Seite hängt an <body>, NICHT in #tv — die #tv-Kachelregeln
-   (width:100%) griffen hier nie und jedes Bild kam in Rohgröße. */
+   Info-Seite hängt an <body>, NICHT in #tv — die #tv-Kachelregeln griffen
+   hier nie. Nachschlag 07.08. („Mehr wie das und Trailer & mehr"): das
+   Raster erzwingt das Format jetzt mit !important, weil die YouTube-
+   Vorschaubilder ihre Maße als inline-Stil mitbringen. */
 #tv-info .tv-kachel img{width:100%;object-fit:cover;border-radius:6px;
   background:#2a2a2a;display:block}
-#tv-info .info-grid .tv-kachel img{height:auto;aspect-ratio:16/9}
+#tv-info .info-grid .tv-kachel img{height:auto!important;aspect-ratio:16/9!important}
+#tv-info .info-grid .tv-ktitel{display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
+/* Episoden-/Staffel-Bänder: gleiche Bahn wie die Reihen im TV. */
+#tv-info .tv-band .tv-kachel{width:230px;flex:0 0 auto}
+#tv-info .tv-band .tv-kachel img{aspect-ratio:16/9;height:auto}
 #tv-info .info-meta{font-size:18px;color:#d8cec4;margin-bottom:10px}
 #tv-info .info-besch{color:#e6ddd2;margin-bottom:12px}
 #tv-info .info-neben{font-size:16px;color:#a99d92;margin:4px 0}
@@ -7360,8 +7377,19 @@ function fbEmpfangVerkabeln(){
   _fbKanal=new BroadcastChannel('syncyoutube-fb');
   _fbKanal.onmessage=ev=>{
     const n=ev.data||{};
-    if(n.art==='hallo'){_fbKanal.postMessage({art:'hier'}); return;}
-    if(n.art==='tv'){fernsehModus(); return;}
+    const tv=document.getElementById('tv');
+    const tvAn=!!(tv&&tv.style.display!=='none');
+    if(n.art==='hallo'){                                // Zustand zurückmelden
+      _fbKanal.postMessage({art:'hier', tv:tvAn,
+        spielt:(typeof vlcSpielt!=='undefined'&&vlcSpielt)||
+               (typeof tvpOffen!=='undefined'&&tvpOffen&&!!document.querySelector(
+                 '#tvp-pp svg path[d^="M6 5"]'))});
+      return;}
+    if(n.art==='tv'){                                   // EIN Knopf für an UND aus
+      if(tvAn)tvZu(); else fernsehModus();
+      return;}
+    if(n.art==='maus'){fbMausBewegen(n.dx||0,n.dy||0); return;}
+    if(n.art==='klick'){fbMausKlick(n.knopf||'links'); return;}
     if(n.art!=='taste'||!n.taste)return;
     const ziel=document.activeElement&&document.activeElement.tagName==='INPUT'
       ?document.activeElement:document.body;
@@ -7379,7 +7407,52 @@ window.addEventListener('message',ev=>{                 // Rückweg ohne Broadca
 });
 function fernbedienungOeffnen(){
   window.open('/fernbedienung','syncyoutube-fb',
-    'width=300,height=560,menubar=no,toolbar=no,location=no,status=no');
+    'width=300,height=760,menubar=no,toolbar=no,location=no,status=no');
+}
+/* Maus-Modus (JB 07.08.: „kann ich dann die maus simulieren wie die remote
+   maus app?"): Ein echter Systemzeiger lässt sich aus einer Webseite nicht
+   bewegen — das verbietet jeder Browser. Also führt die Seite einen EIGENEN
+   Zeiger: ein Fadenkreuz wandert über die Oberfläche, hebt hervor, worüber
+   es steht, und ein Klick löst dort einen echten Klick aus. Für JBs Zweck
+   (vom Sofa aus bedienen) ist das gleichwertig — und es funktioniert auch
+   auf dem Handy. */
+let _fbZeiger=null, _fbX=0, _fbY=0;
+function fbZeigerHolen(){
+  if(_fbZeiger&&_fbZeiger.isConnected)return _fbZeiger;
+  _fbZeiger=document.createElement('div');
+  _fbZeiger.id='fb-zeiger';
+  _fbZeiger.style.cssText='position:fixed;z-index:9999;width:22px;height:22px;'+
+    'border:2px solid #fff;border-radius:50%;background:rgba(255,255,255,.25);'+
+    'box-shadow:0 0 10px rgba(0,0,0,.8);pointer-events:none;transition:none';
+  document.body.appendChild(_fbZeiger);
+  _fbX=innerWidth/2; _fbY=innerHeight/2;
+  return _fbZeiger;
+}
+function fbMausBewegen(dx,dy){
+  const z=fbZeigerHolen();
+  _fbX=Math.max(0,Math.min(innerWidth-1,_fbX+dx));
+  _fbY=Math.max(0,Math.min(innerHeight-1,_fbY+dy));
+  z.style.left=(_fbX-11)+'px'; z.style.top=(_fbY-11)+'px';
+  const el=document.elementFromPoint(_fbX,_fbY);
+  if(el&&el!==_fbZeigerZiel){
+    if(_fbZeigerZiel)_fbZeigerZiel.dispatchEvent(new MouseEvent('mouseout',{bubbles:true,relatedTarget:el}));
+    el.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));
+    _fbZeigerZiel=el;
+  }
+}
+let _fbZeigerZiel=null;
+function fbMausKlick(knopf){
+  fbZeigerHolen();
+  const el=document.elementFromPoint(_fbX,_fbY);
+  if(!el)return;
+  if(knopf==='rechts'){
+    el.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,
+      clientX:_fbX, clientY:_fbY}));
+    return;
+  }
+  ['mousedown','mouseup','click'].forEach(art=>
+    el.dispatchEvent(new MouseEvent(art,{bubbles:true,cancelable:true,
+      clientX:_fbX, clientY:_fbY, view:window})));
 }
 function fernsehModus(){
   fbEmpfangVerkabeln();                                 // Fernbedienung darf mitreden
@@ -8124,7 +8197,7 @@ function tvInfoMalen(){
           `<div class="tv-ktitel">${esc(e.titel)}</div></div>`).join('')+`</div>`:'')+
       (d.trailer&&d.trailer.length?`<div class="tv-rtitel" style="margin-top:16px">Trailer & mehr</div><div class="info-grid">`+
         d.trailer.map((t,i)=>`<div class="tv-kachel" data-trl="${i}" onclick="window.open('https://www.youtube.com/watch?v=${esc(t.key)}','_blank')" title="${esc(t.name)}">`+
-          `<img loading="lazy" src="https://i.ytimg.com/vi/${esc(t.key)}/mqdefault.jpg" style="aspect-ratio:16/9;height:auto" onerror="this.style.visibility='hidden'">`+
+          `<img loading="lazy" src="https://i.ytimg.com/vi/${esc(t.key)}/mqdefault.jpg" onerror="this.style.visibility='hidden'">`+
           `<div class="tv-ktitel">▶ ${esc(t.name)}</div></div>`).join('')+`</div>`:'')+
       `<div class="info-ueber"><div class="tv-rtitel">Über ${esc(d.titel||'')}</div>`+
         ((d.regie||[]).length?`<div class="info-neben"><b>Regie:</b> ${esc(d.regie.join(', '))}</div>`:'')+
@@ -8166,10 +8239,27 @@ function tvInfoFokusMalen(){
   const ziel=eb[tvInfoFokus.r][tvInfoFokus.i];
   if(ziel){ziel.classList.add('tv-fokus'); ziel.scrollIntoView({block:'nearest',inline:'nearest'});}
 }
+/* Gedrückt halten = immer schneller (JB 07.08.: „erst langsam, dann
+   schnell"). Der Browser wiederholt starr; wir drosseln die ersten
+   Wiederholungen und lassen die Schlagzahl dann bis 60 ms/Schritt steigen —
+   so wandert man mit einem Tastendruck ruhig, mit gehaltener Taste flott
+   durch lange Reihen. */
+let _wdhTaste='', _wdhZahl=0, _wdhLetzte=0;
+function tvWiederholungBremst(ev){
+  if(!ev.repeat){_wdhTaste=ev.key; _wdhZahl=0; _wdhLetzte=Date.now(); return false;}
+  if(ev.key!==_wdhTaste){_wdhTaste=ev.key; _wdhZahl=0; _wdhLetzte=Date.now(); return false;}
+  const jetzt=Date.now();
+  const abstand=Math.max(60,260-_wdhZahl*28);          // 260 ms → 60 ms
+  if(jetzt-_wdhLetzte<abstand)return true;             // zu früh: verwerfen
+  _wdhLetzte=jetzt; _wdhZahl++;
+  return false;
+}
 function tvKey(ev){
   const tv=document.getElementById('tv');
   const tvOffen=tv&&tv.style.display!=='none';
   if(!tvOffen&&!tvInfoOffen&&!tvDialogOffen&&!tvpOffen)return;  // Overlays auch ohne TV
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(ev.key)
+     &&tvWiederholungBremst(ev)){ev.preventDefault(); ev.stopPropagation(); return;}
   // Film-Fernbedienung offen? Sie hat Vorrang vor allen Ebenen.
   if(tvpOffen){
     let getan=true;
@@ -8264,8 +8354,13 @@ function tvKey(ev){
   const reihe=()=> (tvReihenListe[tvFokus.r]||[[],[]])[1]||[];
   let getan=true;
   if(ev.key==='Escape'||ev.key==='Backspace'){
+    // JB 07.08.: „zurück darf den fernsehmodus nicht beenden. Nur aus."
+    // Backspace geht IMMER nur eine Ebene hoch (Reihe → Kopfleiste) und
+    // bleibt dort stehen; schließen tut allein Escape.
     if(ev.key==='Escape'&&filmLaeuft())filmStopp();    // Esc beendet erst den FILM
-    else if(tvFokus.r>=0&&ev.key==='Backspace'){tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};}
+    else if(ev.key==='Backspace'){
+      if(tvFokus.r>=0)tvFokus={r:-1,i:TV_TABS.findIndex(t=>t[0]===tvTab)};
+    }
     else tvZu(); }
   else if(ev.key==='ArrowLeft'){ if(tvFokus.r===-2)tvFokus.i=Math.max(0,tvFokus.i-1); else tvFokus.i=Math.max(0,tvFokus.i-1); }
   else if(ev.key==='ArrowRight'){ if(tvFokus.r===-2)tvFokus.i=Math.min(1,tvFokus.i+1); else if(tvFokus.r<0)tvFokus.i=Math.min(tabs-1,tvFokus.i+1); else tvFokus.i=Math.min(reihe().length-1,tvFokus.i+1); }
