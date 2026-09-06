@@ -73,11 +73,18 @@ def _daten_dir(argv, env):
     return SCRIPT_DIR, False
 
 
+# Produktiv-Ports der Familie (CLAUDE.md): 8776 YouTube · 8778 Docs · 8779 Findus ·
+# 8780 Findus-Gast · 8781 ReelWerkstatt. Der Probe-Port liegt bewusst darüber.
+TESTMODUS_PORT = 8790
+
+
 def _testmodus_config(cfg, daten_dir):
-    """Im Testmodus erzwingen: eigener Port (kein Wettstreit mit JBs 8776),
+    """Im Testmodus erzwingen: eigener Port AUSSERHALB der Produktiv-Spanne
+    8776–8781 (8776 ist JBs SyncYouTube, 8779 seit 08.08. SyncFindus — der
+    alte Wert 8779 kollidierte damit, Befund 06.09.2026),
     Downloads im Probenordner, Selbst-Neustart AUS (eine Probe soll sich
     nicht selbst neu starten und dabei ihre Argumente verlieren)."""
-    cfg["port"] = 8779
+    cfg["port"] = TESTMODUS_PORT
     cfg["ziel_ordner"] = os.path.join(daten_dir, "Downloads")
     cfg["auto_neustart"] = False
     cfg["fernsteuerung"] = False                      # Probe lauscht NIE im WLAN
@@ -1017,7 +1024,7 @@ def ordner_zeigen(pfad=None):
             # das Fenster per ShellExecute-Regel nach vorn holen.
             subprocess.Popen(["explorer", "/select,", os.path.normpath(pfad)])
             return
-        os.startfile(os.path.normpath(ziel))         # noqa: Windows-Weg (Vordergrund!)
+        os.startfile(os.path.normpath(ziel))         # Windows-Weg (Vordergrund!)
     except (OSError, AttributeError):
         subprocess.Popen(["explorer", os.path.normpath(ziel)])
 
@@ -1029,7 +1036,7 @@ def extern_abspielen(pfad):
             subprocess.Popen([v, pfad])
             return
     try:
-        os.startfile(pfad)                           # noqa: einzig sinnvoll unter Windows
+        os.startfile(pfad)                           # einzig sinnvoll unter Windows
     except (OSError, AttributeError):
         subprocess.Popen(["explorer", "/select,", pfad])
 
@@ -1288,7 +1295,7 @@ def auto_umbenennen_nach_download(item):
             return
         r = migration_anwenden(go=True, keys={key})
         if r.get("umbenannt"):
-            _sag(f"Auto-Umbenennen: frisch geladene Datei nach dem Namens-Schema "
+            _sag("Auto-Umbenennen: frisch geladene Datei nach dem Namens-Schema "
                  "benannt (↩ rückgängig im Namens-Fenster)")
     except Exception:                                 # noqa: BLE001 — nie den Download stören
         pass
@@ -4679,7 +4686,10 @@ def _geo_download(item, erzwingen):
         return
     for kand in kands:
         if item["id"] in Q.abbrueche:
-            item["status"] = "pausiert"; item["phase"] = ""; Q.speichern(); return
+            item["status"] = "pausiert"
+            item["phase"] = ""
+            Q.speichern()
+            return
         item["phase"] = "Geo: " + kand.name
         item["geschw"] = 0
         Q.speichern()
@@ -5488,7 +5498,7 @@ class Handler(BaseHTTPRequestHandler):
                                  daemon=True).start()
                 _antwort(self, 404, {"wartet": True})
         elif self.path.startswith("/api/live"):           # 📡 Live-Kanäle (kodinerds)
-            _antwort(self, 200, {"items": live_tv.kanaele()})
+            _antwort(self, 200, {"items": live_tv.kanaele(), "status": live_tv.status()})
         elif self.path.startswith("/api/filme/wuenschen"):  # Seerr-Suche (Teilprojekt 4)
             q = (parse_qs(urlparse(self.path).query).get("q") or [""])[0]
             _antwort(self, 200, {"items": filme.seerr_suche(q)})
@@ -5725,7 +5735,9 @@ class Handler(BaseHTTPRequestHandler):
                         f.write(json.dumps({"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
                                             "text": str(daten.get("text") or "")[:400],
                                             "quelle": str(daten.get("quelle") or "")[:80],
-                                            "zeile": daten.get("zeile") or 0},
+                                            "zeile": daten.get("zeile") or 0,
+                                            # 06.09.: Promise-Fehler kamen ohne Ort an (P8)
+                                            "stack": str(daten.get("stack") or "")[:600]},
                                            ensure_ascii=False) + "\n")
                 except OSError:
                     pass

@@ -84,7 +84,8 @@ Tests: `python System/tests/test_youtube.py` (läuft ohne Zusatzpakete, kein Net
 | `System/geo.py` / `System/vpn.py` | gestufte Geo-Umgehung / NordVPN-Steuerung |
 | `System/update.py` | Selbst-Update der exe (Repo-Pin, SHA256-Verifikation, Rollback) |
 | `System/browser-addon/` | universelle Browser-Erweiterung + Build-/Signier-Skripte |
-| `System/_ARCHITEKTUR.md` | Architektur & Fahrplan |
+| `System/_ARCHITEKTUR.md` | Architektur & Fahrplan (historisch, 09.07.; aktuelle Karte: `System/MODULE.md`) |
+| `System/docs/NAECHSTER_PROMPT.md` | Übergabe an die nächste Session (aktuell, 05.08.) |
 
 Konfiguration und alle Nutzerdaten (`config.json`, `geladen_log.json`, `playlists.json`,
 `warteschlange.json`, `abos.json`, `Downloads/`) entstehen zur Laufzeit und bleiben lokal —

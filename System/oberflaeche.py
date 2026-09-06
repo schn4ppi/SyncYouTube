@@ -4736,6 +4736,7 @@ function dubBody(){
 }
 async function ordnerImportieren(){
   plInfo('📥 Ordner wird durchsucht …', true);        // Fortschritt: bleibt
+  const info=document.getElementById('plinfo');      // 06.09.: war undeklariert (ReferenceError)
   try{
     const r=await fetch('/api/importieren',{method:'POST'}); const d=await r.json();
     if(info)info.textContent=d.neu?('📥 '+d.neu+' neue Datei(en) aufgenommen ✓'):'📥 Nichts Neues im Ordner gefunden';
@@ -5110,7 +5111,8 @@ window.addEventListener('error',ev=>{
 });
 window.addEventListener('unhandledrejection',ev=>{
   try{fetch('/api/js_fehler',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({text:('Promise: '+String(ev.reason||'')).slice(0,400)})}).catch(()=>{});}catch(e){}
+    body:JSON.stringify({text:('Promise: '+String(ev.reason||'')).slice(0,400),
+      stack:String((ev.reason&&ev.reason.stack)||'').slice(0,600)})}).catch(()=>{});}catch(e){}
 });
 const ICONS={
   play:'M8 5v14l11-7z',
@@ -9986,6 +9988,7 @@ async function plSyncNow(id){
   const p=plState.find(x=>x.id===id);
   if(!p||!p.sync_ordner){alert('Für diese Playlist ist noch kein Sync-Ordner eingerichtet („⇄ Sync…“).');return;}
   plInfo('synchronisiere …', true);                    // Fortschritt: bleibt
+  const info=document.getElementById('plinfo');      // 06.09.: war undeklariert (ReferenceError)
   try{
     const r=await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'sync',id})});
     const d=await r.json();

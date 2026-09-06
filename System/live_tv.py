@@ -7,6 +7,7 @@ Einbahn-Regel wie filme/geo: importiert NIE youtube_app."""
 import json
 import os
 import re
+import sys
 import time
 import urllib.request
 
@@ -41,21 +42,54 @@ def m3u_parsen(text):
     return out
 
 
-def kanaele(frisch=False):
+def _cache_lesen():
     try:
         with open(_pfade["cache"], encoding="utf-8") as f:
-            d = json.load(f)
-        if not frisch and time.time() - (d.get("stand") or 0) < CACHE_ALTER_S:
-            return d.get("kanaele") or []
+            return json.load(f)
     except (OSError, ValueError):
-        d = {}
+        return {}
+
+
+def _fehler_merken(d, fehler):
+    """Gescheiterten Abruf im Cache festhalten (Lehrbuch P5: Stille ist ein
+    Ausfall). Alter Stand und alte Kanäle bleiben unverändert; `fehler_seit`
+    hält den ERSTEN Fehlzeitpunkt, damit das Alter der Liste ablesbar ist."""
+    d["letzter_fehler"] = f"{type(fehler).__name__}: {fehler}"
+    if not d.get("fehler_seit"):
+        d["fehler_seit"] = time.time()
+    d.setdefault("stand", 0)
+    d.setdefault("kanaele", [])
+    try:
+        fam.json_schreiben(_pfade["cache"], d)
+    except OSError as e:                   # Cache nicht schreibbar ⇒ wenigstens melden
+        print(f"live_tv: Fehler-Vermerk nicht schreibbar ({e})", file=sys.stderr)
+
+
+def kanaele(frisch=False):
+    """Senderliste aus dem Cache (24 h) oder frisch von der Quelle. Scheitert
+    der Abruf, trägt der alte Cache weiter — der Fehler wird aber gemerkt
+    (`letzter_fehler`/`fehler_seit`) und über status() sichtbar."""
+    d = _cache_lesen()
+    if not frisch and time.time() - (d.get("stand") or 0) < CACHE_ALTER_S:
+        return d.get("kanaele") or []
     try:
         with urllib.request.urlopen(QUELLE, timeout=30) as r:
             liste = m3u_parsen(r.read().decode("utf-8", "replace"))
-        if liste:
-            fam.json_schreiben(_pfade["cache"], {"stand": time.time(),
-                                                 "kanaele": liste})
-            return liste
-    except Exception:                      # noqa: BLE001 — alter Cache trägt
-        pass
+        if not liste:
+            raise ValueError("Senderliste leer (0 Kanäle geparst)")
+        fam.json_schreiben(_pfade["cache"], {"stand": time.time(),
+                                             "kanaele": liste})
+        return liste
+    except Exception as e:                 # noqa: BLE001 — alter Cache trägt, Fehler wird gemerkt
+        _fehler_merken(d, e)
     return d.get("kanaele") or []
+
+
+def status():
+    """Für /api/live und Wächter: Stand der Liste, Kanalzahl, letzter Fehler
+    (leer = gesund) und seit wann der Abruf scheitert (0 = gar nicht)."""
+    d = _cache_lesen()
+    return {"stand": d.get("stand") or 0,
+            "kanaele": len(d.get("kanaele") or []),
+            "fehler": d.get("letzter_fehler") or "",
+            "fehler_seit": d.get("fehler_seit") or 0}

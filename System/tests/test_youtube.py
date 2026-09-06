@@ -2043,7 +2043,10 @@ def test_testmodus_leitet_alle_daten_um(tmp_path):
     #    Selbst-Neustart AUS (eine Probe soll sich nicht selbst neu starten).
     cfg = {"port": 8776, "auto_neustart": True, "ziel_ordner": "C:/echte/Downloads"}
     app._testmodus_config(cfg, str(tmp_path / "probe"))
-    assert cfg["port"] == 8779
+    assert cfg["port"] == app.TESTMODUS_PORT == 8790
+    # Gegenprobe 06.09.2026: 8779 war seit 08.08. SyncFindus-Produktion — die
+    # Probe darf nie in der Familien-Spanne 8776–8781 lauschen.
+    assert cfg["port"] not in range(8776, 8782)
     assert cfg["auto_neustart"] is False
     assert str(tmp_path) in cfg["ziel_ordner"]          # Downloads im Probenordner
     # 3) Quell-Waechter: KEINE Zustandsdatei haengt mehr an SCRIPT_DIR —
@@ -2586,7 +2589,6 @@ def test_download_wird_automatisch_umbenannt(tmp_path, monkeypatch):
     quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
     assert "auto_umbenennen_nach_download" in quelle, "Kein Auto-Umbenenn-Hook"
     # Der Fertig-Weg ruft ihn auch WIRKLICH auf (nicht nur definiert).
-    f = quelle.index("def _download_lauf") if "def _download_lauf" in quelle else 0
     assert quelle.count("auto_umbenennen_nach_download(") >= 2, (
         "Der Hook wird definiert, aber vom Download-Abschluss nicht gerufen")
 
@@ -2959,7 +2961,6 @@ def test_playlist_erlaubt_doppelte_titel():
     # Das Backend hat es bisher STILL verhindert (k not in pl["items"]) - der
     # Titel wurde gezogen, und nichts passierte. Eine Playlist ist eine
     # Reihenfolge, kein Mengenbegriff: derselbe Song darf zweimal vorkommen.
-    import tempfile, os, json
     alt_pl, alt_sp = app._playlists, app._json_speichern
     app._json_speichern = lambda *a, **k: None
     try:
@@ -3730,7 +3731,8 @@ def test_itunes_rueckfall(monkeypatch):
     # ohne Schluessel; nur als Rueckfall und nur bei Titel+Kuenstler-Treffer
     # (exakt oder aussagekraeftiges Praefix). Der Lauf ergaenzt NUR leere
     # Felder und nutzt das Artwork, wenn das Cover Art Archive nichts hat.
-    import io, json, urllib.request
+    import json
+    import urllib.request
     antwort = {"results": [
         {"trackName": "Running Up That Hill (A Deal with God)",
          "artistName": "Kate Bush", "collectionName": "Hounds of Love",
@@ -3812,7 +3814,8 @@ def test_untertitel_panel_im_player():
 def test_huelle_grundstein():
     # Programm-Huelle (Spec Stufe 2, JB-Go 05.08.): eigenes Fenster laedt die
     # Oberflaeche vom lokalen Server; Server-Start bei Bedarf; CRLF-Startdatei.
-    import io, inspect
+    import io
+    import inspect
     sys.path.insert(0, os.path.dirname(app.__file__))
     import huelle
     assert callable(huelle.server_laeuft) and callable(huelle.server_starten)
@@ -3865,7 +3868,8 @@ def test_vlc_einbettung_hwnd(monkeypatch, tmp_path):
     st = app.vlc_kommando({"cmd": "fenster", "hwnd": 0})
     assert st["eingebettet"] is False, "hwnd=0 muss die Bindung loesen (Rueckweg)"
     # Huelle + Oberflaeche verkabelt (Quelltext als Waechter):
-    import inspect, importlib
+    import inspect
+    import importlib
     sys.path.insert(0, os.path.dirname(app.__file__))
     import huelle
     importlib.reload(huelle)

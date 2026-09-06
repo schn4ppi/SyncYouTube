@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 rem Startet SyncYouTube FENSTERLOS im Hintergrund (pythonw = kein
 rem Konsolenfenster) und schliesst sich sofort selbst. Der Browser oeffnet
 rem automatisch; die App laeuft weiter im Tray (Symbol unten rechts:

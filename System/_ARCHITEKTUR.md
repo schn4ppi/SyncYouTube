@@ -1,5 +1,7 @@
 # YouTube-Downloader — Architektur & Aufräum-Fahrplan
 
+> **Historisch (Stand 09.07.2026).** Die aktuelle, maschinell gepflegte Modul-Karte ist `MODULE.md` daneben; dieses Dokument bleibt als Herkunft des Aufräum-Fahrplans (Befund SyncYouTube-08, 06.09.2026).
+
 Kurzüberblick, damit die „Ordnung" nachvollziehbar bleibt und der Umbau
 Schritt für Schritt läuft (kein Blind-Refactor an einer produktiv genutzten App).
 

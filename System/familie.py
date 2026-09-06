@@ -135,6 +135,7 @@ def json_aendern(pfad, aenderung, standard=None, wartezeit_s=5.0):
     geschrieben — lieber diese Änderung auslassen als die Arbeit anderer wegwerfen.
     Eine verwaiste Sperre (Prozess abgestürzt) verfällt nach `SPERRE_ALT_S`.
     """
+    pfad = str(pfad)          # auch Path-Objekte annehmen (10.08.: stuerzte sonst ab)
     sperre = pfad + ".sperre"
     ende = time.time() + wartezeit_s
     griff = None

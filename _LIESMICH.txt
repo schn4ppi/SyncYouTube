@@ -1,14 +1,17 @@
-YouTube-Downloader — Kurzanleitung
-==================================
+SyncYouTube — Kurzanleitung (Stand 06.09.2026)
+==============================================
+Vollständige Funktionsliste (Downloads, Player, Bibliothek, Filme, Live-TV,
+Handy-Ansicht, Fernbedienung): README.md im selben Ordner.
 
-Start:      YouTube-Downloader.bat doppelklicken. Das schwarze Fenster
+
+Start:      SyncYouTube.bat doppelklicken. Das schwarze Fenster
             schließt sich sofort wieder — die App läuft FENSTERLOS im Hintergrund
             (pythonw) weiter, der Browser öffnet automatisch
             http://127.0.0.1:8776 (nur lokal). Steuerung über das TRAY-SYMBOL
             unten rechts (Terracotta-Kreis): „Öffnen", „Downloads-Ordner",
             „Beenden". Ganz ohne kurzes Aufblitzen: stattdessen
-            „YouTube-Downloader (ohne Fenster).vbs" doppelklicken.
-            Fehlersuche mit sichtbarer Konsole: „…(Konsole, Debug).bat".
+            „SyncYouTube (ohne Fenster).vbs" doppelklicken.
+            Als eigenes Programmfenster ohne Browser: SyncYouTube-Fenster.bat.
 
 Beenden:    Tray-Symbol unten rechts -> „Beenden". (Kein Fenster zum Schließen.)
 
@@ -216,9 +219,10 @@ Cover:      Das YouTube-Thumbnail wird als Dateicover eingebettet. Bei
             zeigt bei MP4s weiterhin ein Videobild als Kachel). Es bleiben keine
             losen Bilddateien liegen.
 
-Dateien:    Landen in YouTube\Downloads (im Zahnrad änderbar).
+Dateien:    Landen in SyncYouTube\Downloads (im Zahnrad änderbar).
             „Entfernen" löscht nur den Listeneintrag, niemals Dateien.
 
-Technik:    yt-dlp (Core-venv) + ffmpeg (bin\) + stdlib-Server, Port 8776.
-            Warteschlange liegt in warteschlange.json, Status fürs Dashboard
-            in yt_status.json.
+Technik:    yt-dlp (Familien-venv ..\SyncDashTray\System\venv) + ffmpeg/Deno
+            (System\bin\) + stdlib-Server, Port 8776.
+            Warteschlange liegt in System\warteschlange.json, Status fürs
+            Dashboard in System\yt_status.json.
