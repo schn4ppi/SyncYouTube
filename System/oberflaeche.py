@@ -3193,6 +3193,13 @@ function kurzfehler(t){
   if(l.includes('video unavailable'))return 'nicht verfügbar';
   if(l.includes('sign in to confirm your age'))return 'altersbeschränkt';
   if(l.includes('has been removed')||l.includes('no longer available'))return 'entfernt';
+  /* Sperren VOR der Cookie-Zeile (Befund 07.09.2026): YouTube haengt an jede
+     Bot-Meldung den Satz »Use --cookies-from-browser …« an, das Wort 'cookie'
+     steht also DRIN — die Anzeige log den Nutzer deshalb mit 'Cookie-Fehler'
+     an, obwohl YouTube uns ausgesperrt hatte. */
+  if(l.includes('not a bot')||l.includes('captcha'))return 'YouTube verlangt Anmeldung (Bot-Verdacht)';
+  if(l.includes('too many requests')||l.includes('rate-limited')||l.includes('rate limited')||/(^|[^0-9a-z])429([^0-9a-z]|$)/.test(l))return 'zu viele Anfragen — YouTube drosselt';
+  if(l.includes('forbidden')||/(^|[^0-9a-z])403([^0-9a-z]|$)/.test(l))return 'YouTube verweigert den Zugriff (403)';
   if(l.includes('cookie'))return 'Cookie-Fehler';
   if(l.includes('nordvpn'))return 'VPN nötig';
   return t.length>42?t.slice(0,42)+'…':(t||'Fehler');

@@ -181,6 +181,20 @@ DAUERHAFT = ("available in your country", "private video", "video unavailable",
              "no longer available", "has been removed", "account associated",
              "sign in to confirm your age")
 
+# Fehler, hinter denen YouTube uns AKTIV aussperrt: Bot-Verdacht, Drossel,
+# HTTP 403/429. Befund 07.09.2026: Diese Faelle standen in KEINER Liste, also
+# lief ein gesperrter Eintrag bis zu max_wiederholungen (Vorgabe 10) erneut
+# gegen YouTube — aus einer weichen Drossel wurde so eine harte Sperre, weil
+# jeder Neuversuch das Muster bestaetigt. Ein Treffer heisst deshalb: nicht
+# wiederholen, Grund festhalten (Leitplanke P10 »fremde Dienste bremsen«).
+SPERRE = ("not a bot", "rate-limited", "rate limited", "too many requests",
+          "forbidden", "captcha", "http error 403", "http error 429")
+
+# Nackte Statuszahlen nur mit Wortgrenze: in einer Video-Kennung wie
+# "dQw403abcXY" steckt "403" ohne jede Bedeutung (Leitplanke P8 — ein Treffer
+# zaehlt nur mit Ort und Wortgrenze).
+_SPERRE_ZAHL = re.compile(r"(?<![0-9a-z])(403|429)(?![0-9a-z])")
+
 QUALITAETEN = {
     "beste":  "bestvideo*+bestaudio/best",
     "2160p":  "bestvideo*[height<=2160]+bestaudio/best[height<=2160]/best",
@@ -570,6 +584,11 @@ def _ydl_basis_opts(mit_cookies=True):
         # ganze Warteschlange). Mit Timeout wird daraus ein normaler Fehler,
         # der in den Backoff geht — und der Worker nimmt den nächsten Eintrag.
         "socket_timeout": 30,
+        # Gegen YouTube bremste bisher NICHTS, waehrend fuer MusicBrainz an
+        # sieben Stellen sorgfaeltig pausiert wird (Befund 07.09.2026). Ein
+        # ungebremster Abruf-Sturm ist genau das Muster, das YouTube mit 429
+        # und der Bot-Abfrage beantwortet. Die Drossel steht deshalb NICHT hier,
+        # sondern in DROSSEL und wird nur vom Download-Weg gesetzt (siehe unten).
     }
     ff = _ffmpeg_ordner()
     if ff:
@@ -578,6 +597,37 @@ def _ydl_basis_opts(mit_cookies=True):
     if mit_cookies and browser and browser != "keine":
         opts["cookiesfrombrowser"] = (browser,)
     return opts
+
+
+# Massvolle Drossel nach Leitplanke P10 — NUR fuer den Download-Weg.
+#
+# Sie stand zuerst in `_ydl_basis_opts` und wirkte damit auf alle sechs Aufrufer:
+# `aufloesen`, `untertitel_nachladen`, `_abo_flach`, `_enrich_eintrag` und
+# `_zugang_ok`. yt-dlp schlaeft bei `sleep_interval_requests` vor JEDER
+# Extraktions-Anfrage — die eine Sekunde haette also auch die Wege gebremst, bei
+# denen JB vor dem Bildschirm auf eine Antwort wartet (Abnahme-Mangel 07.09.2026).
+# Wer YouTube in Serie belastet, ist der Download; dort gehoert die Bremse hin.
+DROSSEL = {
+    "sleep_interval": 2,            # 2-8 s Zufallspause vor jedem Video
+    "max_sleep_interval": 8,
+    "sleep_interval_requests": 1,   # 1 s zwischen den Abrufen EINER Aufloesung
+}
+
+
+def _ist_sperre(exc):
+    """YouTube sperrt uns aus — Bot-Verdacht, Drossel, HTTP 403/429.
+
+    Muss VOR `_ist_cookie_fehler` gefragt werden: YouTube haengt an jede
+    Bot-Meldung den Satz »Use --cookies-from-browser …« an
+    (`YoutubeIE._youtube_login_hint`). Der enthaelt »cookie« UND »browser«,
+    also hielt die Cookie-Heilung die Sperre fuer ein Cookie-Problem, warf die
+    Cookies weg und lief SOFORT nochmal los — ohne Cookies aber waehlt yt-dlp
+    die nicht angemeldeten Vorgabe-Wege, also genau die, gegen die YouTube
+    gerade sperrt. Die Selbstheilung fuehrte damit in die Wand
+    (Befund 07.09.2026, Leitplanke P10).
+    """
+    t = str(exc).lower()
+    return any(s in t for s in SPERRE) or bool(_SPERRE_ZAHL.search(t))
 
 
 def _ist_cookie_fehler(exc):
@@ -650,7 +700,9 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
         except Exception as e:                       # noqa: BLE001 — Cookie-Probleme heilen
-            if not _ist_cookie_fehler(e):
+            # Sperre zuerst: die Bot-Meldung TRAEGT den Cookie-Hinweis in sich,
+            # ein Wegwerfen der Cookies laeuft direkt in den naechsten 403.
+            if _ist_sperre(e) or not _ist_cookie_fehler(e):
                 raise
             opts.pop("cookiesfrombrowser", None)
             with yt_dlp.YoutubeDL(opts) as ydl:
@@ -658,6 +710,7 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
     except Exception as e:                           # noqa: BLE001 — Nutzer sieht den Text
         voll = str(e)
         platzhalter["fehler"] = _fehltext(e)
+        fehler_merken(url, voll, "aufloesen" + (" / sperre" if _ist_sperre(e) else ""))
         if geo.ist_geo_fehler(voll) and CFG.get("geo_vpn"):
             platzhalter["geo_laender"] = geo.laender_aus_fehler(voll)
             platzhalter["status"] = "wartend"        # Worker übernimmt die Geo-Kette
@@ -4639,6 +4692,44 @@ def _fehltext(exc):
     return t[:300]
 
 
+# Dauerhafter Fehlerkanal (Befund 07.09.2026): Ein gescheiterter Download
+# hinterliess KEINE Spur — der volle yt-dlp-Text lebte nur im Browser und war
+# in der Anzeige auf 42 Zeichen gekuerzt. Wer am Telefon fragt »was steht denn
+# da?«, konnte es nicht sagen. Muster ist der schon vorhandene Rekorder
+# js_fehler.jsonl: eine Zeile je Vorfall, Deckel 200 KB, aeltestes faellt weg.
+FEHLER_LOG = os.path.join(SCRIPT_DIR, "yt_fehler.jsonl")
+_fehler_lock = threading.Lock()
+
+
+def fehler_merken(url, text, art="", titel="", pfad=None):
+    """Einen Fehlschlag dauerhaft festhalten. `pfad` ist ueberschreibbar, damit
+    Tests gegen tmp_path messen statt gegen den Produktiv-Ordner (P7)."""
+    ziel = pfad or FEHLER_LOG
+    zeile = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+             "art": str(art or "")[:40],
+             "url": str(url or "")[:300],
+             "titel": str(titel or "")[:200],
+             "text": str(text or "")[:600]}
+    try:
+        with _fehler_lock:
+            if os.path.exists(ziel) and os.path.getsize(ziel) > 200_000:
+                with open(ziel, encoding="utf-8", errors="replace") as f:
+                    rest_z = f.readlines()[-200:]
+                # »Die letzten 200 Zeilen« allein deckelt nicht: eine einzelne
+                # riesige Zeile (abgeschnittener Fremd-Text ohne Umbruch) bleibt
+                # dabei vollstaendig stehen. Deshalb zusaetzlich nach Bytes
+                # kuerzen, bis der Rest unter 150 KB liegt.
+                while rest_z and sum(len(z.encode("utf-8")) for z in rest_z) > 150_000:
+                    rest_z.pop(0)
+                with open(ziel, "w", encoding="utf-8") as f:
+                    f.writelines(rest_z)
+            with open(ziel, "a", encoding="utf-8") as f:
+                f.write(json.dumps(zeile, ensure_ascii=False) + "\n")
+    except OSError:                                  # Platte voll/gesperrt: nie den Lauf reissen
+        pass
+    return zeile
+
+
 def herunterladen(item):
     """Einen Eintrag laden. Fortsetzen (.part) macht yt-dlp automatisch."""
     erzwingen = bool(item.pop("erzwingen", False))
@@ -4701,7 +4792,8 @@ def _geo_download(item, erzwingen):
                 setup_ok = False
         try:
             if setup_ok and _zugang_ok(item["url"], kand.opts):
-                _download_lauf(item, erzwingen, mit_cookies=False, extra_opts=kand.opts, geo=True)
+                _download_lauf(item, erzwingen, mit_cookies=False, extra_opts=kand.opts,
+                               geo_lauf=True)
         finally:
             if kand.teardown:
                 try:
@@ -4760,7 +4852,14 @@ def geo_test_lauf(url, titel, laender):
         _geo_test["stand"] = time.time()
 
 
-def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo=False):
+def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo_lauf=False):
+    # Befund 07.09.2026: Der Parameter hiess frueher `geo` und verdeckte damit
+    # das Modul `geo` IM GANZEN Funktionskoerper. Im Fehlerzweig stand deshalb
+    # `False.ist_geo_fehler(...)` — jeder gewoehnliche Download-Fehler flog als
+    # AttributeError aus der Funktion, noch bevor Backoff, DAUERHAFT-Liste oder
+    # max_wiederholungen ueberhaupt gefragt wurden. Der ganze Neuversuch-
+    # Mechanismus war unerreichbar; aufgefangen hat es erst das Netz in
+    # worker_schleife, das den Eintrag stumm auf »fehler« setzte.
     import yt_dlp
 
     def hook(d):
@@ -4801,6 +4900,7 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
             Q.speichern()
 
     opts = _ydl_basis_opts(mit_cookies=mit_cookies)
+    opts.update(DROSSEL)            # nur hier bremsen, nicht in den Auflöse-Wegen
     opts.update({
         "outtmpl": os.path.join(ziel_ordner(), "%(title)s [%(id)s].%(ext)s"),
         "format": QUALITAETEN[item["qualitaet"]],
@@ -4873,6 +4973,8 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
         except AbbruchError:
             raise
         except Exception as e:                       # noqa: BLE001 — heilbare Fehler heilen
+            if _ist_sperre(e):
+                raise                                # kein Cookie-Problem, sondern eine Sperre
             if _ist_cookie_fehler(e):
                 opts.pop("cookiesfrombrowser", None)
             elif _ist_untertitel_fehler(e):
@@ -4938,7 +5040,18 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
         item["geschw"] = 0
         item["phase"] = ""
         voll = str(e)
-        if geo:                                      # Geo-Lauf: kein Backoff, die Kette geht weiter
+        if not _ist_sperre(voll):
+            fehler_merken(item.get("url"), voll, "download", item.get("titel") or "")
+        if geo_lauf:                                 # Geo-Lauf: kein Backoff, die Kette geht weiter
+            if _ist_sperre(voll):
+                # Abnahme-Mangel 07.09.2026: Genau der Fall, fuer den der
+                # Fehlerkanal gebaut wurde, hinterliess keine Spur — oben wird
+                # bei einer Sperre nicht gemerkt (das macht sonst der
+                # `elif _ist_sperre`-Zweig), und hier kehrt die Funktion vorher
+                # zurueck. Ein Geo-Versuch, der an einer Sperre scheitert, ist
+                # fuer die Ferndiagnose beim Kumpel besonders wichtig.
+                fehler_merken(item.get("url"), voll, "sperre-geo",
+                              item.get("titel") or "")
             item["status"] = "fehler"
             Q.speichern()
             return
@@ -4947,6 +5060,12 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
             item["versuche"] -= 1                     # zählt nicht als Fehlversuch
             item["naechster_versuch"] = 0
             item["status"] = "wartend"                # nächster Lauf geht durch die Geo-Kette
+        elif _ist_sperre(voll):
+            # YouTube sperrt uns aus. Frueher lief so ein Eintrag bis zu
+            # max_wiederholungen (Vorgabe 10) erneut los und machte aus der
+            # weichen Drossel eine harte Sperre. Jetzt: sofort stoppen.
+            item["status"] = "fehler"
+            fehler_merken(item.get("url"), voll, "sperre", item.get("titel") or "")
         elif any(s in item["fehler"].lower() for s in DAUERHAFT):
             item["status"] = "fehler"                # Neuversuch bringt hier nichts
         elif item["versuche"] <= CFG.get("max_wiederholungen", 10):
@@ -4973,6 +5092,7 @@ def worker_schleife():
             # „laeuft" (und blockierte damit auch den Selbst-Neustart, der auf
             # Leerlauf wartet), und es arbeitete ein Worker weniger. Jetzt wird
             # der Eintrag ehrlich zum „fehler" und der Worker lebt weiter.
+            fehler_merken(item.get("url"), str(e), "worker", item.get("titel") or "")
             with Q.lock:
                 if item.get("status") == "laeuft":
                     item["status"] = "fehler"
@@ -5729,6 +5849,11 @@ class Handler(BaseHTTPRequestHandler):
                     if os.path.exists(pfad) and os.path.getsize(pfad) > 200_000:
                         with open(pfad, encoding="utf-8", errors="replace") as f:
                             rest = f.readlines()[-200:]
+                        # Fehler-Zwilling zum neuen yt_fehler-Kanal (07.09.2026):
+                        # »die letzten 200 Zeilen« deckelt nicht, wenn EINE Zeile
+                        # riesig ist. Deshalb zusaetzlich nach Bytes kuerzen.
+                        while rest and sum(len(z.encode("utf-8")) for z in rest) > 150_000:
+                            rest.pop(0)
                         with open(pfad, "w", encoding="utf-8") as f:
                             f.writelines(rest)
                     with open(pfad, "a", encoding="utf-8") as f:

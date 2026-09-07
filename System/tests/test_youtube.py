@@ -1084,17 +1084,31 @@ def test_pfad_da():
 # ---------------------------------------------------------------- Runner (ohne pytest)
 
 if __name__ == "__main__":
+    import inspect
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     ok = 0
+    uebersprungen = 0
     for t in tests:
+        # Befund 07.09.2026: Tests mit pytest-Fixtures (tmp_path, monkeypatch)
+        # meldete dieser Weg als FAIL und gab am Ende Exit 1 zurueck — der in
+        # System/MODULE.md angebotene Lauf »ohne Zusatzpakete« war dadurch
+        # dauerhaft rot, obwohl kein einziger Test kaputt war. Jetzt werden sie
+        # ehrlich uebersprungen statt falsch angeklagt.
+        if any(par.default is inspect.Parameter.empty
+               and par.kind in (par.POSITIONAL_OR_KEYWORD, par.POSITIONAL_ONLY)
+               for par in inspect.signature(t).parameters.values()):
+            print(f"  UEBERSPRUNGEN  {t.__name__} (braucht eine pytest-Fixture)")
+            uebersprungen += 1
+            continue
         try:
             t()
             print(f"  PASS  {t.__name__}")
             ok += 1
         except Exception as e:                          # noqa: BLE001 — Testreport
             print(f"  FAIL  {t.__name__}: {e}")
-    print(f"\n{ok}/{len(tests)} Tests bestanden.")
-    sys.exit(0 if ok == len(tests) else 1)
+    gefahren = len(tests) - uebersprungen
+    print(f"\n{ok}/{gefahren} Tests bestanden ({uebersprungen} nur unter pytest).")
+    sys.exit(0 if ok == gefahren else 1)
 
 
 # ---------------------------------------------------------------- Oberflaechen-Waechter (Build 125)
@@ -1487,7 +1501,7 @@ def test_kopfleiste_player_hat_mindestmass():
     )
 
 
-def test_abbruch_greift_auch_beim_zusammenfuegen():
+def test_abbruch_greift_auch_beim_zusammenfuegen(tmp_path, monkeypatch):
     # JB-Fund: „Laufende Downloads lassen sich nicht abbrechen."
     # Wurzel: die Optionen trugen nur progress_hooks. Der feuert waehrend des
     # Ladens — danach uebernimmt ffmpeg (Bild+Ton zusammenfuegen, MP3 wandeln,
@@ -1496,6 +1510,10 @@ def test_abbruch_greift_auch_beim_zusammenfuegen():
     # yt-dlp bietet dafuer postprocessor_hooks — die muessen denselben
     # Abbruch pruefen wie der Fortschritts-Hook.
     import types
+    # Der Fehlerkanal muss hier in den Wegwerf-Ordner zeigen, sonst schreibt
+    # dieser Test in den Produktiv-Ordner (Leitplanke P7: messen, ohne den
+    # Gegenstand zu veraendern).
+    monkeypatch.setattr(app, "FEHLER_LOG", str(tmp_path / "yt_fehler.jsonl"))
     gefangen = {}
 
     class FakeYDL:

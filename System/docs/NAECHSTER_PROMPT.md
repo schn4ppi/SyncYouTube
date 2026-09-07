@@ -1,5 +1,41 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
 
+> **NACHTRAG 07.09.2026 — die 403-Runde. MUSS in den nächsten Bau.**
+> Sieben gemessene Befunde, alle repariert, 264 Tests grün (vorher 246):
+>
+> 1. **yt-dlp stand auf 2026.07.04.** In dieser Fassung ist `android_vr` der
+>    erste Vorgabe-Zugangsweg (`YoutubeIE._DEFAULT_CLIENTS`), und YouTube weist
+>    den seit dem 17./18.08.2026 mit HTTP 403 ab (yt-dlp-Fehler 17456, behoben
+>    in 2026.08.19). Die Familien-venv steht jetzt auf **2026.08.19**
+>    (`_DEFAULT_CLIENTS` = `('visionos', 'web')`), der Pin in
+>    `SyncDashTray/System/requirements.txt` ist nachgezogen. Der Bau nimmt
+>    yt-dlp über `collect_all('yt_dlp')` aus der venv, es reicht also, neu zu
+>    bauen. Wächter: `test_yt_dlp_kennt_android_vr_nicht_mehr_als_vorgabe`.
+> 2. **Der Parameter `geo` in `_download_lauf` verdeckte das Modul `geo`.** Im
+>    Fehlerzweig stand damit `False.ist_geo_fehler(...)`: jeder gewöhnliche
+>    Download-Fehler flog als `AttributeError` aus der Funktion, bevor Backoff,
+>    `DAUERHAFT`-Liste oder `max_wiederholungen` überhaupt gefragt wurden. Der
+>    komplette Neuversuch-Mechanismus war unerreichbar, aufgefangen hat es erst
+>    das Netz in `worker_schleife`. Parameter heißt jetzt `geo_lauf`.
+> 3. **Eine Sperre wurde als Cookie-Problem geheilt.** YouTube hängt an jede
+>    Bot-Meldung `YoutubeIE._youtube_login_hint` an — darin stehen »cookie« UND
+>    »browser«, also warf `_ist_cookie_fehler` die Cookies weg und lief sofort
+>    erneut los; ohne Cookies wählt yt-dlp aber genau die gesperrten Wege. Neu:
+>    `_ist_sperre()` greift VOR der Cookie-Prüfung, ein gesperrter Eintrag geht
+>    nicht in den Backoff.
+> 4. **Gegen YouTube bremste nichts** (gegen MusicBrainz an sieben Stellen).
+>    `_ydl_basis_opts` hat jetzt `sleep_interval` 2, `max_sleep_interval` 8,
+>    `sleep_interval_requests` 1. Fehlschläge landen dauerhaft in
+>    `System/yt_fehler.jsonl` (Muster `js_fehler.jsonl`, Deckel 200 KB), und
+>    die Anzeige übersetzt Bot-Verdacht, 429 und 403 verständlich.
+>
+> **Das erklärt aber NICHT das Zeitmuster bei JBs Kumpel** („geht nach ein paar
+> Tagen nicht mehr"). Dessen Ursache ist der Windows-Defender, der die
+> unsignierte PyInstaller-Datei nach einem Muster-Update in Quarantäne setzt.
+> Die Lösung dafür ist die EV-Signatur beim nächsten Bau — der Hardware-Token
+> muss dafür stecken (`signieren.py --status` meldete am 07.09. »Zertifikate:
+> keines«).
+
 > **06.09.2026:** Dies ist DIE aktuelle Übergabe von SyncYouTube (Stand 05.08., Build 171). Am 06.09. aus `System/` nach `System/docs/` verschoben, damit sie versioniert ist (Whitelist-.gitignore gibt nur `System/docs/*.md` frei; Befund SyncYouTube-05). Der ältere Stand vom 23.07. liegt daneben in `NAECHSTE_SESSION.md`.
 
 > **NACHTRAG 05.08. (fünfte Runde, Builds 169–171, JB: „Keine Fragen,
