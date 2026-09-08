@@ -1,5 +1,31 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
 
+> **NACHTRAG 08.09.2026 (spät) — v.1.2.5 veröffentlicht: das erste Release mit
+> Selbst-Update als Vorgabe.**
+>
+> `SyncYouTube.exe` 199,8 MB, EV-signiert (JBK-Holding, Sectigo, RFC-3161-Zeitstempel,
+> `Status: Valid`), SHA-256 `bc2e1e06…`. Sechs Anhänge wie immer: exe + `.sha256`,
+> Quellstart-ZIP + `.sha256`, `updates.json` und die signierte `.xpi` (die beiden
+> letzten müssen bei JEDEM Release dabei sein, sonst läuft der Addon-Update-Kanal
+> über `latest/download` ins Leere).
+>
+> **Live geprüft gegen das echte Release**, nicht nur gegen die Quelle:
+> `update.check_release("1.2.4")` meldet `available=True`, Version 1.2.5, und
+> wählt `SyncYouTube.exe.sha256` — nicht die Prüfsumme des Quellstart-Pakets.
+> `check_release("1.2.5")` meldet `aktuell`. Die veröffentlichte Prüfsumme stimmt
+> mit der gebauten Datei überein. Die gebaute exe wurde im Testmodus gestartet und
+> zeigt `vorgaben_stand: 1` sowie die fünf zuvor verlorenen Schlüssel.
+>
+> **Dabei repariert, mein eigener Fehler:** Die Release-Notizen von sechs Fassungen
+> trugen verstümmelte Umlaute („trÃ¤gt“ statt „trägt“) — der Text war beim Schreiben
+> durch eine Leitung gelaufen, die ihn als cp1252 statt UTF-8 gelesen hat.
+> Zurückgerechnet und einzeln nachgeprüft; alle 18 Releases sind jetzt sauber.
+> **Merke:** Release-Notizen NUR über `gh release create/edit --notes-file` mit einer
+> UTF-8-Datei schreiben, nie über die Befehlszeile.
+>
+> **Offen bleibt** die VirusTotal-Prüfung (Release-Standard) — für v.1.2.4 und jetzt
+> auch für v.1.2.5.
+
 > **NACHTRAG 08.09.2026 — Einheitlichkeit, Signatur, Lizenz, Beschreibungen.**
 > Stand danach: **v.1.2.4 signiert veröffentlicht; 284 Tests grün** (Stand
 > 08.09.2026 abends, nach der Vorgaben-Runde).
