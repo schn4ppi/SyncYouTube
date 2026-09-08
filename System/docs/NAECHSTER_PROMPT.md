@@ -29,7 +29,11 @@
 > Adresse — unsere exe fällt immer über die 32-MB-Grenze). Ergebnis für v.1.2.6:
 > exe **0 von 64**, Quellstart-ZIP **0 von 75**, Signatur von VirusTotal als
 > gültig erkannt, Microsoft `undetected`. Links stehen im Release.
-> **Offen bleiben v.1.2.4 und v.1.2.5** (beide überholt, je ein 200-MB-Upload).
+> **SyncManga 0.4.4 ebenfalls gescannt:** Setup 0 von 75, exe 1 von 75 (allein
+> APEX, ein Maschinenlern-Motor mit generischem Urteil; Microsoft war im Juli
+> noch ein Treffer und ist jetzt sauber — die Signatur wirkt).
+> **Offen bleiben SyncYouTube v.1.2.4 und v.1.2.5** (beide überholt, je ein
+> 200-MB-Upload).
 > **FALLE:** Im `cmdkey`-Passwort-Prompt fügt Strg+V NICHT ein, es tippt `0x16`.
 > Deshalb `virustotal_pruefen.py --schluessel-setzen` benutzen — das prüft die
 > Form (64 Hexzeichen) und speichert nur, was wirklich einer ist.
@@ -96,9 +100,10 @@
 >   Wächter (`test_vorgaben`).
 >
 > **WARTET AUF JB — zwei Entscheidungen, nichts davon begonnen:**
-> - **VirusTotal für SyncManga 0.4.4** — SyncYouTube ist ab v.1.2.6 geprüft
->   (0 von 64 bzw. 0 von 75), SyncManga noch nicht. Ein Aufruf von
->   `virustotal_pruefen.py` genügt, der Schlüssel liegt jetzt im Speicher.
+> - **`SyncManga-Setup.exe` hat keine `.sha256` im Release** (beim Scan
+>   aufgefallen). Der Standard verlangt zu jeder ausgelieferten Datei eine
+>   Prüfsumme. Nachreichen ist ein Eingriff in ein veröffentlichtes Release —
+>   JBs Entscheidung.
 > - **Scharfer Clips-Lauf in SyncFindus**, damit die 129 Beschreibungen ins
 >   Register wandern. Der Probelauf hat nichts geschrieben.
 >
