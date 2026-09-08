@@ -94,24 +94,37 @@ sie gehören bewusst **nicht** ins Repo.
 ## Download (Windows, ohne Python)
 
 Unter **Releases** liegt die all-inclusive `SyncYouTube.exe` (ffmpeg/ffprobe/deno eingebaut):
-herunterladen, starten, fertig. Daneben das `.sha256`-Asset zum Prüfen und die signierte
+herunterladen, starten, fertig — sie ist seit v.1.2.4 signiert (siehe unten). Daneben das
+`.sha256`-Asset zum Prüfen und die signierte
 Firefox-Erweiterung (+ `updates.json`, ihr Update-Kanal: einmal installiert, hält Firefox
 sie ab v1.0.4 selbst aktuell). Updates holt die exe auf Wunsch selbst (Einstellungen →
 „Selbst-Update“, oder Tray → „Nach Updates suchen…“).
 
-### Windows „Smart App Control" blockiert die exe?
+### Signatur (seit v.1.2.4)
 
-Smart App Control (Windows 11) lässt nur Programme laufen, die **signiert** sind oder
-in Microsofts Cloud eine **bekannte Reputation** haben. Unsere exe ist beides (noch)
-nicht: jeder PyInstaller-Build ist ein frisch gehashtes Unikat ohne Herausgeber-
-Signatur — SAC blockiert sie darum ohne „Trotzdem ausführen"-Knopf. Eine
-Code-Signatur ist in Arbeit; bis dahin gibt es den **Quellstart-Weg**, der ohne
-Tricks auskommt:
+Die `SyncYouTube.exe` ist **signiert**: Herausgeber ist die **JBK-Holding GmbH**
+(EV-Code-Signing-Zertifikat von Sectigo, mit RFC-3161-Zeitstempel). Prüfen lässt sich
+das ohne Zusatzprogramm: Rechtsklick auf die Datei, *Eigenschaften*, Reiter *Digitale
+Signaturen*.
+
+Warum das wichtig ist: Bis v.1.2.3 war die Datei unsigniert. Jeder PyInstaller-Build ist
+ein frisch gehashtes Unikat ohne Herausgeber, und Windows Defender hat solche Dateien nach
+einem Update seiner Erkennungsmuster wiederholt in Quarantäne gesetzt — bei einem Nutzer
+reproduzierbar „nach ein paar Tagen". Auch **Smart App Control** (Windows 11) blockierte
+sie ohne „Trotzdem ausführen"-Knopf. Mit EV-Signatur gibt es SmartScreen-Reputation ohne
+Anlaufzeit.
+
+Wer noch eine ältere, unsignierte Fassung hat: einfach die aktuelle aus den
+[Releases](../../releases/latest) laden.
+
+### Der Quellstart-Weg (ohne exe)
+
+Er bleibt als Alternative, etwa in stark abgeriegelten Umgebungen:
 
 1. `SyncYouTube-Quellstart.zip` aus den Releases laden und entpacken.
 2. `SyncYouTube-Quellstart.bat` doppelklicken — gestartet wird der **offizielle,
    von der Python Software Foundation signierte** Python-Interpreter; unsere
-   `.py`-Dateien sind für SAC Daten, keine Programme.
+   `.py`-Dateien sind für Smart App Control Daten, keine Programme.
 
 Alternativ mit eigenem Python (von [python.org](https://python.org), signiert):
 Repo laden, `pip install yt-dlp pystray pillow mutagen pykakasi keyring qrcode python-vlc`,
