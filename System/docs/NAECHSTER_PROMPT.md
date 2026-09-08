@@ -1,5 +1,48 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
 
+> **NACHTRAG 08.09.2026 — Einheitlichkeit, Signatur, Lizenz, Beschreibungen.**
+> Stand danach: **v.1.2.4 signiert veröffentlicht, 268 Tests grün.**
+>
+> 1. **Gleiche Dinge sind jetzt gleich groß** (JB am Screenshot: *„wieso haben
+>    nicht alle videos die gleiche hoehe?"*). Gemessen vorher: Kachelbilder 142
+>    **oder** 250 px, Titel 17 **oder** 34 px, 32 Bedienelemente in **elf**
+>    Höhen. Ursache bei den Kacheln: `aspect-ratio:16/9` am Rahmen hat **nie**
+>    gegriffen, weil `.kachel` ein Spalten-Flex ist und seine Kinder damit
+>    `min-height:auto` haben — ein quadratisches Album-Bild gewinnt. Die
+>    16:9-Bilder sahen nur zufällig richtig aus. Jetzt `flex:none;min-height:0`.
+>    Bedienelemente über zwei Tokens (`--pille-h` 24, `--feld-h` 32), fünf
+>    bewusste Gruppen. Wächter `test_einheitliche_groessen` (Quelle, browserfrei).
+> 2. **EV-Signatur ist der Grund, warum die GitHub-Fassung bei Kumpels nach
+>    Tagen ausfiel** — Defender nahm Teile in Quarantäne. v.1.2.4 ist die erste
+>    mit Sectigo-Zertifikat (JBK-Holding) und RFC-3161-Zeitstempel, `Status:
+>    Valid`. Bauweg: `System/build_release.py` — bauen, signieren, **erst dann**
+>    Prüfsumme, nach oben kopieren; bricht ab, wenn ein Schritt fehlt.
+> 3. **Lizenz-Abschnitt** auf acht Zeilen gekürzt (JB: *„Wieso ist der Lizenz
+>    Abschnitt ein eigener Aufsatz?"*), Einzelheiten in `LIZENZEN.md` — 47
+>    mitgelieferte Bestandteile, vorher waren fünf genannt. Wächter
+>    `test_syncyoutube_lizenzen` misst gegen die PyInstaller-Stückliste.
+> 4. **Beschreibungen** standen immer in den Dateien, wurden nur nie gelesen.
+>    Dritte Stufe der Kaskade in `SyncFindus/System/zubringer_clips.py` liest
+>    sie per ffprobe aus den Tags: **129 von 148 im Probelauf** (vorher 0).
+>
+> **WARTET AUF JB — vier Entscheidungen, nichts davon begonnen:**
+> - **VirusTotal-Prüfung** der beiden signierten Releases (SyncYouTube v.1.2.4,
+>   SyncManga 0.4.4) — gehört laut Release-Standard dazu, ist offen.
+> - **Selbst-Update: Vorgabe an oder aus?** Steht auf aus. Genau dieses
+>   Programm fällt bei Freunden aus, wenn eine alte Fassung liegen bleibt.
+> - **Cookies: Vorgabe aus?** Heute an. Cookies aus dem eigenen Browser sind
+>   der zweite Weg, sich einen Block einzufangen.
+> - **Scharfer Clips-Lauf in SyncFindus**, damit die 129 Beschreibungen ins
+>   Register wandern. Der Probelauf hat nichts geschrieben.
+>
+> **FALLE aus dieser Runde (auch im Lehrbuch, L71):** Ein Wächter, der die
+> Quelle liest, misst leicht die **Erklärung statt der Sache**. Meine erste
+> rote Gegenprobe war grün, obwohl die Zusage weg war — der Kommentar
+> *innerhalb* der CSS-Regel enthielt den gesuchten Text. Kommentare vor dem
+> Prüfen herausschneiden, Namen an Wortgrenzen vergleichen, bei mehreren
+> Treffern den **exakten** Selektor nehmen, und die Gegenprobe an der echten
+> Datei fahren (Prüfsumme vorher/nachher).
+
 > **NACHTRAG 07.09.2026 — die 403-Runde. MUSS in den nächsten Bau.**
 > Sieben gemessene Befunde, alle repariert, 264 Tests grün (vorher 246):
 >
