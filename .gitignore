@@ -21,6 +21,11 @@
 !System/familie.py
 !System/layout_kern.js
 !System/youtube_app.py
+# 08.09.2026: Die Bau-Anleitung selbst war unversioniert — ein Plattenschaden haette
+# das Rezept der ausgelieferten .exe mitgenommen, waehrend der Code ueberlebt haette
+# (Leitplanke P4: Rueckweg immer). Beide enthalten keine Daten, nur Bau-Schritte.
+!System/SyncYouTube.spec
+!System/build_release.py
 !System/huelle.py
 !System/filme.py
 !System/profil_geraete.py
