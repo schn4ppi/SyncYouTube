@@ -7,8 +7,9 @@ Was es tut:
   - Qualität wählbar (Beste / 2160p / 1440p / 1080p / 720p / nur Audio)
   - Automatischer Neuversuch bei Abbruch (Backoff), Downloads werden
     FORTGESETZT wo sie aufgehört haben (yt-dlp .part-Dateien)
-  - Premium-Konto: Cookies werden aus dem Browser gelesen (Standard: Firefox),
-    damit lädt yt-dlp als angemeldeter Premium-Nutzer
+  - Premium-Konto: auf Wunsch liest yt-dlp die Cookies aus dem Browser und
+    lädt als angemeldeter Premium-Nutzer. Vorgabe seit 08.09.2026 ist
+    „keine“ (siehe STANDARD_CONFIG), einzuschalten in den Einstellungen
   - Kleine Web-Oberfläche auf http://127.0.0.1:8776 (nur lokal, wie Suite-Settings)
 
 Suite-Regeln: stdlib-HTTP-Server (kein Framework), nur 127.0.0.1, nichts
@@ -82,11 +83,14 @@ def _testmodus_config(cfg, daten_dir):
     """Im Testmodus erzwingen: eigener Port AUSSERHALB der Produktiv-Spanne
     8776–8781 (8776 ist JBs SyncYouTube, 8779 seit 08.08. SyncFindus — der
     alte Wert 8779 kollidierte damit, Befund 06.09.2026),
-    Downloads im Probenordner, Selbst-Neustart AUS (eine Probe soll sich
-    nicht selbst neu starten und dabei ihre Argumente verlieren)."""
+    Downloads im Probenordner, Selbst-Neustart AUS (eine Probe soll sich nicht
+    selbst neu starten und dabei ihre Argumente verlieren) und Selbst-Update
+    AUS: seit dessen Vorgabe AN ist (08.09.2026), würde eine Probe sonst die
+    echte exe herunterladen und tauschen."""
     cfg["port"] = TESTMODUS_PORT
     cfg["ziel_ordner"] = os.path.join(daten_dir, "Downloads")
     cfg["auto_neustart"] = False
+    cfg["auto_update"] = False                        # eine Probe tauscht NIE eine exe
     cfg["fernsteuerung"] = False                      # Probe lauscht NIE im WLAN
     return cfg
 
@@ -123,7 +127,12 @@ os.environ["PATH"] = BIN_DIR + os.pathsep + os.environ.get("PATH", "")
 STANDARD_CONFIG = {
     "port": 8776,
     "ziel_ordner": "",              # leer = YouTube/Downloads
-    "cookies_browser": "firefox",   # firefox | chrome | edge | keine
+    # JB-Entscheid 08.09.2026: Vorgabe ist „keine“. Cookies aus dem eigenen
+    # Browser hängen das YouTube-Konto an jeden Abruf; wer sie standardmäßig
+    # mitschickt, riskiert bei einem Block das Konto und nicht nur die Leitung.
+    # Wer Premium-Qualität oder altersbeschränkte Videos braucht, stellt in den
+    # Einstellungen einen Browser ein. Werte: firefox | chrome | edge | keine
+    "cookies_browser": "keine",
     "standard_qualitaet": "beste",
     "parallel": 1,                  # gleichzeitige Downloads (1-3)
     "max_wiederholungen": 10,       # danach Status "fehler" (Knopf setzt zurück)
@@ -138,7 +147,30 @@ STANDARD_CONFIG = {
     "fernsteuerung": False,         # Handy-Fernsteuerung im Heim-WLAN erlauben (Standard AUS = nur 127.0.0.1)
     "fernsteuerung_code": "",       # Zugangscode fürs Handy (wird beim ersten Aktivieren erzeugt)
     "untertitel": False,            # Untertitel beim Download mitziehen (Standard aus; der Player holt sie fuers Karaoke bei Bedarf)
-    "auto_update": False,           # Selbst-Update der exe (Opt-in; prüft täglich das GitHub-Release)
+    # JB-Entscheid 08.09.2026: Vorgabe ist AN. Die verteilte exe fiel bei
+    # Mitnutzern aus, weil eine alte Fassung liegen blieb; ein Programm, das
+    # sich selbst aktuell hält, ist der einzige Weg dagegen, der ohne den
+    # Nutzer auskommt. Wirkt nur in der gepackten exe (im Quellcode-Modus
+    # aktualisiert git), tauscht nur im Leerlauf, prüft Größe + SHA256.
+    "auto_update": True,
+    # GEMESSEN 08.09.2026: Diese fünf Schlüssel schreibt das Programm selbst in
+    # config.json, aber sie standen NICHT hier — und `config_laden` behält nur,
+    # was hier steht. Also gingen sie bei JEDEM Neustart verloren: das gewählte
+    # Namensschema, das Auto-Umbenennen, die Untertitel-Sprachen, die global
+    # gemerkte Untertitel-Größe und der Merker der Untertitel-Altlast — weshalb
+    # `wiedergabe_sub_altlast_raeumen` bei jedem Start erneut lief und dabei
+    # config.json neu schrieb. Ein Schlüssel, den das Programm schreibt, gehört
+    # in die Vorgaben; sonst ist er eine Einstellung ohne Gedächtnis.
+    "name_schema": [],              # Namens-Baukasten (leer = NAME_STANDARD)
+    "auto_umbenennen": False,       # Alt-Dateien beim Lauf mit umbenennen
+    "untertitel_sprachen": [],      # leer = die Vorauswahl der Oberfläche
+    "wiedergabe": {},               # Wiedergabe-Regeln (Untertitel-Größe/-Stil, je Titel)
+    "wg_sub_migriert": False,       # Untertitel-Altlast einmalig geräumt?
+    # Stand der ausgelieferten Vorgaben. Wird VORGABEN_STAND hochgezählt, zieht
+    # `_vorgaben_nachziehen` die neuen Werte EINMALIG auch in eine bestehende
+    # config.json nach — sonst erreicht eine Entscheidung nur Neuinstallationen,
+    # und genau die brauchen sie am wenigsten.
+    "vorgaben_stand": 0,
     # Build 127 (JB): Die Link-Rückfrage wird IMMER gestellt — „diese Abfrage
     # ist meiner Meinung nach immer relevant". Ob man einen Kanal abonniert
     # oder lädt, hängt am Kanal, nicht an einer Voreinstellung; eine gemerkte
@@ -235,12 +267,97 @@ def _json_speichern(pfad, daten):
     os.replace(tmp, pfad)
 
 
+# Stand der ausgelieferten Vorgaben — hochzählen, wenn eine Vorgabe sich ändert.
+VORGABEN_STAND = 1
+
+# (Schlüssel, bisher ausgelieferter Wert, neuer Wert). Umgestellt wird NUR dort,
+# wo noch der alte Auslieferungswert steht — wer bewusst „chrome“ gewählt hat,
+# behält chrome.
+VORGABEN_UMSTELLUNG = (
+    ("auto_update", False, True),               # JB-Entscheid 08.09.2026
+    ("cookies_browser", "firefox", "keine"),    # JB-Entscheid 08.09.2026
+)
+
+# Was die Umstellung in DIESEM Lauf geändert hat — main() schreibt es fest
+# (mit Sicherung davor) und sagt es dem Nutzer.
+VORGABEN_NEU = []
+
+# Der GELESENE Stand der config.json, bevor irgendetwas daran geändert wurde.
+# GEMESSEN 08.09.2026 an einem echten Probelauf: eine Sicherung, die in main()
+# einfach die Datei kopiert, kommt zu SPÄT — `wiedergabe_sub_altlast_raeumen`
+# schreibt config.json direkt beim Start, also enthielt der „Rückweg“ schon die
+# neuen Werte. Ein Rückweg, der nur so heißt, ist schlimmer als keiner.
+VORGABEN_ROH = {}
+
+
+def _vorgaben_nachziehen(cfg, roh):
+    """Neue Vorgaben EINMALIG auch in eine bestehende config.json nachziehen.
+
+    Ohne das erreicht eine Entscheidung nur Neuinstallationen: `config_laden`
+    lässt die Datei gewinnen, und eine Datei hat wirklich jeder — das Programm
+    schreibt sie beim Start selbst. GEMESSEN am 08.09.2026 an JBs eigener
+    config.json: dort stand `auto_update: false` und `cookies_browser: firefox`,
+    die gedrehten Vorgaben hätten also nicht einmal seinen eigenen PC erreicht.
+
+    Drei Zusagen:
+      * Sie greift genau einmal — danach steht `vorgaben_stand` in der Datei.
+      * Sie überfährt keine bewusste Wahl: umgestellt wird nur, wo noch exakt
+        der alte Auslieferungswert steht.
+      * Sie hat einen Rückweg: main() legt die alte Datei daneben, bevor der
+        neue Stand geschrieben wird (JB-Regel: kein Verlust ohne Rückweg).
+
+    Ehrlich dazu: „nie angefasst“ und „bewusst auf den alten Wert gestellt“
+    sind in einer alten Datei nicht unterscheidbar. Dafür gibt es den Rückweg
+    und die Meldung — nicht, weil die Unterscheidung gelänge.
+    """
+    if not roh:                                       # frische Installation
+        return VORGABEN_STAND
+    stand = roh.get("vorgaben_stand")
+    stand = stand if isinstance(stand, int) else 0
+    if stand >= VORGABEN_STAND:
+        return stand
+    for schluessel, alt, neu in VORGABEN_UMSTELLUNG:
+        if roh.get(schluessel) == alt:
+            cfg[schluessel] = neu
+            VORGABEN_NEU.append((schluessel, alt, neu))
+    if VORGABEN_NEU:
+        VORGABEN_ROH.clear()
+        VORGABEN_ROH.update(roh)                      # der Stand VOR allem
+    return VORGABEN_STAND
+
+
 def config_laden():
     cfg = dict(STANDARD_CONFIG)
-    cfg.update({k: v for k, v in _json_laden(CONFIG_PFAD, {}).items() if k in STANDARD_CONFIG})
+    roh = _json_laden(CONFIG_PFAD, {})
+    cfg.update({k: v for k, v in roh.items() if k in STANDARD_CONFIG})
+    cfg["vorgaben_stand"] = _vorgaben_nachziehen(cfg, roh)
     if TESTMODUS:                                     # Probe: eigener Port, eigene Downloads,
         _testmodus_config(cfg, DATEN_DIR)             # kein Selbst-Neustart, kein WLAN
     return cfg
+
+
+def vorgaben_umstellung_festschreiben():
+    """Die Umstellung in die Datei schreiben — mit Sicherungskopie davor.
+
+    Läuft erst in main(), nachdem der Einzel-Instanz-Riegel bestanden ist: eine
+    zweite Instanz, die sich gleich wieder beendet, darf die Datei des laufenden
+    Programms nicht anfassen. Gesichert wird der GELESENE Stand (`VORGABEN_ROH`),
+    nicht die Datei — die ist zu diesem Zeitpunkt längst neu geschrieben. Lässt
+    sich die Sicherung nicht anlegen, wird NICHT umgestellt."""
+    # Nur melden, was am Ende WIRKLICH so in CFG steht. Im Testmodus setzt
+    # `_testmodus_config` auto_update danach wieder auf False - eine Meldung
+    # "auto_update False -> True" waere dort schlicht unwahr.
+    geaendert = [(s, a, n) for s, a, n in VORGABEN_NEU if CFG.get(s) == n]
+    if not geaendert:
+        return []
+    sicherung = os.path.join(DATEN_DIR, "config_vor_stand%d.json" % VORGABEN_STAND)
+    if not os.path.exists(sicherung):
+        try:
+            _json_speichern(sicherung, VORGABEN_ROH)
+        except OSError:                               # noqa: BLE001 — lieber nicht umstellen
+            return []                                 # als ohne Rückweg umstellen
+    _json_speichern(CONFIG_PFAD, CFG)
+    return geaendert
 
 
 # ---------------------------------------------------------------- Warteschlange
@@ -593,7 +710,10 @@ def _ydl_basis_opts(mit_cookies=True):
     ff = _ffmpeg_ordner()
     if ff:
         opts["ffmpeg_location"] = ff
-    browser = CFG.get("cookies_browser", "firefox")
+    # Zweiter Vorgabewert: greift, wenn CFG den Schlüssel gar nicht kennt.
+    # Er muss dasselbe sagen wie STANDARD_CONFIG, sonst hätte das Programm
+    # zwei Wahrheiten über seine eigene Vorgabe (Befund 08.09.2026).
+    browser = CFG.get("cookies_browser", "keine")
     if mit_cookies and browser and browser != "keine":
         opts["cookiesfrombrowser"] = (browser,)
     return opts
@@ -6293,7 +6413,17 @@ def update_lauf(icon=None):
     try:
         info = update.check_release(__version__)
         if not info.get("available"):
-            melde(f"Schon aktuell (v{__version__}).")
+            # Früher meldete JEDER Ausgang „Schon aktuell“ — auch „kein Netz“ und
+            # „Release ohne exe“. Solange das Update Opt-in war, sah das nur, wer
+            # selbst nachschaute. Als Vorgabe wäre ein dauerhaft kaputter
+            # Update-Weg von einem gesunden nicht zu unterscheiden.
+            grund = info.get("grund", "aktuell")
+            if grund == "offline":
+                melde("GitHub war nicht erreichbar — nächster Versuch später.")
+            elif grund == "kein-asset":
+                melde("Das neueste Release enthält keine passende exe — nichts getauscht.")
+            else:
+                melde(f"Schon aktuell (v{__version__}).")
             return
         melde(f"Neue Version v{info['version']} — lade herunter …")
         neu = update.download_exe(info, os.path.dirname(exe))
@@ -6306,16 +6436,35 @@ def update_lauf(icon=None):
 _tray_ref = []                                       # [icon] sobald der Tray läuft (für Notizen)
 
 
+def _downloads_aktiv():
+    """Läuft gerade ein Download oder eine Auflösung?"""
+    with Q.lock:
+        return any(it.get("status") in ("laeuft", "prueft") for it in Q.items)
+
+
 def _update_hintergrund():
-    """Opt-in-Auto-Update (Standard AUS): kurz nach Start, danach täglich."""
+    """Auto-Update (Vorgabe AN seit 08.09.2026): kurz nach Start, danach täglich.
+
+    NUR im Leerlauf. Der Tausch beendet den Prozess hart
+    (`update.apply_exe_update` → `os._exit(0)`); solange die Entscheidung
+    Opt-in war, traf das nur, wer sie selbst eingeschaltet hatte. Als Vorgabe
+    träfe es jeden, auch mitten in einem großen Download. Die Warteschlange
+    überlebt zwar (beim Start werden „läuft“/„prüft“ wieder zu „wartend“ und
+    yt-dlp setzt an der .part-Datei fort), aber ein Abbruch ohne Not bleibt
+    ein Abbruch. Ist etwas in Arbeit, wird der Versuch um eine halbe Stunde
+    verschoben — kein neuer Zeitplan, derselbe Faden schläft nur kürzer."""
     time.sleep(90)
     while True:
+        wartezeit = 24 * 3600
         if CFG.get("auto_update") and update.frozen_exe():
-            try:
-                update_lauf(_tray_ref[0] if _tray_ref else None)
-            except Exception:                        # noqa: BLE001
-                pass
-        time.sleep(24 * 3600)
+            if _downloads_aktiv():
+                wartezeit = 1800                     # beschäftigt — später nochmal
+            else:
+                try:
+                    update_lauf(_tray_ref[0] if _tray_ref else None)
+                except Exception:                    # noqa: BLE001
+                    pass
+        time.sleep(wartezeit)
 
 
 def _tray_icon(url):
@@ -6407,6 +6556,12 @@ def main():
         if "--no-browser" not in sys.argv:
             webbrowser.open(url)
         return
+    # Erst hier, hinter dem Einzel-Instanz-Riegel: eine zweite Instanz, die sich
+    # gleich wieder beendet, darf die config.json des laufenden Programms nicht
+    # anfassen (JB-Regel: geteilter Zustand, zwei Fragen).
+    for schluessel, alt, neu in vorgaben_umstellung_festschreiben():
+        _sag(f"Neue Vorgabe übernommen: {schluessel} {alt} → {neu} "
+             f"(alter Stand liegt als config_vor_stand{VORGABEN_STAND}.json daneben)")
     _worker_start(max(1, min(3, int(CFG.get("parallel", 1)))))
     threading.Thread(target=ticker_schleife, daemon=True).start()
     threading.Thread(target=technik_backfill, daemon=True).start()   # Codecs für Alt-Dateien
@@ -6414,7 +6569,7 @@ def main():
     threading.Thread(target=_abos_hintergrund, daemon=True).start()  # Abos auf neue Videos prüfen
     threading.Thread(target=_einsortieren_hintergrund, daemon=True).start()  # verschobene Dateien zurücksortieren
     update.cleanup_old_exe()                                          # Reste früherer Selbst-Updates
-    threading.Thread(target=_update_hintergrund, daemon=True).start()  # Opt-in-Auto-Update (Standard aus)
+    threading.Thread(target=_update_hintergrund, daemon=True).start()  # Auto-Update (Vorgabe AN, nur im Leerlauf)
     _sag(f"YouTube-Downloader läuft: {url}")
     if "--no-browser" not in sys.argv:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()

@@ -3,7 +3,7 @@
 Lokaler YouTube-Downloader **und** vollwertiger Musik-/Video-Player mit Bibliothek —
 eine einzige Web-Oberfläche auf `http://127.0.0.1:8776`, komplett offline auf dem eigenen PC
 (einzige Außenverbindungen: YouTube selbst, MusicBrainz fürs Tagging, die SponsorBlock-Datenbank
-und — nur auf Wunsch — der Update-Check gegen dieses GitHub-Repo).
+und der tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an, abschaltbar).
 
 ![SyncYouTube — Bibliothek, Player und Download-Leiste in einer Oberfläche](screenshot.png)
 
@@ -12,7 +12,8 @@ und — nur auf Wunsch — der Update-Check gegen dieses GitHub-Repo).
 **Downloads**
 - Warteschlange ohne Limit, Qualität je Eintrag (Beste/4K/1440p/1080p/720p/MP3), Playlist-Auflösung
 - Auto-Retry mit Backoff + Resume (setzt nach Abbruch/Neustart genau dort fort), Netzwerk-Timeout-Schutz
-- Premium/altersbeschränkt über Browser-Cookies (Firefox/Chrome/Edge)
+- Premium/altersbeschränkt über Browser-Cookies (Firefox/Chrome/Edge) — standardmäßig aus,
+  in den Einstellungen einschaltbar; ohne Cookies lädt die App anonym
 - Dubletten-Erkennung über die Video-ID, „Schon geladen“-Datenbank
 - SponsorBlock (Werbung/Intros aus der Datei schneiden), Metadaten + Thumbnail als Cover
 - Kanal-/Playlist-**Abos** (holt nur Neues), Ausschnitt/Clip (von–bis, ohne Längenlimit)
@@ -57,8 +58,9 @@ und — nur auf Wunsch — der Update-Check gegen dieses GitHub-Repo).
 - Browser-Erweiterung für Firefox/Chrome/Edge (`System/browser-addon/`, ein Code; die signierte
   Firefox-`.xpi` liegt beim Release und ist über das Tray-Menü/die Einstellungen installierbar —
   ab v1.0.4 aktualisiert sie sich in Firefox selbst über die Releases dieses Repos)
-- **Selbst-Update** (opt-in, Standard aus): die exe prüft täglich dieses Repo, lädt verifiziert
-  (SHA256-Abgleich gegen das `.sha256`-Asset) und tauscht sich ohne Adminrechte selbst
+- **Selbst-Update** (Standard an): die exe prüft täglich dieses Repo, lädt verifiziert
+  (Größe + SHA256-Abgleich gegen das `.sha256`-Asset) und tauscht sich ohne Adminrechte selbst —
+  aber nur im Leerlauf, nie mitten in einem Download. Abschaltbar in den Einstellungen
 
 ## Voraussetzungen / Start (aus dem Quellcode)
 
@@ -97,8 +99,8 @@ Unter **Releases** liegt die all-inclusive `SyncYouTube.exe` (ffmpeg/ffprobe/den
 herunterladen, starten, fertig — sie ist seit v.1.2.4 signiert (siehe unten). Daneben das
 `.sha256`-Asset zum Prüfen und die signierte
 Firefox-Erweiterung (+ `updates.json`, ihr Update-Kanal: einmal installiert, hält Firefox
-sie ab v1.0.4 selbst aktuell). Updates holt die exe auf Wunsch selbst (Einstellungen →
-„Selbst-Update“, oder Tray → „Nach Updates suchen…“).
+sie ab v1.0.4 selbst aktuell). Updates holt die exe standardmäßig selbst (abschaltbar unter
+Einstellungen → „Selbst-Update“; von Hand anstoßen über Tray → „Nach Updates suchen…“).
 
 ### Signatur (seit v.1.2.4)
 

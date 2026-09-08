@@ -1703,12 +1703,12 @@ Playlist-Link (…/playlist?list=…) übernimmt die ganze Liste."></textarea>
             <option value="1">an (Titel, Künstler, Datum …)</option>
             <option value="0">aus</option>
           </select>
-          <span>Premium-Cookies aus</span>
-          <select id="cfg_browser">
+          <span>Premium-Cookies lesen aus</span>
+          <select id="cfg_browser" title="Standard seit 08.09.2026: keine. Ohne Cookies lädt die App anonym; das eigene YouTube-Konto hängt dann an keinem Abruf. Für Premium-Qualität und altersbeschränkte Videos hier den Browser wählen, in dem du bei YouTube angemeldet bist.">
+            <option value="keine">keine — anonym laden (Standard)</option>
             <option value="firefox">Firefox</option>
             <option value="chrome">Chrome</option>
             <option value="edge">Edge</option>
-            <option value="keine">keine (ohne Konto laden)</option>
           </select>
           <span>Gleichzeitige Downloads</span>
           <select id="cfg_parallel"><option>1</option><option>2</option><option>3</option></select>
@@ -1758,15 +1758,17 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
           </select>
         </div>
         <div class="zeile"><label for="cfg_autoupdate">Selbst-Update der exe</label>
-          <select id="cfg_autoupdate" title="Opt-in: die gepackte exe prüft täglich das GitHub-Release, lädt verifiziert (SHA256) und tauscht sich selbst. Im Quellcode-Modus ohne Wirkung — dort aktualisiert git.">
-            <option value="0">aus (Standard)</option>
-            <option value="1">automatisch aktualisieren</option>
+          <select id="cfg_autoupdate" title="Standard seit 08.09.2026: an. Die gepackte exe prüft täglich das GitHub-Release, prüft Größe und SHA256 und tauscht sich dann selbst aus — aber nur, wenn gerade kein Download läuft. Im Quellcode-Modus ohne Wirkung, dort aktualisiert git.">
+            <option value="1">automatisch aktualisieren (Standard)</option>
+            <option value="0">aus</option>
           </select>
         </div>
         <div class="zeile"><button class="btn" onclick="configSpeichern()">Speichern</button>
           <span id="cfg_meldung" style="font-size:12px;color:#9ec49a"></span></div>
-        <div class="hinweis">Premium-Qualität &amp; altersbeschränkte Videos funktionieren über die
-          Browser-Cookies — dafür in dem Browser bei YouTube angemeldet sein. Abgebrochene Downloads
+        <div class="hinweis">Premium-Qualität und altersbeschränkte Videos brauchen die
+          Browser-Cookies. Die stehen seit dem 08.09.2026 standardmäßig auf „keine“: die App lädt
+          dann anonym, und dein YouTube-Konto hängt an keinem Abruf. Brauchst du Premium oder ein
+          altersbeschränktes Video, oben den Browser wählen, in dem du bei YouTube angemeldet bist. Abgebrochene Downloads
           werden automatisch neu gestartet und setzen an der Abbruchstelle fort. Dubletten werden an
           der Video-Kennung erkannt und übersprungen. Thumbnail wird als Cover eingebettet.
           Geo-Sperren umgehen probiert automatisch der Reihe nach: Header-Trick (gratis) → eigene Proxys →

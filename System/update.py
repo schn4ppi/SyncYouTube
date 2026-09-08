@@ -51,7 +51,17 @@ def pick_assets(assets, repo=REPO):
     """(exe_asset, sha_asset) aus einer Release-Asset-Liste — rein, testbar.
 
     Akzeptiert NUR Assets, deren Download-URL auf das eigene Repo zeigt —
-    ein manipulierter Eintrag in der API-Antwort kann nie woandershin führen."""
+    ein manipulierter Eintrag in der API-Antwort kann nie woandershin führen.
+
+    Die Prüfsumme wird EXAKT an `SyncYouTube.exe.sha256` erkannt. Die frühere
+    Regel „endet auf .sha256 und enthält syncyoutube“ passte auf zwei Assets des
+    echten Releases (auch auf `SyncYouTube-Quellstart.zip.sha256`) und behielt
+    den LETZTEN Treffer. Gemessen am Release v.1.2.4: in der von GitHub
+    gelieferten Reihenfolge gewann zufällig die richtige Datei, in umgekehrter
+    Reihenfolge die des Quellstart-Pakets — dann verwirft `verify_exe` jede
+    gesunde exe mit „Prüfsumme stimmt nicht“, und das Selbst-Update hätte still
+    nie wieder funktioniert. Findet sich keine passende Prüfsumme, bleibt es bei
+    der Größenprüfung; eine FALSCHE Prüfsumme ist schlimmer als keine."""
     prefix = f"https://github.com/{repo}/releases/download/"
     exe = sha = None
     for a in assets or []:
@@ -60,7 +70,7 @@ def pick_assets(assets, repo=REPO):
         name = str(a.get("name", "")).lower()
         if name == EXE_ASSET:
             exe = a
-        elif name.endswith(".sha256") and "syncyoutube" in name:
+        elif name == EXE_ASSET + ".sha256":
             sha = a
     return exe, sha
 
@@ -73,18 +83,27 @@ def parse_sha256(text):
 
 
 def check_release(current, fetch_json=None):
-    """Neuestes Release auswerten -> {available, version, exe_url, size, sha_url}.
+    """Neuestes Release auswerten -> {available, grund, version, exe_url, size, sha_url}.
 
     Fehler, kein Release oder kein exe-Asset -> available=False; die App läuft
-    einfach normal weiter. /releases/latest liefert nie Prereleases."""
+    einfach normal weiter. /releases/latest liefert nie Prereleases.
+
+    `grund` sagt, WARUM nichts zu tun ist: "offline" (GitHub nicht erreichbar),
+    "kein-asset" (Release ohne passende exe), "aktuell" (nichts Neueres) oder
+    "neu". Ohne diese Unterscheidung meldete die App jeden Ausgang als „Schon
+    aktuell“ — solange das Update Opt-in war, sah das nur, wer selbst nachschaute;
+    als Vorgabe wäre ein dauerhaft kaputter Update-Weg von einem gesunden nicht
+    mehr zu unterscheiden."""
     fetch_json = fetch_json or fetch_release_json
     try:
         data = fetch_json() or {}
     except Exception:                                # noqa: BLE001 — offline ist kein Fehler
-        return {"available": False, "version": ""}
+        return {"available": False, "grund": "offline", "version": ""}
     tag = str(data.get("tag_name") or "").strip()
     exe, sha = pick_assets(data.get("assets"))
-    return {"available": bool(exe) and is_newer(tag, current),
+    neuer = bool(exe) and is_newer(tag, current)
+    return {"available": neuer,
+            "grund": "neu" if neuer else ("kein-asset" if not exe else "aktuell"),
             "version": tag.lstrip("vV."),
             "exe_url": (exe or {}).get("browser_download_url", ""),
             "size": int((exe or {}).get("size") or 0),

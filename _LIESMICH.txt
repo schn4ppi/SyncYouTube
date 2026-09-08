@@ -25,8 +25,17 @@ Bedienung:  Links oben einfügen (mehrere: einer pro Zeile), Qualität wählen,
             „In die Warteschlange". Playlist-Links (…/playlist?list=…) werden
             komplett übernommen; watch-Links mit &list= laden NUR das eine Video.
 
-Premium:    Die App liest die YouTube-Cookies aus Firefox (einstellbar).
-            Einfach in Firefox bei YouTube angemeldet sein — mehr ist nicht nötig.
+Premium:    Standard seit 08.09.2026 ist „keine Cookies“: die App lädt anonym,
+            dein YouTube-Konto hängt an keinem Abruf. Für Premium-Qualität oder
+            altersbeschränkte Videos in den Einstellungen unter
+            „Premium-Cookies lesen aus“ deinen Browser wählen und dort bei
+            YouTube angemeldet sein.
+
+Updates:    Die exe hält sich selbst aktuell (Standard an). Sie fragt täglich
+            beim GitHub-Release nach, prüft Größe und Prüfsumme und tauscht sich
+            dann aus — nur im Leerlauf, nie mitten in einem Download. Dabei
+            startet das Programm einmal neu; die Warteschlange bleibt erhalten.
+            Abschaltbar unter Einstellungen → „Selbst-Update der exe“.
 
 Abbrüche:   Bricht ein Download ab, versucht die App es automatisch neu
             (10s/30s/60s/2min/5min-Abstände, bis 10x) und setzt dabei an der
@@ -206,10 +215,11 @@ Geo-Sperre: „Nicht in deinem Land verfügbar" umgeht die App automatisch — s
             WireGuard-Import (Config einfügen + Land wählen → App legt die Datei
             benannt ab) und ein „🌍 Test", der an einem gesperrten Video zeigt,
             welcher Weg bei dir Zugang gibt (✓/✗).
-            SICHERHEIT: Die App meldet dich NIE bei YouTube an/ab — sie liest nur
-            die vorhandenen Firefox-Cookies. Normale Downloads mit Cookies
-            (Premium), Geo-Downloads OHNE Cookies (anonym) — so wird der „Konto
-            aus fremdem Land"-Verdacht vermieden.
+            SICHERHEIT: Die App meldet dich NIE bei YouTube an oder ab. Seit dem
+            08.09.2026 liest sie standardmäßig gar keine Cookies, lädt also
+            durchweg anonym. Hast du Cookies eingeschaltet, gilt weiterhin:
+            normale Downloads mit Cookies (Premium), Geo-Downloads OHNE Cookies
+            — so wird der „Konto aus fremdem Land"-Verdacht vermieden.
             Hinweis: verstößt gegen YouTube-Nutzungsbedingungen — eigenes Risiko.
 
 Cover:      Das YouTube-Thumbnail wird als Dateicover eingebettet. Bei

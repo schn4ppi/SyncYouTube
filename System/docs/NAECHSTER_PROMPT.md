@@ -25,15 +25,47 @@
 >    Dritte Stufe der Kaskade in `SyncFindus/System/zubringer_clips.py` liest
 >    sie per ffprobe aus den Tags: **129 von 148 im Probelauf** (vorher 0).
 >
-> **WARTET AUF JB — vier Entscheidungen, nichts davon begonnen:**
+> **ENTSCHIEDEN am 08.09.2026 abends und gebaut** (JB: *„selbst-update
+> standardmäßig an, cookies aus“*): `auto_update` steht auf **True**,
+> `cookies_browser` auf **„keine“**. Wichtiger als die zwei Werte ist, was die
+> Prüfung dabei ans Licht brachte:
+> - Eine reine Vorgaben-Änderung hätte **niemanden** erreicht. `config_laden`
+>   lässt die gespeicherte `config.json` gewinnen, und die hat wirklich jeder —
+>   das Programm schreibt sie beim Start selbst. In JBs eigener Datei stand
+>   `auto_update: false` und `cookies_browser: firefox`. Deshalb gibt es jetzt
+>   `VORGABEN_STAND` + `_vorgaben_nachziehen`: die neuen Werte werden **einmalig**
+>   auch in bestehende Installationen gezogen, aber nur dort, wo noch der alte
+>   Auslieferungswert steht, und mit einer Sicherung `config_vor_stand1.json`.
+> - **Fünf Einstellungen überlebten bisher keinen Neustart.** Der Filter
+>   `if k in STANDARD_CONFIG` warf `name_schema`, `auto_umbenennen`,
+>   `untertitel_sprachen`, `wiedergabe` und `wg_sub_migriert` weg — alles
+>   Schlüssel, die das Programm selbst schreibt. Namensschema, Auto-Umbenennen,
+>   Untertitel-Sprachen und die global gemerkte Untertitel-Größe standen nach
+>   jedem Start wieder auf Anfang. Jetzt in `STANDARD_CONFIG`, mit Auto-Discovery-
+>   Wächter (`test_vorgaben`).
+>
+> **WARTET AUF JB — zwei Entscheidungen, nichts davon begonnen:**
 > - **VirusTotal-Prüfung** der beiden signierten Releases (SyncYouTube v.1.2.4,
 >   SyncManga 0.4.4) — gehört laut Release-Standard dazu, ist offen.
-> - **Selbst-Update: Vorgabe an oder aus?** Steht auf aus. Genau dieses
->   Programm fällt bei Freunden aus, wenn eine alte Fassung liegen bleibt.
-> - **Cookies: Vorgabe aus?** Heute an. Cookies aus dem eigenen Browser sind
->   der zweite Weg, sich einen Block einzufangen.
 > - **Scharfer Clips-Lauf in SyncFindus**, damit die 129 Beschreibungen ins
 >   Register wandern. Der Probelauf hat nichts geschrieben.
+>
+> **ZU KLÄREN, weil die Prüfung es aufwarf (Richtungsfragen, nicht gebaut):**
+> - **Cookies-aus könnte gegen das Ziel arbeiten.** Der eigene Code hält seit der
+>   403-Runde fest: *„ohne Cookies wählt yt-dlp die nicht angemeldeten
+>   Vorgabe-Wege, also genau die gesperrten“* (`_ist_sperre`, 07.09.2026). Die
+>   Vorgabe ist gebaut wie entschieden; ein Wort genügt, um sie zurückzudrehen.
+> - **Der Updater prüft die Signatur der geladenen exe nicht** — nur Größe und
+>   SHA256, und beide stammen aus derselben Quelle. Ein versehentlich unsignierter
+>   Release ginge jetzt automatisch an alle. Eine Authenticode-Prüfung vor dem
+>   Tausch wäre der Riegel, ist aber eine eigene Runde.
+> - **`build_release.py` warnt nur, wenn der eToken fehlt, statt abzubrechen.**
+>   Fail-closed wäre sicherer, verböte aber jeden Bau ohne gesteckten Token —
+>   das ist JBs Entscheidung, keine Aufräumarbeit.
+> - **Eine bereits ausgefallene Installation heilt das alles nicht.** Liegt die
+>   alte exe beim Freund in Quarantäne, läuft sie nicht und kann sich auch nicht
+>   selbst aktualisieren. Er muss v.1.2.4 einmal von Hand holen; ab dann trägt
+>   das Selbst-Update.
 >
 > **FALLE aus dieser Runde (auch im Lehrbuch, L71):** Ein Wächter, der die
 > Quelle liest, misst leicht die **Erklärung statt der Sache**. Meine erste
