@@ -61,6 +61,25 @@ LK.skaliere=function(rects,rx,ry,minW,minH){
   });
 };
 
+/* Rahmen-Klemme (JB-Fund 08.09.2026, live gemessen): skaliere() klemmt die
+   BREITE auf das Minimum hoch, skaliert die POSITION aber weiter mit. Bei einem
+   430 px breiten Fenster stand der Player dadurch auf x=275 mit der
+   Mindestbreite 220 und ragte 65 px aus der Flaeche; bei 560 px waren es 23 px.
+   Sichtbar wurde es sofort, weil die Flaeche abschneidet und nicht scrollt.
+   entklemmen() half nicht: die beiden Fenster BERUEHRTEN sich nur (x = Nachbar-
+   Rechtskante), und Beruehrung ist ausdruecklich keine Kollision.
+   Diese Klemme zieht jedes Fenster in die Flaeche zurueck. Sie laeuft VOR
+   entklemmen, damit dessen Zeilenumbruch die Ueberlappungen aufloest, die das
+   Zurueckziehen erzeugt — und danach noch einmal, damit die Zusage
+   "x + w <= cw" ohne Wenn und Aber gilt. Mutiert die Objekte. */
+LK.inDenRahmen=function(rects,cw){
+  if(!(cw>0))return;
+  rects.forEach(function(p){
+    if(p.w>cw)p.w=cw;
+    p.x=Math.max(0,Math.min(p.x,cw-p.w));
+  });
+};
+
 /* Reflow nach dem Klemmen (JB-Bild 05.08.2026): skaliere() klemmt Masse auf
    Minima, skaliert die Positionen aber weiter — bei stark verkleinertem
    Viewport rutschen geklemmte Fenster unter ihre Nachbarn (live: breites

@@ -613,7 +613,17 @@ body.dragziel::after{content:"⬇ Link hier loslassen = Download";position:fixed
 .legrow b{color:var(--akz2);font-weight:600}
 html.light .legrow{color:#4a3f38}
 #layoutbar .btn{padding:5px 11px}
-#canvas{position:relative;width:100%;flex:1;min-height:0;overflow:hidden;padding:2px 10px 8px}
+/* JB-Fund 08.09.2026: `overflow:hidden` hat abgeschnitten statt gezeigt.
+   Waagerecht ist das jetzt richtig — `LK.inDenRahmen` sorgt dafuer, dass
+   nichts mehr nach rechts hinausragt, es gibt also nichts zu scrollen.
+   Senkrecht geht es nicht ohne: bei 560x560 bleiben der Flaeche 236 px,
+   zwei Fenster brauchen mit ihrer Mindesthoehe aber 320. GEMESSEN standen
+   dort schon vorher beide Fenster 84 px unten hinaus — unsichtbar
+   abgeschnitten. Lieber ein Rollbalken, den es nur im Notfall gibt, als
+   Inhalt, den niemand erreicht (JBs Anti-Scroll-Regel sagt „moeglichst
+   wenig scrollen“, nicht „lieber verstecken“). `auto` blendet ihn ein,
+   sobald es passt, wieder aus. */
+#canvas{position:relative;width:100%;flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;padding:2px 10px 8px}
 
 /* ---- Panels (bewegliche Fenster) ---- */
 .panel{position:absolute;background:var(--panel);border:1px solid var(--panelln);border-radius:12px;display:flex;
@@ -2021,6 +2031,25 @@ LK.skaliere=function(rects,rx,ry,minW,minH){
   });
 };
 
+/* Rahmen-Klemme (JB-Fund 08.09.2026, live gemessen): skaliere() klemmt die
+   BREITE auf das Minimum hoch, skaliert die POSITION aber weiter mit. Bei einem
+   430 px breiten Fenster stand der Player dadurch auf x=275 mit der
+   Mindestbreite 220 und ragte 65 px aus der Flaeche; bei 560 px waren es 23 px.
+   Sichtbar wurde es sofort, weil die Flaeche abschneidet und nicht scrollt.
+   entklemmen() half nicht: die beiden Fenster BERUEHRTEN sich nur (x = Nachbar-
+   Rechtskante), und Beruehrung ist ausdruecklich keine Kollision.
+   Diese Klemme zieht jedes Fenster in die Flaeche zurueck. Sie laeuft VOR
+   entklemmen, damit dessen Zeilenumbruch die Ueberlappungen aufloest, die das
+   Zurueckziehen erzeugt — und danach noch einmal, damit die Zusage
+   "x + w <= cw" ohne Wenn und Aber gilt. Mutiert die Objekte. */
+LK.inDenRahmen=function(rects,cw){
+  if(!(cw>0))return;
+  rects.forEach(function(p){
+    if(p.w>cw)p.w=cw;
+    p.x=Math.max(0,Math.min(p.x,cw-p.w));
+  });
+};
+
 /* Reflow nach dem Klemmen (JB-Bild 05.08.2026): skaliere() klemmt Masse auf
    Minima, skaliert die Positionen aber weiter — bei stark verkleinertem
    Viewport rutschen geklemmte Fenster unter ihre Nachbarn (live: breites
@@ -2587,10 +2616,18 @@ function layoutProjizieren(){
   }
   const b=L.basis, kopie=b.panels.map(g=>({id:g.id,x:g.x,y:g.y,w:g.w,h:g.h}));
   LK.skaliere(kopie, m.cw/b.vp.cw, m.ch/b.vp.ch, 220, 160);
+  // JB-Fund 08.09.2026, live gemessen: die Minima-Klemme macht ein Fenster
+  // BREITER, verschiebt seine Position aber weiter nach rechts — bei 430 px
+  // stand der Player auf x=275 mit der Mindestbreite 220 und ragte 65 px aus
+  // der Flaeche. Sichtbar sofort, weil #canvas abschneidet (overflow:hidden).
+  // Erst zurueck in den Rahmen holen, DANN entklemmen: der Reflow loest die
+  // dabei entstehenden Ueberlappungen mit seinem Zeilenumbruch auf.
+  LK.inDenRahmen(kopie, m.cw);
   // JB-Bild 05.08.: die Minima-Klemme schob geklemmte Fenster unter ihre
   // Nachbarn (schmales Fenster + breite Basis). Der Reflow ordnet NUR die
   // Projektion — die Basis (JBs gebaute Anordnung) bleibt unangetastet.
   LK.entklemmen(kopie, m.cw, Math.max(0,fensterAbstand()));
+  LK.inDenRahmen(kopie, m.cw);          // Zusage x+w<=cw ohne Wenn und Aber
   L.panels.forEach(p=>{const g=kopie.find(x=>x.id===p.id); if(g){p.x=g.x; p.y=g.y; p.w=g.w; p.h=g.h;}});
   L.vp=m;
 }
