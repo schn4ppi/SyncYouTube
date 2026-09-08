@@ -1,7 +1,8 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
 
 > **NACHTRAG 08.09.2026 — Einheitlichkeit, Signatur, Lizenz, Beschreibungen.**
-> Stand danach: **v.1.2.4 signiert veröffentlicht, 268 Tests grün.**
+> Stand danach: **v.1.2.4 signiert veröffentlicht; 284 Tests grün** (Stand
+> 08.09.2026 abends, nach der Vorgaben-Runde).
 >
 > 1. **Gleiche Dinge sind jetzt gleich groß** (JB am Screenshot: *„wieso haben
 >    nicht alle videos die gleiche hoehe?"*). Gemessen vorher: Kachelbilder 142
@@ -25,17 +26,33 @@
 >    Dritte Stufe der Kaskade in `SyncFindus/System/zubringer_clips.py` liest
 >    sie per ffprobe aus den Tags: **129 von 148 im Probelauf** (vorher 0).
 >
-> **ENTSCHIEDEN am 08.09.2026 abends und gebaut** (JB: *„selbst-update
-> standardmäßig an, cookies aus“*): `auto_update` steht auf **True**,
-> `cookies_browser` auf **„keine“**. Wichtiger als die zwei Werte ist, was die
-> Prüfung dabei ans Licht brachte:
+> **ENTSCHIEDEN am 08.09.2026 abends** (JB: *„selbst-update standardmäßig an,
+> cookies aus“*) — **und die zweite Hälfte wenige Minuten später
+> zurückgenommen** (*„cookies wieder an, das Risiko ist zu groß“*). Es gilt
+> also: `auto_update` steht auf **True**, `cookies_browser` bleibt bei
+> **„firefox“**. Der Rückzieher war richtig, und der eigene Code sagt warum:
+> ohne Cookies wählt yt-dlp die nicht angemeldeten Vorgabe-Zugangswege, also
+> genau die, gegen die YouTube sperrt (`_ist_sperre`, 403-Runde 07.09.2026).
+> Zum Zeitpunkt der Rücknahme war gemessen keine einzige Installation
+> umgestellt, deshalb genügte das Entfernen des Eintrags aus
+> `VORGABEN_UMSTELLUNG` — kein Rück-Umstellungs-Schritt nötig.
+>
+> Wichtiger als der eine Wert ist, was die Prüfung dabei ans Licht brachte:
 > - Eine reine Vorgaben-Änderung hätte **niemanden** erreicht. `config_laden`
 >   lässt die gespeicherte `config.json` gewinnen, und die hat wirklich jeder —
 >   das Programm schreibt sie beim Start selbst. In JBs eigener Datei stand
->   `auto_update: false` und `cookies_browser: firefox`. Deshalb gibt es jetzt
->   `VORGABEN_STAND` + `_vorgaben_nachziehen`: die neuen Werte werden **einmalig**
+>   `auto_update: false`. Deshalb gibt es jetzt `VORGABEN_STAND` +
+>   `_vorgaben_nachziehen`: der neue Wert (nur `auto_update`) wird **einmalig**
 >   auch in bestehende Installationen gezogen, aber nur dort, wo noch der alte
 >   Auslieferungswert steht, und mit einer Sicherung `config_vor_stand1.json`.
+>   Die Cookie-Wahl fasst die Umstellung ausdrücklich NICHT an.
+>   **Live belegt:** am 08.09. um 20:12 hat der Tray SyncYouTube normal
+>   gestartet; die Umstellung lief dabei auf JBs echtem Rechner und tat genau
+>   das — `auto_update` false → true, `cookies_browser` unverändert `firefox`,
+>   `config_vor_stand1.json` daneben. **Achtung:** das gilt für
+>   Quellcode-Installationen. Die veröffentlichte exe v.1.2.4 wurde vor der
+>   Entscheidung gebaut und trägt `auto_update: False` im Code; sie zieht
+>   nichts nach. Das kommt erst mit dem nächsten Release.
 > - **Fünf Einstellungen überlebten bisher keinen Neustart.** Der Filter
 >   `if k in STANDARD_CONFIG` warf `name_schema`, `auto_umbenennen`,
 >   `untertitel_sprachen`, `wiedergabe` und `wg_sub_migriert` weg — alles
@@ -51,10 +68,6 @@
 >   Register wandern. Der Probelauf hat nichts geschrieben.
 >
 > **ZU KLÄREN, weil die Prüfung es aufwarf (Richtungsfragen, nicht gebaut):**
-> - **Cookies-aus könnte gegen das Ziel arbeiten.** Der eigene Code hält seit der
->   403-Runde fest: *„ohne Cookies wählt yt-dlp die nicht angemeldeten
->   Vorgabe-Wege, also genau die gesperrten“* (`_ist_sperre`, 07.09.2026). Die
->   Vorgabe ist gebaut wie entschieden; ein Wort genügt, um sie zurückzudrehen.
 > - **Der Updater prüft die Signatur der geladenen exe nicht** — nur Größe und
 >   SHA256, und beide stammen aus derselben Quelle. Ein versehentlich unsignierter
 >   Release ginge jetzt automatisch an alle. Eine Authenticode-Prüfung vor dem

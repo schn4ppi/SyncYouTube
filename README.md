@@ -2,8 +2,9 @@
 
 Lokaler YouTube-Downloader **und** vollwertiger Musik-/Video-Player mit Bibliothek —
 eine einzige Web-Oberfläche auf `http://127.0.0.1:8776`, komplett offline auf dem eigenen PC
-(einzige Außenverbindungen: YouTube selbst, MusicBrainz fürs Tagging, die SponsorBlock-Datenbank
-und der tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an, abschaltbar).
+(Außenverbindungen: YouTube selbst; MusicBrainz, Cover Art Archive und iTunes fürs Tagging und
+die Cover; lrclib für Liedtexte; TMDB für Film-Bilder; die SponsorBlock-Datenbank; und der
+tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschaltbar).
 
 ![SyncYouTube — Bibliothek, Player und Download-Leiste in einer Oberfläche](screenshot.png)
 
@@ -12,8 +13,8 @@ und der tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an, abs
 **Downloads**
 - Warteschlange ohne Limit, Qualität je Eintrag (Beste/4K/1440p/1080p/720p/MP3), Playlist-Auflösung
 - Auto-Retry mit Backoff + Resume (setzt nach Abbruch/Neustart genau dort fort), Netzwerk-Timeout-Schutz
-- Premium/altersbeschränkt über Browser-Cookies (Firefox/Chrome/Edge) — standardmäßig aus,
-  in den Einstellungen einschaltbar; ohne Cookies lädt die App anonym
+- Premium/altersbeschränkt über Browser-Cookies (Firefox/Chrome/Edge, Standard: Firefox) —
+  read-only, die App meldet dich nie an oder ab; auf „keine“ stellbar
 - Dubletten-Erkennung über die Video-ID, „Schon geladen“-Datenbank
 - SponsorBlock (Werbung/Intros aus der Datei schneiden), Metadaten + Thumbnail als Cover
 - Kanal-/Playlist-**Abos** (holt nur Neues), Ausschnitt/Clip (von–bis, ohne Längenlimit)

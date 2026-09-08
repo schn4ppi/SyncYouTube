@@ -7,9 +7,8 @@ Was es tut:
   - Qualität wählbar (Beste / 2160p / 1440p / 1080p / 720p / nur Audio)
   - Automatischer Neuversuch bei Abbruch (Backoff), Downloads werden
     FORTGESETZT wo sie aufgehört haben (yt-dlp .part-Dateien)
-  - Premium-Konto: auf Wunsch liest yt-dlp die Cookies aus dem Browser und
-    lädt als angemeldeter Premium-Nutzer. Vorgabe seit 08.09.2026 ist
-    „keine“ (siehe STANDARD_CONFIG), einzuschalten in den Einstellungen
+  - Premium-Konto: Cookies werden aus dem Browser gelesen (Standard: Firefox),
+    damit lädt yt-dlp als angemeldeter Premium-Nutzer
   - Kleine Web-Oberfläche auf http://127.0.0.1:8776 (nur lokal, wie Suite-Settings)
 
 Suite-Regeln: stdlib-HTTP-Server (kein Framework), nur 127.0.0.1, nichts
@@ -127,12 +126,17 @@ os.environ["PATH"] = BIN_DIR + os.pathsep + os.environ.get("PATH", "")
 STANDARD_CONFIG = {
     "port": 8776,
     "ziel_ordner": "",              # leer = YouTube/Downloads
-    # JB-Entscheid 08.09.2026: Vorgabe ist „keine“. Cookies aus dem eigenen
-    # Browser hängen das YouTube-Konto an jeden Abruf; wer sie standardmäßig
-    # mitschickt, riskiert bei einem Block das Konto und nicht nur die Leitung.
-    # Wer Premium-Qualität oder altersbeschränkte Videos braucht, stellt in den
-    # Einstellungen einen Browser ein. Werte: firefox | chrome | edge | keine
-    "cookies_browser": "keine",
+    # JB-Entscheid 08.09.2026, ZWEITE Fassung: Vorgabe bleibt „firefox“.
+    # Kurz stand hier „keine“ (Gedanke: ohne Cookies hängt das YouTube-Konto an
+    # keinem Abruf). JB hat das noch am selben Abend zurückgenommen — *„das
+    # Risiko ist zu groß“* — und die eigene Messung gibt ihm recht: ohne
+    # Cookies wählt yt-dlp die nicht angemeldeten Vorgabe-Zugangswege, also
+    # genau die, gegen die YouTube sperrt (siehe `_ist_sperre`, 403-Runde
+    # 07.09.2026). Cookies-aus hätte Sperren eher wahrscheinlicher gemacht
+    # statt seltener, und nebenbei Premium-Qualität und altersbeschränkte
+    # Videos gekostet. NICHT ohne neue Messung erneut umdrehen.
+    # Werte: firefox | chrome | edge | keine
+    "cookies_browser": "firefox",
     "standard_qualitaet": "beste",
     "parallel": 1,                  # gleichzeitige Downloads (1-3)
     "max_wiederholungen": 10,       # danach Status "fehler" (Knopf setzt zurück)
@@ -271,11 +275,17 @@ def _json_speichern(pfad, daten):
 VORGABEN_STAND = 1
 
 # (Schlüssel, bisher ausgelieferter Wert, neuer Wert). Umgestellt wird NUR dort,
-# wo noch der alte Auslieferungswert steht — wer bewusst „chrome“ gewählt hat,
-# behält chrome.
+# wo noch der alte Auslieferungswert steht — wer `auto_update` bewusst
+# ausgeschaltet hat, behält es ausgeschaltet.
+#
+# Hier stand kurz auch `("cookies_browser", "firefox", "keine")`. JB hat das
+# noch vor der ersten Ausführung zurückgenommen; gemessen war zu dem Zeitpunkt
+# KEINE einzige Installation umgestellt — JBs config.json trug weder den neuen
+# Wert noch `vorgaben_stand`, und das veröffentlichte Release ist älter als die
+# Änderung. Deshalb genügt das Entfernen des Eintrags; ein Rück-Umstellungs-
+# Schritt wäre ein Heilmittel gegen einen Schaden, den es nie gab.
 VORGABEN_UMSTELLUNG = (
     ("auto_update", False, True),               # JB-Entscheid 08.09.2026
-    ("cookies_browser", "firefox", "keine"),    # JB-Entscheid 08.09.2026
 )
 
 # Was die Umstellung in DIESEM Lauf geändert hat — main() schreibt es fest
@@ -296,8 +306,10 @@ def _vorgaben_nachziehen(cfg, roh):
     Ohne das erreicht eine Entscheidung nur Neuinstallationen: `config_laden`
     lässt die Datei gewinnen, und eine Datei hat wirklich jeder — das Programm
     schreibt sie beim Start selbst. GEMESSEN am 08.09.2026 an JBs eigener
-    config.json: dort stand `auto_update: false` und `cookies_browser: firefox`,
-    die gedrehten Vorgaben hätten also nicht einmal seinen eigenen PC erreicht.
+    config.json: dort stand `auto_update: false`, die gedrehte Vorgabe hätte
+    also nicht einmal seinen eigenen PC erreicht. Am selben Abend um 20:12
+    hat der Tray das Programm normal gestartet und die Umstellung ist dort
+    live gelaufen — `auto_update` false → true, alles andere unangetastet.
 
     Drei Zusagen:
       * Sie greift genau einmal — danach steht `vorgaben_stand` in der Datei.
@@ -711,9 +723,10 @@ def _ydl_basis_opts(mit_cookies=True):
     if ff:
         opts["ffmpeg_location"] = ff
     # Zweiter Vorgabewert: greift, wenn CFG den Schlüssel gar nicht kennt.
-    # Er muss dasselbe sagen wie STANDARD_CONFIG, sonst hätte das Programm
-    # zwei Wahrheiten über seine eigene Vorgabe (Befund 08.09.2026).
-    browser = CFG.get("cookies_browser", "keine")
+    # Er muss dasselbe sagen wie STANDARD_CONFIG, sonst hätte das Programm zwei
+    # Wahrheiten über seine eigene Vorgabe (Befund 08.09.2026) — der Wächter
+    # `test_es_gibt_nur_eine_wahrheit_ueber_die_cookie_vorgabe` misst das.
+    browser = CFG.get("cookies_browser", "firefox")
     if mit_cookies and browser and browser != "keine":
         opts["cookiesfrombrowser"] = (browser,)
     return opts

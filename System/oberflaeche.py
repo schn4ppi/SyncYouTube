@@ -1704,11 +1704,11 @@ Playlist-Link (…/playlist?list=…) übernimmt die ganze Liste."></textarea>
             <option value="0">aus</option>
           </select>
           <span>Premium-Cookies lesen aus</span>
-          <select id="cfg_browser" title="Standard seit 08.09.2026: keine. Ohne Cookies lädt die App anonym; das eigene YouTube-Konto hängt dann an keinem Abruf. Für Premium-Qualität und altersbeschränkte Videos hier den Browser wählen, in dem du bei YouTube angemeldet bist.">
-            <option value="keine">keine — anonym laden (Standard)</option>
-            <option value="firefox">Firefox</option>
+          <select id="cfg_browser" title="Standard: Firefox. Die App liest die vorhandenen Cookies deines Browsers, lädt damit als angemeldeter Nutzer und bekommt Premium-Qualität sowie altersbeschränkte Videos. Sie meldet dich nie an oder ab. „keine“ lädt anonym — dann wählt yt-dlp aber die nicht angemeldeten Zugangswege, gegen die YouTube häufiger sperrt.">
+            <option value="firefox">Firefox (Standard)</option>
             <option value="chrome">Chrome</option>
             <option value="edge">Edge</option>
+            <option value="keine">keine — anonym laden</option>
           </select>
           <span>Gleichzeitige Downloads</span>
           <select id="cfg_parallel"><option>1</option><option>2</option><option>3</option></select>
@@ -1765,10 +1765,8 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
         </div>
         <div class="zeile"><button class="btn" onclick="configSpeichern()">Speichern</button>
           <span id="cfg_meldung" style="font-size:12px;color:#9ec49a"></span></div>
-        <div class="hinweis">Premium-Qualität und altersbeschränkte Videos brauchen die
-          Browser-Cookies. Die stehen seit dem 08.09.2026 standardmäßig auf „keine“: die App lädt
-          dann anonym, und dein YouTube-Konto hängt an keinem Abruf. Brauchst du Premium oder ein
-          altersbeschränktes Video, oben den Browser wählen, in dem du bei YouTube angemeldet bist. Abgebrochene Downloads
+        <div class="hinweis">Premium-Qualität und altersbeschränkte Videos laufen über die
+          Browser-Cookies — dafür in dem oben gewählten Browser bei YouTube angemeldet sein. Abgebrochene Downloads
           werden automatisch neu gestartet und setzen an der Abbruchstelle fort. Dubletten werden an
           der Video-Kennung erkannt und übersprungen. Thumbnail wird als Cover eingebettet.
           Geo-Sperren umgehen probiert automatisch der Reihe nach: Header-Trick (gratis) → eigene Proxys →

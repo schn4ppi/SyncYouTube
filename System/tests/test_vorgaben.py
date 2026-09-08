@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Waechter fuer die zwei Vorgaben und ihre Umstellung (JB-Entscheid 08.09.2026).
+"""Waechter fuer die Vorgaben und ihre Umstellung (JB-Entscheid 08.09.2026).
 
-JB: *„selbst-update standardmaessig an, cookies aus"*.
+JB zuerst: *„selbst-update standardmaessig an, cookies aus"*. Wenige Minuten
+spaeter zurueckgenommen: *„cookies wieder an, das risiko ist zu gross"*. Damit
+gilt: **Selbst-Update AN, Cookies bleiben bei „firefox“.** Der Rueckzieher war
+richtig, und der eigene Code sagt warum - ohne Cookies waehlt yt-dlp die nicht
+angemeldeten Vorgabe-Zugangswege, also genau die, gegen die YouTube sperrt
+(`_ist_sperre`, 403-Runde 07.09.2026). Zum Zeitpunkt des Rueckziehers war
+gemessen KEINE Installation umgestellt, deshalb genuegte das Entfernen des
+Eintrags aus `VORGABEN_UMSTELLUNG`.
 
 Die Entscheidung allein in `STANDARD_CONFIG` zu drehen, waere wirkungslos
 gewesen. GEMESSEN am 08.09.2026, bevor etwas geaendert wurde:
@@ -20,23 +27,37 @@ gewesen. GEMESSEN am 08.09.2026, bevor etwas geaendert wurde:
     auch der Altlast-Merker wegfiel, lief `wiedergabe_sub_altlast_raeumen` bei
     jedem Start erneut.
   * Das Programm hatte ZWEI Wahrheiten ueber seine Cookie-Vorgabe:
-    `STANDARD_CONFIG` und den Rueckfallwert in `_ydl_basis_opts`.
+    `STANDARD_CONFIG` und den Rueckfallwert in `_ydl_basis_opts`. Der Waechter
+    dafuer vergleicht die beiden GEGENEINANDER statt gegen einen festen Wert -
+    er haelt damit auch, wenn die Vorgabe wieder wechselt.
 
 Geprueft wird hier ohne Netz, ohne Server und ohne die echte `config.json`.
 
-ROTE GEGENPROBE (08.09.2026 gefahren): ZEHN Zusagen einzeln zurueckgedreht,
-jede an der echten Datei, jede byte-genau zurueckgeschrieben (Pruefsumme vorher
-und nachher gleich) - alle zehn zugehoerigen Tests fielen. Zusaetzlich zwei
-echte Probelaeufe des Programms mit einer vorbereiteten alten config.json: die
-Umstellung greift, der Rueckweg traegt den Originalstand, und der zweite Start
-aendert nichts mehr. Der ERSTE Probelauf fand dabei einen Fehler in meiner
-eigenen Sicherung - siehe test_der_rueckweg_traegt_den_stand_von_VOR_der_umstellung.
+ROTE GEGENPROBE, zwei Runden, alle an der echten Datei und jede byte-genau
+zurueckgeschrieben (Pruefsumme vorher und nachher gleich):
+  * VOR der Ruecknahme: zehn Zusagen einzeln zurueckgedreht, alle zehn
+    zugehoerigen Tests fielen.
+  * NACH der Ruecknahme, weil fuenf Waechter dabei neu entstanden oder neu
+    geschrieben wurden: sieben weitere Gegenproben - Cookie-Vorgabe wieder auf
+    "keine", Selbst-Update wieder aus, zweiter Cookie-Vorgabewert im Code,
+    Cookie-Eintrag zurueck in der Umstellung (gegen zwei Waechter), Umstellung
+    ohne Wert-Vergleich, und "keine" schickt doch Cookies mit. Alle sieben rot.
+
+Zusaetzlich zwei echte Probelaeufe des Programms mit einer vorbereiteten alten
+config.json (damals noch mit beiden Umstellungen): die Umstellung greift, der
+Rueckweg traegt den Originalstand, und der zweite Start aendert nichts mehr.
+Der ERSTE Probelauf fand dabei einen Fehler in meiner eigenen Sicherung - siehe
+test_der_rueckweg_traegt_den_stand_von_VOR_der_umstellung.
+
+LIVE belegt (ungeplant): am 08.09.2026 um 20:12 hat der Tray SyncYouTube normal
+gestartet. Die Umstellung lief dabei auf JBs echtem Rechner und tat genau das
+Richtige - `auto_update` false -> true, `cookies_browser` unveraendert
+"firefox", `config_vor_stand1.json` mit dem alten Stand daneben.
 
 NICHT gemessen (Leitplanke P6 verlangt die Liste): ob ein echter Selbst-Tausch
-gegen GitHub laeuft (kein Netz, kein PyInstaller-Bau), ob Cookies-aus bei
-YouTube tatsaechlich seltener zu Sperren fuehrt als Cookies-an - das ist JBs
-Entscheidung, kein Messergebnis von mir - und das Verhalten in der gepackten
-exe.
+gegen GitHub laeuft (kein Netz, kein PyInstaller-Bau), wie sich Cookies-an
+gegen Cookies-aus bei YouTube real auf Sperren auswirkt (nie gemessen, nur aus
+dem yt-dlp-Verhalten hergeleitet) und das Verhalten in der gepackten exe.
 """
 import ast
 import io
@@ -53,37 +74,59 @@ import youtube_app as app  # noqa: E402
 
 # --------------------------------------------------------- die Vorgaben selbst
 
-def test_die_zwei_vorgaben_stehen_wie_jb_sie_entschieden_hat():
+def test_die_vorgaben_stehen_wie_jb_sie_entschieden_hat():
     assert app.STANDARD_CONFIG["auto_update"] is True, (
         "JB 08.09.2026: Selbst-Update standardmaessig AN")
-    assert app.STANDARD_CONFIG["cookies_browser"] == "keine", (
-        "JB 08.09.2026: Cookies standardmaessig AUS")
+    assert app.STANDARD_CONFIG["cookies_browser"] == "firefox", (
+        "JB 08.09.2026, zweite Entscheidung: *\u201ecookies wieder an, das risiko "
+        "ist zu gross\u201c*. Ohne Cookies waehlt yt-dlp die nicht angemeldeten "
+        "Zugangswege - genau die, gegen die YouTube sperrt")
+
+
+def test_cookies_stehen_absichtlich_nicht_in_der_umstellung():
+    """Die einmalige Umstellung fasst nur `auto_update` an.
+
+    Kurz stand hier auch ein Cookie-Eintrag. Er ist raus, weil JB die
+    Entscheidung zurueckgenommen hat, BEVOR sie irgendwo lief - gemessen trug
+    weder JBs config.json den neuen Wert noch einen `vorgaben_stand`, und das
+    veroeffentlichte Release ist aelter als die Aenderung. Wer den Eintrag
+    wieder aufnimmt, wuerde ohne neue Messung an fremden Rechnern drehen."""
+    schluessel = [s for s, _, _ in app.VORGABEN_UMSTELLUNG]
+    assert schluessel == ["auto_update"], (
+        "Nur auto_update wird nachgezogen; gefunden: %r" % (schluessel,))
 
 
 def test_es_gibt_nur_eine_wahrheit_ueber_die_cookie_vorgabe():
     """Der Rueckfallwert in `_ydl_basis_opts` muss dasselbe sagen wie die Vorgabe.
 
-    Gemessen am Erzeugnis, nicht am Text: CFG wird geleert, damit wirklich der
-    Rueckfall greift."""
+    Gemessen am Erzeugnis und WERTUNABHAENGIG: einmal mit leerem CFG (dann
+    zaehlt der Rueckfallwert im Code), einmal mit den Vorgaben - beide muessen
+    dieselben yt-dlp-Optionen ergeben. So haelt der Waechter auch, wenn die
+    Vorgabe spaeter wieder wechselt; ein fest eingetragener Wert muesste
+    jedesmal mitgepflegt werden und waere beim naechsten Mal die Luecke."""
     alt = dict(app.CFG)
     try:
         app.CFG.clear()                       # kein Schluessel -> Rueckfall zaehlt
-        opts = app._ydl_basis_opts(mit_cookies=True)
-        assert "cookiesfrombrowser" not in opts, (
-            "Ohne gesetzten Schluessel greift der Rueckfallwert - und der stand "
-            "auf 'firefox', waehrend die Vorgabe 'keine' sagt")
+        ohne_schluessel = app._ydl_basis_opts(mit_cookies=True).get("cookiesfrombrowser")
+        app.CFG.update(app.STANDARD_CONFIG)   # die ausgelieferte Vorgabe
+        mit_vorgabe = app._ydl_basis_opts(mit_cookies=True).get("cookiesfrombrowser")
+        assert ohne_schluessel == mit_vorgabe, (
+            "Zwei Wahrheiten ueber dieselbe Vorgabe: der Rueckfallwert im Code "
+            "liefert %r, STANDARD_CONFIG liefert %r" % (ohne_schluessel, mit_vorgabe))
     finally:
         app.CFG.clear()
         app.CFG.update(alt)
 
 
-def test_keine_bedeutet_wirklich_keine_cookies():
+def test_jede_cookie_wahl_wirkt_wie_sie_heisst():
     alt = dict(app.CFG)
     try:
         app.CFG["cookies_browser"] = "keine"
-        assert "cookiesfrombrowser" not in app._ydl_basis_opts(mit_cookies=True)
-        app.CFG["cookies_browser"] = "firefox"
-        assert app._ydl_basis_opts(mit_cookies=True)["cookiesfrombrowser"] == ("firefox",)
+        assert "cookiesfrombrowser" not in app._ydl_basis_opts(mit_cookies=True), (
+            "„keine“ muss wirklich keine Cookies mitschicken")
+        for browser in ("firefox", "chrome", "edge"):
+            app.CFG["cookies_browser"] = browser
+            assert app._ydl_basis_opts(mit_cookies=True)["cookiesfrombrowser"] == (browser,)
     finally:
         app.CFG.clear()
         app.CFG.update(alt)
@@ -126,27 +169,39 @@ def test_bestandsinstallation_bekommt_die_neuen_vorgaben_einmal():
     alt = {"auto_update": False, "cookies_browser": "firefox", "port": 8776}
     cfg, geaendert = _nachziehen(alt)
     assert cfg["auto_update"] is True
-    assert cfg["cookies_browser"] == "keine"
     assert cfg["vorgaben_stand"] == app.VORGABEN_STAND
-    assert len(geaendert) == 2, "beide Umstellungen muessen gemeldet werden"
+    assert [s for s, _, _ in geaendert] == ["auto_update"]
+
+
+def test_die_umstellung_fasst_die_cookies_nicht_an():
+    """Wer „keine“ gewaehlt hat, behaelt „keine“ - und wer firefox hat, firefox."""
+    for gewaehlt in ("firefox", "chrome", "edge", "keine"):
+        cfg, _ = _nachziehen({"auto_update": False, "cookies_browser": gewaehlt})
+        assert cfg["cookies_browser"] == gewaehlt, (
+            "Die Umstellung darf die Cookie-Wahl nicht anfassen (war %r)" % gewaehlt)
 
 
 def test_die_umstellung_greift_genau_einmal():
     """Wer danach bewusst zurueckstellt, wird nicht erneut ueberfahren."""
-    zurueckgestellt = {"auto_update": False, "cookies_browser": "firefox",
-                       "vorgaben_stand": app.VORGABEN_STAND}
+    zurueckgestellt = {"auto_update": False, "vorgaben_stand": app.VORGABEN_STAND}
     cfg, geaendert = _nachziehen(zurueckgestellt)
     assert cfg["auto_update"] is False, "eine spaetere Entscheidung ist unantastbar"
-    assert cfg["cookies_browser"] == "firefox"
     assert geaendert == []
 
 
-def test_eine_bewusste_wahl_wird_nicht_ueberfahren():
-    """Umgestellt wird nur, wo noch der ALTE Auslieferungswert steht."""
-    eigen = {"auto_update": False, "cookies_browser": "chrome"}
-    cfg, _ = _nachziehen(eigen)
-    assert cfg["cookies_browser"] == "chrome", "chrome war nie eine Vorgabe"
-    assert cfg["auto_update"] is True, "false war die alte Vorgabe - wird gedreht"
+def test_eine_bewusste_wahl_wird_nicht_ueberfahren(monkeypatch):
+    """Umgestellt wird nur, wo noch der ALTE Auslieferungswert steht.
+
+    Gemessen am Mechanismus, nicht am heutigen Inhalt der Liste: sonst haette
+    dieser Waechter nichts mehr zu pruefen, sobald die Liste einmal schrumpft."""
+    monkeypatch.setattr(app, "VORGABEN_UMSTELLUNG",
+                        (("standard_qualitaet", "beste", "1080p"),))
+    cfg, geaendert = _nachziehen({"standard_qualitaet": "720p"})
+    assert cfg["standard_qualitaet"] == "720p", "eine eigene Wahl bleibt stehen"
+    assert geaendert == []
+    cfg, geaendert = _nachziehen({"standard_qualitaet": "beste"})
+    assert cfg["standard_qualitaet"] == "1080p", "der alte Vorgabewert wird gedreht"
+    assert len(geaendert) == 1
 
 
 def test_frische_installation_wird_nicht_umgestellt():
@@ -197,7 +252,7 @@ def test_der_rueckweg_traegt_den_stand_von_VOR_der_umstellung(tmp_path, monkeypa
     alt = {"auto_update": False, "cookies_browser": "firefox"}
     ziel = _umstellung_vorbereiten(tmp_path, monkeypatch, alt)
     # So sieht es echt aus: die Datei ist beim Sichern schon veraendert.
-    ziel.write_text(json.dumps({"auto_update": True, "cookies_browser": "keine"}),
+    ziel.write_text(json.dumps({"auto_update": True, "cookies_browser": "firefox"}),
                     encoding="utf-8")
     assert app.vorgaben_umstellung_festschreiben()
     sicherung = tmp_path / ("config_vor_stand%d.json" % app.VORGABEN_STAND)
