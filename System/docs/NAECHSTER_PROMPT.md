@@ -23,8 +23,16 @@
 > **Merke:** Release-Notizen NUR über `gh release create/edit --notes-file` mit einer
 > UTF-8-Datei schreiben, nie über die Befehlszeile.
 >
-> **Offen bleibt** die VirusTotal-Prüfung (Release-Standard) — für v.1.2.4 und jetzt
-> auch für v.1.2.5.
+> **VirusTotal ist seit v.1.2.6 erledigt** und kein Handgriff mehr:
+> `SyncDashTray/System/virustotal_pruefen.py` schlägt erst per Prüfsumme nach und
+> lädt nur mit `--hochladen` hoch (große Dateien über die eigens angeforderte
+> Adresse — unsere exe fällt immer über die 32-MB-Grenze). Ergebnis für v.1.2.6:
+> exe **0 von 64**, Quellstart-ZIP **0 von 75**, Signatur von VirusTotal als
+> gültig erkannt, Microsoft `undetected`. Links stehen im Release.
+> **Offen bleiben v.1.2.4 und v.1.2.5** (beide überholt, je ein 200-MB-Upload).
+> **FALLE:** Im `cmdkey`-Passwort-Prompt fügt Strg+V NICHT ein, es tippt `0x16`.
+> Deshalb `virustotal_pruefen.py --schluessel-setzen` benutzen — das prüft die
+> Form (64 Hexzeichen) und speichert nur, was wirklich einer ist.
 
 > **NACHTRAG 08.09.2026 — Einheitlichkeit, Signatur, Lizenz, Beschreibungen.**
 > Stand danach: **v.1.2.4 signiert veröffentlicht; 284 Tests grün** (Stand
@@ -88,8 +96,9 @@
 >   Wächter (`test_vorgaben`).
 >
 > **WARTET AUF JB — zwei Entscheidungen, nichts davon begonnen:**
-> - **VirusTotal-Prüfung** der beiden signierten Releases (SyncYouTube v.1.2.4,
->   SyncManga 0.4.4) — gehört laut Release-Standard dazu, ist offen.
+> - **VirusTotal für SyncManga 0.4.4** — SyncYouTube ist ab v.1.2.6 geprüft
+>   (0 von 64 bzw. 0 von 75), SyncManga noch nicht. Ein Aufruf von
+>   `virustotal_pruefen.py` genügt, der Schlüssel liegt jetzt im Speicher.
 > - **Scharfer Clips-Lauf in SyncFindus**, damit die 129 Beschreibungen ins
 >   Register wandern. Der Probelauf hat nichts geschrieben.
 >
