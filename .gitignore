@@ -7,15 +7,15 @@
 !*/
 
 # --- freigegeben: Code + Doku ---
-!.gitignore
-!LICENSE
-!README.md
-!LIZENZEN.md
-!screenshot.png
-!_LIESMICH.txt
-!SyncYouTube.bat
-!SyncYouTube-Fenster.bat
-!SyncYouTube (ohne Fenster).vbs
+!/.gitignore
+!/LICENSE
+!/README.md
+!/LIZENZEN.md
+!/screenshot.png
+!/_LIESMICH.txt
+!/SyncYouTube.bat
+!/SyncYouTube-Fenster.bat
+!/SyncYouTube (ohne Fenster).vbs
 !System/_ARCHITEKTUR.md
 !System/MODULE.md
 !System/docs/*.md
@@ -55,6 +55,7 @@ System/bin/
 System/browser-addon/dist/
 System/firefox-addon/
 System/dist_exe/
+System/build_tmp/
 __pycache__/
 *.json.defekt
 *.part

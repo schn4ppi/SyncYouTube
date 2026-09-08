@@ -46,7 +46,7 @@ HTML = """<!doctype html>
 *{box-sizing:border-box}
 /* Farbwelt als Variablen — ein „Look" setzt nur diese um (Standard = Terracotta).
    So bleibt das Standard-Aussehen exakt gleich, neue Looks tönen alles konsistent. */
-:root{--akz:#c9952b;--akz2:#e0b878;--akzbg:#2a2016;--head:#d67756;--bg:#141110;--panel:#1c1814;--panelln:#2a2522}
+:root{--pille-h:24px;--feld-h:32px;--akz:#c9952b;--akz2:#e0b878;--akzbg:#2a2016;--head:#d67756;--bg:#141110;--panel:#1c1814;--panelln:#2a2522}
 html.theme-hacker{--akz:#37f000;--akz2:#8dff6a;--akzbg:#0f2410;--head:#37f000;--bg:#060a06;--panel:#0b140b;--panelln:#18391b}
 html.theme-neon{--akz:#ff3ad6;--akz2:#79f5ff;--akzbg:#251236;--head:#ff3ad6;--bg:#0a0812;--panel:#140f22;--panelln:#2c2047}
 html.theme-ozean{--akz:#2ba6ff;--akz2:#7ad4ff;--akzbg:#0e2740;--head:#3ec2ff;--bg:#060e18;--panel:#0b1a2b;--panelln:#153450}
@@ -743,6 +743,23 @@ select,input[type=text]{background:#171310;border:1px solid #3a332e;border-radiu
 .btn.haupt{border-color:#6b4a2a;background:var(--akzbg);color:var(--akz2);font-weight:600}
 .btn.haupt:hover{border-color:var(--akz)}
 .btn.mini{padding:3px 9px;font-size:12px;border-radius:7px}
+
+/* GROESSEN-SYSTEM (JB 08.09.2026: »Einheitlichkeit ist super wichtig!«)
+   GEMESSEN vorher: 32 sichtbare Bedienelemente in ELF verschiedenen Hoehen
+   (20, 21, 22, 24, 25, 26, 28, 30, 31, 33, 37 px) — nebeneinanderliegende
+   Knoepfe unterschieden sich teils um einen einzigen Pixel, weil die Hoehe aus
+   Polsterung plus Zeilenhoehe entstand statt gesetzt zu sein.
+   Jetzt zwei Groessen: `--pille-h` fuer alles, was IN einer Flaeche sitzt
+   (Reiter, Mini-Knoepfe, Marken), `--feld-h` fuer die Bedienzeile (Eingabefeld,
+   Auswahl, Laden-Knopf, Umschalter). Nur die HOEHE wird gesetzt, die seitliche
+   Polsterung bleibt: die Stufen der Player-Leiste rechnen mit Kinder-BREITEN,
+   die duerfen sich nicht verschieben. */
+.btn.mini,.dlbox-tab,.chip,.dlbox-action{
+  height:var(--pille-h);padding-top:0;padding-bottom:0;
+  display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.tog,.cmd-dl,.cmd-qual,.cmd-url{
+  height:var(--feld-h);padding-top:0;padding-bottom:0;line-height:1}
+.tog,.cmd-dl{display:inline-flex;align-items:center;justify-content:center}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px}
 .chip{padding:3px 11px;border-radius:999px;font-size:12px;border:1px solid #3a332e;background:#171310;color:#d7c7bd}
 .chip b{font-weight:600}
@@ -797,10 +814,13 @@ details.einst summary:hover{color:var(--akz)}
 .libhead{position:sticky;top:0;z-index:30;background:var(--panel);padding-top:8px;margin-top:0}
 .libbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
 #libsuche{flex:1;min-width:130px}
+/* Eine Zeile, eine Hoehe (JB 08.09.): Suchfeld, Sortierung, Playlist-Wahl und der
+   Ansicht-Knopf standen mit 31, 33, 33 und 33 px nebeneinander. */
+#libsuche,#libsort,#plsel{height:var(--feld-h);padding-top:0;padding-bottom:0}
 .libbar .spacer{flex:1}
 .chk{display:flex;align-items:center;gap:6px;font-size:12px;color:#8a7d74;cursor:pointer;white-space:nowrap}
 .viewbtn{width:36px;height:33px;border-radius:8px;border:1px solid #3a332e;background:#171310;color:#d7c7bd;cursor:pointer;font-size:16px}
-.tog{height:33px;padding:0 12px;border-radius:8px;border:1px solid #3a332e;background:#171310;color:#d7c7bd;cursor:pointer;font-size:13px}
+.tog{height:var(--feld-h);padding:0 12px;border-radius:8px;border:1px solid #3a332e;background:#171310;color:#d7c7bd;cursor:pointer;font-size:13px}
 .viewbtn.an,.tog.an{border-color:var(--akz);color:var(--akz2);background:var(--akzbg)}
 .viewbtn:hover,.tog:hover{border-color:var(--akz)}
 .tog:disabled{opacity:.6;cursor:default}
@@ -816,11 +836,21 @@ details.einst summary:hover{color:var(--akz)}
 .kachel.sel::before{content:'✓';position:absolute;left:6px;top:6px;z-index:3;width:20px;height:20px;
   border-radius:5px;background:var(--akz);color:#1a1512;font-size:13px;font-weight:700;
   display:flex;align-items:center;justify-content:center}
-.thumbwrap{position:relative;aspect-ratio:16/9;background:#0e0c0a;cursor:pointer}
+.thumbwrap{position:relative;aspect-ratio:16/9;background:#0e0c0a;cursor:pointer;
+  /* JB 08.09.2026: »wieso haben nicht alle videos die gleiche hoehe?« — GEMESSEN:
+     Das aspect-ratio hat nie gegriffen. Die Kachel ist ein Spalten-Flex, ihre Kinder
+     haben damit min-height:auto, und ein quadratisches Album-Bild (500x500) macht den
+     Rahmen 250 px hoch statt 142. Die 16:9-Vorschaubilder sahen nur deshalb richtig
+     aus, weil ihre eigene Form zufaellig passte. min-height:0 und flex:none geben dem
+     Seitenverhaeltnis die Entscheidung zurueck. */
+  flex:none;min-height:0;overflow:hidden}
 .thumbwrap::before{content:'▶';position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;
   color:#fff;font-size:26px;opacity:0;transition:opacity .12s;text-shadow:0 2px 8px rgba(0,0,0,.7);pointer-events:none}
 .thumbwrap:hover::before{opacity:.92}
-.thumb{width:100%;height:100%;object-fit:cover;display:block}
+/* »contain« statt »cover«: ein quadratisches Cover wuerde beim Zuschneiden auf 16:9
+   44 Prozent seiner Flaeche verlieren (Koepfe abgeschnitten). So bleibt es ganz und
+   bekommt schmale dunkle Raender; 16:9-Vorschaubilder fuellen weiterhin exakt. */
+.thumb{width:100%;height:100%;object-fit:contain;display:block}
 .thumbwrap.platzhalter::after{content:'▶';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#3a332e;font-size:34px}
 .kdauer{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.8);color:#fff;font-size:11px;padding:1px 6px;border-radius:5px}
 .wegbadge{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.78);color:#f0a35e;font-size:11px;padding:1px 7px;border-radius:5px;border:1px solid #6b4a2a}
@@ -828,7 +858,9 @@ details.einst summary:hover{color:var(--akz)}
 .clip-schere{position:absolute;right:6px;top:6px;background:rgba(0,0,0,.8);color:var(--akz2);font-size:12px;line-height:1;padding:3px 5px;border-radius:6px;border:1px solid var(--akz)}
 .clip-row .clip-schutz{cursor:default}
 .kbody{padding:9px 10px;display:flex;flex-direction:column;gap:6px;flex:1}
-.ktitel{font-size:13px;font-weight:600;line-height:1.32;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* Immer zwei Zeilen hoch, auch bei kurzem Titel: sonst rutscht die Infozeile je
+   Kachel um 17 px, und die Kachelwand wirkt unruhig (JB 08.09.). */
+.ktitel{font-size:13px;font-weight:600;line-height:1.32;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.64em}
 .kinfo{font-size:11.5px;color:#8a7d74;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:auto}
 /* Build 116 (JB, „zu viele Knöpfe"): Kachel-Aktionen ruhen, bis die Maus
    auf der Kachel ist (oder sie den Tastatur-Fokus hat / ausgewählt ist).
