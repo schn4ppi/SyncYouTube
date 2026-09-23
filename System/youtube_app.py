@@ -36,6 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import geo
+import medien_smtc          # Windows-Medienanmeldung des VLC-Motors (pywinrt erst bei Bedarf)
 import update
 
 __version__ = "1.2.6"
@@ -2562,6 +2563,7 @@ def _vlc_spieler():
         if sp is None:
             raise RuntimeError("libvlc lieferte keinen Player")
         _vlc.update(instanz=inst, spieler=sp, grund="")
+        _vlc_ereignisse_anhaengen(sp)                # auch nach jedem Neuaufbau (Selbstheilung)
         if _vlc.get("hwnd"):                         # Hüllen-Einbettung überlebt den Neuaufbau
             try:
                 sp.set_hwnd(_vlc["hwnd"])
@@ -2574,11 +2576,187 @@ def _vlc_spieler():
         return None, _vlc["grund"]
 
 
+# ---- Windows-Medienanmeldung des VLC-Motors (JB-Go 23.09.2026) -------------
+# Spielt VLC, kennt Windows den Server als Medienquelle: Titel/Interpret/Cover
+# im Medien-Overlay, Medientasten und Overlay-Knöpfe wirken. Vorher meldete
+# sich nur der Browser an (Media Session API) — der spielt im VLC-Modus aber
+# selbst nichts. Alles WinRT steckt in medien_smtc.py, hier nur die
+# Verdrahtung. Die Brücke entsteht erst in main(): ein Import (Tests,
+# Werkzeuge) meldet nichts bei Windows an.
+_smtc = None
+
+
+def _smtc_felder():
+    """Zusatzfelder JEDER /api/vlc-Antwort (Vertrag 23.09.): smtc = Windows-
+    Anmeldung verfügbar, taste = Zähler der ⏭/⏮-Knöpfe aus Windows."""
+    b = _smtc
+    if b is not None:
+        try:
+            return b.felder()
+        except Exception:                            # noqa: BLE001 — dann eben „nicht verfügbar"
+            pass
+    return {"smtc": False, "taste": {"n": 0, "was": "", "vor": 0, "zurueck": 0}}
+
+
+def _smtc_titel(key):
+    """Rückfall-Titel für Musik-keys, zu denen die Seite (noch) keine
+    Metadaten geschickt hat — dieselbe Wahl wie lyrics_holen (Track vor Titel,
+    Künstler vor Kanal). None, wenn der key nicht in der Bibliothek steht
+    (Film, Live, unbekannt): dann nimmt die Brücke den key ohne Präfix."""
+    e = _geladen.get(key)
+    if not e:
+        return None
+    return {"titel": (e.get("track") or e.get("titel")
+                      or _titel_aus_name(e.get("name", "")) or "").strip(),
+            "interpret": (e.get("kuenstler") or e.get("uploader") or "").strip(),
+            "album": (e.get("album") or "").strip()}
+
+
+def _smtc_log(text):
+    """Konsole + dauerhafter Fehlerkanal (yt_fehler.jsonl) — unter pythonw
+    gibt es keine Konsole. Die Brücke meldet jeden Text nur einmal."""
+    _sag("Windows-Medienanmeldung: " + text)
+    fehler_merken("", text, "smtc")
+
+
+def _vlc_laedt():
+    """libvlc öffnet oder puffert gerade (Opening/Buffering). vlc_status nennt
+    das 'aus'; für Windows ist es kein Ende — sonst verschwände die Sitzung bei
+    jedem Titelstart und bei jedem Puffern eines Film- oder Live-Stroms.
+    Nur unter _vlc_lock rufen: der Spieler könnte sonst gerade freigegeben werden."""
+    sp = _vlc["spieler"]
+    if sp is None:
+        return False
+    try:
+        import vlc
+        return sp.get_state() in (vlc.State.Opening, vlc.State.Buffering)
+    except Exception:                                # noqa: BLE001 — im Zweifel „nicht ladend"
+        return False
+
+
+def _vlc_spielt_gerade():
+    """Spielt der VLC-Motor gerade (oder öffnet/puffert)? Der Selbst-Neustart
+    ersetzt den Prozess samt libvlc und Windows-Sitzung. Beim Browser-Stream
+    hält ihn _letzter_stream auf; beim VLC-Motor fragt er hier nach — auch
+    ohne offene Seite, dann setzt niemand _letzter_stream. Pause hält ihn
+    (wie beim Browser) nicht auf. Ist die Sperre gerade besetzt, arbeitet
+    jemand am VLC: im Zweifel „spielt", die 5-s-Schleife fragt gleich wieder
+    — warten darf sie hier nicht."""
+    if not _vlc_lock.acquire(timeout=0.2):
+        return True
+    try:
+        sp = _vlc["spieler"]
+        if sp is None:
+            return False
+        import vlc
+        return sp.get_state() in (vlc.State.Playing, vlc.State.Opening, vlc.State.Buffering)
+    except Exception:                                # noqa: BLE001 — ein kaputter Spieler spielt nicht
+        return False
+    finally:
+        _vlc_lock.release()
+
+
+def _vlc_ereignisse_anhaengen(sp):
+    """libvlc meldet Ende, Stopp, Fehler, Spielen und Pause selbst. Ohne das
+    erführe Windows ein Liedende nur, wenn eine Seite /api/vlc abfragt — bei
+    geschlossener Seite (VLC spielt im Server weiter) stünde das Overlay dann
+    unbegrenzt auf „spielt" und finge die Play/Pause-Taste ab (Skeptiker-
+    Befund 24.09.). Ereignisse statt eines eigenen Takts (Last-Budget).
+    Fehlt event_manager (Attrappe, altes python-vlc), bleibt es beim Abgleich
+    über die Seite."""
+    try:
+        import vlc
+        em = sp.event_manager()
+        for name in ("MediaPlayerEndReached", "MediaPlayerStopped",
+                     "MediaPlayerEncounteredError", "MediaPlayerPlaying",
+                     "MediaPlayerPaused"):
+            em.event_attach(getattr(vlc.EventType, name), _vlc_ereignis)
+    except Exception:                                # noqa: BLE001 — Kür, VLC spielt auch ohne
+        pass
+
+
+def _vlc_ereignis(_ereignis=None, *_):
+    """Rückruf auf dem libvlc-eigenen Faden. Darf libvlc NICHT aufrufen (das
+    verbietet libvlc dort) und nicht auf _vlc_lock warten: ein Handler hält
+    sie womöglich gerade in sp.stop(), und stop kann auf genau diesen Faden
+    warten. Darum nur einen kurzen Faden anstoßen, der den Status abholt."""
+    if _smtc is None:
+        return
+    threading.Thread(target=_smtc_aus_vlc, name="VLC-Ereignis", daemon=True).start()
+
+
+def _smtc_aus_vlc():
+    try:
+        with _vlc_lock:
+            _smtc_nachfuehren(vlc_status())
+    except Exception:                                # noqa: BLE001 — Kür, nie den Faden reißen
+        pass
+
+
+def _smtc_nachfuehren(status, gespult=False):
+    """Windows-Sitzung auf den VLC-Status ziehen. Blockiert nie (die Brücke
+    legt nur den Soll-Zustand ab, WinRT arbeitet in ihrem eigenen Faden)."""
+    b = _smtc
+    if b is None:
+        return
+    st = dict(status)
+    if st.get("zustand") == "aus" and st.get("key") and _vlc_laedt():
+        st["zustand"] = "laedt"
+    try:
+        b.nachfuehren(st, gespult=gespult)
+    except Exception:                                # noqa: BLE001 — Kür, nie den VLC-Befehl reißen
+        pass
+
+
+def _smtc_knopf(was, wert=None):
+    """Knopf aus dem Windows-Overlay bzw. Medientaste am VLC ausführen.
+    Läuft auf einem kurzen Faden der Brücke, nie auf dem WinRT-Ereignis-Faden
+    (der darf nicht auf _vlc_lock warten). PLAY hebt die Pause auf — NICHT
+    cmd 'play' ohne key, das scheitert mit „Datei nicht gefunden". STOP kommt
+    als 'pause' an (wie die Browser-Seite: das Medium bleibt geladen)."""
+    with _vlc_lock:
+        sp = _vlc["spieler"]
+        if sp is None:
+            return
+        if was == "play":
+            sp.set_pause(0)
+        elif was == "pause":
+            sp.set_pause(1)
+        elif was == "seek":
+            sp.set_time(int(max(0.0, float(wert or 0)) * 1000))
+        else:
+            return
+        st = vlc_status()
+        # libvlc schaltet asynchron: direkt nach set_pause/set_time meldet es
+        # oft noch den alten Stand. Windows soll sofort das Gewollte zeigen —
+        # sonst stünde bis zum nächsten Seiten-Takt (oder ohne offene Seite
+        # dauerhaft) das Falsche im Overlay.
+        if was == "play" and st.get("zustand") == "pause":
+            st["zustand"] = "spielt"
+        elif was == "pause" and st.get("zustand") == "spielt":
+            st["zustand"] = "pause"
+        elif was == "seek":
+            st["pos"] = max(0.0, float(wert or 0))
+        _smtc_nachfuehren(st, gespult=(was == "seek"))
+
+
+def _smtc_einrichten(**kw):
+    """Brücke anlegen (main(), hinter dem Einzel-Instanz-Riegel). Fenster und
+    Windows-Anmeldung entstehen erst beim ersten Abspielen im VLC.
+    kw nur für Tests (faden/ausfuehren/uhr/nachlauf/log)."""
+    global _smtc
+    kw.setdefault("log", _smtc_log)
+    _smtc = medien_smtc.SmtcBruecke(port=int(CFG.get("port", 8776)), befehl=_smtc_knopf,
+                                    titel_nachschlagen=_smtc_titel, **kw)
+    return _smtc
+
+
 def vlc_status():
     """Status-Häppchen für die Oberfläche (1-s-Takt, solange Gerät VLC aktiv)."""
     sp = _vlc["spieler"]
     if sp is None:
-        return {"verfuegbar": False, "grund": _vlc["grund"], "key": "", "zustand": "aus"}
+        return {"verfuegbar": False, "grund": _vlc["grund"], "key": "", "zustand": "aus",
+                **_smtc_felder()}
     import vlc
     zustand = {vlc.State.Playing: "spielt", vlc.State.Paused: "pause",
                vlc.State.Ended: "ende", vlc.State.Error: "fehler"}.get(sp.get_state(), "aus")
@@ -2587,7 +2765,8 @@ def vlc_status():
             "dauer": max(0, sp.get_length()) / 1000.0,
             "vol": max(0, sp.audio_get_volume()),
             "rate": round(sp.get_rate() or 1.0, 2),
-            "eingebettet": bool(_vlc.get("hwnd"))}
+            "eingebettet": bool(_vlc.get("hwnd")),
+            **_smtc_felder()}
 
 
 TON_ALIAS = {"de": ("de", "deu", "ger", "german", "deutsch"),
@@ -2626,6 +2805,38 @@ def _ton_spur_waehlen(sp, wunsch):
 
 
 def vlc_kommando(daten):
+    """Eingang für /api/vlc sowie den Film- und Live-Start: führt den Befehl
+    am VLC-Motor aus (_vlc_kommando_kern) und zieht die Windows-Mediensitzung
+    nach. JEDE Antwort trägt smtc + taste (Vertrag 23.09.2026). 'medien' merkt
+    Titel/Interpret/Album/Cover für genau einen key und antwortet wie
+    'status' — lädt libvlc also nicht nach."""
+    cmd = daten.get("cmd") or "status"
+    b = _smtc
+    if b is not None:
+        try:
+            if cmd != "fenster":                     # 'fenster' schickt die Hülle, keine Seite
+                b.seite_meldet()                     # jemand mit Warteschlange ist da -> ⏭/⏮ frei
+            if cmd == "medien":
+                b.medien(daten)
+        except Exception:                            # noqa: BLE001 — Kür, nie den Befehl reißen
+            pass
+    if cmd == "medien":
+        daten = {"cmd": "status"}
+    with _vlc_lock:
+        antwort = _vlc_kommando_kern(daten)
+        st = antwort
+        if cmd == "seek" and not antwort.get("fehler"):
+            # libvlc meldet die neue Stelle asynchron — Windows bekommt die
+            # gewünschte sofort (Vertrag: Zeitleiste „sofort nach Spulen").
+            try:
+                st = {**antwort, "pos": max(0.0, float(daten.get("wert") or 0))}
+            except (TypeError, ValueError):
+                pass
+        _smtc_nachfuehren(st, gespult=(cmd == "seek"))
+    return {**antwort, **_smtc_felder()}
+
+
+def _vlc_kommando_kern(daten):
     """Befehl vom Browser an den VLC-Motor; Antwort ist immer der Status.
     'status' lädt libvlc bewusst NICHT nach (der 1-s-Takt soll einen fehlenden
     VLC nicht dauernd neu suchen) — laden tun 'pruefen' (Geräte-Wechsel) und
@@ -2769,7 +2980,7 @@ def vlc_kommando(daten):
             # Befehl wiederholen — erst der zweite Fehlschlag wird gemeldet.
             if not daten.get("_wiederholt"):
                 _vlc_reset()
-                return vlc_kommando({**daten, "_wiederholt": True})
+                return _vlc_kommando_kern({**daten, "_wiederholt": True})
             return {**vlc_status(), "fehler": str(e)[:200]}
         return vlc_status()
 
@@ -5308,7 +5519,9 @@ def _fehler_aufraeumen():
 # Prozess (os.execv) — Zustand liegt auf der Platte, Port wird frei. Ausgelöst
 # in der BESTEHENDEN 5-s-Schleife (kein neuer Timer, Last-Budget), nur bei Ruhe
 # (kein Download/Stream) und erst, wenn der Code ein paar Sekunden stabil ist.
-_HEISS_NACHLADBAR = {"oberflaeche.py", "handy.py"}   # laden pro Anfrage neu -> kein Neustart nötig
+# medien_session.py (23.09.2026): der gemeinsame Media-Session-Baustein beider
+# Seiten lädt MIT ihnen neu — sonst erreichte eine Änderung daran offene Tabs nie.
+_HEISS_NACHLADBAR = {"oberflaeche.py", "handy.py", "medien_session.py"}   # laden pro Anfrage neu -> kein Neustart nötig
 NEUSTART_BERUHIGUNG = 3.0                             # s stabil, bevor neu gestartet wird
 STREAM_RUHE = 15.0                                   # s ohne Abspielen = sicher
 # Ein Transcode zur Zeit (JB zappt): der nächste Wunsch löst den alten ab.
@@ -5378,6 +5591,8 @@ def _code_leerlauf():
         if any(i.get("status") in ("laeuft", "prueft") for i in Q.items):
             return False
     except Exception:                                # noqa: BLE001 — im Zweifel NICHT neu starten
+        return False
+    if _vlc_spielt_gerade():                         # Gerät VLC: nie mitten im Titel
         return False
     return (time.time() - _letzter_stream) > STREAM_RUHE
 
@@ -5598,7 +5813,9 @@ class Handler(BaseHTTPRequestHandler):
         if urlparse(self.path).path in ("/m", "/handy"):     # schlanke Handy-Oberfläche
             import importlib
             import handy
+            import medien_session
             try:
+                importlib.reload(medien_session)     # Baustein zuerst, dann die Seite, die ihn einsetzt
                 importlib.reload(handy)
             except Exception:                        # noqa: BLE001
                 pass
@@ -5609,8 +5826,10 @@ class Handler(BaseHTTPRequestHandler):
             # und Änderungen an oberflaeche.py erscheinen erst nach App-Neustart —
             # ein Browser-Refresh reicht jetzt).
             import importlib
+            import medien_session
             import oberflaeche
             try:
+                importlib.reload(medien_session)     # Baustein zuerst, dann die Seite, die ihn einsetzt
                 importlib.reload(oberflaeche)
             except Exception:                        # noqa: BLE001 — im Zweifel alte Version
                 pass
@@ -5622,9 +5841,10 @@ class Handler(BaseHTTPRequestHandler):
             # Proxys). Nicht-lokal bekommt nur, was die Handy-UI braucht.
             # ui_stand: mtime der Oberfläche — alte Browser-Tabs erneuern
             # sich selbst, wenn hier neuer Code liegt (Wurzel-Fix 07.08.).
+            # Der Baustein zählt mit (medien_session.py steckt in beiden Seiten).
             try:
-                ui_stand = round(os.path.getmtime(
-                    os.path.join(SCRIPT_DIR, "oberflaeche.py")), 2)
+                ui_stand = round(max(os.path.getmtime(os.path.join(SCRIPT_DIR, f))
+                                     for f in ("oberflaeche.py", "medien_session.py")), 2)
             except OSError:
                 ui_stand = 0
             with Q.lock:
@@ -6575,6 +6795,12 @@ def main():
     for schluessel, alt, neu in vorgaben_umstellung_festschreiben():
         _sag(f"Neue Vorgabe übernommen: {schluessel} {alt} → {neu} "
              f"(alter Stand liegt als config_vor_stand{VORGABEN_STAND}.json daneben)")
+    try:
+        # Windows-Medienanmeldung des VLC-Motors: hier nur die Brücke — Fenster
+        # und Anmeldung entstehen erst beim ersten Abspielen im VLC (lazy).
+        _smtc_einrichten()
+    except Exception as e:                           # noqa: BLE001 — nie den Start reißen
+        _sag(f"Windows-Medienanmeldung nicht eingerichtet: {e}")
     _worker_start(max(1, min(3, int(CFG.get("parallel", 1)))))
     threading.Thread(target=ticker_schleife, daemon=True).start()
     threading.Thread(target=technik_backfill, daemon=True).start()   # Codecs für Alt-Dateien

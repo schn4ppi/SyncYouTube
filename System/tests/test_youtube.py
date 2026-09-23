@@ -4282,7 +4282,8 @@ def test_netflix_detailseite():
     i = quelle.index("function tvKey")
     assert "!tvOffen&&!tvInfoOffen" in quelle[i:_funktionsende(quelle, i)]
     # Resume: filmePlay nimmt eine Position an
-    assert "function filmePlay(id,pos)" in quelle.replace("async ", "")
+    # seit 23.09.2026 mit drittem Parameter (Folgenwechsel-Generation der Medientasten)
+    assert "function filmePlay(id,pos" in quelle.replace("async ", "")
 
 
 def test_fullscreen_umhaengung():
@@ -4548,7 +4549,8 @@ def test_browser_player_und_bild_kette():
         assert muss in b, f"tvpBefehl unvollstaendig: {muss}"
     i = quelle.index("function tvFilmPlayer")
     b = quelle[i:_funktionsende(quelle, i)]
-    assert "tvpDirektSrc" in b and "filmePlayVlc(id,pos)" in b, \
+    # Rückfall auf VLC; seit 23.09.2026 reicht er die Meta mit (Folgen-Tasten)
+    assert "tvpDirektSrc" in b and "filmePlayVlc(id,pos" in b, \
         "Browser-<video> + Codec-Fallback fehlen"
     # Transcoding (JB-Go 06.08.): ffmpeg-Strom + Seek-Offset + Heil-Kette.
     i = quelle.index("function tvpDirektSrc")
@@ -4962,14 +4964,17 @@ def test_medientasten_steuern_den_player_auch_im_hintergrund():
     assert "navigator.mediaSession" in quelle, \
         "ohne Media Session API erreichen die Medientasten die Seite nie"
 
-    # Jeder Handler muss die RICHTIGE Player-Funktion rufen
+    # Jeder Handler muss die RICHTIGE Weiche rufen. Seit 23.09.2026 (Film-Player
+    # + Gerät VLC) laufen alle über dieselbe Weiche; WOHIN sie im Musik-, Film-
+    # und VLC-Fall führt, prüft test_medientasten_verhalten.py durch echtes
+    # Ausführen (u. a. nexttrack -> playerNext, solange kein Film offen ist).
     i = quelle.index("function medienTastenAnmelden")
     block = quelle[i:_funktionsende(quelle, i)]
-    for aktion, funktion in (("nexttrack", "playerNext"),
-                             ("previoustrack", "playerPrev"),
-                             ("play", "medienPlay"),
-                             ("pause", "medienPause"),
-                             ("stop", "medienPause"),
+    for aktion, funktion in (("nexttrack", "_msWeiter"),
+                             ("previoustrack", "_msZurueck"),
+                             ("play", "_msPlay"),
+                             ("pause", "_msPause"),
+                             ("stop", "_msPause"),
                              ("seekto", "medienSpringe")):
         j = block.find("'" + aktion + "'")
         assert j > 0, f"kein Handler für '{aktion}'"

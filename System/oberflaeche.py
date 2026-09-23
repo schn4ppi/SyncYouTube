@@ -30,7 +30,12 @@ WICHTIGE FALLE: Dies ist ein Python-Triple-String — ein \\ in JS/HTML muss
 verdoppelt werden (\\n, \\d, \\s), sonst frisst Python das Escape und das
 JavaScript ist kaputt (node --check nach jeder Änderung laufen lassen!)."""
 
-HTML = """<!doctype html>
+from medien_session import einsetzen as _medien_einsetzen   # Media-Session-Baustein (mit handy.py geteilt)
+
+# Rohvorlage unter eigenem Namen: scheitert beim heißen Nachladen das Einsetzen
+# des Bausteins, bleibt HTML die alte, heile Seite (sonst lieferte der Server eine
+# Vorlage ohne Baustein aus — Oberfläche tot; Prüf-Befund 24.09.2026).
+_HTML_ROH = """<!doctype html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
@@ -3993,10 +3998,14 @@ function filmeBrowserKann(d){
   const aOk=['aac','mp3','opus','vorbis','flac'].some(x=>a.includes(x));
   return vOk&&aOk;
 }
-async function filmePlay(id,pos){
+async function filmePlay(id,pos,wechsel){
   let meta=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)?tvInfoDaten.d
           :(typeof tvHeroDaten!=='undefined'&&tvHeroDaten&&tvHeroDaten.id===id)?tvHeroDaten:null;
   if(!meta){try{meta=await (await fetch('/api/filme/detail?id='+encodeURIComponent(id))).json();}catch(e){}}
+  // Folgenwechsel per Taste (wechsel = Generation): inzwischen Esc gedrückt
+  // oder ein neuerer Druck? Dann nichts öffnen (Prüf-Befund 24.09.: sonst
+  // startete die Folge über der gerade geschlossenen Ansicht).
+  if(wechsel&&wechsel!==tvpWechselGen)return;
   /* Ein Fehler-Objekt ist KEINE Meta. Die Route antwortet bei unbekannter Id mit
      {"fehler": …}; das ist in JS wahr, also lief der ganze Weiche-Code darauf
      weiter — mit leerem Titel, Dauer 0 (tote Zeitleiste) und der schwersten
@@ -4004,9 +4013,13 @@ async function filmePlay(id,pos){
      im Katalog-Spiegel stehen (Server-Seite jetzt: filme._folge_holen). */
   if(meta&&meta.fehler)meta=null;
   const inHuelle=!!window.pywebview;
+  // Folgenwechsel per Taste aus einem VLC-Film in den Browser-Player: den VLC
+  // anhalten, sonst liefe die alte Folge unsichtbar weiter.
+  const warVlcFilm=tvpOffen&&tvpModus!=='browser';
   if(meta&&filmeBrowserKann(meta)){
+    if(warVlcFilm)vlcBefehl('stop');
     tvpModus='browser'; tvpTc=false;                   // Direct Play im <video>
-    tvFilmPlayer(id,(meta.titel||''),pos||0);
+    tvFilmPlayer(id,(meta.titel||''),pos||0,meta);
     return;
   }
   if(meta&&!inHuelle){
@@ -4014,15 +4027,20 @@ async function filmePlay(id,pos){
     // wandelt ffmpeg unterwegs — h264 bleibt Kopie (nur Ton→AAC), Rest
     // wird libx264. In der HÜLLE bleibt der eingebettete VLC der starke
     // Weg (spielt alles nativ, null Transcode-Last).
+    if(warVlcFilm)vlcBefehl('stop');
     tvpModus='browser'; tvpTc=true;
     tvpTcVcopy=['h264','avc'].some(x=>((meta.video_codec||'').toLowerCase()).includes(x));
-    tvFilmPlayer(id,(meta.titel||''),pos||0);
+    tvFilmPlayer(id,(meta.titel||''),pos||0,meta);
     return;
   }
-  filmePlayVlc(id,pos);
+  filmePlayVlc(id,pos,meta,wechsel);
 }
-async function filmePlayVlc(id,pos){
-  tvpModus='vlc';
+async function filmePlayVlc(id,pos,meta,wechsel){
+  if(wechsel&&wechsel!==tvpWechselGen)return;
+  // Ein Folgenwechsel, dessen Ziel nicht aufgeht, darf nicht „ausstehend"
+  // hängen bleiben — sonst rechnete jeder weitere ⏭/⏮ von einer Folge aus,
+  // die nie lief.
+  const gescheitert=()=>{if(wechsel&&wechsel===tvpWechselGen){tvpWechsel=null; tvpModusNaechster=null;}};
   // Vollbild-Ordnung (JB: „nicht im Vordergrund"): erst das BROWSER-Vollbild
   // verlassen — sonst kämpfen zwei Fullscreens und das VLC-Bild liegt hinten.
   if(document.fullscreenElement){try{document.exitFullscreen();}catch(e){}}
@@ -4030,10 +4048,21 @@ async function filmePlayVlc(id,pos){
     const r=await fetch('/api/filme/play',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id, vol:plVol, pos:pos||0})});
     const d=await r.json();
-    if(d.fehler){toast('🎬 '+d.fehler); return;}
-    const titel=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.titel)||'';
-    tvFilmPlayer(id,titel,pos||0);                     // die Fernbedienung (Build 187)
-  }catch(e){toast('🎬 Abspielen fehlgeschlagen.');}
+    if(d.fehler){toast('🎬 '+d.fehler); gescheitert(); return;}
+    // Überholt, während VLC schon startete: spielt der VLC noch DIESE verworfene
+    // Folge und ist das Ziel eine andere, anhalten — sonst lief sie unsichtbar
+    // neben einer Browser-Folge weiter (Gegenprüfung 24.09.).
+    if(wechsel&&wechsel!==tvpWechselGen){
+      const ziel=tvpWechsel?tvpWechsel.id:(tvpOffen?tvpIdAkt:'');
+      if(ziel!==id){const st=await vlcBefehl('status'); if(st&&st.key==='film:'+id)vlcBefehl('stop');}
+      return;
+    }
+    // Erst JETZT auf VLC umschalten: scheiterte der Start bei einem Folgenwechsel
+    // aus dem Browser-Player, liefe die alte Folge sonst mit falscher Fernbedienung.
+    tvpModus='vlc';
+    const titel=(meta&&meta.titel)||(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.titel)||'';
+    tvFilmPlayer(id,titel,pos||0,meta);                // die Fernbedienung (Build 187)
+  }catch(e){toast('🎬 Abspielen fehlgeschlagen.'); gescheitert();}
 }
 /* ---- Film-Player-Screen (Build 187) ---------------------------------------
    JB: „der Player hat keine controls, kein play, kein exit …" — das
@@ -4075,15 +4104,41 @@ async function tvpBefehl(cmd,daten){
           dauer:tvpTc?metaDauer:(isFinite(v.duration)?v.duration:metaDauer),
           verfuegbar:true};
 }
-function tvFilmPlayer(id,titel,pos){
+/* Folgenwechsel: das alte <video> wird erst geleert, wenn das neue SPIELT.
+   Messung 24.09.2026 (Edge, Windows 11): Leerte man es vorher (Quelle weg +
+   load()), spielte in der Seite kurz nichts — Windows gab dann bei der
+   nächsten Pause die „aktuelle Sitzung" an eine andere pausierte App ab
+   (Firefox, Spotify), und der nächste ⏯ startete DORT statt den Film.
+   Geleert bei „playing" der neuen Folge blieb Edge in allen Läufen aktuell.
+   Bis dahin schweigt das alte (pause); tvpZu räumt Liegengebliebenes. */
+let tvpAbgeloest=[];
+function tvpAbgeloestFreigeben(){
+  const l=tvpAbgeloest; tvpAbgeloest=[];
+  l.forEach(v=>medienS.freigeben(v));
+}
+function tvFilmPlayer(id,titel,pos,meta){
   tvpOffen=true; tvpPos=pos||0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
   tvpIdAkt=id;
+  // Die volle Meta aus filmePlay (Folgen stehen nie in tvInfoDaten/tvHeroDaten):
+  // ohne sie fehlten bei Folgen typ/serie_id (Weiter/Zurück) und laufzeit_min —
+  // im Transcode blieb die Zeitleiste dann tot (Dauer 0, Befund 23.09.).
   tvpMeta=(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)?tvInfoDaten.d
          :(typeof tvHeroDaten!=='undefined'&&tvHeroDaten&&tvHeroDaten.id===id)?tvHeroDaten
+         :(meta&&!meta.fehler)?meta
          :{titel:titel||''};                           // Hero-Start: Meta trotzdem da
+  // Zurück-Regel: kam diese Folge per „Zurück", gilt ihr Modus (siehe tvpZurueckZiel).
+  tvpZurueckModus=(tvpModusNaechster&&tvpModusNaechster.id===id)?tvpModusNaechster.modus:'normal';
+  tvpModusNaechster=null;
+  if(tvpWechsel&&tvpWechsel.id===id)tvpWechsel=null;  // der ausstehende Folgenwechsel ist angekommen
+  // Schlüssel SOFORT (sonst erst mit dem nächsten Takt): Esc direkt nach einem
+  // Folgenwechsel schrieb sonst die Stelle der NEUEN Folge in die VORIGE.
+  if(tvpModus!=='browser')vlcKeyLetzter=id?'film:'+id:'live:'+(titel||'');
   let el=document.getElementById('tv-player');
   if(!el){el=document.createElement('div'); el.id='tv-player';}
-  (document.fullscreenElement||document.body).appendChild(el);
+  // Beim Folgenwechsel per Taste ist der Player selbst das Vollbild-Element —
+  // sich selbst anhängen wirft (HierarchyRequestError). Dann bleibt er, wo er ist.
+  const zielEl=document.fullscreenElement||document.body;
+  if(zielEl!==el&&!el.contains(zielEl))zielEl.appendChild(el);
   el.style.display='flex';
   // Netflix-Layout (JBs Player-Bilder): ← oben links, Leiste UNTEN über die
   // volle Breite (roter Balken + Zeit rechts), darunter ⏯ ±10 🔊 links und
@@ -4095,6 +4150,8 @@ function tvFilmPlayer(id,titel,pos){
     ?`<video id="tvp-video" class="tvp-video" autoplay playsinline `+
      `src="${tvpDirektSrc(pos||0)}"></video>`
     :`<img class="tvp-bg" src="/api/filme/bild?id=${encodeURIComponent(id)}&art=Backdrop" onerror="this.style.visibility='hidden'">`;
+  const altV=document.getElementById('tvp-video');     // Folgenwechsel: die alte Folge verstummt sofort …
+  if(altV){try{altV.pause();}catch(e){} tvpAbgeloest.push(altV);}
   el.innerHTML=
     medien+
     `<img id="tvp-standbild" class="tvp-standbild" style="display:none">`+
@@ -4136,7 +4193,9 @@ function tvFilmPlayer(id,titel,pos){
       v.volume=Math.max(0,Math.min(1,plVol/100));
       if(pos>0&&!tvpTc)v.addEventListener('loadedmetadata',()=>{try{v.currentTime=pos;}catch(e){}},{once:true});
       v.addEventListener('error',()=>{                 // Selbstheilungs-Kette:
-        if(!tvpOffen)return;                           // direkt → Transcoder → VLC
+        // direkt → Transcoder → VLC. Nicht für ein abgelöstes Video und nicht,
+        // während ein Folgenwechsel lädt (die neue Folge kommt ja).
+        if(!tvpOffen||tvpWechsel||tvpIdAkt!==id||!v.isConnected)return;
         if(!tvpTc){
           toast('🎬 Format sperrt sich — der Transcoder übernimmt.');
           tvpTc=true; tvpTcVcopy=false; tvpTcOffset=tvpPos||pos||0;
@@ -4144,12 +4203,20 @@ function tvFilmPlayer(id,titel,pos){
           return;
         }
         toast('🎬 Browser kann dieses Format nicht — VLC übernimmt.');
-        tvpZu(); filmePlayVlc(id,pos);
+        const mm=tvpMeta, modus=tvpZurueckModus;
+        tvpZu();                                       // räumt den Modus …
+        tvpModusNaechster={id, modus};                 // … darum danach: JBs Zurück-Regel überlebt den Rückfall
+        filmePlayVlc(id,pos,mm);
       });
       v.addEventListener('click',ev=>{ev.stopPropagation(); tvpWach();
         tvpBefehl('toggle'); setTimeout(tvpTick,200);});   // Netflix: Klick = Pause
+      // Windows-Overlay sofort nachziehen, nicht erst mit dem 1-s-Takt
+      v.addEventListener('play',tvpMedienZustand); v.addEventListener('pause',tvpMedienZustand);
     }
   }
+  const neuV=document.getElementById('tvp-video');     // … und wird geleert, sobald die neue spielt
+  if(neuV&&neuV!==altV)neuV.addEventListener('playing',tvpAbgeloestFreigeben,{once:true});
+  else tvpAbgeloestFreigeben();                        // kein neues Video (VLC): sofort
   // Die VLC-Fernbedienung geht NUR bei MEHREREN Monitoren selbst ins
   // Vollbild (auf einem verdeckte sie das VLC-Bild); der BROWSER-Player
   // darf immer — sein Bild liegt ja IM Overlay.
@@ -4159,6 +4226,7 @@ function tvFilmPlayer(id,titel,pos){
   }catch(e){}
   if(!tvpTimer)tvpTimer=setInterval(tvpTick,1000);
   setTimeout(tvpTick,600);
+  tvpMedienAn();                                       // Medientasten + Windows-Overlay gehören jetzt dem Film
 }
 function tvpWach(){
   tvpAktiv=Date.now();
@@ -4245,36 +4313,57 @@ function tvpIdleTick(spielt){
   if(bg)bg.style.display=(zeigen&&huelleVlc)?'block':'none';
 }
 function tvpZu(){
+  // Ein verzögerter Sprung trifft nichts mehr, ein liegengebliebener Zurück-Modus
+  // vererbt sich nicht, und die Folgenliste merkt sich die Stelle (Esc,
+  // Folgenende, Rückfall — alles läuft hier durch). Einen ladenden Wechsel
+  // bricht nur filmStopp ab.
+  clearTimeout(_tvpSprungTimer); tvpModusNaechster=null;
+  if(tvpIdAkt)tvpFolgePosMerken(tvpIdAkt,Math.round(tvpPos||0));
   tvpOffen=false; tvpModus='vlc'; tvpTc=false; tvpTcOffset=0;   // nie hängen lassen
+  medienNachFilm();                                    // Overlay + Tasten zurück an die Musik
   if(tvpTimer){clearInterval(tvpTimer); tvpTimer=null;}
   const api=window.pywebview&&window.pywebview.api;   // Hüllen-Bild freigeben
   if(api&&api.video_rect){try{api.video_rect(0,0,0,0,false);}catch(e){}}
   const el=document.getElementById('tv-player');
   if(el){
     if(document.fullscreenElement===el){try{document.exitFullscreen();}catch(e){}}
+    medienS.freigeben(document.getElementById('tvp-video'));   // sonst hält es Windows' Eintrag
     el.style.display='none'; el.innerHTML='';
   }
+  tvpAbgeloestFreigeben();                             // alte Folgen, deren Nachfolger nie spielte
 }
 async function tvpTick(){
   if(!tvpOffen)return;
+  const idVor=tvpIdAkt, modusVor=tvpModus;
   let s=null;
   try{s=await tvpBefehl('status');}catch(e){return;}
   if(!s)return;
+  // Die Antwort gehört zu einer anderen Folge/einem anderen Motor (Wechsel lief
+  // dazwischen): verwerfen — sonst überschrieb sie Schlüssel und Stelle der
+  // neuen Folge (Gegenprüfung 24.09.).
+  if(!tvpOffen||tvpIdAkt!==idVor||tvpModus!==modusVor)return;
+  // Lädt ein Folgenwechsel im VLC, meldet der Server schon die NEUE Folge — die
+  // gehört noch nicht zu dieser Fernbedienung (weder Stelle noch Zustand).
+  if(tvpWechsel&&tvpModus!=='browser'&&s.key!=='film:'+tvpIdAkt)return;
   if(s.zustand==='spielt')tvpLief=true;
   tvpTicks++;
   // JB-Fund: vlcKeyLetzter setzte nur der Geräte-VLC-Takt — ohne ihn war
-  // filmStopp/Esc/← ein stiller No-op. Der Film-Takt pflegt ihn jetzt selbst.
-  vlcKeyLetzter=s.key||vlcKeyLetzter; vlcSpielt=(s.zustand==='spielt');
+  // filmStopp/Esc/← ein stiller No-op. Der Film-Takt pflegt ihn selbst — aber
+  // nur für einen VLC-Film: beim Browser-Film gehört der Geräte-VLC der Musik.
+  if(tvpModus!=='browser'){vlcKeyLetzter=s.key||vlcKeyLetzter; vlcSpielt=(s.zustand==='spielt');}
   tvpIdleTick(s.zustand==='spielt');
   // Ende-Erkennung mit ANLAUF-GNADE (live gefunden: der erste Tick kam vor
   // VLCs „spielt" und schloss die Fernbedienung sofort wieder): erst
   // schließen, wenn der Film nachweislich lief oder der Start nie kam.
-  if((!/^(film|live):/.test(s.key||'')||s.zustand==='aus')&&(tvpLief||tvpTicks>8)){
+  // Nicht, solange ein Folgenwechsel lädt: der VLC meldet den Anlauf der NEUEN
+  // Folge als 'aus' — das ist kein Ende (Gegenprüfung 24.09.: sonst Film weg).
+  if(!tvpWechsel&&(!/^(film|live):/.test(s.key||'')||s.zustand==='aus')&&(tvpLief||tvpTicks>8)){
     tvpZu();
     if(tvInfoOffen)tvInfoMalen();
     return;
   }
   tvpPos=s.pos||tvpPos; tvpDauer=s.dauer||tvpDauer;
+  tvpMedienZustand();                                  // Windows-Zeitleiste (Transcode: Offset + Meta-Dauer)
   // Lade-Spinner (JB-Go): sichtbar, bis der Film WIRKLICH spielt — deckt den
   // langsamen Index-/Seek-Anlauf mancher Container über die Leitung ehrlich ab.
   const lade=document.getElementById('tvp-lade');
@@ -4328,12 +4417,176 @@ function tvpSeek(ev){
   tvpBefehl('seek',{wert:tvpPos});
   setTimeout(tvpTick,300);
 }
+/* ---- Medientasten im Film (JB 23.09.2026: „Film steuern + nächste Folge") ---
+   Play/Pause/Spulen wirken auf den Film, nie auf die Musik darunter. Bei
+   Serien schaltet „Weiter" zur nächsten Folge; „Zurück" folgt JBs Regel
+   (Variante C, x = 3 s): 1. Druck = Vorfolge an ihrer gemerkten Stelle — war
+   sie zu Ende geschaut, direkt an den Anfang —, 2. Druck = Anfang dieser
+   Folge, ab da wie beim Musik-Player (über 3 s: Anfang, sonst noch eine Folge
+   zurück). Ein Einzelfilm bekommt kein Weiter/Zurück: lieber kein Knopf als
+   einer, der ins Leere greift oder einen langen Film versehentlich neu startet.
+   Läuft der Film im VLC (Hülle, Live-TV), meldet der Server ihn bei Windows an;
+   die Seite liefert ihm Titel, Bild und ob es Weiter/Zurück gibt. */
+let tvpMedienGen=0, tvpZurueckModus='normal', tvpModusNaechster=null, tvpFolgenCache=null, _tvpSprungTimer=null, tvpWechsel=null, tvpWechselGen=0;
+function tvpLandePos(e){
+  // Gemerkte Stelle — außer die Folge ist zu Ende geschaut (gesehen, oder ab
+  // 90 %: Jellyfins Standard-Grenze für „gespielt") oder kaum angefangen
+  // (bis 30 s, wie bei den Folgen-Kacheln der Infoseite).
+  if(!e||e.gesehen)return 0;
+  const p=e.position_s||0, d=(e.laufzeit_min||0)*60;
+  if(p<=30||(d&&p>=d*0.9))return 0;
+  return p;
+}
+function tvpZurueckZiel(eps,aktId,pos,modus){
+  const i=(eps||[]).findIndex(e=>e.id===aktId);
+  if(i<0)return null;                                  // Folge fehlt in der Liste: lieber nichts als ein Neustart
+  if(modus==='gelandet'||(modus==='musik'&&pos>3))return {art:'anfang',modus:'musik'};
+  const vor=i>0?eps[i-1]:null;
+  if(!vor)return {art:'anfang',modus:'musik'};
+  const p=tvpLandePos(vor);
+  return {art:'folge',e:vor,pos:p,modus:p>0?'gelandet':'musik'};
+}
+function tvpWeiterZiel(eps,aktId){
+  const i=(eps||[]).findIndex(e=>e.id===aktId);
+  if(i<0||i+1>=eps.length)return null;
+  const n=eps[i+1];
+  return {art:'folge',e:n,pos:tvpLandePos(n),modus:'normal'};
+}
+async function tvpFolgenHolen(){
+  const m=tvpMeta||{};
+  if(m.typ!=='folge'||!m.serie_id)return null;         // Einzelfilm/Live: keine Folgen
+  if(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===m.serie_id&&(tvInfoDaten.eps||[]).length)return tvInfoDaten.eps;
+  if(tvpFolgenCache&&tvpFolgenCache.sid===m.serie_id)return tvpFolgenCache.eps;
+  try{
+    const j=await (await fetch('/api/filme/episoden?id='+encodeURIComponent(m.serie_id))).json();
+    const l=(j&&j.items)||[];
+    // Jellyfin-Fehler kommen als LEERE Liste (HTTP 200) — nicht für die Sitzung
+    // festschreiben, der nächste Druck fragt neu.
+    if(!l.length)return null;
+    tvpFolgenCache={sid:m.serie_id, eps:l};
+    return l;
+  }catch(e){return null;}
+}
+/* Lädt die Zielfolge noch (Detail-Abruf an Renés Server), rechnet der nächste
+   Druck von IHR aus, nicht von der alten Folge — sonst traf ein schneller
+   zweiter ⏮ dieselbe Folge, und JBs „2. Druck = Anfang" ging verloren
+   (Prüf-Befund 24.09.). */
+function tvpBasis(){
+  return tvpWechsel?{id:tvpWechsel.id, pos:tvpWechsel.pos, modus:tvpWechsel.modus}
+                   :{id:tvpIdAkt, pos:tvpPos, modus:tvpZurueckModus};
+}
+async function tvpFolge(dir){
+  if(dir<0)return tvpZurueck();
+  if(!tvpOffen)return;
+  const eps=await tvpFolgenHolen(); if(!eps||!tvpOffen)return;
+  tvpZielAusfuehren(tvpWeiterZiel(eps,tvpBasis().id),eps);
+}
+async function tvpZurueck(){
+  if(!tvpOffen)return;
+  const eps=await tvpFolgenHolen(); if(!eps||!tvpOffen)return;   // Einzelfilm: kein Zurück
+  const b=tvpBasis();
+  tvpZielAusfuehren(tvpZurueckZiel(eps,b.id,b.pos,b.modus),eps);
+}
+function tvpFolgePosMerken(id,pos){                    // Folgenliste (Info-Seite + Zwischenspeicher) nachziehen
+  const setze=l=>(l||[]).forEach(e=>{if(e.id===id)e.position_s=pos;});
+  if(tvInfoDaten)setze(tvInfoDaten.eps);
+  if(tvpFolgenCache)setze(tvpFolgenCache.eps);
+}
+function tvpWechselStarten(id,pos,modus){
+  const gen=++tvpWechselGen;                           // überholt jeden älteren, noch ladenden Wechsel
+  tvpWechsel={gen, id, pos, modus};
+  tvpModusNaechster={id, modus};
+  filmePlay(id,pos,gen);
+}
+function tvpZielAusfuehren(z,eps){
+  if(!z||!tvpOffen)return;
+  if(z.art==='anfang'){
+    if(tvpWechsel){tvpWechselStarten(tvpWechsel.id,0,z.modus); return;}   // Ziel lädt noch: von vorn
+    tvpZurueckModus=z.modus; tvpPos=0;
+    if(tvpModus!=='browser')tvpLadeZeigen('Springt zu '+zeit(0)+' …');
+    tvpBefehl('seek',{wert:0}); setTimeout(tvpTick,300);
+    return;
+  }
+  // Die laufende Folge merkt sich ihre Stelle (wie filmStopp) — ein späteres
+  // „Weiter" führt genau dorthin zurück.
+  // Nur beim ERSTEN Druck: danach läuft die alte Folge bloß weiter, bis das Ziel lädt.
+  const id=tvpIdAkt, pos=Math.round(tvpPos||0);
+  if(id&&!tvpWechsel){
+    try{fetch('/api/filme/fortschritt',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id, position_s:pos})}).catch(()=>{});}catch(e){}
+    (eps||[]).forEach(e=>{if(e.id===id)e.position_s=pos;});
+    tvpFolgePosMerken(id,pos);
+  }
+  tvpWechselStarten(z.e.id,z.pos,z.modus);
+}
+function tvpMedien(was){                               // Windows-Play/-Pause gezielt (kein blindes Umschalten)
+  if(!tvpOffen)return;
+  if(tvpModus==='browser'){
+    const v=document.getElementById('tvp-video'); if(!v)return;
+    if(was==='play')v.play().catch(()=>{}); else v.pause();
+  }else if((was==='play')!==vlcSpielt)tvpBefehl('toggle');
+  setTimeout(tvpTick,300);
+}
+function tvpSpringeAuf(t){
+  if(!tvpOffen)return;
+  const ziel=Math.max(0,Math.min(tvpDauer||1e9,t)), id=tvpIdAkt;
+  tvpPos=ziel;
+  if(tvpModus!=='browser')tvpLadeZeigen('Springt zu '+zeit(ziel)+' …');
+  // Der Overlay-Regler feuert beim Ziehen ganze Serien — im Transcode startet
+  // jeder Sprung ffmpeg neu. Darum erst springen, wenn der Regler ruht. Das
+  // Ziel steht fest (der 1-s-Takt überschreibt tvpPos zwischendurch), und nach
+  // Esc oder Folgenwechsel gilt der Sprung nicht mehr (Prüf-Befund 24.09.:
+  // sonst traf er als VLC-Befehl die Musik).
+  clearTimeout(_tvpSprungTimer);
+  _tvpSprungTimer=setTimeout(()=>{
+    if(!tvpOffen||tvpIdAkt!==id)return;
+    tvpPos=ziel; tvpBefehl('seek',{wert:ziel}); setTimeout(tvpTick,300);
+  },250);
+}
+function tvpFolgeTitel(t){                             // „Dark · S1 F3 — Name" (filme._folge_holen)
+  const m=/^(.*?) · S(\\d+) F(\\d+)(?: — (.*))?$/.exec(t||'');
+  return m?{serie:m[1], name:m[4]||t, staffel:+m[2], folge:+m[3]}:null;
+}
+async function tvpMedienAn(){
+  const gen=++tvpMedienGen;
+  medienTastenAnmelden();
+  const m=tvpMeta||{}, live=!tvpIdAkt;
+  const f=m.typ==='folge'?tvpFolgeTitel(m.titel):null;
+  const titel=f?f.name:(m.titel||'');
+  const interpret=f?f.serie:[m.jahr,(m.regie||[])[0]].filter(Boolean).join(' · ');
+  const album=f?'Staffel '+f.staffel+' · Folge '+f.folge:(live?'📡 Live':'');
+  const cover=live?'':'/api/filme/bild?id='+encodeURIComponent(tvpIdAkt)+'&art=Primary';
+  const eps=f?await tvpFolgenHolen():null;
+  if(gen!==tvpMedienGen||!tvpOffen)return;             // inzwischen zu oder schon die nächste Folge
+  const weiter=!!(eps&&tvpWeiterZiel(eps,tvpIdAkt)), zurueck=!!(eps&&eps.length);
+  if(tvpModus!=='browser')                             // Ton im VLC: der Server meldet bei Windows an
+    vlcBefehl('medien',{key:live?'live:'+titel:'film:'+tvpIdAkt, titel, interpret, album, cover, weiter, zurueck});
+  // Die Browser-Kachel (falls es sie wegen weiterlaufender Musik gibt) zeigt und
+  // steuert den Film ebenfalls — die Tasten gehören ihm (JB).
+  const bilder=[[cover,'512x512']];
+  if(f&&m.serie_id)bilder.push(['/api/filme/bild?id='+encodeURIComponent(m.serie_id),'512x512']);
+  medienS.info({title:titel, artist:interpret, album, artwork:medienS.bilder(bilder)});
+  medienS.aktionen({'nexttrack':weiter?_msWeiter:null, 'previoustrack':zurueck?_msZurueck:null});
+  tvpMedienZustand();
+}
+function tvpMedienZustand(){                           // Browser-Film: Zustand + Zeitleiste ans Overlay
+  if(!tvpOffen||tvpModus!=='browser')return;
+  const v=document.getElementById('tvp-video');
+  medienS.zustand(v&&!v.paused?'playing':'paused',{dauer:tvpDauer, pos:tvpPos, rate:v?v.playbackRate:1});
+}
 /* Film beenden (JB 05.08.: „auch beendet werden können mit escape") — meldet
    den Spot an Jellyfin UND lokal, damit „Weiterschauen ab …" SOFORT stimmt,
    ohne auf den nächsten Katalog-Abzug zu warten. */
-function filmLaeuft(){return vlcSpielt&&/^(film|live):/.test(vlcKeyLetzter||'');}
+function filmLaeuft(){return !!tvpOffen||(vlcSpielt&&/^(film|live):/.test(vlcKeyLetzter||''));}
 async function filmStopp(){
-  if((vlcKeyLetzter||'').startsWith('live:')){         // 📡 Live: nur stoppen
+  // Esc überholt einen noch ladenden Folgenwechsel — NUR hier: Folgenende und
+  // Selbstheilung der alten Folge dürfen den ausdrücklichen Druck nicht schlucken.
+  tvpWechselGen++; tvpWechsel=null; tvpModusNaechster=null;
+  // Bei offenem Player zählt die offene Folge (tvpIdAkt), nicht der zuletzt
+  // gesehene VLC-Schlüssel: mit Gerät VLC schrieb der Geräte-Takt dort den
+  // Musik-Schlüssel dazwischen (Gegenprüfung 24.09.: Stelle unter falscher Id).
+  const live=tvpOffen?!tvpIdAkt:(vlcKeyLetzter||'').startsWith('live:');
+  if(live){                                            // 📡 Live: nur stoppen
     vlcBefehl('stop');
     if(typeof tvpZu==='function')tvpZu();
     const tvL=document.getElementById('tv');
@@ -4343,7 +4596,7 @@ async function filmStopp(){
     toast('📡 Live beendet.');
     return;
   }
-  const id=(vlcKeyLetzter||'').slice(5); if(!id)return;
+  const id=tvpOffen?tvpIdAkt:(vlcKeyLetzter||'').slice(5); if(!id)return;
   const pos=Math.round((tvpOffen?tvpPos:vlcPosGeschaetzt())||0);
   tvpBefehl('stop'); vlcKeyLetzter=''; vlcSpielt=false;
   try{fetch('/api/filme/fortschritt',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -6517,6 +6770,9 @@ function playGefilterte(){
 }
 function aktKey(){return playerState.queue[playerState.idx];}
 function playerNext(){
+  // Radio ist endlos: auch wer per Taste weiterschaltet, kommt nie ans Ende
+  // der 40er-Liste (nachgefüllt wurde bisher nur beim natürlichen Titelende).
+  if(radioAktiv)radioNachfuellen();
   const n=queueIdxPassend(playerState.idx+1,1);        // Abspielart 🎶/🎬 zählt mit
   if(n>=0){playerState.idx=n; renderPlayerMedia();}
   // Nur EIN Titel in der Playlist (bzw. nichts Passendes mehr dahinter)?
@@ -6539,6 +6795,20 @@ function playerPrev(){
   // Symmetrisch zu playerNext (JB 14.07.: 'ich kann nur vor, nicht zurück, ohne Playlist'):
   // Einzeltitel / nichts Passendes davor -> ⏮ geht in der Bibliothek einen zurück.
   else if(playerState.queue.length<=1)vorherigesAusBibliothek();
+}
+/* Mehrere ⏭/⏮ auf einmal (Windows-Knöpfe am Server-VLC zwischen zwei
+   Abfragen): EIN Wechsel ans Ziel. Vorher startete jeder Zwischentitel mit
+   eigenem VLC-Befehl, und die Reihenfolge am Server war nicht fest
+   (Gegenprüfung 24.09.). Ein einzelner Druck bleibt playerNext/playerPrev mit
+   allen Regeln (3-s-Regel, Bibliothek, Radio). */
+function playerSchritte(n){
+  if(n===1){playerNext(); return;}
+  if(n===-1){playerPrev(); return;}
+  if(!n)return;
+  if(radioAktiv&&n>0)radioNachfuellen();
+  const r=n>0?1:-1; let i=playerState.idx;
+  for(let k=0;k<Math.abs(n);k++){const j=queueIdxPassend(i+r,r); if(j<0)break; i=j;}
+  if(i!==playerState.idx){playerState.idx=i; renderPlayerMedia();}
 }
 /* Gegenstück zu naechstesAusBibliothek: der VORHERIGE Titel der aktuellen Ansicht
    (Suche/Filter/Sortierung zählen). Bei Zufall ein zufälliger; am Anfang stoppt es ehrlich. */
@@ -7227,7 +7497,7 @@ function setCrossfade(v){
   const l=document.getElementById('xfval'); if(l)l.textContent=crossfadeSek?crossfadeSek+' s':'aus';
 }
 function xfAbbrechen(){                                // laufenden Übergang verwerfen, Lautstärke zurück
-  if(xfNext){try{xfNext.pause();}catch(e){} xfNext=null;}
+  if(xfNext){medienS.freigeben(xfNext); xfNext=null;}   // nur pausiert hielt es Windows' Eintrag fest
   if(vizGain){try{vizGain.gain.value=1;}catch(e){}}
 }
 function xfNaechsterIndex(){
@@ -8697,7 +8967,11 @@ async function vlcBefehl(cmd,extra){
   try{
     const r=await fetch('/api/vlc',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(Object.assign({cmd:cmd},extra||{}))});
-    return await r.json();
+    const d=await r.json();
+    // Jede Antwort (Musik- UND Film-Takt) trägt die Windows-Knöpfe des
+    // Server-VLC mit (medien_smtc.py) — hier landen Weiter/Zurück.
+    smtcTaste(d).catch(()=>{});
+    return d;
   }catch(e){return null;}
 }
 async function geraetWechsel(){
@@ -8826,6 +9100,7 @@ async function vlcTick(){
     const gesch=vlcPosGeschaetzt();
     if(!(s.pos<gesch&&gesch-s.pos<1.5)){vlcPosLetzte=s.pos; vlcPosTs=Date.now();}
   }
+  medienVlcSpiegel(s);                                 // Windows-Overlay: Zustand + Zeitleiste
   // Untertitel am Gerät VLC: der Bildtakt (vlcKarLauf, jetzt für ALLE Modi)
   // treibt die Anzeige weich; der 1-s-Takt bleibt Fallback — aber nur mit
   // gültiger VLC-Uhr (Blink-Wurzel 1: nie mit t=0 malen).
@@ -8941,75 +9216,193 @@ async function wgSpeichern(){
    für jedes spielende Medienelement selbst übernimmt — „nächster Titel" kann
    der Browser dagegen nicht raten, das weiß nur diese App.
 
-   Ehrliche Grenze: Im Geräte-Modus „VLC" spielt der Ton AUSSERHALB des
-   Browsers; dann meldet der Browser die Seite nicht als Medienquelle an, und
-   die Tasten erreichen uns nicht. Die Handler steuern VLC trotzdem mit, sobald
-   die Seite selbst eine Medienquelle ist. */
+   Live nachgemessen 23.09.2026 mit ECHTEN Tastendrücken (Tastatur-Scan-Codes
+   per SendInput) und Windows' eigener Sitzungsliste: Edge, Firefox und die
+   WebView2-Hülle melden sich an (Hülle als „msedgewebview2.exe"); Weiter,
+   Zurück und Play/Pause wirken, auch wenn das Fenster hinten liegt. WELCHE
+   App eine Taste bekommt, entscheidet Windows („aktuelle Sitzung"): eine neu
+   entstehende Sitzung wird aktuell, danach behält Spotify sie, solange es
+   spielt — und pausiert bei Play/Pause zusätzlich selbst mit.
+
+   Eine Weiche, drei Ziele: Film offen -> Film (JB 23.09.: „Film steuern +
+   nächste Folge"; Musik läuft nie mehr unter dem Film los), Gerät VLC -> VLC
+   über den Server, sonst das <audio>/<video>. Im Gerät VLC spielt der Ton
+   außerhalb des Browsers, dann kennt Windows die SEITE nicht (gemessen) —
+   darum meldet der SERVER den VLC selbst an (medien_smtc.py, pywinrt, JB-Go
+   23.09.) und reicht Weiter/Zurück über jede /api/vlc-Antwort hierher
+   (smtcTaste). */
+/*MEDIEN_SESSION_JS*/
+const medienS=medienSitzung(()=>document.getElementById('pl-el'));
+/* Wem gehören die Tasten? JB 23.09.2026: „Musik läuft weiter, die Tasten
+   gehören dem Film." Solange die Film-Fernbedienung offen ist, führen Tastatur,
+   keydown UND jede SyncYouTube-Kachel im Windows-Overlay zum Film — egal, ob er
+   im Browser-Element oder im VLC läuft; die Browser-Kachel zeigt dann auch den
+   Film (tvpMedienAn). Eine Zwischenfassung ließ die Browser-Kachel bei einem
+   VLC-Film der Musik — dann entschied Windows' Wahl der „aktuellen Sitzung",
+   ob eine Taste den Film oder die Musik traf (Gegenprüfung 24.09.). */
+function filmTasten(){return !!tvpOffen;}
+/* Gibt es eine SyncYouTube-Sitzung bei Windows, die eine Medientaste ohnehin
+   bekommt? Echte Tastendrücke (24.09.2026) zeigten: Mit Fokus auf dem Fenster
+   kommt die Taste ZWEIMAL an — über Windows UND als keydown. VLC-⏯ pausierte
+   und die Seite schaltete sofort zurück, VLC-⏭ sprang zwei Titel, 2× ⏮ in der
+   Serie wurden drei Schritte; die 400-ms-Sperre greift nicht, weil der
+   Windows-Weg später ankommt. Die Seite ist bei Windows angemeldet, sobald
+   eines ihrer Elemente mit Quelle Ton gespielt hat (Chromium meldet erst beim
+   ersten Ton an und hält die Sitzung auch pausiert, bis freigeben() die Quelle
+   nimmt); der VLC-Motor, solange der Server angemeldet ist (vlcSmtc). */
+function medienTasteHatSitzung(){
+  const sitzt=el=>!!(el&&el.src&&(!el.paused||(el.played&&el.played.length>0)));
+  if(sitzt(document.getElementById('pl-el'))||sitzt(document.getElementById('tvp-video')))return true;
+  return (filmTasten()?tvpModus!=='browser':vlcAktiv())&&!!vlcSmtc;
+}
+/* Dieselbe Taste darf nicht doppelt wirken, falls ein Browser sie ZUSÄTZLICH
+   als keydown zustellt: gleiche Aktion aus der ANDEREN Quelle binnen 400 ms
+   wird geschluckt. Zweimal schnell über denselben Weg bleibt erlaubt. */
+let _medienLetzte={gruppe:'',quelle:'',t:0};
+function medienEinmal(gruppe,quelle){
+  const jetzt=Date.now(), l=_medienLetzte;
+  if(l.gruppe===gruppe&&l.quelle!==quelle&&jetzt-l.t<400)return false;
+  _medienLetzte={gruppe,quelle,t:jetzt}; return true;
+}
 function medienPlay(){
-  if(typeof vlcAktiv==='function'&&vlcAktiv()){vlcBefehl('play'); return;}
+  if(filmTasten()){tvpMedien('play'); return;}
+  // Gerät VLC: 'play' OHNE Titel scheitert am Server („Datei nicht gefunden") —
+  // fortsetzen heißt dort umschalten, und nur, wenn er wirklich steht.
+  if(vlcAktiv()){if(!vlcSpielt)plTogglePlay(); return;}
   const el=document.getElementById('pl-el'); if(el)el.play().catch(()=>{});
 }
 function medienPause(){
-  if(typeof vlcAktiv==='function'&&vlcAktiv()){vlcBefehl('pause'); return;}
+  if(filmTasten()){tvpMedien('pause'); return;}
+  if(vlcAktiv()){vlcBefehl('pause'); return;}
   const el=document.getElementById('pl-el'); if(el)el.pause();
 }
 function medienSpringe(ev){
-  const el=document.getElementById('pl-el');
-  if(!el||!ev||typeof ev.seekTime!=='number')return;
-  el.currentTime=ev.seekTime;
+  if(!ev||typeof ev.seekTime!=='number')return;
+  if(filmTasten()){tvpSpringeAuf(ev.seekTime); return;}
+  if(vlcAktiv()){                                     // kein <audio> im VLC-Modus: über den Server
+    if(!vlcDauerLetzte)return;
+    vlcPosLetzte=Math.max(0,Math.min(vlcDauerLetzte,ev.seekTime));
+    vlcBefehl('seek',{wert:vlcPosLetzte}); return;
+  }
+  const el=document.getElementById('pl-el'); if(el)el.currentTime=ev.seekTime;
 }
 function medienRelativ(s){
-  const el=document.getElementById('pl-el'); if(!el)return;
-  el.currentTime=Math.max(0,(el.currentTime||0)+s);
+  if(filmTasten()){tvpRel(s); return;}
+  plbSpringen(s,true);                                 // VLC-fähig und aufs Titelende begrenzt
 }
+function medienWeiter(){if(filmTasten()){tvpFolge(1); return;} playerNext();}
+function medienZurueck(){if(filmTasten()){tvpZurueck(); return;} playerPrev();}
+function _msPlay(){if(medienEinmal('pp','ms'))medienPlay();}
+function _msPause(){if(medienEinmal('pp','ms'))medienPause();}
+function _msWeiter(){if(medienEinmal('next','ms'))medienWeiter();}
+function _msZurueck(){if(medienEinmal('prev','ms'))medienZurueck();}
 let _medienAngemeldet=false;
-function medienTastenAnmelden(){
-  const ms=navigator.mediaSession;
-  if(!ms||!ms.setActionHandler||_medienAngemeldet)return;
+function medienTastenAnmelden(neu){
+  if(!navigator.mediaSession||(_medienAngemeldet&&!neu))return;
   _medienAngemeldet=true;
-  const setze=(name,fn)=>{try{ms.setActionHandler(name,fn);}catch(e){}};
-  setze('play',()=>medienPlay());
-  setze('pause',()=>medienPause());
-  setze('stop',()=>medienPause());
-  setze('nexttrack',()=>playerNext());
-  setze('previoustrack',()=>playerPrev());
-  setze('seekto',ev=>medienSpringe(ev));
-  setze('seekforward',ev=>medienRelativ((ev&&ev.seekOffset)||10));
-  setze('seekbackward',ev=>medienRelativ(-((ev&&ev.seekOffset)||10)));
+  medienS.aktionen({
+    'play':_msPlay, 'pause':_msPause, 'stop':_msPause,
+    'nexttrack':_msWeiter, 'previoustrack':_msZurueck,
+    'seekto':ev=>medienSpringe(ev),
+    'seekforward':ev=>medienRelativ((ev&&ev.seekOffset)||10),
+    'seekbackward':ev=>medienRelativ(-((ev&&ev.seekOffset)||10))});
 }
 /* Was Windows im Overlay zeigt: Titel, Interpret, Cover. Interpret wie in der
-   Bibliothek — Künstler-Feld, sonst der Kanal. */
+   Bibliothek — Künstler-Feld, sonst der Kanal. Solange ein Film läuft, gehört
+   das Overlay ihm: ein Musik-Titelwechsel im Hintergrund überschreibt es nicht
+   (medienNachFilm holt die Musik danach zurück). Im Gerät VLC bekommt der
+   Server dieselben Angaben für seine eigene Windows-Anmeldung. */
 function medienInfoSetzen(x,k){
-  const ms=navigator.mediaSession;
-  if(!ms||!window.MediaMetadata||!x)return;
+  if(!x||!navigator.mediaSession)return;
   medienTastenAnmelden();
-  const bilder=[{src:'/api/cover?id='+encodeURIComponent(k),sizes:'512x512',type:'image/jpeg'}];
-  if(x.thumb)bilder.push({src:x.thumb,sizes:'480x360',type:'image/jpeg'});
-  try{
-    ms.metadata=new MediaMetadata({
-      title:x.titel||'',
-      artist:x.kuenstler||x.uploader||'',
-      album:x.album||(playerState&&playerState.quelle)||'',
-      artwork:bilder});
-  }catch(e){}
+  const cover='/api/cover?id='+encodeURIComponent(k);
+  const m={title:x.titel||'', artist:x.kuenstler||x.uploader||'',
+    album:x.album||(playerState&&playerState.quelle)||'',
+    artwork:medienS.bilder([[cover,'512x512'],[x.thumb,'480x360']])};
+  if(vlcAktiv()){                                      // Server-Kachel: auch bei offenem Film (sonst ohne Cover)
+    vlcBefehl('medien',{key:k,titel:m.title,interpret:m.artist,album:m.album,cover,weiter:true,zurueck:true});
+    _medienVlcGeraeumt=false;
+  }
+  if(filmTasten())return;                              // die Browser-Kachel zeigt gerade den Film
+  if(vlcAktiv()&&vlcSmtc)return;                       // der Server zeigt den Titel — die Seite nicht doppelt
+  medienS.info(m);
 }
 /* Zustand + Zeitleiste nachziehen, sonst zeigt das Overlay „Play", während
-   pausiert ist. setPositionState wirft bei unfertigen Werten — gekapselt. */
+   pausiert ist. Film und VLC pflegen ihren Zustand im eigenen 1-s-Takt
+   (tvpTick/vlcTick), das <audio> hier über seine Ereignisse. */
 function medienZustand(s){
-  const ms=navigator.mediaSession; if(!ms)return;
-  try{ms.playbackState=s;}catch(e){}
+  if(filmTasten()||vlcAktiv())return;
+  medienS.zustand(s);
+}
+/* Gerät VLC (aus vlcTick): gemessen 23.09. — ohne Spiegel blieb playbackState
+   auf 'paused', Windows schickte bei Play/Pause deshalb immer „play", und VLC
+   ließ sich per Taste nicht anhalten. Meldet der Server VLC selbst bei Windows
+   an (smtc), räumt die Seite ihre Sitzung — sonst stünde SyncYouTube doppelt
+   im Overlay. */
+let _smtcTasteN=null, vlcSmtc=false, _medienVlcGeraeumt=false;
+function medienVlcSpiegel(s){
+  if(!s||filmTasten()||!vlcAktiv())return;
+  if(s.smtc){if(!_medienVlcGeraeumt){medienS.leeren(); _medienVlcGeraeumt=true;} return;}
+  if(s.key!==aktKey())return;                          // spielt der VLC gerade etwas anderes (Film), nichts spiegeln
+  medienS.zustand(s.zustand==='spielt'?'playing':'paused',{dauer:s.dauer,pos:s.pos,rate:s.rate});
+}
+/* Windows-Knöpfe am Server-VLC (Vertrag mit medien_smtc.py): jede /api/vlc-
+   Antwort trägt taste={n,was}. Der erste Stand wird nur gemerkt (kein
+   Nachplappern nach dem Laden; ein kleinerer Zähler heißt: Server neu
+   gestartet). Jeder Druck ist ein Schritt — zwei schnelle ⏭ sind zwei Titel.
+   HANDELN darf nur die Seite, der das Gespielte gehört: jede offene Seite, die
+   VLC abfragt, sieht denselben Zähler (Prüf-Befund 24.09.: ein zweiter Tab
+   schaltete mit und übernahm den gemeinsamen VLC). */
+async function smtcTaste(d){
+  if(!d||typeof d!=='object')return;
+  if(typeof d.smtc==='boolean')vlcSmtc=d.smtc;
+  const t=d.taste; if(!t||typeof t.n!=='number')return;
+  const vor=+t.vor||0, zur=+t.zurueck||0, alt=_smtcTasteN;
+  _smtcTasteN={n:t.n, vor, zur};
+  if(alt===null||t.n<alt.n||t.n===alt.n)return;      // erster Stand, Server neu gestartet, nichts Neues
+  // Netto-Schritte: ⏭ und ein schnell folgendes ⏮ heben sich auf (Zähler je
+  // Richtung, Gegenprüfung 24.09.); ein älterer Server kennt nur n + letzte Richtung.
+  let netto=(typeof t.vor==='number'&&typeof t.zurueck==='number')?(vor-alt.vor)-(zur-alt.zur)
+           :(t.n-alt.n)*(t.was==='next'?1:t.was==='prev'?-1:0);
+  netto=Math.max(-5,Math.min(5,netto));
+  if(!netto)return;
+  const k=d.key||'', film=/^(film|live):/.test(k);
+  const meins=film?(tvpOffen&&(k==='film:'+tvpIdAkt||(!tvpIdAkt&&k.startsWith('live:'))))
+                  :!!(k&&vlcAktiv()&&k===aktKey());
+  if(!meins)return;
+  if(tvpOffen){                                        // die Tasten gehören dem Film (JB) — auch die Musik-Kachel
+    for(let i=0;i<Math.abs(netto);i++)await (netto>0?tvpFolge(1):tvpZurueck());
+    return;
+  }
+  playerSchritte(netto);
+}
+/* Nach dem Film gehört das Overlay wieder der Musik (oder niemandem). */
+function medienNachFilm(){
+  tvpMedienGen++;                                      // späte Film-Antworten verwerfen
+  medienTastenAnmelden(true);                          // alle Musik-Knöpfe zurück (der Film blendete evtl. Weiter aus)
+  const k=aktKey(), x=k?libFind(k):null;
+  if(!x){medienS.leeren(); return;}
+  medienInfoSetzen(x,k);
   const el=document.getElementById('pl-el');
-  if(!el||!ms.setPositionState)return;
-  const d=el.duration;
-  if(!isFinite(d)||d<=0)return;
-  try{ms.setPositionState({duration:d, playbackRate:el.playbackRate||1,
-    position:Math.max(0,Math.min(el.currentTime||0,d))});}catch(e){}
+  if(el)medienZustand(el.paused?'paused':'playing');
 }
 function renderPlayerMedia(){
   const media=document.getElementById('pl-media'); if(!media)return;
   spulStopp();                                         // Titelwechsel beendet den Spul-Modus
   const k=aktKey(), x=libFind(k);
-  if(!x){media.innerHTML='<div class="pl-leer">Kein Titel.</div>'; return;}
+  const altEl=document.getElementById('pl-el');        // wird gleich ersetzt -> danach freigeben
+  if(!x){
+    media.innerHTML='<div class="pl-leer">Kein Titel.</div>';
+    medienS.freigeben(altEl);
+    // Wiedergabe endet (Liste geleert, letzter Titel entfernt): nichts darf
+    // unsichtbar weiterspielen, und Windows darf keinen Titel mehr zeigen.
+    // Befund 23.09.: ein laufender Crossfade und VLC spielten weiter (VLC ohne
+    // Titel ist über die Oberfläche nicht mehr anzuhalten), das Overlay zeigte
+    // den alten Titel.
+    xfAbbrechen(); if(plGeraet==='vlc')vlcBefehl('stop');
+    if(!filmTasten())medienS.leeren();
+    return;
+  }
   const uebernahme=(adoptEl&&adoptEl._key===k)?adoptEl:null; adoptEl=null;
   if(!uebernahme)xfAbbrechen();                        // normaler Wechsel -> evtl. laufenden Fade verwerfen
   const src='/media?id='+encodeURIComponent(k);
@@ -9045,13 +9438,36 @@ function renderPlayerMedia(){
       `<div class="pl-subzeile" id="pl-sub-anzeige" style="display:none"></div>`+plBarHTML(true);
   }
   const el=document.getElementById('pl-el');
+  // Das abgelöste Element löst seine Quelle — sonst hält es Windows' Eintrag
+  // (gemessen: „YouTube-Downloader (pausiert)" neben der VLC-Sitzung).
+  if(altEl&&altEl!==el)medienS.freigeben(altEl);
   if(el){
     // Ende: wenn schon ein Crossfade läuft, das nächste Element übernehmen, sonst normal weiter
     el.addEventListener('ended',()=>{ if(xfNext)xfUebernehmen(); else playerAdvance(); });
     // Play/Pause-Symbol überall sofort nachziehen (JB 05.08.) — cmdNow malt
     // die Kopfzeile, transportRender die data-tr-Knöpfe der Player-Leiste.
-    el.addEventListener('play',()=>{cmdNowRender(); transportRender(); medienZustand('playing');});
-    el.addEventListener('pause',()=>{cmdNowRender(); transportRender(); medienZustand('paused');});
+    el.addEventListener('play',()=>{cmdNowRender(); transportRender(); if(el.isConnected)medienZustand('playing');});
+    el.addEventListener('pause',()=>{
+      cmdNowRender(); transportRender();
+      if(!el.isConnected)return;                         // abgelöstes Element (Titelwechsel) meldet nichts mehr
+      medienZustand('paused');
+      // Pause mitten in einer Überblendung (Taste, Klick, Overlay): das nächste
+      // Element spielte abgekoppelt weiter und wurde dabei lauter. Übergang
+      // abbrechen, Lautstärke zurück — beim Weiterspielen startet uebergangTick
+      // ihn mit der Restzeit neu. Gapless ist nicht betroffen (dort wartet xfNext).
+      if(!el.ended&&xfNext&&!xfNext.paused){xfAbbrechen(); el._xf=false; try{el.volume=plVol/100;}catch(e){}}
+    });
+    // Zeitleiste im Overlay: nach Sprüngen (Overlay-Regler, Pfeile, Kapitel,
+    // Leiste) und Tempowechseln rechnete Windows mit der alten Stelle weiter —
+    // setPositionState lief nur bei play/pause (Befund 23.09.).
+    ['seeked','ratechange','durationchange'].forEach(t=>el.addEventListener(t,()=>{
+      if(!el.isConnected)return;
+      // Zurück aus dem Überblend-Fenster gesprungen: sonst hört man den NÄCHSTEN
+      // Titel, während der alte stumm weiterläuft.
+      if(t==='seeked'&&el._xf&&el.duration-el.currentTime>crossfadeSek+0.5){
+        xfAbbrechen(); el._xf=false; try{el.volume=plVol/100;}catch(e){}}
+      medienZustand(el.paused?'paused':'playing');
+    }));
     el.addEventListener('timeupdate',()=>subTick(el));   // Untertitel/Karaoke mitlaufen lassen
     el.addEventListener('play',()=>karLauf(el));         // Karaoke-Wischer im Bildtakt (Build 115)
     if(istAudio)el.addEventListener('timeupdate',()=>uebergangTick(el));   // Gapless/Crossfade/Automix
@@ -9075,6 +9491,9 @@ function renderPlayerMedia(){
   cmdNowRender();
   speedAnwenden();                                     // Geschwindigkeit auf neues Element anwenden
   wiedergabeAnwenden(x,el);                            // Etappe C: Titel/Playlist/global-Regeln obendrauf
+  // Crossfade/Automix übernimmt ein Element, das SCHON spielt: es feuert kein
+  // 'play' mehr, und das 'pause' des alten Titels hatte 'paused' gemeldet.
+  if(uebernahme&&el)medienZustand(el.paused?'paused':'playing');
   renderKapitel(x);                                    // YouTube-Kapitel als Sprungmarken
   subLaden(k);                                         // Untertitel für den neuen Titel holen
   canvasAnwenden();                                    // animierter Cover-Hintergrund (falls an)
@@ -10302,37 +10721,55 @@ document.addEventListener('keydown',e=>{
   const el=document.getElementById('pl-el');
   // Build 132: springt UND zeigt es an (JB). J/L bleiben bei 10 s wie bisher,
   // die Pfeiltasten nehmen die einstellbare Weite (Standard 5 s wie YouTube).
-  const springen=s=>plbSpringen(s);
+  // Film offen: Sprünge gehören dem Film, nie der unsichtbaren Musik darunter
+  // (Prüf-Befund 24.09.: J/L, Ziffern und Pos1 sprangen in der Musik).
+  const springen=s=>filmTasten()?tvpRel(s):plbSpringen(s);
   const playPause=()=>{plTogglePlay();};               // VLC-fähig (Gerät zählt, nicht das Element)
   if(e.ctrlKey&&e.key==='ArrowRight'){e.preventDefault();playerNext();return;}
   if(e.ctrlKey&&e.key==='ArrowLeft'){e.preventDefault();playerPrev();return;}
   if(e.ctrlKey||e.metaKey||e.altKey)return;            // keine sonstigen Strg/Cmd/Alt-Kombis kapern
-  if(/^(Digit|Numpad)[0-9]$/.test(e.code)&&el&&el.duration){   // 0–9 -> zu 0–90 % springen (YouTube-Standard)
-    e.preventDefault(); el.currentTime=el.duration*(+e.code.slice(-1)/10); return;}
+  if(/^(Digit|Numpad)[0-9]$/.test(e.code)){           // 0–9 -> zu 0–90 % springen (YouTube-Standard)
+    const anteil=+e.code.slice(-1)/10;
+    if(filmTasten()){if(tvpDauer){e.preventDefault(); tvpSpringeAuf(tvpDauer*anteil);} return;}
+    if(el&&el.duration){e.preventDefault(); el.currentTime=el.duration*anteil; return;}
+  }
   if(_hkFang)return;                                   // der Fang-Dialog hört gerade selbst zu
   // Tabellen-Dispatcher (Hotkey-Editor): HK bestimmt, welche Taste was tut.
   const HK_TUN={
-    playpause:()=>{if(el||vlcAktiv())playPause();},
+    // Film offen: K/N/P steuern den Film wie die Medientasten — vorher starteten
+    // sie die Musik unter dem Film (Befund 23.09.).
+    playpause:()=>{if(filmTasten()){tvpBefehl('toggle'); setTimeout(tvpTick,300); return;}
+      if(el||vlcAktiv())playPause();},
     rueck10:()=>springen(-10), vor10:()=>springen(10),
     sprungvor:()=>springen(sprungWeite()), sprungzurueck:()=>springen(-sprungWeite()),
     lauter:()=>_vol(5), leiser:()=>_vol(-5),
-    naechster:()=>playerNext(), voriger:()=>playerPrev(),
-    stumm:()=>{if(el){el.muted=!el.muted; toast(el.muted?'🔇 stumm':'🔊 Ton an');}},
+    naechster:()=>medienWeiter(), voriger:()=>medienZurueck(),
+    stumm:()=>{
+      if(filmTasten()){const v=document.getElementById('tvp-video');   // Browser-Film: seinen Ton
+        if(v){v.muted=!v.muted; toast(v.muted?'🔇 stumm':'🔊 Ton an');} return;}
+      if(el){el.muted=!el.muted; toast(el.muted?'🔇 stumm':'🔊 Ton an');}},
     vollbild:()=>plbFullscreen(), pip:()=>plbPip(),
     untertitel:()=>{if(typeof subCycle==='function')subCycle();},
-    anfang:()=>{if(el)el.currentTime=0;},
-    ende:()=>{if(el&&el.duration)el.currentTime=el.duration;},
-    wiederholen:()=>{if(el){el.loop=!el.loop; toast(el.loop?'🔁 Wiederholen an':'▶ Wiederholen aus');}},
-    langsamer:()=>{if(el)_rate(-0.25);}, schneller:()=>{if(el)_rate(0.25);},
+    anfang:()=>{if(filmTasten()){tvpSpringeAuf(0); return;} if(el)el.currentTime=0;},
+    // Musik-Werkzeuge greifen bei offenem Film NICHT in die Musik darunter
+    ende:()=>{if(filmTasten())return; if(el&&el.duration)el.currentTime=el.duration;},
+    wiederholen:()=>{if(filmTasten())return; if(el){el.loop=!el.loop; toast(el.loop?'🔁 Wiederholen an':'▶ Wiederholen aus');}},
+    langsamer:()=>{if(filmTasten())return; if(el)_rate(-0.25);}, schneller:()=>{if(filmTasten())return; if(el)_rate(0.25);},
     subfrueher:()=>subOffsetSchieben(-0.5), subspaeter:()=>subOffsetSchieben(0.5)
   };
   // JB 05.08. (Korrektur): Hotkeys gelten ÜBERALL im Browser-Fenster.
   const tu=HK_TUN[hkAktionFuer(hkCode(e))];
   if(tu){e.preventDefault(); tu(); return;}
-  switch(e.code){                                      // fest: Medientasten der Tastatur
-    case 'MediaPlayPause': e.preventDefault(); playPause(); break;
-    case 'MediaTrackNext': e.preventDefault(); playerNext(); break;
-    case 'MediaTrackPrevious': e.preventDefault(); playerPrev(); break;
+  // Fest: Medientasten als keydown (manche Browser stellen sie ZUSÄTZLICH zur
+  // Media Session zu). Dieselbe Weiche wie die Windows-Knöpfe, und
+  // medienEinmal verhindert, dass eine Taste doppelt schaltet.
+  switch(e.code){
+    // Medientasten: nur Rückfall, wenn Windows sie keiner SyncYouTube-Sitzung gibt
+    case 'MediaPlayPause': e.preventDefault(); if(medienTasteHatSitzung())break;
+      if(medienEinmal('pp','taste')){if(filmTasten()){tvpBefehl('toggle'); setTimeout(tvpTick,300);} else playPause();}
+      break;
+    case 'MediaTrackNext': e.preventDefault(); if(!medienTasteHatSitzung()&&medienEinmal('next','taste'))medienWeiter(); break;
+    case 'MediaTrackPrevious': e.preventDefault(); if(!medienTasteHatSitzung()&&medienEinmal('prev','taste'))medienZurueck(); break;
     default:
       if(e.key==='?'){e.preventDefault(); tastenLegende();}
   }});
@@ -10421,3 +10858,4 @@ setInterval(laden,1000);
 </body>
 </html>
 """
+HTML = _medien_einsetzen(_HTML_ROH)   # /*MEDIEN_SESSION_JS*/ -> gemeinsamer Baustein

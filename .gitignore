@@ -34,6 +34,11 @@
 !System/update.py
 !System/oberflaeche.py
 !System/handy.py
+# 23.09.2026: Medientasten — gemeinsamer Media-Session-Baustein (PC + Handy)
+# und die Windows-Anmeldung des VLC-Motors aus dem Server (pywinrt, JB-Go).
+!System/medien_session.py
+!System/medien_smtc.py
+!System/tools/medien_probe.py
 !System/fernbedienung.py
 !System/geo.py
 !System/vpn.py

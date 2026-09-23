@@ -3,9 +3,21 @@
 
 Gleicher Server, gleiche APIs wie die PC-Oberfläche — nur touch-optimiert und
 mit Zugangscode. Geräte-Wahl wie Spotify Connect: abspielen auf dem PC-Player
-(Befehl über /api/remote) ODER auf dem Handy selbst (streamt /media)."""
+(Befehl über /api/remote) ODER auf dem Handy selbst (streamt /media).
 
-HTML = """<!doctype html>
+Sperrbildschirm (JB-Go 23.09.2026): Spielt das Handy selbst, meldet es sich
+über den gemeinsamen Media-Session-Baustein (medien_session.py, derselbe wie
+auf der PC-Oberfläche) an — Titel, Interpret und Cover samt Vor/Zurück/Pause
+für den Sperrbildschirm (Android/iOS; gemessen nur im Desktop-Browser, auf
+einem echten Handy noch nicht). Im Modus „auf dem PC" spielt hier nichts, also
+gibt es dort bewusst keine Sperrbildschirm-Steuerung."""
+
+from medien_session import einsetzen as _medien_einsetzen
+
+# Rohvorlage unter eigenem Namen: scheitert beim heißen Nachladen das Einsetzen
+# des Bausteins, bleibt HTML die alte, heile Seite (sonst lieferte der Server eine
+# Vorlage ohne Baustein aus — Oberfläche tot; Prüf-Befund 24.09.2026).
+_HTML_ROH = """<!doctype html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
@@ -81,6 +93,8 @@ footer .ctrl{margin:0}
 </div>
 
 <script>
+/*MEDIEN_SESSION_JS*/
+const medienS=medienSitzung(()=>document.getElementById('el'));
 let CODE=localStorage.getItem('ytdl_code')||'';
 let dev=localStorage.getItem('ytdl_dev')||'pc';
 let daten=[], aktuell=null;
@@ -102,6 +116,11 @@ function setDev(d){dev=d; localStorage.setItem('ytdl_dev',d);
   document.getElementById('dev-handy').classList.toggle('an',d==='handy');
   document.getElementById('vol').style.display=(d==='handy')?'':'none';
   document.getElementById('tipp').textContent=(d==='pc')?'Tippt einen Titel an → läuft am PC.':'Tippt einen Titel an → läuft hier am Handy.';
+  // Auf „PC" umgestellt: das Handy hört auf. Befund 23.09.: es spielte weiter,
+  // und am Titelende schickte es 'next' an den PC — der sprang ungewollt weiter.
+  // Die Quelle wird gelöst: ein pausiertes Element mit Quelle hält den Eintrag
+  // auf dem Sperrbildschirm (gemessen: „YTDL · Handy" blieb als toter Knopf).
+  if(d==='pc'){medienS.freigeben(document.getElementById('el')); medienS.leeren();}
 }
 async function ladenBib(){const r=await api('/api/bibliothek'); const j=await r.json();
   daten=(j.items||[]).filter(x=>x.vorhanden); malen();}
@@ -122,6 +141,7 @@ function spiel(id){
     const el=document.getElementById('el');
     el.src='/media?id='+encodeURIComponent(id)+'&code='+encodeURIComponent(CODE);
     el.play(); document.getElementById('pp').textContent='⏸';
+    handyMedienInfo(aktuell,id);
   }else{
     remote('playkey',id);
   }
@@ -129,13 +149,43 @@ function spiel(id){
 function steuer(was){
   if(dev==='handy'){
     const el=document.getElementById('el');
+    // Nach „PC → Handy" ist das Element freigegeben (keine Quelle): ▶ startet
+    // den gewählten Titel neu, statt ins Leere zu spielen und ⏸ zu zeigen.
+    if(was==='pp'&&!el.src){ if(aktuell)spiel(aktuell.id); return; }
     if(was==='pp'){ if(el.paused){el.play();document.getElementById('pp').textContent='⏸';}else{el.pause();document.getElementById('pp').textContent='▶';} }
-    // prev/next am Handy: einfache Variante – nächster/voriger in der aktuellen Liste
-    else if(was==='next'||was==='prev'){ const arr=aktuelleListe(); const i=arr.indexOf(aktuell&&aktuell.id);
-      const j=was==='next'?i+1:i-1; if(arr[j])spiel(arr[j]); }
+    else if(was==='next'||was==='prev')handyNachbar(was==='next'?1:-1);
   }else{
     remote(was==='pp'?'play':was);   // PC: play/pause togglet der PC-Player selbst über 'play'
   }
+}
+// prev/next am Handy: einfache Variante – nächster/voriger in der aktuellen Liste
+function handyNachbar(r){
+  const arr=aktuelleListe(); const i=arr.indexOf(aktuell&&aktuell.id);
+  if(arr[i+r])spiel(arr[i+r]);
+}
+function handyEnde(){if(dev==='handy')handyNachbar(1);}   // Titelende läuft am Handy weiter, nie am PC
+/* Sperrbildschirm: Titel, Interpret, Cover. Das Cover trägt den Zugangscode
+   in der ADRESSE — der Browser lädt Bilder für den Sperrbildschirm ohne eigene
+   Kopfzeilen, X-Code ginge verloren (im WLAN käme 403). */
+function handyMedienInfo(x,id){
+  if(!x)return;
+  const cover='/api/cover?id='+encodeURIComponent(id)+'&code='+encodeURIComponent(CODE);
+  medienS.info({title:x.titel||'', artist:x.kuenstler||x.uploader||'', album:x.album||'',
+    artwork:medienS.bilder([[cover,'512x512'],[x.thumb,'480x360']])});
+}
+/* Die Knöpfe steuern NUR das Handy selbst (nie den PC). Bewusst ohne
+   seekforward/seekbackward: iOS zeigt sonst ±-Sprungtasten STATT Titel
+   vor/zurück auf dem Sperrbildschirm. */
+function handyMedienAnmelden(){
+  const el=()=>document.getElementById('el');
+  const nur=f=>ev=>{if(dev==='handy')f(ev);};
+  medienS.aktionen({
+    'play':nur(()=>{const e=el(); if(e&&e.src)e.play().catch(()=>{});}),
+    'pause':nur(()=>{const e=el(); if(e)e.pause();}),
+    'stop':nur(()=>{const e=el(); if(e)e.pause();}),
+    'nexttrack':nur(()=>handyNachbar(1)),
+    'previoustrack':nur(()=>handyNachbar(-1)),
+    'seekto':nur(ev=>{const e=el(); if(e&&ev&&typeof ev.seekTime==='number')e.currentTime=ev.seekTime;})});
 }
 function aktuelleListe(){const q=(document.getElementById('suche').value||'').toLowerCase();
   return daten.filter(x=>!q||(x.titel+' '+(x.uploader||'')).toLowerCase().includes(q)).map(x=>x.id);}
@@ -143,9 +193,15 @@ function setVol(v){const el=document.getElementById('el'); if(el)el.volume=Math.
 async function remote(cmd,key){try{await api('/api/remote',{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd,key:key||''})});}catch(e){}}
 
-document.getElementById('el').addEventListener('ended',()=>steuer('next'));
-document.getElementById('el').addEventListener('pause',()=>{document.getElementById('pp').textContent='▶';});
-document.getElementById('el').addEventListener('play',()=>{document.getElementById('pp').textContent='⏸';});
+const _el=document.getElementById('el');
+_el.addEventListener('ended',handyEnde);
+_el.addEventListener('pause',()=>{document.getElementById('pp').textContent='▶'; if(dev==='handy')medienS.zustand('paused');});
+_el.addEventListener('play',()=>{document.getElementById('pp').textContent='⏸'; if(dev==='handy')medienS.zustand('playing');});
+// Zeitleiste auf dem Sperrbildschirm: beim ersten 'play' ist die Dauer noch
+// unbekannt (src wird direkt davor gesetzt) — darum auch bei Metadaten/Sprung.
+['loadedmetadata','durationchange','seeked','ratechange'].forEach(t=>_el.addEventListener(t,()=>{
+  if(dev==='handy')medienS.zustand(_el.paused?'paused':'playing');}));
+handyMedienAnmelden();
 
 function start(){ladenBib();}
 // Auto-Login, wenn schon ein Code gespeichert ist (oder am PC selbst, wo kein Code nötig ist)
@@ -156,3 +212,4 @@ function start(){ladenBib();}
 </body>
 </html>
 """
+HTML = _medien_einsetzen(_HTML_ROH)   # /*MEDIEN_SESSION_JS*/ -> gemeinsamer Baustein
