@@ -8929,6 +8929,82 @@ async function wgSpeichern(){
   await Promise.all([libLaden(),plLaden(),laden()]);   // alle drei Ebenen frisch
   toast('🎚 Wiedergabe-Einstellungen gespeichert.');
 }
+/* ---- Medientasten der Tastatur ------------------------------------------
+   Gemessen 23.09.2026 an der laufenden Oberfläche: `mediaSession.metadata` war
+   null, `playbackState` stand auf 'none' — Windows kannte SyncYouTube gar nicht
+   als Medienquelle. Zwei Folgen: „Titel weiter/zurück" wirkte NIE (auch nicht
+   im Vordergrund), und lief nebenbei Spotify, gewann Spotify jeden Tastendruck.
+
+   Der Grund ist eine Eigenheit des Webs, die viele überrascht: Medientasten
+   kommen NICHT als normale Tastendrücke in einer Seite an. Der einzige Weg
+   führt über die Media Session API. Play/Pause ist die Ausnahme, die Chrome
+   für jedes spielende Medienelement selbst übernimmt — „nächster Titel" kann
+   der Browser dagegen nicht raten, das weiß nur diese App.
+
+   Ehrliche Grenze: Im Geräte-Modus „VLC" spielt der Ton AUSSERHALB des
+   Browsers; dann meldet der Browser die Seite nicht als Medienquelle an, und
+   die Tasten erreichen uns nicht. Die Handler steuern VLC trotzdem mit, sobald
+   die Seite selbst eine Medienquelle ist. */
+function medienPlay(){
+  if(typeof vlcAktiv==='function'&&vlcAktiv()){vlcBefehl('play'); return;}
+  const el=document.getElementById('pl-el'); if(el)el.play().catch(()=>{});
+}
+function medienPause(){
+  if(typeof vlcAktiv==='function'&&vlcAktiv()){vlcBefehl('pause'); return;}
+  const el=document.getElementById('pl-el'); if(el)el.pause();
+}
+function medienSpringe(ev){
+  const el=document.getElementById('pl-el');
+  if(!el||!ev||typeof ev.seekTime!=='number')return;
+  el.currentTime=ev.seekTime;
+}
+function medienRelativ(s){
+  const el=document.getElementById('pl-el'); if(!el)return;
+  el.currentTime=Math.max(0,(el.currentTime||0)+s);
+}
+let _medienAngemeldet=false;
+function medienTastenAnmelden(){
+  const ms=navigator.mediaSession;
+  if(!ms||!ms.setActionHandler||_medienAngemeldet)return;
+  _medienAngemeldet=true;
+  const setze=(name,fn)=>{try{ms.setActionHandler(name,fn);}catch(e){}};
+  setze('play',()=>medienPlay());
+  setze('pause',()=>medienPause());
+  setze('stop',()=>medienPause());
+  setze('nexttrack',()=>playerNext());
+  setze('previoustrack',()=>playerPrev());
+  setze('seekto',ev=>medienSpringe(ev));
+  setze('seekforward',ev=>medienRelativ((ev&&ev.seekOffset)||10));
+  setze('seekbackward',ev=>medienRelativ(-((ev&&ev.seekOffset)||10)));
+}
+/* Was Windows im Overlay zeigt: Titel, Interpret, Cover. Interpret wie in der
+   Bibliothek — Künstler-Feld, sonst der Kanal. */
+function medienInfoSetzen(x,k){
+  const ms=navigator.mediaSession;
+  if(!ms||!window.MediaMetadata||!x)return;
+  medienTastenAnmelden();
+  const bilder=[{src:'/api/cover?id='+encodeURIComponent(k),sizes:'512x512',type:'image/jpeg'}];
+  if(x.thumb)bilder.push({src:x.thumb,sizes:'480x360',type:'image/jpeg'});
+  try{
+    ms.metadata=new MediaMetadata({
+      title:x.titel||'',
+      artist:x.kuenstler||x.uploader||'',
+      album:x.album||(playerState&&playerState.quelle)||'',
+      artwork:bilder});
+  }catch(e){}
+}
+/* Zustand + Zeitleiste nachziehen, sonst zeigt das Overlay „Play", während
+   pausiert ist. setPositionState wirft bei unfertigen Werten — gekapselt. */
+function medienZustand(s){
+  const ms=navigator.mediaSession; if(!ms)return;
+  try{ms.playbackState=s;}catch(e){}
+  const el=document.getElementById('pl-el');
+  if(!el||!ms.setPositionState)return;
+  const d=el.duration;
+  if(!isFinite(d)||d<=0)return;
+  try{ms.setPositionState({duration:d, playbackRate:el.playbackRate||1,
+    position:Math.max(0,Math.min(el.currentTime||0,d))});}catch(e){}
+}
 function renderPlayerMedia(){
   const media=document.getElementById('pl-media'); if(!media)return;
   spulStopp();                                         // Titelwechsel beendet den Spul-Modus
@@ -8974,8 +9050,8 @@ function renderPlayerMedia(){
     el.addEventListener('ended',()=>{ if(xfNext)xfUebernehmen(); else playerAdvance(); });
     // Play/Pause-Symbol überall sofort nachziehen (JB 05.08.) — cmdNow malt
     // die Kopfzeile, transportRender die data-tr-Knöpfe der Player-Leiste.
-    el.addEventListener('play',()=>{cmdNowRender(); transportRender();});
-    el.addEventListener('pause',()=>{cmdNowRender(); transportRender();});
+    el.addEventListener('play',()=>{cmdNowRender(); transportRender(); medienZustand('playing');});
+    el.addEventListener('pause',()=>{cmdNowRender(); transportRender(); medienZustand('paused');});
     el.addEventListener('timeupdate',()=>subTick(el));   // Untertitel/Karaoke mitlaufen lassen
     el.addEventListener('play',()=>karLauf(el));         // Karaoke-Wischer im Bildtakt (Build 115)
     if(istAudio)el.addEventListener('timeupdate',()=>uebergangTick(el));   // Gapless/Crossfade/Automix
@@ -8991,6 +9067,7 @@ function renderPlayerMedia(){
   if(el && istAudio){ vizVerbinde(el); vizFarbeAktualisieren(); vizModeRender(); vizStart(); }
   else{ media.classList.remove('viz-an'); }             // Video: kein Visualizer-Overlay
   document.getElementById('pl-titel').textContent=x.titel;
+  medienInfoSetzen(x,k);                               // Windows-Overlay + Medientasten
   document.getElementById('pl-pos').textContent=(playerState.idx+1)+' / '+playerState.queue.length;
   lieblingMalen();                                     // ＋/✓ folgt dem laufenden Titel (Build 144d)
   renderPlayerQueue();

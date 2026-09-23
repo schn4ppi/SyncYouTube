@@ -4942,3 +4942,57 @@ def test_fehler_objekt_gilt_nie_als_meta():
     assert "meta.fehler" in block, "filmePlay hält ein Fehler-Objekt für gültige Meta"
     i = quelle.index("tvHeroDaten=d;")
     assert "!a.fehler" in quelle[i - 400:i], "der Hero übernimmt ein Fehler-Objekt als Meta"
+
+
+def test_medientasten_steuern_den_player_auch_im_hintergrund():
+    """Die Medientasten der Tastatur steuern SyncYouTube systemweit.
+
+    Gemessen am 23.09.2026 an der laufenden Oberfläche: `mediaSession.metadata`
+    war `null` und `playbackState` stand auf `none` — Windows kannte SyncYouTube
+    also gar nicht als Medienquelle. Folge: Läuft nebenbei Spotify, gewinnt
+    Spotify jeden Tastendruck, und „Titel weiter/zurück" wirkte NIE, auch nicht
+    im Vordergrund. Der Grund ist eine Eigenheit des Webs: Medientasten kommen
+    nicht als normale Tastendrücke in der Seite an, sie sind ausschließlich über
+    die Media Session API erreichbar. Play/Pause ist die Ausnahme, die Chrome
+    für jedes spielende Medienelement selbst übernimmt.
+
+    Geprüft wird das ERGEBNIS (welche Aktion hängt an welchem Handler), nicht
+    die bloße Erwähnung der API."""
+    quelle = _oberflaeche_html()
+    assert "navigator.mediaSession" in quelle, \
+        "ohne Media Session API erreichen die Medientasten die Seite nie"
+
+    # Jeder Handler muss die RICHTIGE Player-Funktion rufen
+    i = quelle.index("function medienTastenAnmelden")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for aktion, funktion in (("nexttrack", "playerNext"),
+                             ("previoustrack", "playerPrev"),
+                             ("play", "medienPlay"),
+                             ("pause", "medienPause"),
+                             ("stop", "medienPause"),
+                             ("seekto", "medienSpringe")):
+        j = block.find("'" + aktion + "'")
+        assert j > 0, f"kein Handler für '{aktion}'"
+        assert funktion in block[j:j + 200], \
+            f"Handler '{aktion}' ruft nicht {funktion}"
+
+    # Metadaten müssen beim TITELWECHSEL gesetzt werden, nicht einmalig
+    i = quelle.index("function renderPlayerMedia")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "medienInfoSetzen(" in block, \
+        "ohne Aufruf im Titelwechsel zeigt Windows dauerhaft den ersten Titel"
+
+    # Titel, Interpret und Cover gehören ins Windows-Overlay
+    i = quelle.index("function medienInfoSetzen")
+    block = quelle[i:_funktionsende(quelle, i)]
+    for feld in ("title", "artist", "artwork"):
+        assert feld in block, f"Metadaten ohne {feld}"
+    assert "x.kuenstler" in block and "x.uploader" in block, \
+        "Interpret: Künstler-Feld mit Kanal als Rückfall (wie in der Bibliothek)"
+    assert "/api/cover?id=" in block, "Cover fehlt im Overlay"
+
+    # Der Zustand muss Windows folgen, sonst zeigt das Overlay Play, wenn pausiert ist
+    i = quelle.index("function renderPlayerMedia")
+    block = quelle[i:_funktionsende(quelle, i)]
+    assert "medienZustand('playing')" in block or "medienZustand(" in block, \
+        "playbackState wird nie gepflegt"
