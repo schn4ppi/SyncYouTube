@@ -1,5 +1,84 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
 
+> **NACHTRAG 23./24.09.2026 — Medientasten: gemessen, wo sie wirken, und ausgebaut
+> (Film/Serien, Handy-Sperrbildschirm, VLC über den Server).**
+>
+> **Wo die Medientasten wirken (live gemessen, echte Tastendrücke per SendInput mit
+> Tastatur-Scan-Codes, Wirkung in Windows' eigener Sitzungsliste abgelesen):**
+> Edge, Firefox und die Programm-Hülle (WebView2, Windows nennt sie
+> „msedgewebview2.exe") — Weiter, Zurück, Play/Pause auch mit Fenster im Hintergrund.
+> Die Erwartung der Übergabe, eine eingebettete WebView melde nichts an, war falsch;
+> globale Hotkeys in der Hülle sind NICHT nötig. Gerät VLC: ohne Server-Anmeldung kennt
+> Windows die Seite nicht (gemessen) — deshalb jetzt `medien_smtc.py` (pywinrt, JB-Go
+> 23.09.): der Server meldet VLC selbst an (Titel, Interpret, **Album**, Cover,
+> Zeitleiste), Weiter/Zurück laufen als `taste`-Zähler zur Seite. Live Ende zu Ende 8/8.
+> **Wer die Taste bekommt, entscheidet Windows:** eine neu entstehende Sitzung wird
+> „aktuell", danach behält Spotify sie, solange es spielt — und Spotify pausiert bei
+> Play/Pause zusätzlich SELBST mit, solange es spielt (pausiert startet es nicht).
+> Das Windows-Overlay konnte ich nicht fotografieren (das Bildschirm-Werkzeug schwärzt
+> System-Flächen); Beleg ist die Sitzungsliste (dieselbe Quelle wie Overlay/Medienkarte).
+>
+> **Gebaut (JB-Entscheidungen 23.09.):** gemeinsamer Baustein `medien_session.py`
+> (PC + Handy, per Platzhalter eingesetzt); EINE Weiche in `oberflaeche.py`: Film offen
+> → Film, Gerät VLC → Server, sonst `<audio>`. Serien: ⏭ = nächste Folge, ⏮ = JBs Regel
+> „Variante C, x = 3 s" (Vorfolge an gemerkter Stelle, zu Ende geschaut/≥ 90 %/≤ 30 s →
+> Anfang; 2. Druck Anfang; dann Musik-Regel). Einzelfilm: kein ⏭/⏮ (bewusst, kein
+> Knopf, der ins Leere greift). Musik läuft beim Filmstart weiter („wie bisher"), die
+> Tasten gehören dem Film. Handy `/m`: Sperrbildschirm-Steuerung nur im Modus „Handy".
+> Mit repariert: VLC-Play schickte `play` ohne Titel; VLC per Taste nicht anzuhalten;
+> Zeitleiste hinkte nach Sprüngen/Tempo; Crossfade-Übernahme meldete „paused"; Pause
+> mitten im Crossfade ließ den nächsten Titel weiterspielen; leere Warteschlange ließ
+> Crossfade/VLC weiterlaufen; Radio-⏭ lief ans Listenende; K/N/P starteten Musik unter
+> dem Film; Handy-Titelende schaltete den PC weiter; ein abgelöstes Medienelement hielt
+> einen toten „pausiert"-Eintrag (VLC-Wechsel doppelt, Handy-Sperrbildschirm tot) —
+> `medienSitzung().freigeben()`. Nebenbei: bei Folgen kam die Film-Meta nie im Player an
+> (tote Zeitleiste im Transcode) — jetzt durchgereicht.
+>
+> **Prüfung:** Wächter `tests/test_medientasten_verhalten.py` + `test_medientasten_randfaelle.py`
+> (führen das echte JS mit deno aus, rote Gegenproben je Wächter) und
+> `tests/test_medien_smtc.py`; SyncYouTube-Suite 354 grün (Stand 24.09.); Live im
+> echten Edge 21/21 (Musik, Crossfade, Radio, Film mit eigener Videodatei als Quelle),
+> Freigabe 8/8, Server-VLC 8/8, Hülle im VLC-Modus ohne Doppel-Eintrag.
+> Messwerkzeug für die nächste Runde: `System/tools/medien_probe.py` (liste · taste
+> `--nur-wenn` · knopf) — **vor jedem Tastendruck fragen, Spotify läuft bei JB oft.**
+>
+> **Runde 2 (24.09.): skeptische Prüfung + echte Tasten.** Ein Prüf-Workflow (drei
+> Blickwinkel, jeder Befund von einem unabhängigen Widerleger angegriffen) fand 22
+> haltbare Randfälle; alle behoben und in `tests/test_medientasten_randfaelle.py`
+> festgenagelt (u. a. 2. ⏮ während die Vorfolge lädt, Esc während eines Wechsels,
+> Server-⏭ wirkte in jedem offenen Tab, mehrere schnelle Drücke schrumpften zu einem).
+> **Echte Tastendrücke** (Spotify + Firefox von JB pausiert, vor jedem Druck geprüft):
+> Musik 4/4, Serie 4/4, VLC über den Server 3/3. Zwei echte Fehler, die nur so zu
+> finden waren: (a) **Mit Fokus auf dem Fenster kommt eine Medientaste ZWEIMAL an**
+> (Windows-Sitzung + keydown): VLC-⏯ pausierte und die Seite schaltete sofort zurück,
+> VLC-⏭ sprang zwei Titel. Jetzt wirkt der keydown-Rückfall nur, wenn es keine
+> SyncYouTube-Sitzung bei Windows gibt (`medienTasteHatSitzung`). (b) **Nach einem
+> Folgenwechsel gab Windows bei der nächsten Pause die „aktuelle Sitzung" an Firefox
+> ab** — der nächste ⏯ hätte Firefox gestartet (auch ohne Taste reproduziert; Musik
+> nicht betroffen). Ursache: das alte `<video>` wurde geleert, bevor die neue Folge
+> spielte. Jetzt verstummt es sofort und wird erst bei `playing` der neuen geleert
+> (`tvpAbgeloestFreigeben`); 7 Varianten gemessen, danach blieb Edge in allen aktuell.
+> Hinweis zur Zurück-Regel: 2× ⏮ nach einem ⏭ landet regelgerecht in der VORVORIGEN
+> Folge, weil der ⏭ die Stelle der Vorfolge (wenige Sekunden = „kaum angefangen") merkt.
+>
+> **Offen / nicht gemessen:** (1) **Transcoder-Sprung:** im Transcoder-Modus setzt ein
+> Sprung eine neue Quelle im SELBEN `<video>` (`tvpSpringeAuf`, Selbstheilung auf den
+> Transcoder) — gemessen löst genau das dieselbe Windows-Herabstufung aus (Variante V5).
+> Behebung wäre ein Element-Tausch beim Springen (tieferer Umbau, nicht gemacht).
+> (2) Handy-Sperrbildschirm auf einem
+> ECHTEN Handy (Android/iOS) — nur im Desktop-Browser gemessen. (3) Film-Teil gegen
+> Renés Jellyfin: der Zugang meldet seit ~20.09. „Items-Abruf HTTP 401", die
+> Folgenliste kommt leer — live mit eigener Videodatei + Attrappe der Folgenliste
+> geprüft. (4) Windows zeigt die Hülle als „msedgewebview2.exe", den Server als
+> „Microsoft.AutoGenerated.{…}" (pythonw ohne eigene App-Kennung) — kosmetisch.
+> **Nebenbefunde (nicht behoben):** Die Hülle HÄNGT (UI-Faden reagiert nicht), wenn die
+> Seite im Gerät VLC neu geladen wird (einmal gemessen; die Selbst-Erneuerung lädt
+> neu, wenn sich oberflaeche.py ändert). Die Hülle meldet ihr Video-Panel beim
+> Schließen nicht ab (`_vlc["hwnd"]` bleibt stehen). Crossfade blendet auf 100 % ein und
+> springt dann auf die eingestellte Lautstärke; Sleep-Timer „nach diesem Titel" und
+> Wiederholen-eins werden von Crossfade/Gapless übergangen; Folgenende wird nie als
+> gesehen gemeldet.
+
 > **NACHTRAG 08.09.2026 (spät) — v.1.2.5 veröffentlicht: das erste Release mit
 > Selbst-Update als Vorgabe.**
 >

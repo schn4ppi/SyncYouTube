@@ -36,7 +36,11 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
 - Untertitel → **Karaoke** (Original-Sprache, japanisch automatisch als **Romaji**) → Transkript,
   fehlende Untertitel lädt die App still von YouTube nach
 - YouTube-Kapitel als Sprungmarken, Sleep-Timer, 📻 Endlos-Radio
-- Rechtsklick-Menü mit Windows-Ausklapp-Untermenüs, Klick auf die Fläche = Pause, Media-Tasten
+- Rechtsklick-Menü mit Windows-Ausklapp-Untermenüs, Klick auf die Fläche = Pause
+- **Medientasten + Windows-Medien-Overlay** (Titel, Interpret, Cover, Zeitleiste) — auch wenn das
+  Fenster im Hintergrund liegt, im Browser, im Programm-Fenster und im Gerät VLC; bei Filmen
+  steuern die Tasten den Film, bei Serien springt ⏭ zur nächsten Folge und ⏮ zur vorigen
+  (an ihre gemerkte Stelle, ein zweiter Druck an den Anfang)
 
 **Bibliothek**
 - Kacheln / **Alben** (Auto-Tagging via MusicBrainz) / Liste, konfigurierbare Spalten
@@ -55,7 +59,9 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
 - Mausrad-Kippen = Ansicht-Verlauf zurück/vor, Link ins Fenster ziehen = Download, ?-Legende
 
 **Extras**
-- 📱 Handy-Fernsteuerung im Heim-WLAN (opt-in, Zugangscode, Gerät wählbar wie bei Spotify Connect)
+- 📱 Handy-Fernsteuerung im Heim-WLAN (opt-in, Zugangscode, Gerät wählbar wie bei Spotify Connect);
+  spielt das Handy selbst, meldet die Seite Titel, Cover und ⏮ ⏯ ⏭ für den Sperrbildschirm an
+  (Media Session API; ob und wie das Handy sie zeigt, entscheidet sein Browser)
 - Browser-Erweiterung für Firefox/Chrome/Edge (`System/browser-addon/`, ein Code; die signierte
   Firefox-`.xpi` liegt beim Release und ist über das Tray-Menü/die Einstellungen installierbar —
   ab v1.0.4 aktualisiert sie sich in Firefox selbst über die Releases dieses Repos)
@@ -68,7 +74,12 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
 1. **Python 3.12+** und die Pakete:
    ```
    pip install "yt-dlp[default]" pykakasi pystray pillow
+   pip install python-vlc winrt-runtime winrt-Windows.Foundation winrt-Windows.Media winrt-Windows.Media.Interop winrt-Windows.Storage.Streams
    ```
+   Die zweite Zeile braucht nur das Gerät „VLC“: `python-vlc` steuert ein installiertes VLC,
+   die `winrt`-Pakete melden es bei Windows als Medienquelle an (Titel im Medien-Overlay,
+   Medientasten). Ohne `python-vlc` spielt der Browser-Player, ohne `winrt` spielt VLC ohne
+   diese Anmeldung.
 2. **`System/bin/`-Ordner** mit `ffmpeg.exe`, `ffprobe.exe` und `deno.exe`
    (Deno ist Pflicht — ohne JS-Runtime liefert YouTube seit 2026 „No video formats found“).
    Die Binärdateien sind nicht im Repo; von den offiziellen Seiten laden (ffmpeg.org, deno.com).
@@ -130,8 +141,11 @@ Er bleibt als Alternative, etwa in stark abgeriegelten Umgebungen:
    `.py`-Dateien sind für Smart App Control Daten, keine Programme.
 
 Alternativ mit eigenem Python (von [python.org](https://python.org), signiert):
-Repo laden, `pip install yt-dlp pystray pillow mutagen pykakasi keyring qrcode python-vlc`,
-dann `pythonw System\youtube_app.py`.
+Repo laden, `pip install yt-dlp pystray pillow mutagen pykakasi keyring qrcode python-vlc
+winrt-runtime winrt-Windows.Foundation winrt-Windows.Media winrt-Windows.Media.Interop
+winrt-Windows.Storage.Streams`, dann `pythonw System\youtube_app.py`. Die `winrt`-Pakete
+melden den VLC-Motor bei Windows als Medienquelle an (Titel im Medien-Overlay,
+Medientasten); ohne sie spielt VLC genauso, nur ohne diese Anmeldung.
 
 ## Lizenz
 
