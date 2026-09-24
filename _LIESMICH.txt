@@ -8,14 +8,17 @@ Start:      SyncYouTube.bat doppelklicken. Das schwarze Fenster
             schließt sich sofort wieder — die App läuft FENSTERLOS im Hintergrund
             (pythonw) weiter, der Browser öffnet automatisch
             http://127.0.0.1:8776 (nur lokal). Ganz ohne kurzes Aufblitzen:
-            stattdessen „SyncYouTube (ohne Fenster).vbs" doppelklicken.
+            im Startmenü „SyncYouTube" wählen — den Eintrag legt die App beim
+            ersten Start selbst an (seit 24.09.2026; er ersetzt die frühere
+            „SyncYouTube (ohne Fenster).vbs", die im Familien-_Archiv liegt).
             Als eigenes Programmfenster ohne Browser: SyncYouTube-Fenster.bat.
             Ein eigenes TRAY-SYMBOL (Terracotta-Kreis unten rechts: „Öffnen",
             „Downloads-Ordner", „Beenden") gibt es NUR in der SyncYouTube.exe
-            (JB 14.07.2026). Beim Start über die .bat/.vbs gibt es keins.
+            (JB 14.07.2026). Beim Start über die .bat oder den Startmenü-Eintrag
+            gibt es keins.
 
 Beenden:    In der SyncYouTube.exe: Tray-Symbol -> „Beenden".
-            Beim Start über SyncYouTube.bat/.vbs (kein Tray, kein Fenster): in
+            Beim Start über SyncYouTube.bat oder das Startmenü (kein Tray, kein Fenster): in
             PowerShell  Invoke-RestMethod -Method Post http://127.0.0.1:8776/api/beenden
             (speichert die Warteschlange). Das Dashboard kann die App starten,
             aber nicht beenden (Stand 24.09.2026).

@@ -85,6 +85,8 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
    Die Binärdateien sind nicht im Repo; von den offiziellen Seiten laden (ffmpeg.org, deno.com).
 3. Start: `python System/youtube_app.py` — oder unter Windows die `SyncYouTube.bat`
    (Pfad zur eigenen Python-Umgebung anpassen). Oberfläche: `http://127.0.0.1:8776`.
+   Unter Windows legt die App beim ersten Start den Startmenü-Eintrag „SyncYouTube“ an
+   (eigene App-Kennung `JBK.SyncYouTube`); darüber startet sie ohne Konsolenfenster.
 
 Tests: `python System/tests/test_youtube.py` (läuft ohne Zusatzpakete, kein Netz).
 

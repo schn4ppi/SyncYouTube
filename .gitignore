@@ -15,7 +15,9 @@
 !/_LIESMICH.txt
 !/SyncYouTube.bat
 !/SyncYouTube-Fenster.bat
-!/SyncYouTube (ohne Fenster).vbs
+# 24.09.2026: „SyncYouTube (ohne Fenster).vbs" liegt im Familien-_Archiv
+# (JB: nur eine der beiden gleichen Startdateien; ohne Aufblitzen startet jetzt
+# der Startmenü-Eintrag „SyncYouTube"). Rückweg: _Archiv\REGISTER.md.
 !System/_ARCHITEKTUR.md
 !System/MODULE.md
 !System/docs/*.md
