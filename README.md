@@ -87,6 +87,8 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
    (Pfad zur eigenen Python-Umgebung anpassen). Oberfläche: `http://127.0.0.1:8776`.
    Unter Windows legt die App beim ersten Start den Startmenü-Eintrag „SyncYouTube“ an
    (eigene App-Kennung `JBK.SyncYouTube`); darüber startet sie ohne Konsolenfenster.
+   Der Eintrag behält die Variante, mit der er angelegt wurde (Quellstart oder exe), und
+   wechselt sein Ziel erst, wenn es nicht mehr startet.
 
 Tests: `python System/tests/test_youtube.py` (läuft ohne Zusatzpakete, kein Netz).
 

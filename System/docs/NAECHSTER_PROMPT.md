@@ -1,5 +1,80 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
 
+> **NACHTRAG 25.09.2026 — Nacharbeit der Prüfung Runde 2 (nacharbeit_r2).** Gebaut,
+> jeweils Test zuerst (am alten Stand rot), dann Fix, dazu je Sicherung eine rote Gegenprobe
+> in einer Wegwerf-Kopie (`%TEMP%\yt_r3_na_kopie`, 28 Proben, alle rot; nur Git-getrackte
+> Dateien kopiert, keine Nutzerdaten). Volle Suite: 587 grün (vorher 562).
+> - **Merkmal-Ruhe dicht** (`filme.py` `_druck_in_ruhe`, `stream_url(druck=…)`): die
+>   Hover-Vorschau (`snippet_backen`) hält die Ruhe ein; VLC-Start und Browser-Proxy sind
+>   JBs Druck — höchstens EINE Anmeldung je Ruhe, jeder weitere Druck derselben Ruhe nimmt
+>   das Token dieser Anmeldung (ein laufender Browser-Film holt seine Range-Anfragen weiter).
+>   Folge: Startet JB in derselben Ruhe einen zweiten Film und ist das eine Token inzwischen
+>   entwertet, scheitert dieser Start bis zum Ende der Ruhe (höchstens 10 Min) oder bis
+>   ⟳ Abgleichen. Die Anzeige nennt jetzt beide Ursachen („oder ein zweites SyncYouTube
+>   nutzt dieselbe Gerätekennung"). **JB-Frage offen:** eigene DeviceId je Prozess wie
+>   SyncFindus (auf Renés Server entsteht dann je Programmstart ein Gerät)?
+> - **Filmende ohne Vorschau-Karte** (`oberflaeche.py` `filmLokalNachziehen` → `tvMalen({vorschau:false})`):
+>   Reihen und Hero werden neu gezeichnet, die Fokus-Kachel bekommt aber keine Hover-Karte
+>   mit stummem Endlos-Clip mehr — mit und ohne Sleep (Zustand vor 3bd24a9). Der
+>   Sleep-Wächter `test_film_ende.py` fährt tvMalen/tvFokusMalen/snippetAn jetzt ECHT
+>   (Blindheits-Probe: dasselbe DOM zählt Karte + Clip, wenn JB den Fokus bewegt).
+>   **Nicht gemessen:** ob Chromium nach dem Schließen des Players einen Maus-„Hover" auf
+>   die Kachel unter dem ruhenden Zeiger auslöst (dann käme die Karte wie bei jedem Hover).
+> - **Hülle zu meldet die Film-Stelle** (`youtube_app.py` `_film_stelle_melden`): nach dem
+>   Pausieren geht die Stelle eines Jellyfin-Films über `filme.fortschritt` an Jellyfin (im
+>   eigenen Faden, nie unter `_vlc_lock`; nur eine echte Stelle > 0). **„gesehen" NICHT** —
+>   **JB-Frage offen:** zählt das Schließen der Hülle im Abspann (ab 90 %) wie Esc/⏭?
+>   Dann ist es EINE Zeile (`gesehen=False` in `_film_stelle_melden`).
+> - **Startmenü: eine stabile Regel** (`windows_kennung.py` `_startbar`): das Ziel des eigenen
+>   Eintrags wechselt nur, wenn das bisherige nicht mehr startet (Programm verschoben, exe
+>   entfernt). Ergebnis „behalten" statt „aktualisiert" — ein Start der exe oder des
+>   Basis-Pythons stellt den Quellstart-Eintrag nicht mehr um (und umgekehrt).
+> - Kleinere: abgewiesenes „gesehen" bleibt als `abgewiesen` liegen, auch wenn die jüngere
+>   Stelle ankommt; langsamer VLC-Start wird nach 8 Takten nicht mehr gestoppt (Zustand vor
+>   3bd24a9; gestoppt wird nur bei `ende` oder wenn der Film lief); der Freigabe-Stopp mit
+>   `nur_key` überholt keinen wartenden Musik-Start mehr; jede libvlc-Meldung außer „Pause"
+>   löscht den Pause-Beginn; `yt_fehler.jsonl`/`js_fehler.jsonl` am `DATEN_DIR`;
+>   „Weiterschauen" behält die Meldungen dieser Seite auch in frisch geladenen Reihen
+>   (`filmReihenAnwenden`; gilt je Seiten-Sitzung, nach F5 wieder der Spiegel).
+> - **Test-Wachen** (`tests/conftest.py`, geprüft in `tests/test_wachen.py`): Startmenü in
+>   JEDEM Test gesperrt und laut (auch im Hintergrundfaden), yt-dlps eigene Firefox-Suche
+>   umgebogen, `youtube_app` früh importiert. Nebenfund dabei: `pytest tests/test_jellyfin_zugang.py
+>   -k zustand_route` allein las JBs echte `filme_zustand.json` (der lazy Import rief
+>   `filme.einrichten(System\)` NACH dem des Tests) — nur lesend, jetzt behoben.
+> - **Firefox-Modus:** JBs Profil hat ein `cookies.sqlite-shm` (32 KB, nur Größe gelesen) —
+>   starkes Indiz für den Normalmodus, nicht exklusiv. `test_cookies_wal.py` prüft jetzt beide.
+>
+> **Aus der Prüfung nachgetragen (Übergabe fehlte):**
+> - **Folgen-/Filmende (3bd24a9):** „gesehen" ab 90 % bei Ende, Esc und ⏭; Sleep: nach einem
+>   Filmende startet nichts (`nachFilmEnde`). Prüf-Fläche: deno mit echtem Seiten-JS +
+>   Jellyfin-/libvlc-Attrappen; live NICHT gemessen (Renés Jellyfin setzt „gesehen"? bleibt
+>   libvlc am Netz-Strom-Ende in `ende`?). **JB-Fragen offen:** Live-TV am Stromende
+>   schließen?; Profile und Gäste („gesehen" je Profil?); soll der Spiegel auch beim
+>   Nachreichen aus der Warteschlange nachziehen?; ⏮ im Abspann meldet die laufende Folge
+>   als gesehen (Jellyfin-konform, von JB nicht ausdrücklich bestätigt); Esc ohne offene
+>   Fernbedienung (Seite neu geladen) meldet nie „gesehen" (Vorschlag, unbestätigt: Dauer aus
+>   `vlcDauerLetzte`).
+> - **„Pause sperrt 30 Min" (449e163, `youtube_app.py` `PAUSE_SPERRE`/`_vlc_haelt_neustart_auf`):**
+>   Offen: Probe mit echtem libvlc (VLC pausieren, eine Backend-.py ändern, der Neustart muss
+>   rund 30 Min warten); ein pausierter Film schließt sich nach 30 Min beim Neustart weiterhin
+>   (Option D nicht gebaut).
+> - **Tempo/Stumm beim Folgenwechsel (c4b938a, JB „Behalten"):** gebaut für ⏭/⏮. Offen
+>   (JB-Richtung): Stumm im VLC (kein Server-Befehl), Tempo beim Rückfall zum VLC; Edge und
+>   VLC nicht live gemessen.
+> - **Kennung (e10e2d9):** Medien-Overlay und Medientasten mit `JBK.SyncYouTube` live nicht
+>   gemessen (`tools/medien_probe.py liste`, vor jedem Tastendruck fragen — Spotify). Die
+>   Hülle trägt dieselbe Kennung: eine angeheftete Hülle startet Server + Browser
+>   (Vorschlag, unbestätigt: RelaunchCommand am Hüllen-Fenster).
+> - **Hülle zu (53352ce):** Fortsetzen per Handy/Medientaste spielt ins zerstörte Panel (Ton
+>   ohne Bild; ↻ startet sichtbar neu) — eigener Auftrag. Musikvideos im Panel werden
+>   pausiert (JB-Frage offen, Tragweite im Bestand gering).
+>
+> **Aufräumen offen (JB-Freigabe):** Wegwerf-Ordner der Prüfrunden in `%TEMP%`
+> (`yt_r2_*`, `yt_r3_na*`, zusammen rund 1,1 GB (gemessen 25.09.); `yt_r2_cw` und `yt_r2_hz_kopie` enthalten
+> Kopien von config.json u. a.) — Papierkorb, nicht löschen. Im Startmenü liegt ein toter
+> Eintrag „Claude Dashboard" (Ziel `…\Claude Sync\SyncEngine\…\pythonw.exe`, seit Stage 3
+> weg; Vorschlag, unbestätigt: rückholbar ins Archiv).
+
 > **NACHTRAG 23./24.09.2026 — Medientasten: gemessen, wo sie wirken, und ausgebaut
 > (Film/Serien, Handy-Sperrbildschirm, VLC über den Server).**
 >
@@ -78,7 +153,7 @@
 > Hülle als „msedgewebview2.exe". Die gemessene Kennung des Servers
 > „Microsoft.AutoGenerated.{9C659DC1…}" gehört zur Startmenü-Verknüpfung
 > „IDLE (Python 3.14)": Ohne eigene App-Kennung ordnete Windows den pythonw-Prozess
-> dieser einzigen Verknüpfung auf pythonw.exe zu. Seit 24.09. (Commit e10e2d9) meldet
+> der einzigen Verknüpfung auf die pythonw.exe des Basis-Pythons zu. Seit 24.09. (Commit e10e2d9) meldet
 > sich der Server als `JBK.SyncYouTube` und legt den Startmenü-Eintrag „SyncYouTube"
 > mit dieser Kennung an (vorhanden seit 24.09. 21:17, Ziel pythonw + youtube_app.py,
 > nur gelesen). Wie Windows' Medien-Overlay ihn jetzt benennt, ist nicht gemessen
@@ -87,7 +162,9 @@
 > „SyncYouTube (ohne Fenster).vbs" liegt im Familien-Archiv
 > (`_Archiv\SyncYouTube-Startdatei_2026-09-24\`, Rückholbefehl in `_Archiv\REGISTER.md`).
 > Oben bleiben `SyncYouTube.exe`, `SyncYouTube.bat` und `SyncYouTube-Fenster.bat`;
-> ohne Aufblitzen startet der Startmenü-Eintrag „SyncYouTube".
+> ohne Aufblitzen startet der Startmenü-Eintrag „SyncYouTube" — die Variante, mit der er
+> angelegt wurde (Quellstart oder exe); sein Ziel wechselt nur, wenn es nicht mehr startet
+> (seit 25.09., vorher gewann der letzte Start).
 > **Offen (Ordnung):** Oben liegen noch drei Laufzeit-Reste vom 21.07.
 > (`geladen_log.json`, `warteschlange.json` mit leerer Liste, `yt_status.json` ohne
 > Zähler); die lebenden Dateien liegen in `System\`. Nicht archiviert, weil die obere
@@ -107,17 +184,17 @@
 > alten Weg `("firefox",)`. Wächter `tests/test_cookies_wal.py` (25 Tests, 14 rote
 > Gegenproben); `tests/conftest.py` hält die Profilsuche in JEDEM Test von JBs echtem
 > Firefox fern. **Nicht gemessen:** ein Lauf mit JBs echtem Profil gegen YouTube (Tests
-> dürfen beides nicht) und ob Firefox `cookies.sqlite` exklusiv sperrt (der Test prüft den
-> strengeren Fall). **Falle:** Pythons `Connection.backup` direkt auf eine fremd gesperrte
+> dürfen beides nicht). Exklusiv-Sperre: JBs Profil hat ein `-shm`, also sehr
+> wahrscheinlich Normalmodus; der Test prüft seit 25.09. beide Fälle. **Falle:** Pythons `Connection.backup` direkt auf eine fremd gesperrte
 > Datenbank kehrt nie zurück — es wiederholt „database is locked" endlos (Gegenprobe nach
 > 600 s abgebrochen).
 > **Nebenbefunde (nicht behoben):** Die Hülle HÄNGT (UI-Faden reagiert nicht), wenn die
 > Seite im Gerät VLC neu geladen wird (einmal gemessen; die Selbst-Erneuerung lädt
-> neu, wenn sich oberflaeche.py ändert). Die Hülle meldet ihr Video-Panel beim
-> Schließen nicht ab (`_vlc["hwnd"]` bleibt stehen). Crossfade blendet auf 100 % ein und
+> neu, wenn sich oberflaeche.py ändert). ~~Die Hülle meldet ihr Video-Panel beim
+> Schließen nicht ab~~ (behoben: 06b4098, seit 53352ce samt Pause). Crossfade blendet auf 100 % ein und
 > springt dann auf die eingestellte Lautstärke; Sleep-Timer „nach diesem Titel" und
-> Wiederholen-eins werden von Crossfade/Gapless übergangen; Folgenende wird nie als
-> gesehen gemeldet.
+> Wiederholen-eins werden von Crossfade/Gapless übergangen. ~~Folgenende wird nie als
+> gesehen gemeldet~~ (behoben: 3bd24a9).
 
 > **NACHTRAG 08.09.2026 (spät) — v.1.2.5 veröffentlicht: das erste Release mit
 > Selbst-Update als Vorgabe.**
