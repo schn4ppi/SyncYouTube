@@ -1356,16 +1356,52 @@ def fortschritt(item_id, position_s, gesehen=False):
     """Fortschritt an Jellyfin melden; scheitert es, wandert die Meldung in die
     Queue und geht beim nächsten Erfolg/Abzug nach (nichts geht verloren).
     Weist Jellyfin die Meldung selbst ab (4xx), wird sie als `abgewiesen`
-    gemerkt: nie wieder gesendet, aber auch nicht still verworfen."""
+    gemerkt: nie wieder gesendet, aber auch nicht still verworfen.
+    `ts` ist der Zeitpunkt der MELDUNG (vor dem Senden), nicht der des
+    Scheiterns: nur so ordnet das Nachreichen sie richtig ein."""
+    ts = time.time()
     grund = _fortschritt_senden_mit_grund(item_id, position_s, gesehen)
     if grund == SENDE_OK:
+        _aeltere_erledigt(item_id, position_s, gesehen, ts)
         return True
     neu = {"item": item_id, "position_s": int(position_s),
-           "gesehen": bool(gesehen), "ts": time.time()}
+           "gesehen": bool(gesehen), "ts": ts}
     if grund == SENDE_KAPUTT:
         neu["abgewiesen"] = True
     _json_aendern(_pfade["queue"], lambda q: (q or []) + [neu], standard=[])
     return False
+
+
+def _aeltere_erledigt(item_id, position_s, gesehen, ts):
+    """Direkt gelungen (Prüfung Runde 1): ältere Einträge desselben Titels in
+    der Warteschlange sind damit erledigt. Vorher blieben sie liegen, und das
+    Nachreichen (am Ende des nächsten Abzugs, bis zu 6 h später) schickte die
+    ALTE Stelle hinterher.
+
+    Ein älteres „gesehen" ist durch eine bloße Stelle NICHT erledigt: es bleibt,
+    und die neue Stelle kommt dahinter noch einmal in die Warteschlange — so
+    schickt das Nachreichen beides in der Reihenfolge der Meldungen (erst
+    „gesehen", dann die neuere Stelle). Abgewiesene Einträge bleiben, wie sie
+    sind. Gleiche Sperre wie beim Nachreichen (_json_aendern)."""
+    def betroffen(x):
+        return (isinstance(x, dict) and x.get("item") == item_id
+                and not x.get("abgewiesen") and _q_ts(x) < ts)
+    if not any(betroffen(x) for x in _queue_lesen()):
+        return                             # der Normalfall: nichts anzufassen
+
+    def _aendern(liste):
+        neu, gesehen_offen = [], False
+        for x in liste or []:
+            if betroffen(x):
+                if gesehen or not x.get("gesehen"):
+                    continue               # durch die neue Meldung erledigt
+                gesehen_offen = True
+            neu.append(x)
+        if gesehen_offen:
+            neu.append({"item": item_id, "position_s": int(position_s),
+                        "gesehen": False, "ts": ts})
+        return neu
+    _json_aendern(_pfade["queue"], _aendern, standard=[])
 
 
 def _q_schluessel(m):
@@ -1391,10 +1427,14 @@ def fortschritt_nachreichen():
     6-h-Abzugs, der ja mit `fortschritt_nachreichen()` endet).
 
     Seit 24.09. (Gegenprüfung folgenende.md):
-    - Je Titel zählt nur die JÜNGSTE Meldung; die älteren sind mit ihr erledigt.
+    - Je Titel zählt nur die JÜNGSTE Stelle; ältere sind mit ihr erledigt.
       Vorher ging jede in Reihenfolge raus, und eine alte Stelle überschrieb
       eine neuere desselben Titels.
     - Bei „gesehen" nur PlayedItems, keine alte Stelle.
+    - Ein „gesehen" geht nie verloren (Prüfung Runde 1): liegt irgendwo in der
+      Gruppe eines, geht zuerst PlayedItems raus, danach die jüngste Stelle —
+      nur wenn sie jünger ist als das „gesehen". Vorher nahm das Nachreichen
+      nur die jüngste Meldung, und ein älteres „gesehen" verschwand mit ihr.
     - Ein Eintrag, den Jellyfin mit 4xx abweist, wird als `abgewiesen`
       markiert und übersprungen, statt über `break` alle dahinter aufzuhalten
       — still, denn die Warteschlange zeigt niemand an. Gelöscht wird er nicht.
@@ -1403,24 +1443,38 @@ def fortschritt_nachreichen():
     Fortschritt zu setzen ist idempotent — ihn zu verlieren nicht."""
     offen = [m for m in _queue_lesen()
              if isinstance(m, dict) and m.get("item") and not m.get("abgewiesen")]
-    juengste = {}
+    gruppen = {}
     for m in offen:
-        alt = juengste.get(m["item"])
-        if alt is None or _q_ts(m) >= _q_ts(alt):
-            juengste[m["item"]] = m
+        gruppen.setdefault(m["item"], []).append(m)
     geschafft, erledigt, kaputt = 0, set(), set()
-    for m in sorted(juengste.values(), key=_q_ts):
-        gruppe = {_q_schluessel(x) for x in offen if x["item"] == m["item"]}
-        grund = _fortschritt_senden_mit_grund(
-            m["item"], m.get("position_s") or 0, bool(m.get("gesehen")),
-            nur_gesehen=bool(m.get("gesehen")))
-        if grund == SENDE_OK:
-            geschafft += 1
-            erledigt |= gruppe
-        elif grund == SENDE_KAPUTT:
-            kaputt |= gruppe
+    server_problem = False
+    for gruppe in sorted(gruppen.values(), key=lambda g: max(map(_q_ts, g))):
+        juengste = max(gruppe, key=_q_ts)
+        gesehen = [x for x in gruppe if x.get("gesehen")]
+        schritte = []                      # (Meldung, nur „gesehen"?) in Meldungs-Reihenfolge
+        if gesehen:
+            g = max(gesehen, key=_q_ts)
+            schritte.append((g, True))
+            if _q_ts(juengste) > _q_ts(g):
+                schritte.append((juengste, False))
         else:
-            break                          # Server hat ein Problem: nächster Lauf
+            schritte.append((juengste, False))
+        angekommen = False
+        for m, nur_gesehen in schritte:
+            teil = {_q_schluessel(x) for x in gruppe if _q_ts(x) <= _q_ts(m)} - erledigt
+            grund = _fortschritt_senden_mit_grund(
+                m["item"], m.get("position_s") or 0, nur_gesehen, nur_gesehen=nur_gesehen)
+            if grund == SENDE_OK:
+                erledigt |= teil
+                angekommen = True
+            elif grund == SENDE_KAPUTT:
+                kaputt |= teil
+            else:
+                server_problem = True      # Server hat ein Problem: nächster Lauf
+                break
+        if server_problem:
+            break
+        geschafft += angekommen
     if erledigt or kaputt:
         def _aufraeumen(liste):
             neu = []

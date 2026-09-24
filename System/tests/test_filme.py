@@ -351,11 +351,13 @@ def test_play_und_fortschritt_queue(tmp_path, monkeypatch):
     assert filme.fortschritt("f1", 623) is False
     q = json.load(open(filme._pfade["queue"], encoding="utf-8"))
     assert q[0]["item"] == "f1" and q[0]["position_s"] == 623
-    # Netz wieder da => nachreichen, Queue leer:
+    # Netz wieder da: die direkt gelungene 700 erledigt die ältere 623 — das
+    # Nachreichen schickt nichts Älteres hinterher (Prüfung Runde 1: vorher
+    # stand Jellyfin danach wieder auf 623). Queue leer.
     monkeypatch.setattr(filme, "_http", _fake_http([("Sessions/Playing", 204, {})]))
     assert filme.fortschritt("f1", 700) is True
-    assert filme.fortschritt_nachreichen() == 1
     assert json.load(open(filme._pfade["queue"], encoding="utf-8")) == []
+    assert filme.fortschritt_nachreichen() == 0
 
 
 # ---------------------------------------------------------------- Task 7

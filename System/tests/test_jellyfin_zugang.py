@@ -714,6 +714,66 @@ def test_dauerhafter_4xx_blockiert_die_warteschlange_nicht(tmp_path, monkeypatch
     assert all(m.get("abgewiesen") for m in _queue())
 
 
+
+def test_direkter_erfolg_raeumt_aeltere_meldungen_desselben_titels_ab(tmp_path, monkeypatch):
+    """Prüfung Runde 1 (mittel): Gelang eine Meldung direkt, blieb eine ältere
+    desselben Titels in der Warteschlange liegen. Das Nachreichen (am Ende des
+    nächsten Katalog-Abzugs, bis zu 6 h später) schickte sie dann — Jellyfin
+    stand wieder auf der ALTEN Stelle (gemessen: progress 1200, dann 600)."""
+    _einrichten(tmp_path, monkeypatch)
+    _queue_setzen([{"item": "f1", "position_s": 600, "gesehen": False, "ts": 1.0},
+                   {"item": "s1", "position_s": 50, "gesehen": False, "ts": 1.5}])
+    jf = JellyfinAttrappe("12")
+    monkeypatch.setattr(filme, "_http", jf)
+    assert filme.fortschritt("f1", 1200) is True
+    assert [m["item"] for m in _queue()] == ["s1"], _queue()
+    jf.rufe.clear()
+    assert filme.fortschritt_nachreichen() == 1
+    assert _meldungen(jf) == [("progress", "s1", 50)], _meldungen(jf)
+    # Direkt „gesehen" gemeldet: damit ist auch ein älteres „gesehen" erledigt.
+    _queue_setzen([{"item": "f1", "position_s": 900, "gesehen": True, "ts": 1.0}])
+    assert filme.fortschritt("f1", 2350, gesehen=True) is True
+    assert _queue() == []
+
+
+def test_aelteres_gesehen_geht_nicht_verloren(tmp_path, monkeypatch):
+    """Prüfung Runde 1 (niedrig): Das Nachreichen nahm je Titel nur die jüngste
+    Meldung und löschte die ganze Gruppe. Lag hinter einem „gesehen" noch eine
+    jüngere Stelle, ging PlayedItems nie raus. Jetzt: zuerst „gesehen", danach
+    die jüngere Stelle — in der Reihenfolge der Meldungen. Dasselbe, wenn die
+    jüngere Stelle direkt gelang: sie kommt hinter dem „gesehen" noch einmal."""
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("12")
+    monkeypatch.setattr(filme, "_http", jf)
+    _queue_setzen([{"item": "f1", "position_s": 2350, "gesehen": True, "ts": 1.0},
+                   {"item": "f1", "position_s": 40, "gesehen": False, "ts": 2.0}])
+    assert filme.fortschritt_nachreichen() == 1
+    assert _meldungen(jf) == [("gesehen", "f1", None), ("progress", "f1", 40)], _meldungen(jf)
+    assert _queue() == []
+    # Umgekehrt (erst die Stelle, dann „gesehen"): nur „gesehen", wie bisher.
+    _queue_setzen([{"item": "f1", "position_s": 40, "gesehen": False, "ts": 1.0},
+                   {"item": "f1", "position_s": 2350, "gesehen": True, "ts": 2.0}])
+    jf.rufe.clear()
+    assert filme.fortschritt_nachreichen() == 1
+    assert _meldungen(jf) == [("gesehen", "f1", None)], _meldungen(jf)
+    # Die jüngere Stelle gelingt direkt, das ältere „gesehen" liegt noch.
+    _queue_setzen([{"item": "f1", "position_s": 2350, "gesehen": True, "ts": 1.0}])
+    assert filme.fortschritt("f1", 40) is True
+    jf.rufe.clear()
+    assert filme.fortschritt_nachreichen() == 1
+    assert _meldungen(jf) == [("gesehen", "f1", None), ("progress", "f1", 40)], _meldungen(jf)
+    assert _queue() == []
+    # „gesehen" scheitert (500): nichts ist erledigt, alles bleibt liegen.
+    eintraege = [{"item": "f1", "position_s": 2350, "gesehen": True, "ts": 1.0},
+                 {"item": "f1", "position_s": 40, "gesehen": False, "ts": 2.0}]
+    _queue_setzen(eintraege)
+    monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12", antworten=[
+        ("/System/Info", 200, {}), ("/Sessions/Playing/Progress", 204, b""),
+        ("/PlayedItems/", 500, b"")]))
+    assert filme.fortschritt_nachreichen() == 0
+    assert _queue() == eintraege
+
+
 def test_abgelehnte_anmeldeform_ist_kein_kaputter_eintrag(tmp_path, monkeypatch):
     """401 auch nach frischer Anmeldung ist ein Server-/Zugangsproblem, kein
     Fehler des Eintrags: nichts wird als abgewiesen markiert, alles bleibt für
