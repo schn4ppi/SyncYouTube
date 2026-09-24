@@ -142,15 +142,39 @@ class VideoFenster:
         if self._gemeldet or not self._hwnd:
             return
         try:
-            import json as _json
-            req = urllib.request.Request(
-                f"{ADRESSE}/api/vlc",
-                data=_json.dumps({"cmd": "fenster", "hwnd": self._hwnd}).encode("utf-8"),
-                method="POST")
-            with urllib.request.urlopen(req, timeout=3):
+            # pid: der Server prüft vor jedem Einbetten, ob das Fenster noch
+            # lebt UND diesem Prozess gehört (Windows vergibt Handles neu).
+            with self._an_server({"cmd": "fenster", "hwnd": self._hwnd,
+                                  "pid": os.getpid()}, timeout=3):
                 self._gemeldet = True
         except Exception:                            # noqa: BLE001 — nächster Versuch folgt
             pass
+
+    def abmelden(self):
+        """Hülle zu: das Panel beim Server abmelden (Befund 24.09.: sonst
+        zeigte _vlc['hwnd'] auf ein zerstörtes Fenster — das nächste Video
+        renderte ins Leere, Filme verloren ihr Vollbild). 'nur_wenn' =
+        vergleichen und löschen: der Server nullt nur, solange noch DIESES
+        Fenster angemeldet ist; eine zweite offene Hülle bleibt eingebettet.
+        Läuft nach webview.start() im Hauptfaden — nie im closing-Handler,
+        der synchron im UI-Faden läuft (fröre das Fenster bis zum Timeout
+        ein). Server aus = nichts abzumelden, Fehler still."""
+        if not self._hwnd:
+            return
+        try:
+            with self._an_server({"cmd": "fenster", "hwnd": 0, "nur_wenn": self._hwnd},
+                                 timeout=2):
+                pass
+        except Exception:                            # noqa: BLE001 — Server aus/zu langsam
+            pass
+        self._gemeldet = False
+
+    @staticmethod
+    def _an_server(daten, timeout):
+        import json as _json
+        req = urllib.request.Request(f"{ADRESSE}/api/vlc",
+                                     data=_json.dumps(daten).encode("utf-8"), method="POST")
+        return urllib.request.urlopen(req, timeout=timeout)
 
     def verstecken(self):
         """pywebview-Ereignis before_load: vor JEDEM Seitenaufbau (auch
@@ -233,6 +257,7 @@ def main():
         time.sleep(1.5)                              # GUI erst stehen lassen
         api._video.vorbereiten(fenster.native)
     webview.start(frueh, private_mode=False)
+    api._video.abmelden()                            # Fenster zu: Panel beim Server abmelden
     return 0
 
 

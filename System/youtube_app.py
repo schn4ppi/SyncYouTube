@@ -2532,8 +2532,74 @@ def fernsteuerung_info():
 # ehrlicher Hinweis, der Browser-Player spielt weiter (Rückfall).
 
 _vlc = {"instanz": None, "spieler": None, "key": "", "grund": "", "vol_wunsch": None,
-        "hwnd": 0}                                   # Hüllen-Fenster (set_hwnd, Etappe set_hwnd)
+        "hwnd": 0,                                   # Hüllen-Fenster (set_hwnd, Etappe set_hwnd)
+        "hwnd_pid": 0}                               # ... und der Prozess, dem es gehört
 _vlc_lock = threading.RLock()   # RLock: die Selbstheilung wiederholt den Befehl im Lock
+
+
+_user32_pruefung = None
+
+
+def _hwnd_lebt(hwnd, pid=0):
+    """Lebt das Hüllen-Fenster noch, und gehört es dem gemeldeten Prozess?
+    (Befund 24.09.: eine abgestürzte oder geschlossene Hülle hinterließ ihr
+    Handle, das nächste Video renderte ins tote Fenster und Filme verloren
+    ihr Vollbild.) IsWindow allein reicht nicht — Windows vergibt Handles
+    neu —, darum der PID-Abgleich, sobald die Hülle ihre PID mitschickt.
+    Scheitert die Prüfung selbst, gilt wie bisher: Handle behalten."""
+    global _user32_pruefung
+    if not hwnd:
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        u32 = _user32_pruefung
+        if u32 is None:                              # eigene Bibliothek: argtypes nie global
+            u32 = ctypes.WinDLL("user32")
+            u32.IsWindow.argtypes = [wintypes.HWND]
+            u32.IsWindow.restype = wintypes.BOOL
+            u32.GetWindowThreadProcessId.argtypes = [wintypes.HWND,
+                                                     ctypes.POINTER(wintypes.DWORD)]
+            u32.GetWindowThreadProcessId.restype = wintypes.DWORD
+            _user32_pruefung = u32
+        if not u32.IsWindow(hwnd):
+            return False
+        if pid:
+            besitzer = wintypes.DWORD(0)
+            u32.GetWindowThreadProcessId(hwnd, ctypes.byref(besitzer))
+            return besitzer.value == int(pid)
+        return True
+    except Exception:                                # noqa: BLE001 — Prüfung ist Kür
+        return True
+
+
+def _hwnd_gueltig():
+    """Das gemerkte Hüllen-Fenster, falls es noch lebt — ein totes oder
+    fremd gewordenes Handle wird vergessen (0 = VLCs eigenes Fenster)."""
+    h = _vlc.get("hwnd") or 0
+    if h and not _hwnd_lebt(h, _vlc.get("hwnd_pid") or 0):
+        _vlc["hwnd"] = h = 0
+        _vlc["hwnd_pid"] = 0
+    return h
+
+
+def _fenster_merken(daten):
+    """Befehl 'fenster' der Hülle: das Handle merken — IMMER und vor jedem
+    libvlc-Laden (fehlte VLC, ging es bisher verloren, obwohl die Hülle es
+    für gemeldet hielt; ein später installiertes VLC bettete nie ein).
+    'nur_wenn' = vergleichen und löschen: die Hülle meldet beim Schließen nur
+    IHR Fenster ab, nie das einer anderen offenen Hülle. False = unverändert."""
+    def zahl(wert):
+        try:
+            return int(wert or 0)
+        except (TypeError, ValueError):
+            return 0
+    if daten.get("nur_wenn") is not None and zahl(daten["nur_wenn"]) != (_vlc.get("hwnd") or 0):
+        return False
+    h = zahl(daten.get("hwnd"))
+    _vlc["hwnd"] = h
+    _vlc["hwnd_pid"] = zahl(daten.get("pid")) if h else 0
+    return True
 
 
 def _vlc_reset():
@@ -2564,9 +2630,10 @@ def _vlc_spieler():
             raise RuntimeError("libvlc lieferte keinen Player")
         _vlc.update(instanz=inst, spieler=sp, grund="")
         _vlc_ereignisse_anhaengen(sp)                # auch nach jedem Neuaufbau (Selbstheilung)
-        if _vlc.get("hwnd"):                         # Hüllen-Einbettung überlebt den Neuaufbau
+        h = _hwnd_gueltig()                          # nur ein noch lebendes Hüllen-Fenster
+        if h:                                        # Hüllen-Einbettung überlebt den Neuaufbau
             try:
-                sp.set_hwnd(_vlc["hwnd"])
+                sp.set_hwnd(h)
             except Exception:                        # noqa: BLE001 — dann eigenes Fenster
                 pass
         return sp, ""
@@ -2845,11 +2912,23 @@ def _vlc_kommando_kern(daten):
     with _vlc_lock:
         if cmd == "status" and _vlc["spieler"] is None:
             return vlc_status()
+        vorher = _vlc.get("hwnd") or 0
+        if cmd == "fenster":
+            if not _fenster_merken(daten):           # fremdes Fenster angemeldet: nichts tun
+                return vlc_status()
+            if _vlc["spieler"] is None and not _vlc["hwnd"]:
+                return vlc_status()                  # Abmelden lädt libvlc nicht erst
+        frisch = _vlc["spieler"] is None             # Neuaufbau setzt das Handle selbst
         sp, grund = _vlc_spieler()
         if sp is None:
             return {"verfuegbar": False, "grund": grund, "key": "", "zustand": "aus"}
         try:
             if cmd == "play":
+                # Hülle weg (abgestürzt, nie abgemeldet)? Dann VLCs eigenes
+                # Fenster statt eines toten Ziels — VOR dem Start, set_hwnd
+                # wirkt erst beim nächsten Medium.
+                if _vlc.get("hwnd") and not _hwnd_gueltig():
+                    sp.set_hwnd(0)
                 if daten.get("url"):     # Film-Fundament: Netz-Strom (Jellyfin)
                     pfad = ""            # statt lokaler Datei — Token bleibt am PC
                     sp.set_media(_vlc["instanz"].media_new(daten["url"]))
@@ -2957,11 +3036,13 @@ def _vlc_kommando_kern(daten):
                 # Hüllen-Einbettung (Etappe set_hwnd, JB-Go): das Video
                 # rendert IN das übergebene Fenster statt in ein eigenes.
                 # hwnd=0 löst die Bindung (Rückweg: separates VLC-Fenster).
-                try:
-                    _vlc["hwnd"] = int(daten.get("hwnd") or 0)
-                except (TypeError, ValueError):
-                    _vlc["hwnd"] = 0
-                sp.set_hwnd(_vlc["hwnd"])
+                # Gemerkt ist es schon (_fenster_merken); ein frisch gebauter
+                # Spieler hat es in _vlc_spieler bereits bekommen, und eine
+                # Neu-Anmeldung desselben Fensters (vor jedem Start) lässt
+                # den laufenden Spieler in Ruhe.
+                h = _hwnd_gueltig()
+                if not frisch and h != vorher:
+                    sp.set_hwnd(h)
             # Live gemessen (05.08.): ein audio_set_volume, das ankommt, BEVOR
             # libvlc den Audio-Ausgang aufgebaut hat (play startet asynchron),
             # geht verloren — der Titel spielte mit 100 statt der gewünschten

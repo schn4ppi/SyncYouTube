@@ -3875,6 +3875,9 @@ def test_vlc_einbettung_hwnd(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "vlc", fake_vlc)
     monkeypatch.setattr(app, "_vlc", {"instanz": None, "spieler": None, "key": "",
                                       "grund": "", "vol_wunsch": None, "hwnd": 0})
+    # 4242 ist kein echtes Fenster: der Server prueft seit 24.09. vor jedem
+    # Einbetten, ob das Huellen-Fenster noch lebt (tote Faelle: test_huelle.py).
+    monkeypatch.setattr(app, "_hwnd_lebt", lambda hwnd, pid=0: bool(hwnd))
     st = app.vlc_kommando({"cmd": "fenster", "hwnd": 4242})
     assert hwnds == [4242] and st["eingebettet"] is True
     app._vlc_reset()

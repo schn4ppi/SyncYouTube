@@ -31,11 +31,18 @@ import types
 
 import pytest
 
-MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if MODUL_DIR not in sys.path:
-    sys.path.insert(0, MODUL_DIR)
+HIER = os.path.dirname(os.path.abspath(__file__))
+MODUL_DIR = os.path.dirname(HIER)
+for _pfad in (MODUL_DIR, HIER):
+    if _pfad not in sys.path:
+        sys.path.insert(0, _pfad)
+
+import test_medien_smtc  # noqa: E402  (dieselbe libvlc-Attrappe für die Server-Seite)
 
 import huelle  # noqa: E402  (Import startet weder Fenster noch Server)
+import youtube_app as app  # noqa: E402  (Import startet keinen Server)
+
+vlc_attrappe = test_medien_smtc.vlc_attrappe          # Fixture: nachgebautes python-vlc
 
 HWND = 4242
 
@@ -139,6 +146,7 @@ class Netz:
             eintrag = {"url": anfrage.full_url,
                        "daten": json.loads(anfrage.data.decode("utf-8")) if anfrage.data else None}
         eintrag["timeout"] = timeout
+        eintrag["hauptfaden"] = threading.current_thread() is threading.main_thread()
         self.anfragen.append(eintrag)
         if self.fehler is not None:
             raise self.fehler
@@ -359,3 +367,207 @@ def test_before_load_vor_dem_panel_ist_harmlos(dotnet, netz, webview_attrappe):
     """Erster Seitenaufbau: before_load kommt, bevor ein Panel existiert."""
     webview_attrappe.leben = lambda fenster: fenster.events.before_load.set()
     assert huelle.main() == 0
+
+
+# ------------------------------- Befund 2: Abmelden beim Schließen der Hülle
+
+def _leben_mit_panel(fenster):
+    """Fensterleben: die Seite meldet eine Video-Fläche, das Panel entsteht."""
+    fenster.native = FormAttrappe()
+    assert fenster.js_api.video_rect(0, 0, 10, 10, True) is True
+
+
+def test_anmeldung_traegt_handle_und_pid(dotnet, netz, webview_attrappe):
+    """Die Anmeldung trägt das Handle (ein übersehenes self.hwnd legte die
+    Einbettung STILL lahm — melden() verschluckt jede Ausnahme) und die PID,
+    gegen die der Server wiederverwendete Handles prüft."""
+    webview_attrappe.leben = _leben_mit_panel
+    assert huelle.main() == 0
+    assert netz.an_vlc()[0] == {"cmd": "fenster", "hwnd": HWND, "pid": os.getpid()}
+
+
+def test_schliessen_meldet_nur_das_eigene_panel_ab(dotnet, netz, webview_attrappe):
+    """Fenster zu (webview.start() kehrt zurück): die Hülle meldet ihr Panel
+    ab — im Hauptfaden, mit kurzem Timeout, und nur als „vergleichen und
+    löschen": der Server nullt nur, wenn noch DIESES Fenster angemeldet ist
+    (eine zweite, neuere Hülle bleibt eingebettet)."""
+    waehrend = []
+
+    def leben(fenster):
+        _leben_mit_panel(fenster)
+        waehrend.extend(netz.an_vlc())
+
+    webview_attrappe.leben = leben
+    assert huelle.main() == 0
+    assert all(d.get("hwnd") for d in waehrend), "abgemeldet, solange das Fenster offen war"
+    letzte = netz.anfragen[-1]
+    assert letzte["daten"] == {"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND}, letzte
+    assert letzte["timeout"] is not None and letzte["timeout"] <= 2, letzte["timeout"]
+    assert letzte["hauptfaden"], "Abmelden gehört in den Hauptfaden (nie in den UI-Faden)"
+
+
+def test_schliessen_ohne_panel_fragt_nichts(dotnet, netz, webview_attrappe):
+    """Nie ein Panel angelegt: nichts abzumelden, keine Anfrage."""
+    assert huelle.main() == 0
+    assert netz.anfragen == []
+
+
+def test_schliessen_bei_totem_server_endet_trotzdem(dotnet, monkeypatch, webview_attrappe):
+    """Server aus: das Abmelden scheitert still, main() endet sofort mit 0."""
+    import time
+    import urllib.error
+    netz = Netz(fehler=urllib.error.URLError("Verbindung abgelehnt"))
+    monkeypatch.setattr(huelle.urllib.request, "urlopen", netz)
+    webview_attrappe.leben = _leben_mit_panel
+    t0 = time.monotonic()
+    assert huelle.main() == 0
+    assert time.monotonic() - t0 < 3
+    assert netz.an_vlc()[-1] == {"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND}
+
+
+# ------------------------------------------ Befund 2: Server-Seite (/api/vlc)
+
+@pytest.fixture
+def fenster_welt(monkeypatch):
+    """Die Fenster-Prüfung des Servers als Attrappe: {hwnd: pid} sind die
+    lebenden Fenster. Modelliert beide Unterschiede, um die es geht: tot
+    gegen lebend UND lebend, aber einem anderen Prozess gehörend (Windows
+    vergibt Handles neu). raising=False: am alten Stand fehlt die Prüfung,
+    der Test wird dann am Verhalten rot, nicht am Namen."""
+    welt = {}
+
+    def lebt(hwnd, pid=0):
+        return hwnd in welt and (not pid or welt[hwnd] == pid)
+
+    monkeypatch.setattr(app, "_hwnd_lebt", lebt, raising=False)
+    return welt
+
+
+def _ruf_index(sp, anfang):
+    return next(i for i, r in enumerate(sp.rufe) if r[0] == anfang)
+
+
+def test_fenster_wird_gemerkt_auch_wenn_vlc_fehlt(monkeypatch, vlc_attrappe, fenster_welt):
+    """VLC fehlt beim Anmelden: das Handle wurde bisher verworfen, die Hülle
+    hielt es trotzdem für gemeldet (HTTP 200) — ein später installiertes VLC
+    bettete nie ein."""
+    fenster_welt[HWND] = 77
+    monkeypatch.setitem(sys.modules, "vlc", None)                 # VLC (noch) nicht da
+    st = app.vlc_kommando({"cmd": "fenster", "hwnd": HWND, "pid": 77})
+    assert st["verfuegbar"] is False
+    assert app._vlc["hwnd"] == HWND, "Handle verworfen, weil libvlc fehlte"
+    monkeypatch.setitem(sys.modules, "vlc", vlc_attrappe)         # VLC nachinstalliert
+    st = app.vlc_kommando({"cmd": "play", "key": "abc|mp3"})
+    sp = app._vlc["spieler"]
+    assert ("hwnd", HWND) in sp.rufe and _ruf_index(sp, "hwnd") < _ruf_index(sp, "play")
+    assert st["eingebettet"] is True
+
+
+def test_abmelden_laedt_libvlc_nicht(monkeypatch, vlc_attrappe):
+    """Abmelden (hwnd 0) ohne laufenden Spieler: nur vergessen, libvlc nicht laden."""
+    geladen = []
+    echt = vlc_attrappe.Instance
+    monkeypatch.setattr(vlc_attrappe, "Instance", lambda *a: geladen.append(a) or echt(*a))
+    app._vlc["hwnd"] = HWND
+    app.vlc_kommando({"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND})
+    app.vlc_kommando({"cmd": "fenster", "hwnd": 0})
+    assert geladen == [] and app._vlc["spieler"] is None
+    assert app._vlc["hwnd"] == 0
+
+
+def test_abmelden_trifft_nur_das_eigene_fenster(vlc_attrappe, fenster_welt):
+    """Zwei Hüllen (oder eine neue, bevor die alte endet): das Schließen der
+    alten darf das Panel der neuen nicht abmelden."""
+    fenster_welt.update({HWND: 77, 5151: 88})
+    app.vlc_kommando({"cmd": "fenster", "hwnd": 5151, "pid": 88})   # die neuere Hülle
+    sp = app._vlc["spieler"]
+    st = app.vlc_kommando({"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND})   # alte geht zu
+    assert app._vlc["hwnd"] == 5151 and st["eingebettet"] is True
+    assert ("hwnd", 0) not in sp.rufe
+    st = app.vlc_kommando({"cmd": "fenster", "hwnd": 0, "nur_wenn": 5151})   # neue geht zu
+    assert app._vlc["hwnd"] == 0 and st["eingebettet"] is False
+    assert ("hwnd", 0) in sp.rufe
+
+
+def test_totes_fenster_wird_vor_dem_start_verworfen(monkeypatch, vlc_attrappe, fenster_welt):
+    """Hülle abgestürzt (nie abgemeldet): das nächste Video rendert nicht ins
+    tote Fenster, sondern in VLCs eigenes — und Filme bekommen ihr Vollbild
+    zurück, das ein gesetztes Handle unterdrückt."""
+    monkeypatch.setattr(vlc_attrappe.Spieler, "set_fullscreen",
+                        lambda self, an: self.rufe.append(("vollbild", an)), raising=False)
+    fenster_welt[HWND] = 77
+    app.vlc_kommando({"cmd": "fenster", "hwnd": HWND, "pid": 77})
+    sp = app._vlc["spieler"]
+    st = app.vlc_kommando({"cmd": "play", "key": "abc|mp3", "vollbild": True})
+    assert st["eingebettet"] is True and ("vollbild", True) not in sp.rufe
+    del fenster_welt[HWND]                                        # Hülle weg
+    sp.rufe.clear()
+    st = app.vlc_kommando({"cmd": "play", "key": "abc|mp3", "vollbild": True})
+    assert ("hwnd", 0) in sp.rufe, "totes Handle nicht verworfen"
+    assert _ruf_index(sp, "hwnd") < _ruf_index(sp, "media") < _ruf_index(sp, "play")
+    assert st["eingebettet"] is False and app._vlc["hwnd"] == 0
+    assert ("vollbild", True) in sp.rufe, "ohne Hülle gehört der Film wieder ins Vollbild"
+
+
+def test_fremdes_fenster_mit_gleicher_nummer_gilt_als_tot(vlc_attrappe, fenster_welt):
+    """Windows hat die Nummer neu vergeben: das Fenster lebt, gehört aber
+    einem anderen Prozess — nicht hineinrendern."""
+    fenster_welt[HWND] = 77
+    app.vlc_kommando({"cmd": "fenster", "hwnd": HWND, "pid": 77})
+    fenster_welt[HWND] = 99                                       # fremder Prozess
+    st = app.vlc_kommando({"cmd": "play", "key": "abc|mp3"})
+    assert st["eingebettet"] is False and app._vlc["hwnd"] == 0
+
+
+def test_neuanmeldung_desselben_fensters_laesst_den_spieler_in_ruhe(vlc_attrappe, fenster_welt):
+    """Die Seite meldet das Panel vor JEDEM Start neu an (Befund 4): dasselbe
+    Fenster noch einmal darf den laufenden Spieler nicht anfassen; ein
+    anderes (neue Hülle) wird gesetzt."""
+    fenster_welt.update({HWND: 77, 5151: 88})
+    app.vlc_kommando({"cmd": "fenster", "hwnd": HWND, "pid": 77})
+    app.vlc_kommando({"cmd": "play", "key": "abc|mp3"})
+    sp = app._vlc["spieler"]
+    sp.rufe.clear()
+    st = app.vlc_kommando({"cmd": "fenster", "hwnd": HWND, "pid": 77})
+    assert sp.rufe == [] and st["eingebettet"] is True
+    app.vlc_kommando({"cmd": "fenster", "hwnd": 5151, "pid": 88})
+    assert sp.rufe == [("hwnd", 5151)]
+
+
+def test_neuaufbau_setzt_totes_fenster_nicht(vlc_attrappe, fenster_welt):
+    """Selbstheilung baut den Spieler neu: ein inzwischen totes Handle wird
+    dabei nicht mehr übernommen."""
+    fenster_welt[HWND] = 77
+    app.vlc_kommando({"cmd": "fenster", "hwnd": HWND, "pid": 77})
+    app._vlc_reset()
+    del fenster_welt[HWND]
+    app.vlc_kommando({"cmd": "play", "key": "abc|mp3"})
+    sp = app._vlc["spieler"]
+    assert ("hwnd", HWND) not in sp.rufe and app._vlc["hwnd"] == 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="prüft echte Windows-Fenster")
+def test_fensterpruefung_am_echten_fenster():
+    """_hwnd_lebt gegen ein ECHTES (unsichtbares, reines Nachrichten-)Fenster
+    dieses Prozesses: lebt + eigene PID ja, fremde PID nein, zerstört nein."""
+    import ctypes
+    from ctypes import wintypes
+    u32 = ctypes.WinDLL("user32", use_last_error=True)
+    u32.CreateWindowExW.restype = wintypes.HWND
+    u32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                                    wintypes.DWORD, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                    ctypes.c_int, wintypes.HWND, wintypes.HMENU,
+                                    wintypes.HINSTANCE, wintypes.LPVOID]
+    u32.DestroyWindow.argtypes = [wintypes.HWND]
+    nur_nachrichten = wintypes.HWND(-3)                           # HWND_MESSAGE
+    h = u32.CreateWindowExW(0, "STATIC", "yt-huelle-test", 0, 0, 0, 0, 0,
+                            nur_nachrichten, None, None, None)
+    assert h, f"Testfenster nicht angelegt (Fehler {ctypes.get_last_error()})"
+    try:
+        assert app._hwnd_lebt(h, os.getpid()) is True
+        assert app._hwnd_lebt(h, 0) is True, "ohne PID (alte Hülle) zählt nur IsWindow"
+        assert app._hwnd_lebt(h, os.getppid()) is False, "fremde PID muss als tot gelten"
+    finally:
+        u32.DestroyWindow(h)
+    assert app._hwnd_lebt(h, os.getpid()) is False, "zerstörtes Fenster lebt nicht"
+    assert app._hwnd_lebt(0, os.getpid()) is False
