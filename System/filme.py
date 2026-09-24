@@ -1248,28 +1248,66 @@ def _queue_lesen():
         return []
 
 
+# Warum eine Meldung nicht ankam — der Unterschied entscheidet, ob das
+# Nachreichen weitermachen darf (Muster SyncFindus zubringer_jellyfin.py,
+# 17.09.2026). 401/403/408/429 sind KEIN kaputter Eintrag: das sind Zugang,
+# Drossel oder Zeit — da lohnt der nächste Lauf.
+SENDE_OK = "ok"
+SENDE_KAPUTT = "kaputt"                    # 4xx: DIESE Meldung geht nie durch
+SENDE_SERVER = "server"                    # Netz, Zugang, 5xx: später erneut
+
+
+def _sende_grund(st):
+    if st in (200, 204):
+        return SENDE_OK
+    if 400 <= (st or 0) < 500 and st not in (401, 403, 408, 429):
+        return SENDE_KAPUTT
+    return SENDE_SERVER
+
+
+def _fortschritt_senden_mit_grund(item_id, position_s, gesehen=False, nur_gesehen=False):
+    """Stelle (Progress) und ggf. „gesehen" (PlayedItems) melden; Rückgabe SENDE_*.
+
+    Live gefunden (05.08.): Jellyfin wirft das alte Token weg, sobald sich
+    dieselbe DeviceId neu anmeldet — die Heilung (EINMAL frisch anmelden und
+    wiederholen) steckt seit 24.09. für alle Wege in _jellyfin_ruf, auch für
+    PlayedItems. Dessen Status wurde bis 24.09. gar nicht geprüft: scheiterte
+    nur dieser Ruf, ging „gesehen" still verloren (folgenende.md Befund 3).
+    `nur_gesehen`: beim Nachreichen zählt bei „gesehen" nur PlayedItems — eine
+    alte Stelle soll nichts Neueres überschreiben."""
+    if not nur_gesehen:
+        st, _, art, _ = _jellyfin_ruf("/Sessions/Playing/Progress",
+                                      daten={"ItemId": item_id,
+                                             "PositionTicks": int(position_s) * 10_000_000,
+                                             "IsPaused": False})
+        if art:                            # Netz/Zugang ⇒ Queue
+            return SENDE_SERVER
+        grund = _sende_grund(st)
+        if grund != SENDE_OK or not gesehen:
+            return grund
+    st, _, art, _ = _jellyfin_ruf(
+        "/Users/{uid}/PlayedItems/" + urllib.parse.quote(str(item_id), safe=""), daten={})
+    if art:
+        return SENDE_SERVER
+    return _sende_grund(st)
+
+
 def _fortschritt_senden(item_id, position_s, gesehen):
-    # Live gefunden (05.08.): Jellyfin wirft das alte Token weg, sobald sich
-    # dieselbe DeviceId neu anmeldet — die Heilung (EINMAL frisch anmelden und
-    # wiederholen) steckt seit 24.09. für alle Wege in _jellyfin_ruf.
-    st, _, art, _ = _jellyfin_ruf("/Sessions/Playing/Progress",
-                                  daten={"ItemId": item_id,
-                                         "PositionTicks": int(position_s) * 10_000_000,
-                                         "IsPaused": False})
-    if art:                                # Netz/Zugang ⇒ Queue
-        return False
-    if gesehen and st in (200, 204):
-        _jellyfin_ruf("/Users/{uid}/PlayedItems/" + str(item_id), daten={})
-    return st in (200, 204)
+    return _fortschritt_senden_mit_grund(item_id, position_s, gesehen) == SENDE_OK
 
 
 def fortschritt(item_id, position_s, gesehen=False):
     """Fortschritt an Jellyfin melden; scheitert es, wandert die Meldung in die
-    Queue und geht beim nächsten Erfolg/Abzug nach (nichts geht verloren)."""
-    if _fortschritt_senden(item_id, position_s, gesehen):
+    Queue und geht beim nächsten Erfolg/Abzug nach (nichts geht verloren).
+    Weist Jellyfin die Meldung selbst ab (4xx), wird sie als `abgewiesen`
+    gemerkt: nie wieder gesendet, aber auch nicht still verworfen."""
+    grund = _fortschritt_senden_mit_grund(item_id, position_s, gesehen)
+    if grund == SENDE_OK:
         return True
     neu = {"item": item_id, "position_s": int(position_s),
            "gesehen": bool(gesehen), "ts": time.time()}
+    if grund == SENDE_KAPUTT:
+        neu["abgewiesen"] = True
     _json_aendern(_pfade["queue"], lambda q: (q or []) + [neu], standard=[])
     return False
 
@@ -1277,6 +1315,13 @@ def fortschritt(item_id, position_s, gesehen=False):
 def _q_schluessel(m):
     return (m.get("item"), int(m.get("position_s") or 0), bool(m.get("gesehen")),
             round(float(m.get("ts") or 0), 3))
+
+
+def _q_ts(m):
+    try:
+        return float(m.get("ts") or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def fortschritt_nachreichen():
@@ -1289,19 +1334,48 @@ def fortschritt_nachreichen():
     stoppte, verlor seinen Spot spurlos (gemessen 13.08.2026 — genau während des
     6-h-Abzugs, der ja mit `fortschritt_nachreichen()` endet).
 
+    Seit 24.09. (Gegenprüfung folgenende.md):
+    - Je Titel zählt nur die JÜNGSTE Meldung; die älteren sind mit ihr erledigt.
+      Vorher ging jede in Reihenfolge raus, und eine alte Stelle überschrieb
+      eine neuere desselben Titels.
+    - Bei „gesehen" nur PlayedItems, keine alte Stelle.
+    - Ein Eintrag, den Jellyfin mit 4xx abweist, wird als `abgewiesen`
+      markiert und übersprungen, statt über `break` alle dahinter aufzuhalten
+      — still, denn die Warteschlange zeigt niemand an. Gelöscht wird er nicht.
+
     Bewusste Richtung: Im Zweifel lieber doppelt melden als verlieren. Einen
     Fortschritt zu setzen ist idempotent — ihn zu verlieren nicht."""
-    q = _queue_lesen()
-    geschafft, erledigt = 0, []
-    for m in q:
-        if not _fortschritt_senden(m["item"], m["position_s"], m.get("gesehen")):
-            break                          # Reihenfolge halten: Rest bleibt liegen
-        geschafft += 1
-        erledigt.append(_q_schluessel(m))
-    if erledigt:
-        weg = set(erledigt)
-        _json_aendern(
-            _pfade["queue"],
-            lambda liste: [m for m in (liste or []) if _q_schluessel(m) not in weg],
-            standard=[])
+    offen = [m for m in _queue_lesen()
+             if isinstance(m, dict) and m.get("item") and not m.get("abgewiesen")]
+    juengste = {}
+    for m in offen:
+        alt = juengste.get(m["item"])
+        if alt is None or _q_ts(m) >= _q_ts(alt):
+            juengste[m["item"]] = m
+    geschafft, erledigt, kaputt = 0, set(), set()
+    for m in sorted(juengste.values(), key=_q_ts):
+        gruppe = {_q_schluessel(x) for x in offen if x["item"] == m["item"]}
+        grund = _fortschritt_senden_mit_grund(
+            m["item"], m.get("position_s") or 0, bool(m.get("gesehen")),
+            nur_gesehen=bool(m.get("gesehen")))
+        if grund == SENDE_OK:
+            geschafft += 1
+            erledigt |= gruppe
+        elif grund == SENDE_KAPUTT:
+            kaputt |= gruppe
+        else:
+            break                          # Server hat ein Problem: nächster Lauf
+    if erledigt or kaputt:
+        def _aufraeumen(liste):
+            neu = []
+            for x in liste or []:
+                if isinstance(x, dict) and x.get("item"):
+                    k = _q_schluessel(x)
+                    if k in erledigt:
+                        continue
+                    if k in kaputt:
+                        x = dict(x, abgewiesen=True)
+                neu.append(x)
+            return neu
+        _json_aendern(_pfade["queue"], _aufraeumen, standard=[])
     return geschafft

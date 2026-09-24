@@ -452,3 +452,136 @@ def test_info_seite_zeigt_gestoerten_zugang_statt_leerer_staffel(tmp_path):
     e = _info_lauf(tmp_path, {"items": [{"id": "e1", "staffel": 1, "folge": 1, "titel": "Pilot",
                                          "position_s": 0, "gesehen": False}]})
     assert "Staffel 1" in e["html"] and "nicht abrufbar" not in e["html"]
+
+
+# ------------------------------------------ Fortschritt, „gesehen" und Warteschlange
+
+def _queue():
+    return filme._queue_lesen()
+
+
+def _meldungen(jf):
+    """(art, item, position_s) je Fortschritts-/Gesehen-Ruf, in Reihenfolge."""
+    out = []
+    for pfad, _k, daten in jf.rufe:
+        if pfad.startswith("/Sessions/Playing/Progress"):
+            out.append(("progress", daten["ItemId"], daten["PositionTicks"] // 10_000_000))
+        elif "/PlayedItems/" in pfad:
+            out.append(("gesehen", pfad.rsplit("/", 1)[1], None))
+    return out
+
+
+def _queue_setzen(eintraege):
+    filme.fam.json_schreiben(filme._pfade["queue"], eintraege)
+
+
+def test_gesehen_wird_geprueft_und_sonst_nachgereicht(tmp_path, monkeypatch):
+    """folgenende.md Befund 3: PlayedItems lief ohne Statusprüfung. Scheiterte nur
+    dieser Ruf, ging „gesehen" still verloren — nichts kam in die Warteschlange."""
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("12")
+    monkeypatch.setattr(filme, "_http", jf)
+    assert filme.fortschritt("f1", 2350, gesehen=True) is True
+    assert _meldungen(jf) == [("progress", "f1", 2350), ("gesehen", "f1", None)]
+    assert _queue() == []
+    # PlayedItems scheitert (500): die Meldung darf nicht verloren gehen.
+    _einrichten(tmp_path / "kaputt", monkeypatch)
+    jf = JellyfinAttrappe("12", antworten=[("/System/Info", 200, {}),
+                                           ("/Sessions/Playing/Progress", 204, b""),
+                                           ("/PlayedItems/", 500, b"")])
+    monkeypatch.setattr(filme, "_http", jf)
+    assert filme.fortschritt("f1", 2350, gesehen=True) is False
+    q = _queue()
+    assert len(q) == 1 and q[0]["item"] == "f1" and q[0]["gesehen"] is True, q
+    # Netz wieder gesund: nachreichen schickt NUR PlayedItems (die Stelle zählt
+    # bei „gesehen" nicht mehr und darf nichts Neueres überschreiben).
+    jf.antworten = JellyfinAttrappe("12").antworten      # derselbe Server, wieder gesund
+    jf.rufe.clear()
+    assert filme.fortschritt_nachreichen() == 1
+    assert _meldungen(jf) == [("gesehen", "f1", None)], _meldungen(jf)
+    assert _queue() == []
+
+
+def test_gesehen_heilt_einen_401_mit_genau_einer_anmeldung(tmp_path, monkeypatch):
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("12")
+    erst = []
+
+    def http(url, daten=None, kopf=None, timeout=15):
+        if "/PlayedItems/" in url and not erst:
+            erst.append(1)
+            jf.entwertet.add(jf.tokens[-1])      # zweite Sitzung: Token 1 ist weg
+            return 401, b""
+        return jf(url, daten, kopf, timeout)
+    monkeypatch.setattr(filme, "_http", http)
+    assert filme.fortschritt("f1", 2350, gesehen=True) is True
+    assert jf.anmeldungen() == 2 and _queue() == []
+
+
+def test_je_titel_nur_die_neueste_meldung(tmp_path, monkeypatch):
+    """Nachreichen schickte JEDE liegengebliebene Meldung in Reihenfolge — eine
+    alte Stelle überschrieb danach eine neuere desselben Titels (Gegenprüfung
+    folgenende.md). Jetzt zählt je Titel nur die jüngste; die älteren sind mit
+    ihr erledigt."""
+    _einrichten(tmp_path, monkeypatch)
+    _queue_setzen([
+        {"item": "f1", "position_s": 100, "gesehen": False, "ts": 1.0},
+        {"item": "s1", "position_s": 50, "gesehen": False, "ts": 1.5},
+        {"item": "f1", "position_s": 900, "gesehen": False, "ts": 2.0}])
+    jf = JellyfinAttrappe("12")
+    monkeypatch.setattr(filme, "_http", jf)
+    assert filme.fortschritt_nachreichen() == 2
+    assert _meldungen(jf) == [("progress", "s1", 50), ("progress", "f1", 900)], _meldungen(jf)
+    assert _queue() == []
+
+
+def test_dauerhafter_4xx_blockiert_die_warteschlange_nicht(tmp_path, monkeypatch):
+    """Ein Eintrag, den Jellyfin mit 4xx abweist (z. B. keine gültige Kennung),
+    geht nie durch. Vorher hielt er über `break` alle Meldungen dahinter auf —
+    still, denn die Warteschlange wird nirgends angezeigt. Jetzt: markiert und
+    nie wieder gesendet (SENDE_KAPUTT wie in SyncFindus), aber NICHT gelöscht."""
+    _einrichten(tmp_path, monkeypatch)
+    _queue_setzen([
+        {"item": "abc123", "position_s": 10, "gesehen": False, "ts": 1.0},
+        {"item": "f1", "position_s": 700, "gesehen": False, "ts": 2.0}])
+    jf = JellyfinAttrappe("12")
+
+    def http(url, daten=None, kopf=None, timeout=15):
+        if (daten or {}).get("ItemId") == "abc123":
+            jf.rufe.append((url, dict(kopf or {}), daten))
+            return 400, b""
+        return jf(url, daten, kopf, timeout)
+    monkeypatch.setattr(filme, "_http", http)
+    assert filme.fortschritt_nachreichen() == 1
+    q = _queue()
+    assert [(m["item"], m.get("abgewiesen")) for m in q] == [("abc123", True)], q
+    vorher = len(jf.rufe)
+    assert filme.fortschritt_nachreichen() == 0
+    assert len(jf.rufe) == vorher, "ein abgewiesener Eintrag wurde erneut gesendet"
+    # Direkt gemeldet und abgewiesen: gemerkt (nichts still verworfen), aber nie
+    # wieder gesendet.
+    assert filme.fortschritt("abc123", 20) is False
+    assert all(m.get("abgewiesen") for m in _queue())
+
+
+def test_abgelehnte_anmeldeform_ist_kein_kaputter_eintrag(tmp_path, monkeypatch):
+    """401 auch nach frischer Anmeldung ist ein Server-/Zugangsproblem, kein
+    Fehler des Eintrags: nichts wird als abgewiesen markiert, alles bleibt für
+    den nächsten Lauf liegen."""
+    _einrichten(tmp_path, monkeypatch)
+    eintraege = [{"item": "f1", "position_s": 700, "gesehen": False, "ts": 2.0},
+                 {"item": "s1", "position_s": 5, "gesehen": True, "ts": 3.0}]
+    _queue_setzen(eintraege)
+    monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12", lehnt_ab=True))
+    assert filme.fortschritt_nachreichen() == 0
+    assert _queue() == eintraege
+    # Ebenso 403 (nicht berechtigt / gedrosselt) und 429: Zugang oder Zeit,
+    # nicht der Eintrag — liegen lassen, nicht abweisen.
+    for status in (403, 429):
+        _einrichten(tmp_path / str(status), monkeypatch)
+        _queue_setzen(eintraege)
+        monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12", antworten=[
+            ("/System/Info", 200, {}), ("/Sessions/Playing/Progress", status, b""),
+            ("/PlayedItems/", status, b"")]))
+        assert filme.fortschritt_nachreichen() == 0
+        assert _queue() == eintraege, status

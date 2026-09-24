@@ -782,11 +782,15 @@ def test_geteilter_zustand_geht_nicht_verloren(tmp_path, monkeypatch):
 
     dazwischen = threading.Event()
 
-    def langsam_senden(item_id, position_s, gesehen=False):
+    def langsam_senden(item_id, position_s, gesehen=False, nur_gesehen=False):
         dazwischen.set()                     # Signal: das Senden läuft
         time.sleep(0.05)                     # …und dauert
-        return True
-    monkeypatch.setattr(filme, "_fortschritt_senden", langsam_senden)
+        return filme.SENDE_OK
+    # Seit 24.09. sendet das Nachreichen über den Weg MIT Grund (SENDE_*), damit
+    # ein dauerhafter 4xx die Warteschlange nicht blockiert.
+    monkeypatch.setattr(filme, "_fortschritt_senden_mit_grund", langsam_senden)
+    monkeypatch.setattr(filme, "_http", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("kein Netz in diesem Test")))
 
     def stoerer():
         dazwischen.wait(2)
