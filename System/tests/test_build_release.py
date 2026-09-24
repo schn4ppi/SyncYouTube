@@ -129,3 +129,36 @@ def test_bauen_bricht_ab_wenn_winrt_in_der_exe_fehlt(br, monkeypatch, tmp_path):
     # mit vollständiger Bauliste läuft bauen() durch
     monkeypatch.setattr(br, "BAULISTE", _bauliste(tmp_path / "PKG-01.toc", _vollstaendig(br)))
     br.bauen()
+
+
+def test_nur_signieren_prueft_das_erzeugnis_zuerst(br, monkeypatch, tmp_path):
+    """Prüfung Runde 1 (mittel): main() prüfte das Erzeugnis NUR im Bau-Weg.
+    Scheiterte die Prüfung, blieb die exe ohne winrt in dist/ liegen — und der
+    dokumentierte Weg `--nur-signieren` (etwa weil der Token nicht steckte)
+    signierte genau diese exe und legte sie oben zum Veröffentlichen bereit.
+    Jetzt prüft auch --nur-signieren zuerst, fail-closed: kein Signieren, keine
+    Prüfsumme, nichts nach oben."""
+    signiert = []
+    monkeypatch.setattr(br.signieren, "signiere",
+                        lambda pfad, **kw: signiert.append(pfad) or "signiert", raising=False)
+    exe = tmp_path / "dist" / "SyncYouTube.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"MZ")
+    oben = tmp_path / "oben"
+    oben.mkdir()
+    monkeypatch.setattr(br, "GEBAUT", str(exe))
+    monkeypatch.setattr(br, "OBEN", str(oben))
+    monkeypatch.setattr(br.sys, "argv", ["build_release.py", "--nur-signieren"])
+    for name, bauliste in (("ohne winrt", _bauliste(tmp_path / "PKG-00.toc", [])),
+                           ("keine Bauliste", str(tmp_path / "gibt_es_nicht.toc"))):
+        monkeypatch.setattr(br, "BAULISTE", bauliste)
+        with pytest.raises(SystemExit) as abbruch:
+            br.main()
+        assert "[FEHLER]" in str(abbruch.value), (name, abbruch.value)
+        assert signiert == [], f"{name}: signiert trotz fehlendem winrt"
+        assert os.listdir(oben) == [] and not os.path.exists(str(exe) + ".sha256"), name
+    # Vollständige Bauliste: signieren, Prüfsumme, nach oben — wie bisher.
+    monkeypatch.setattr(br, "BAULISTE", _bauliste(tmp_path / "PKG-01.toc", _vollstaendig(br)))
+    br.main()
+    assert signiert == [str(exe)]
+    assert sorted(os.listdir(oben)) == ["SyncYouTube.exe", "SyncYouTube.exe.sha256"]

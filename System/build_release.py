@@ -16,7 +16,8 @@ Loesung, und sie darf nicht davon abhaengen, dass jemand sie von Hand nachholt.
 REIHENFOLGE (nicht vertauschbar):
   1. bauen        — PyInstaller nach dist/, danach die ERZEUGNIS-Prüfung (24.09.2026):
                     stehen die winrt-Erweiterungen und winrt/msvcp140.dll in der
-                    Bauliste? Sonst Abbruch. Der Wächter test_exe_nimmt_pywinrt_mit
+                    Bauliste? Sonst Abbruch — auch bei --nur-signieren (dort an der
+                    Bauliste des letzten Baus). Der Wächter test_exe_nimmt_pywinrt_mit
                     führt nur die Bauvorschrift aus; die exe vom 08.09. hatte trotz
                     Vorschrift kein winrt (Bauliste: 0 Einträge).
   2. signieren    — ueber SyncDashTray/System/signieren.py (EIN Zertifikat fuer die
@@ -135,6 +136,13 @@ def bauen():
         sys.exit("[FEHLER] Bau fehlgeschlagen — nichts wird veroeffentlicht.")
     if not os.path.exists(GEBAUT):
         sys.exit(f"[FEHLER] {GEBAUT} fehlt trotz Exitcode 0.")
+    erzeugnis_oder_abbruch()
+
+
+def erzeugnis_oder_abbruch():
+    """Erzeugnis-Pruefung mit Abbruch — im Bau-Weg UND vor --nur-signieren
+    (Pruefung Runde 1: sonst signierte --nur-signieren die exe ohne winrt, die
+    ein gescheiterter Bau in dist/ liegen liess, und legte sie oben bereit)."""
     fehlt = erzeugnis_pruefen()
     if fehlt:
         sys.exit("[FEHLER] Die exe ist ohne Windows-Medienanmeldung gebaut, in der "
@@ -175,6 +183,8 @@ def main():
         bauen()
     elif not os.path.exists(GEBAUT):
         sys.exit(f"[FEHLER] --nur-signieren, aber {GEBAUT} fehlt.")
+    else:
+        erzeugnis_oder_abbruch()           # fail-closed auch ohne Bau (Bauliste des letzten Baus)
     ergebnis = signieren_und_pruefen()
     pruefsumme()
     nach_oben()
