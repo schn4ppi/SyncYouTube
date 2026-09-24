@@ -1,5 +1,32 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
 
+> **NACHTRAG 25.09.2026 — Mindest-Sehzeit (Runde 3, yt:mindest_sehzeit, 39cdc63).** JB-Idee
+> 24.09.: „… sozusagen einen mindest timer um festzulegen - bedenken wenn ab einer bestimmten
+> stelle weiter, bzw angefangen wird". „gesehen" nur bei (a) Stelle ≥ 90 % UND (b) in DIESER
+> Wiedergabe geschaut W ≥ min(5 min, 50 % × (90 % der Dauer − Startstelle)); W = Spiel-
+> Intervalle in Medienzeit, ein Schritt über 3 s ist ein Sprung. Regel an EINER Stelle
+> (`oberflaeche.py`: `SEHZEIT`, `sehzeitUrteil`), gemessen im Browser per `timeupdate`
+> (`tvpVideoVerdrahten`), im VLC im 1-s-Takt (`tvpTick`); gilt über die EINE Meldestelle für
+> Ende, Esc und ⏭. Ein Sprung ans Ende zählt also nicht mehr als gesehen.
+> - **Jellyfin hakt nicht selbst:** Jellyfin 12.1 setzt bei JEDER Progress-Meldung Played ab
+>   > 90 % der Laufzeit, ab Laufzeit − 1 s und bei Laufzeiten unter 5 min schon ab 5 %
+>   (`UserDataManager.UpdatePlayState`, Beleg mit Zeilen im Commit). Verweigert die Seite
+>   „gesehen", meldet sie darum die letzte echt geschaute Stelle unter 0,9 × (Dauer − 30 s)
+>   (kurze Stücke: 0). Esc-Toast: „zu wenig geschaut für „gesehen", gemerkt bei …".
+>   Nebenfolge: übernimmt die Musik den VLC im Abspann, geht die Grenze statt der Stelle hinaus.
+> - Prüf-Fläche: `tests/test_mindest_sehzeit.py` (10, deno mit echtem Seiten-JS, Jellyfin-
+>   12.1-Orakel über jede Laufzeit ± 30 s), 21 Gegenproben (`%TEMP%\yt_r3_gp_ms`), alle rot.
+>   Volle Suite 597 grün (vorher 587).
+> - **Offen:** (1) „Hülle zu" im Abspann (`youtube_app._film_stelle_melden`) meldet die rohe
+>   VLC-Stelle: über 90 % hakt Jellyfin selbst, die Mindest-Sehzeit greift dort nicht — hängt
+>   an der JB-Frage im Nachtrag unten. (2) Esc ohne offene Fernbedienung kennt keine Dauer und
+>   meldet ungekappt. (3) Kennt Jellyfin keine Laufzeit, setzt JEDE Meldung Played. (4) VLC-
+>   Rückfall im normalen Browser-Tab: ist der Tab verdeckt, drosselt Chrome den 1-s-Takt;
+>   Takt-Schritte über 3 s gelten dann als Sprung, ein durchgeschauter Film würde am Ende
+>   verweigert (Vorschlag, unbestätigt: Sprung erst, wenn der Schritt die verstrichene Zeit ×
+>   Tempo um mehr als 3 s übersteigt). (5) Live nicht gemessen (Renés Jellyfin HTTP 401;
+>   `timeupdate` im verdeckten Tab).
+>
 > **NACHTRAG 25.09.2026 — Nacharbeit der Prüfung Runde 2 (nacharbeit_r2).** Gebaut,
 > jeweils Test zuerst (am alten Stand rot), dann Fix, dazu je Sicherung eine rote Gegenprobe
 > in einer Wegwerf-Kopie (`%TEMP%\yt_r3_na_kopie`, 28 Proben, alle rot; nur Git-getrackte
@@ -45,7 +72,8 @@
 >   starkes Indiz für den Normalmodus, nicht exklusiv. `test_cookies_wal.py` prüft jetzt beide.
 >
 > **Aus der Prüfung nachgetragen (Übergabe fehlte):**
-> - **Folgen-/Filmende (3bd24a9):** „gesehen" ab 90 % bei Ende, Esc und ⏭; Sleep: nach einem
+> - **Folgen-/Filmende (3bd24a9):** „gesehen" ab 90 % bei Ende, Esc und ⏭ (seit 39cdc63 dazu
+>   die Mindest-Sehzeit, s. oben); Sleep: nach einem
 >   Filmende startet nichts (`nachFilmEnde`). Prüf-Fläche: deno mit echtem Seiten-JS +
 >   Jellyfin-/libvlc-Attrappen; live NICHT gemessen (Renés Jellyfin setzt „gesehen"? bleibt
 >   libvlc am Netz-Strom-Ende in `ende`?). **JB-Fragen offen:** Live-TV am Stromende
