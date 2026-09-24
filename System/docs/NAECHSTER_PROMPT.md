@@ -97,6 +97,20 @@
 > Video-Kennungen stehen unten unter anderer Qualität. Entscheidung offen: die drei
 > Dateien trotzdem rückholbar ins `_Archiv` (Vorschlag, unbestätigt) oder die fünf
 > Einträge vorher unten nachtragen.
+> **Firefox-Cookies samt WAL (24.09., Lehre aus SyncFindus):** yt-dlp 2026.08.19 kopiert
+> beim Cookie-Lesen nur `cookies.sqlite`, nicht das `-wal` (`yt_dlp/cookies.py`,
+> `_open_database_copy`); frische Anmelde-Cookies nach einem neuen YouTube-Login fehlten
+> deshalb. Jetzt entsteht jeder YoutubeDL in `youtube_app._ydl`: `cookie_kopie.firefox_profil`
+> legt vorher eine vollständige Kopie in einen frischen Temp-Ordner (Hauptdatei und `-wal`
+> nur als Datei gelesen, WAL-Kopf-Vergleich, Backup-API, Rollback-Modus) und gibt yt-dlp
+> dessen Pfad als Profil; danach ist der Ordner weg. Jeder Fehler führt still auf den
+> alten Weg `("firefox",)`. Wächter `tests/test_cookies_wal.py` (25 Tests, 14 rote
+> Gegenproben); `tests/conftest.py` hält die Profilsuche in JEDEM Test von JBs echtem
+> Firefox fern. **Nicht gemessen:** ein Lauf mit JBs echtem Profil gegen YouTube (Tests
+> dürfen beides nicht) und ob Firefox `cookies.sqlite` exklusiv sperrt (der Test prüft den
+> strengeren Fall). **Falle:** Pythons `Connection.backup` direkt auf eine fremd gesperrte
+> Datenbank kehrt nie zurück — es wiederholt „database is locked" endlos (Gegenprobe nach
+> 600 s abgebrochen).
 > **Nebenbefunde (nicht behoben):** Die Hülle HÄNGT (UI-Faden reagiert nicht), wenn die
 > Seite im Gerät VLC neu geladen wird (einmal gemessen; die Selbst-Erneuerung lädt
 > neu, wenn sich oberflaeche.py ändert). Die Hülle meldet ihr Video-Panel beim
