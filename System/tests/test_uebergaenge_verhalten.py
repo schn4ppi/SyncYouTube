@@ -26,6 +26,7 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 if HIER not in sys.path:
     sys.path.insert(0, HIER)
 
+import test_medien_smtc  # noqa: E402  (nachgebautes libvlc für die Server-Hälfte)
 from test_medientasten_verhalten import (  # noqa: E402
     _js_funktion,
     _js_zeile,
@@ -33,6 +34,8 @@ from test_medientasten_verhalten import (  # noqa: E402
     _modul_js,
     _pc,
 )
+
+vlc_attrappe = test_medien_smtc.vlc_attrappe          # Fixture
 
 # Der Player-Kern, den diese Tests mit ausführen (echter Seiten-Code).
 KERN = ("aktKey", "queueIdxPassend", "nachEnde", "playerAdvance", "xfAbbrechen",
@@ -61,12 +64,20 @@ var uebergang='crossfade', crossfadeSek=4, xfNext=null, adoptEl=null, vizGain=nu
     plVol=40, radioAktiv=false, playShuffle=false, playRepeat='aus', plGeraet='browser', tvpOffen=false,
     playerState={idx:0,queue:['a','b','c'],quelle:''}, plqSel=null, _vlc=false, _nr=0;
 let _passt=()=>true;
-function libFind(k){return (k===undefined||k===null)?undefined:{id:k,titel:k,vorhanden:true,kategorie:'MP3',dateiart:'audio'};}
+const _videos=new Set(), _fehlt=new Set();          // Video-Titel (kein Übergang) · aus der Bibliothek verschwunden
+function libFind(k){if(k===undefined||k===null||_fehlt.has(k))return undefined;
+  return _videos.has(k)?{id:k,titel:k,vorhanden:true,kategorie:'Video',dateiart:'video',vcodec:'h264',acodec:'aac'}
+                       :{id:k,titel:k,vorhanden:true,kategorie:'MP3',dateiart:'audio'};}
 function artPasst(x){return _passt(x);}
 function radioNachfuellen(){calls.push('nachfuellen');}
 function naechstesAusBibliothek(){calls.push('bib');}
 function vlcAktiv(){return _vlc;}
-function vlcBefehl(c){calls.push('vlc:'+c); return Promise.resolve({});}
+// Der EINE VLC am PC spielt Musik ODER Film (Film-Start: key 'film:…'). 'pause'
+// wie _vlc_kommando_kern: mit nur_key nur, wenn VLC genau diesen Titel spielt.
+const _vlcServer={key:'', pausiert:false};
+function vlcBefehl(c,x){calls.push('vlc:'+c+(x&&x.nur_key?'@'+x.nur_key:''));
+  if(c==='pause'&&!(x&&x.nur_key&&x.nur_key!==_vlcServer.key))_vlcServer.pausiert=true;
+  return Promise.resolve({});}
 function renderPlayerVlc(media){calls.push('vlc-ansicht'); media.innerHTML='<div>vlc</div>';}   // wie echt: kein pl-el
 function filmTasten(){return false;}
 function esc(s){return String(s);} function plBarHTML(){return '';}
@@ -520,9 +531,49 @@ neu(); _vlc=false; const el=starte(0); calls.length=0;
 sleepSetzen('30'); timerLaeuftAb();
 aus({fall:'browser', calls:[...calls], pausiert:el.paused, ende:sleepEndeZeit});
 """)
-    assert vlc_min == {"fall": "vlcMinuten", "calls": ["vlc:pause"], "ende": 0}, vlc_min
-    assert vlc_titel == {"fall": "vlcTitel", "calls": ["vlc:pause"], "sleep": False}, vlc_titel
+    # Die Pause nennt den Musik-Titel: der Server hält VLC nur an, wenn er genau
+    # ihn spielt (siehe test_sleep_timer_haelt_den_film_im_vlc_nie_an).
+    assert vlc_min == {"fall": "vlcMinuten", "calls": ["vlc:pause@a"], "ende": 0}, vlc_min
+    assert vlc_titel == {"fall": "vlcTitel", "calls": ["vlc:pause@a"], "sleep": False}, vlc_titel
     assert browser == {"fall": "browser", "calls": [], "pausiert": True, "ende": 0}, browser
+
+
+def test_sleep_timer_haelt_den_film_im_vlc_nie_an(tmp_path):
+    """Prüfung Runde 1 (mittel), JB 24.09.: „nein, nur musik". Film und Musik
+    teilen EINEN VLC am PC; der Film startet dort mit key 'film:…'. Der
+    Sleep-Timer schickte 'pause' ohne Titel — lief gerade ein Film im VLC,
+    hielt er den Film an. Jetzt trägt die Pause den Musik-Titel (nur_key), und
+    der Server pausiert nur, wenn VLC genau ihn spielt."""
+    q = _pc()
+    film, musik = _lauf(tmp_path, UHR, *_kern(q), ENDE, r"""
+for(const [fall,key] of [['filmImVlc','film:F1'],['musikImVlc','a']]){
+  neu(); _vlc=true; delete _els['pl-el']; tvpOffen=(fall==='filmImVlc');
+  _vlcServer.key=key; _vlcServer.pausiert=false;
+  sleepSetzen('30'); timerLaeuftAb();
+  aus({fall, pausiert:_vlcServer.pausiert, ende:sleepEndeZeit});
+}
+""")
+    assert film == {"fall": "filmImVlc", "pausiert": False, "ende": 0}, \
+        "der Sleep-Timer hat den Film im gemeinsamen VLC angehalten"
+    assert musik == {"fall": "musikImVlc", "pausiert": True, "ende": 0}, musik
+
+
+def test_server_pausiert_mit_nur_key_nur_diesen_titel(monkeypatch, vlc_attrappe):
+    """Die Server-Hälfte dazu, am nachgebauten libvlc: 'pause' mit nur_key
+    wirkt nur auf genau diesen Titel. Ohne nur_key (Handy, Windows-Knöpfe)
+    pausiert es wie bisher."""
+    import youtube_app as app
+    monkeypatch.setattr(app, "_smtc", None)
+    app.vlc_kommando({"cmd": "play", "key": "film:F1", "url": "https://jelly.example/strom"})
+    sp = app._vlc["spieler"]
+    app.vlc_kommando({"cmd": "pause", "nur_key": "abc|mp3"})
+    assert ("pause", 1) not in sp.rufe and sp.get_state() == "P", "Film angehalten"
+    app.vlc_kommando({"cmd": "play", "key": "abc|mp3"})
+    app.vlc_kommando({"cmd": "pause", "nur_key": "abc|mp3"})
+    assert sp.rufe[-1] == ("pause", 1) and sp.get_state() == "p"
+    app.vlc_kommando({"cmd": "play", "key": "film:F1", "url": "https://jelly.example/strom"})
+    app.vlc_kommando({"cmd": "pause"})
+    assert sp.rufe[-1] == ("pause", 1), "ohne nur_key pausiert es wie bisher"
 
 
 def test_sleep_menue_zeigt_die_laufende_stufe(tmp_path):

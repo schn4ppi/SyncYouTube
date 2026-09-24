@@ -2981,7 +2981,12 @@ def _vlc_kommando_kern(daten):
             elif cmd == "toggle":
                 sp.pause()               # libvlc: pause() wechselt Pause↔Weiter
             elif cmd == "pause":
-                sp.set_pause(1)          # hart pausieren (Handy-Fernsteuerung)
+                # hart pausieren (Handy-Fernsteuerung). nur_key (Sleep-Timer,
+                # JB 24.09. „nur musik"): nur, wenn VLC genau diesen Titel
+                # spielt — Film und Musik teilen diesen einen Spieler.
+                nur = daten.get("nur_key")
+                if not nur or nur == _vlc.get("key"):
+                    sp.set_pause(1)
             elif cmd == "stop":
                 sp.stop()
                 _vlc["key"] = ""

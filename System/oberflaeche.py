@@ -5813,7 +5813,9 @@ function sleepSetzen(v){
 }
 function sleepAusloesen(){
   // Gerät VLC hat kein pl-el: dort den Motor anhalten (sonst spielte er weiter).
-  if(vlcAktiv())vlcBefehl('pause'); else{const el=document.getElementById('pl-el'); if(el)el.pause();}
+  // Nur die MUSIK (JB 24.09.: „nein, nur musik"): Film und Musik teilen EINEN
+  // VLC — nur_key lässt den Server nur pausieren, wenn er diesen Titel spielt.
+  if(vlcAktiv())vlcBefehl('pause',{nur_key:aktKey()}); else{const el=document.getElementById('pl-el'); if(el)el.pause();}
   sleepTimer=null; sleepEndeZeit=0; sleepTitelende=false; sleepStufe='0'; sleepLabel();}
 function sleepLabel(){const l=document.getElementById('sleepval'); if(!l)return;
   l.textContent=sleepTitelende?'· nach diesem Titel':(sleepEndeZeit?('· noch '+Math.max(1,Math.round((sleepEndeZeit-Date.now())/60000))+' min'):'');}
