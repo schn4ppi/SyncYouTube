@@ -366,3 +366,89 @@ aus({gesetzt});
 """)
     ((wo, ident, text),) = e["gesetzt"]
     assert ident == "tv-warnung" and "Anmeldeform" in text and "antwortet" not in text, text
+
+
+# ------------------------------------------------ Folgenliste: leer oder gestört?
+
+def test_folgenliste_nennt_den_grund_und_bleibt_eine_liste(tmp_path, monkeypatch):
+    """Befund 3: episoden() gab bei JEDEM Fehler still [] zurück — die Oberfläche
+    zeigte eine Serie ohne Folgen, obwohl nur der Zugang gestört war. Der
+    Rückgabetyp von episoden() bleibt eine Liste (Gegenprüfung 24.09.); der Grund
+    kommt über episoden_mit_grund() in die Route."""
+    faelle = [
+        ("ok", JellyfinAttrappe("12"), 3, ""),
+        ("merkmal", JellyfinAttrappe("12", lehnt_ab=True), 0, "zugang"),
+        ("passwort", JellyfinAttrappe("12", anmeldung=401), 0, "zugang"),
+        ("drossel", JellyfinAttrappe("12", anmeldung=403), 0, "zugang"),
+        ("server", JellyfinAttrappe("12", antworten=[("/System/Info", 200, {}),
+                                                     ("/Shows/s1/Episodes", 502, b"")]), 0, "netz"),
+        ("unbekannt", JellyfinAttrappe("12", antworten=[("/System/Info", 200, {}),
+                                                        ("/Shows/s1/Episodes", 404, b"")]), 0, ""),
+    ]
+    for name, jf, anzahl, grund in faelle:
+        _einrichten(tmp_path / name, monkeypatch)
+        monkeypatch.setattr(filme, "_http", jf)
+        liste, fehler = filme.episoden_mit_grund("s1")
+        assert (len(liste), fehler) == (anzahl, grund), name
+        _neustart()
+        assert isinstance(filme.episoden("s1"), list), name
+    _einrichten(tmp_path / "netz", monkeypatch)
+
+    def weg(url, daten=None, kopf=None, timeout=15):
+        raise urllib.error.URLError("timed out")
+    monkeypatch.setattr(filme, "_http", weg)
+    assert filme.episoden_mit_grund("s1") == ([], "netz")
+
+
+def test_folgen_route_meldet_den_grund_additiv(tmp_path, monkeypatch):
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12", lehnt_ab=True))
+    st, antwort = _route("/api/filme/episoden?id=s1")
+    assert st == 200 and antwort == {"items": [], "fehler": "zugang"}, antwort
+    _einrichten(tmp_path / "ok", monkeypatch)
+    monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12"))
+    st, antwort = _route("/api/filme/episoden?id=s1", lokal=False)
+    assert st == 200 and len(antwort["items"]) == 3 and "fehler" not in antwort, antwort
+
+
+def _info_lauf(tmp_path, episoden_antwort, nachher=""):
+    from test_medientasten_verhalten import _js_funktion, _js_zeile, _lauf, _pc
+    q = _pc()
+    teile = [_js_zeile(q, "let tvHeroId="), _js_zeile(q, "let tvInfoStapel="),
+             _js_zeile(q, "let tvInfoDaten=")] + [_js_funktion(q, n) for n in (
+                 "tvInfo", "tvInfoMalen", "tvQualitaet", "tvTon", "tvSerienPlay",
+                 "folgenFehlerText")]
+    (e,) = _lauf(tmp_path, *teile, r"""
+function esc(t){return String(t==null?'':t);} function tvInfoFokusMalen(){} function tvKey(){}
+function tvProfil(){return 'standard';} function tvpLandePos(){return 0;}
+const toasts=[], plays=[]; function toast(t){toasts.push(t);} function filmePlay(id,p){plays.push(id);}
+document.body={appendChild(el){el.parentNode=this;}};
+_els['tv-info']={style:{}, innerHTML:'', parentNode:null};
+const EPS=""" + json.dumps(episoden_antwort) + r""";
+globalThis.fetch=async(u)=>({json:async()=>(
+  u.startsWith('/api/filme/detail')?{id:'s1',typ:'serie',titel:'Dark'}:
+  u.startsWith('/api/filme/mehrwie')?{items:[]}:
+  u.startsWith('/api/filme/episoden')?EPS:{})});
+await tvInfo('s1');
+""" + nachher + r"""
+aus({html:_els['tv-info'].innerHTML, toasts, plays});
+""")
+    return e
+
+
+def test_info_seite_zeigt_gestoerten_zugang_statt_leerer_staffel(tmp_path):
+    """Die Info-Seite einer Serie (echtes Seiten-JavaScript, deno): mit
+    fehler:'zugang' erscheint der Hinweis statt einer stillen, leeren Staffel;
+    ▶ Weiterschauen sagt dasselbe statt „Keine Folgen gefunden"."""
+    e = _info_lauf(tmp_path, {"items": [], "fehler": "zugang"}, "tvSerienPlay();")
+    assert "Folgen gerade nicht abrufbar – Zugang zu Renés Server gestört" in e["html"], e["html"]
+    assert e["toasts"] and "Zugang zu Renés Server gestört" in e["toasts"][-1], e["toasts"]
+    assert e["plays"] == []
+    e = _info_lauf(tmp_path, {"items": [], "fehler": "netz"})
+    assert "Folgen gerade nicht abrufbar" in e["html"] and "Zugang" not in e["html"]
+    # Ohne Fehler (Serie wirklich ohne Folgen) bleibt alles wie bisher.
+    e = _info_lauf(tmp_path, {"items": []}, "tvSerienPlay();")
+    assert "nicht abrufbar" not in e["html"] and e["toasts"] == ["🎬 Keine Folgen gefunden."]
+    e = _info_lauf(tmp_path, {"items": [{"id": "e1", "staffel": 1, "folge": 1, "titel": "Pilot",
+                                         "position_s": 0, "gesehen": False}]})
+    assert "Staffel 1" in e["html"] and "nicht abrufbar" not in e["html"]

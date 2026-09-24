@@ -805,18 +805,35 @@ def episoden(serien_id):
     """Alle Episoden einer Serie (JB-Go „weiter mit den serien episoden"):
     EIN Jellyfin-Ruf über /Shows/{id}/Episodes — liefert Staffel-/Folgen-
     Nummern und den Seh-Stand gleich mit. On demand, kein Cache: der
-    Gesehen-Stand soll frisch sein."""
+    Gesehen-Stand soll frisch sein. Rückgabe bleibt eine LISTE; wer wissen
+    muss, warum sie leer ist, ruft `episoden_mit_grund`."""
+    return episoden_mit_grund(serien_id)[0]
+
+
+def episoden_mit_grund(serien_id):
+    """Wie `episoden`, dazu der Grund einer leeren Liste (Befund 24.09.):
+    '' = die Serie hat (bei Jellyfin) keine Folgen, 'zugang' = Renés Server
+    lehnt uns ab, 'netz' = nicht erreichbar oder unbrauchbare Antwort.
+
+    Vorher kam jeder Fehler als leere Liste an, und die Oberfläche zeigte eine
+    Serie ohne Folgen — genau so sah der 401-Ausfall ab dem 23.09. aus."""
     sauber = re.sub(r"[^A-Za-z0-9]", "", serien_id or "")
     if not sauber:
-        return []
+        return [], ""
     st, roh, art, _ = _jellyfin_ruf(
         f"/Shows/{sauber}/Episodes?userId={{uid}}&Fields=RunTimeTicks", timeout=30)
-    if art or st != 200:
-        return []
+    if art:
+        return [], "zugang" if art in ZUGANG_ARTEN else "netz"
+    if st == 403:                          # angemeldet, aber nicht berechtigt
+        return [], "zugang"
+    if 400 <= st < 500:                    # unbekannte Serie / falsche Kennung
+        return [], ""
+    if st != 200:
+        return [], "netz"
     try:
         items = json.loads(roh).get("Items") or []
     except (ValueError, AttributeError):   # Wartungs-/Proxy-Seite statt JSON
-        return []
+        return [], "netz"
     out = []
     for it in items:
         ud = it.get("UserData") or {}
@@ -828,7 +845,7 @@ def episoden(serien_id):
                     "position_s": round((ud.get("PlaybackPositionTicks") or 0) / 10_000_000),
                     "gesehen": bool(ud.get("Played"))})
     out.sort(key=lambda e: (e["staffel"], e["folge"]))
-    return out
+    return out, ""
 
 
 # ---------------------------------------------------------------- Merkliste

@@ -8641,15 +8641,18 @@ async function tvInfo(id){
   if(el.parentNode!==ziel)ziel.appendChild(el);
   el.style.display='flex';
   el.innerHTML='<div class="info-body" style="font-size:24px;padding:60px">Lade…</div>';
-  let d=null, mw=[], eps=[];
+  let d=null, mw=[], eps=[], epsFehler='';
   try{d=await (await fetch('/api/filme/detail?id='+encodeURIComponent(id)+'&profil='+encodeURIComponent(tvProfil()))).json();}catch(e){}
   try{mw=((await (await fetch('/api/filme/mehrwie?id='+encodeURIComponent(id))).json())||{}).items||[];}catch(e){}
   if(d&&d.typ==='serie'){                              // Staffeln + Folgen (JB-Go)
-    try{eps=((await (await fetch('/api/filme/episoden?id='+encodeURIComponent(id))).json())||{}).items||[];}catch(e){}
+    // fehler ('zugang'|'netz') seit 24.09.: eine leere Liste hieß vorher auch
+    // „Renés Server lehnt uns ab" — und sah aus wie eine Serie ohne Folgen.
+    try{const j=(await (await fetch('/api/filme/episoden?id='+encodeURIComponent(id))).json())||{};
+      eps=j.items||[]; epsFehler=j.fehler||'';}catch(e){}
   }
   if(!tvInfoOffen||tvInfoId!==id)return;               // inzwischen geschlossen/weiter
   if(!d||d.fehler){el.innerHTML='<div class="info-body" style="padding:60px">Film nicht gefunden. (Esc = zurück)</div>'; return;}
-  tvInfoDaten={d,mw,eps}; tvInfoMehr=mw;
+  tvInfoDaten={d,mw,eps,epsFehler}; tvInfoMehr=mw;
   const st=[...new Set(eps.map(e=>e.staffel))];
   tvInfoStaffel=st.includes(1)?1:(st[0]||0);
   // Weiterschauen-Logik: erst die angefangene Folge, sonst die erste ungesehene
@@ -8664,7 +8667,13 @@ function tvSerienPlay(){
   const e=eps.find(x=>x.position_s>0&&!x.gesehen)||eps.find(x=>!x.gesehen)||eps[0];
   // …an ihrer gemerkten Stelle, nach derselben Regel wie ⏮/⏭ (gesehen, ab 90 %
   // oder bis 30 s = Anfang). Vorher startete der Knopf immer bei 0 (Nebenbefund 24.09.).
-  if(e)filmePlay(e.id,tvpLandePos(e)); else toast('🎬 Keine Folgen gefunden.');
+  const fehler=tvInfoDaten&&tvInfoDaten.epsFehler;
+  if(e)filmePlay(e.id,tvpLandePos(e));
+  else toast(fehler?'🎬 '+folgenFehlerText(fehler)+'.':'🎬 Keine Folgen gefunden.');
+}
+function folgenFehlerText(f){                          // f: 'zugang' | 'netz' (Route episoden)
+  return f==='zugang'?'Folgen gerade nicht abrufbar – Zugang zu Renés Server gestört'
+                     :'Folgen gerade nicht abrufbar – Renés Server antwortet nicht';
 }
 async function tvMerk(id){
   try{
@@ -8697,7 +8706,7 @@ function tvInfoMalen(){
   // ist · Altersfreigabe).
   const el=document.getElementById('tv-info');
   if(!el||!tvInfoDaten)return;
-  const {d,mw,eps}=tvInfoDaten, id=tvInfoId;
+  const {d,mw,eps,epsFehler}=tvInfoDaten, id=tvInfoId;
   const staffeln=[...new Set(eps.map(e=>e.staffel))];
   const folgen=eps.filter(e=>e.staffel===tvInfoStaffel);
   const dauerS=(d.laufzeit_min||0)*60;
@@ -8744,7 +8753,9 @@ function tvInfoMalen(){
         `<div class="tv-band">`+folgen.map((e,i)=>
           `<div class="tv-kachel quer" data-ep="${i}" onclick="filmePlay('${esc(e.id)}',${e.position_s>30&&!e.gesehen?e.position_s:0})" title="${esc(e.titel)}">`+
           `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
-          `<div class="tv-ktitel">${e.gesehen?'✓ ':''}F${e.folge} · ${esc(e.titel)}${e.position_s>0&&!e.gesehen?' ⏸':''}</div></div>`).join('')+`</div>`:'')+
+          `<div class="tv-ktitel">${e.gesehen?'✓ ':''}F${e.folge} · ${esc(e.titel)}${e.position_s>0&&!e.gesehen?' ⏸':''}</div></div>`).join('')+`</div>`
+        :(epsFehler?`<div class="tv-rtitel" style="margin-top:14px">Staffeln</div>`+
+          `<div class="info-neben">⚠ ${esc(folgenFehlerText(epsFehler))}</div>`:''))+
       (mw.length?`<div class="tv-rtitel" style="margin-top:16px">Mehr wie das</div><div class="info-grid">`+
         mw.slice(0,9).map((e,i)=>`<div class="tv-kachel" data-mw="${i}" onclick="tvInfo('${esc(e.id)}')">`+
           querBild(e.id)+(e.laufzeit_min?`<span class="tv-dauer">${Math.floor(e.laufzeit_min/60)}h ${e.laufzeit_min%60}m</span>`:'')+

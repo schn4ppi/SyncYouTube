@@ -6064,7 +6064,11 @@ class Handler(BaseHTTPRequestHandler):
             _antwort(self, 200, {"items": filme.seerr_meine()})
         elif self.path.startswith("/api/filme/episoden"):  # Serien: Staffeln + Folgen
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            _antwort(self, 200, {"items": filme.episoden(fid)})
+            # Additiv (24.09.): bei gestörtem Zugang zusätzlich fehler 'zugang'|
+            # 'netz' — sonst sah ein 401 aus wie eine Serie ohne Folgen.
+            items, fehler = filme.episoden_mit_grund(fid)
+            _antwort(self, 200, {"items": items, "fehler": fehler} if fehler
+                     else {"items": items})
         elif self.path.startswith("/api/filme/mehrwie"):   # TMDB-Empfehlungen ∩ Katalog
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, {"items": filme.mehr_wie(fid)})

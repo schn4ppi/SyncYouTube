@@ -164,7 +164,8 @@ aus({info:tvInfoDaten.eps[3].position_s, cache:tvpFolgenCache.eps[3].position_s}
 
 def test_leere_folgenliste_wird_nicht_festgeschrieben(tmp_path):
     """filme.episoden() antwortet bei jedem Jellyfin-Fehler mit einer leeren
-    Liste (HTTP 200). Die durfte nicht für die ganze Sitzung gelten — und ⏮
+    Liste (HTTP 200; seit 24.09. meldet die Route dazu fehler 'zugang'|'netz',
+    die Liste bleibt leer). Die durfte nicht für die ganze Sitzung gelten — und ⏮
     auf eine Folge, die nicht in der Liste steht, darf sie nicht neu starten."""
     q = _pc()
     (e,) = _lauf(tmp_path, FOLGEN, _js_zeile(q, "let tvpMedienGen"),
