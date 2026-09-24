@@ -88,6 +88,15 @@
 > (`_Archiv\SyncYouTube-Startdatei_2026-09-24\`, Rückholbefehl in `_Archiv\REGISTER.md`).
 > Oben bleiben `SyncYouTube.exe`, `SyncYouTube.bat` und `SyncYouTube-Fenster.bat`;
 > ohne Aufblitzen startet der Startmenü-Eintrag „SyncYouTube".
+> **Offen (Ordnung):** Oben liegen noch drei Laufzeit-Reste vom 21.07.
+> (`geladen_log.json`, `warteschlange.json` mit leerer Liste, `yt_status.json` ohne
+> Zähler); die lebenden Dateien liegen in `System\`. Nicht archiviert, weil die obere
+> `geladen_log.json` 5 ihrer 22 Einträge hat, die in `System\geladen_log.json` fehlen
+> (`UWgzB5B_fjM|lokal`, `NRTCn3eUFTM|audio`, `aqz-KE-bpKQ|lokal`, `2rBLRkgac6w|lokal`,
+> `OMOGaugKpzs|lokal`). Alle fünf zeigen auf Dateien, die es nicht mehr gibt; dieselben
+> Video-Kennungen stehen unten unter anderer Qualität. Entscheidung offen: die drei
+> Dateien trotzdem rückholbar ins `_Archiv` (Vorschlag, unbestätigt) oder die fünf
+> Einträge vorher unten nachtragen.
 > **Nebenbefunde (nicht behoben):** Die Hülle HÄNGT (UI-Faden reagiert nicht), wenn die
 > Seite im Gerät VLC neu geladen wird (einmal gemessen; die Selbst-Erneuerung lädt
 > neu, wenn sich oberflaeche.py ändert). Die Hülle meldet ihr Video-Panel beim
