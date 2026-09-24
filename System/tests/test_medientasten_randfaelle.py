@@ -49,7 +49,8 @@ const eps=[
 
 # Die Meldestelle für Stelle und „gesehen" (folgenende.md, 24.09.2026): der
 # Folgenwechsel meldet über sie; ihr Verhalten prüft tests/test_film_ende.py.
-MELDESTELLE = ("tvpMeldeDauer", "filmFortschrittMelden", "filmGemeldetAnwenden", "filmLokalNachziehen")
+MELDESTELLE = ("tvpMeldeDauer", "filmFortschrittMelden", "filmGemeldetAnwenden", "filmReihenAnwenden",
+               "filmLokalNachziehen")
 
 
 def _film_kern():

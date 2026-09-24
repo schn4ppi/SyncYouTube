@@ -106,12 +106,19 @@ def _firefox(profil, exklusiv=True):
 
 
 @pytest.fixture
-def welt(tmp_path, monkeypatch):
-    """Firefox-Profil, Suchorte und Temp in tmp_path — geprüft, BEVOR gelesen wird."""
+def welt(tmp_path, monkeypatch, request):
+    """Firefox-Profil, Suchorte und Temp in tmp_path — geprüft, BEVOR gelesen wird.
+    Indirekt parametrisierbar: False = Firefox im Normalmodus mit `-shm`
+    (Prüfung Runde 2: JBs echtes Profil hat ein `-shm`, also sehr
+    wahrscheinlich kein Exklusiv-Modus); Vorgabe True = der strengste Fall."""
     appdata = tmp_path / "appdata"
     monkeypatch.setenv("APPDATA", str(appdata))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    import conftest
     from yt_dlp import cookies as yc
+    # Die Wache biegt auch yt-dlps eigene Suche um; die Welt braucht die echte
+    # (über APPDATA/LOCALAPPDATA in tmp_path) — bewusst zurückgenommen.
+    monkeypatch.setattr(yc, "_firefox_browser_dirs", conftest.ECHTE_FIREFOX_SUCHE)
     for ort in yc._firefox_browser_dirs():
         assert os.path.abspath(ort).startswith(str(tmp_path)), (
             f"Die Firefox-Suche zeigt aus der Testwelt hinaus: {ort}")
@@ -121,8 +128,9 @@ def welt(tmp_path, monkeypatch):
     monkeypatch.setattr("tempfile.tempdir", str(temp))
     monkeypatch.setitem(app.CFG, "cookies_browser", "firefox")
     profil = appdata / "Mozilla" / "Firefox" / "Profiles" / "probe.default-release"
-    firefox = _firefox(profil)
-    yield types.SimpleNamespace(profil=profil, firefox=firefox, temp=temp)
+    exklusiv = getattr(request, "param", True)
+    firefox = _firefox(profil, exklusiv=exklusiv)
+    yield types.SimpleNamespace(profil=profil, firefox=firefox, temp=temp, exklusiv=exklusiv)
     firefox.close()
 
 
@@ -206,6 +214,7 @@ WEGE = {"aufloesen": _weg_aufloesen, "download": _weg_download, "abo": _weg_abo,
         "metadaten": _weg_metadaten, "untertitel": _weg_untertitel}
 
 
+@pytest.mark.parametrize("welt", [True, False], indirect=True, ids=["exklusiv", "normal"])
 @pytest.mark.parametrize("weg", sorted(WEGE))
 def test_b_jeder_cookie_weg_sieht_das_wal_cookie(weg, welt, tmp_path, monkeypatch):
     gesehen = _spion(monkeypatch)
@@ -221,16 +230,22 @@ def test_b_jeder_cookie_weg_sieht_das_wal_cookie(weg, welt, tmp_path, monkeypatc
 # (c) Das Original: nur gelesen, auch unter exklusiver Sperre
 # ═══════════════════════════════════════════════════════════════════════
 
+@pytest.mark.parametrize("welt", [True, False], indirect=True, ids=["exklusiv", "normal"])
 def test_c_original_bleibt_unberuehrt_auch_bei_exklusiver_sperre(welt):
+    """Exklusiv: jede fremde Verbindung wäre „locked". Normalmodus (Prüfung
+    Runde 2, wie JBs Profil mit `-shm`): das Original bleibt SAMT `-shm`
+    byte-gleich, und das frische Cookie aus dem WAL ist in der Kopie."""
     ziel = welt.profil / "cookies.sqlite"
-    with pytest.raises(sqlite3.OperationalError, match="locked"):
-        fremd = sqlite3.connect(ziel.as_uri() + "?mode=ro", uri=True, timeout=0)
-        try:
-            fremd.execute("SELECT count(*) FROM moz_cookies").fetchone()
-        finally:
-            fremd.close()
+    if welt.exklusiv:
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            fremd = sqlite3.connect(ziel.as_uri() + "?mode=ro", uri=True, timeout=0)
+            try:
+                fremd.execute("SELECT count(*) FROM moz_cookies").fetchone()
+            finally:
+                fremd.close()
     vorher = _abbild(welt.profil)
-    assert "cookies.sqlite-wal" in vorher and "cookies.sqlite-shm" not in vorher
+    assert "cookies.sqlite-wal" in vorher
+    assert ("cookies.sqlite-shm" in vorher) is (not welt.exklusiv), sorted(vorher)
     with cookie_kopie.firefox_profil(("firefox",)) as profil:
         assert profil, "Die Kopie scheitert, solange der Browser die Datei hält"
         assert _namen(profil) == {"alt", "frisch"}
@@ -480,11 +495,14 @@ def test_h2_gegenprobe_der_finder_sieht_einen_direkten_bau():
 # ═══════════════════════════════════════════════════════════════════════
 
 def test_i_die_wache_steht_in_jedem_test():
-    """Ohne Fixture-Anforderung: die Suche findet während der Tests kein Profil."""
+    """Ohne Fixture-Anforderung: die Suche findet während der Tests kein Profil
+    (beide Suchen: cookie_kopie und yt-dlps eigene, s. tests/test_wachen.py)."""
+    import conftest
     from yt_dlp import cookies as yc
     assert cookie_kopie.WURZELN is not None, (
         "tests/conftest.py setzt die Suchorte nicht — ein Test läse JBs Firefox-Profil")
-    echte = {os.path.normcase(os.path.abspath(p)) for p in yc._firefox_browser_dirs()}
+    echte = {os.path.normcase(os.path.abspath(p)) for p in conftest.ECHTE_FIREFOX_SUCHE()}
+    assert not echte & {os.path.normcase(os.path.abspath(p)) for p in yc._firefox_browser_dirs()}
     gesetzt = {os.path.normcase(os.path.abspath(p)) for p in cookie_kopie.WURZELN}
     assert not echte & gesetzt
     assert cookie_kopie._quelle(cookie_kopie.WURZELN) is None

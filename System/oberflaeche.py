@@ -3963,7 +3963,8 @@ function filmWarnung(z){
     const ver=(z.server_version&&z.server_version!=='?')?' (Jellyfin '+z.server_version+')':'';
     if(z.fehler_art==='merkmal_abgelehnt')
       return '⚠ Renés Server'+ver+' lehnt seit '+seit+' unsere Anmeldeform ab — die Anmeldung '
-        +'selbst klappt, gebraucht wird ein Programm-Update.'+rest;
+        +'selbst klappt. Entweder braucht es ein Programm-Update, oder ein zweites SyncYouTube '
+        +'(exe und Quellstart zugleich) nutzt dieselbe Gerätekennung.'+rest;
     if(z.fehler_art==='anmeldung_abgelehnt')
       return '⚠ Renés Server lehnt seit '+seit+' Benutzer oder Passwort ab — Zugang in der '
         +'Windows-Anmeldeinformationsverwaltung prüfen (Dienst Sync-Jellyfin).'+rest;
@@ -3982,7 +3983,7 @@ function filmWarnung(z){
 async function filmeLaden(){
   const ziel=document.getElementById('filme-reihen'); if(!ziel)return;
   try{
-    const r=await fetch('/api/filme/reihen'); const d=await r.json();
+    const r=await fetch('/api/filme/reihen'); const d=filmReihenAnwenden(await r.json());   // Merk-Tabelle (Runde 2)
     const stand=document.getElementById('filme-stand');
     /* Früher wurde hier der GANZE Katalog geholt (2,4 MB), nur um ein Datum
        anzuzeigen. Der Zustand ist ein paar hundert Byte und sagt mehr. */
@@ -4422,8 +4423,12 @@ function tvpFilmEnde(s,modusVor){
   const dauer=echtesEnde?tvpMeldeDauer(id):0;
   tvpZu();
   // libvlc hält den Endzustand samt Schlüssel, bis etwas Neues kommt: freigeben —
-  // nur, wenn der VLC noch DIESEN Film hat (nur_key: sonst träfe es die Musik).
-  if(modusVor!=='browser'&&id&&s.key==='film:'+id){vlcBefehl('stop',{nur_key:'film:'+id}); vlcKeyLetzter='';}
+  // nur, wenn der VLC noch DIESEN Film hat (nur_key: sonst träfe es die Musik),
+  // und nur bei einem echten Ende ('ende' oder er lief). Ein Start, der nach 8
+  // Takten noch öffnet ('aus'), läuft weiter wie vor dem 24.09. — der Stopp
+  // würgte sonst jeden langsamen Jellyfin-Strom ab (Prüfung Runde 2).
+  if(modusVor!=='browser'&&id&&s.key==='film:'+id&&(lief||s.zustand==='ende')){
+    vlcBefehl('stop',{nur_key:'film:'+id}); vlcKeyLetzter='';}
   // Gemeldet wird, was lief — oder eine Folge, die nahe am Ende fortgesetzt
   // wurde und endete, bevor sie je 'spielt' meldete (dann zählt die Einstiegsstelle).
   if(id&&(lief||(dauer>0&&pos>=dauer*0.9)))filmFortschrittMelden(id,pos,dauer);
@@ -4710,6 +4715,20 @@ function filmGemeldetAnwenden(e){                      // was diese Seite gemeld
   if(m){e.position_s=m.position_s; if(m.gesehen)e.gesehen=true;}
   return e;
 }
+/* Die Merk-Tabelle auf ALLE Reihen (Prüfung Runde 2): auch auf frisch vom
+   Server geladene (tvLaden, tvLadenStill, filmeLaden). Den Spiegel zieht nur
+   eine angenommene Meldung nach — liegt sie in der Warteschlange, kamen beim
+   nächsten Öffnen die alten Reihen, und „Weiterschauen" zeigte den gesehenen
+   Film wieder. Wie reihen() am Server: „Weiterschauen" = Stelle > 0 und nicht
+   gesehen. */
+function filmReihenAnwenden(f){
+  if(!f||typeof f!=='object')return f;
+  Object.values(f).forEach(v=>{
+    if(Array.isArray(v))v.forEach(filmGemeldetAnwenden);
+    else if(v&&typeof v==='object')Object.values(v).forEach(a=>Array.isArray(a)&&a.forEach(filmGemeldetAnwenden));});
+  if(Array.isArray(f.weiterschauen))f.weiterschauen=f.weiterschauen.filter(e=>!(e&&e.gesehen));
+  return f;
+}
 /* Alle lokalen Kopien an EINER Stelle: Folgenliste der Info + Zwischenspeicher,
    Film-Info, Hero, alle Reihen — dann neu zeichnen. Die Merk-Tabelle gilt auch
    für Daten, die später frisch vom Server kommen (tvInfo): der Katalog-Spiegel
@@ -4721,16 +4740,12 @@ function filmLokalNachziehen(id,pos,gesehen){
   tvpFolgePosMerken(id,pos,gesehen);
   if(tvInfoDaten)filmGemeldetAnwenden(tvInfoDaten.d);
   if(typeof tvHeroDaten!=='undefined')filmGemeldetAnwenden(tvHeroDaten);
-  const f=tvFilmReihen;
-  if(f){
-    Object.values(f).forEach(v=>{
-      if(Array.isArray(v))v.forEach(filmGemeldetAnwenden);
-      else if(v&&typeof v==='object')Object.values(v).forEach(a=>Array.isArray(a)&&a.forEach(filmGemeldetAnwenden));});
-    // wie reihen() am Server: „Weiterschauen" = Stelle > 0 und nicht gesehen
-    if(gesehen&&Array.isArray(f.weiterschauen))f.weiterschauen=f.weiterschauen.filter(e=>e.id!==id);
-  }
+  filmReihenAnwenden(tvFilmReihen);
   if(tvInfoOffen)tvInfoMalen();
-  else if(!tvpOffen){const tv=document.getElementById('tv'); if(tv&&tv.style.display!=='none')tvMalen();}
+  // Reihen und Hero neu, aber OHNE die Fokus-Vorschau (Prüfung Runde 2): sonst
+  // öffnete das Ende auf der Fokus-Kachel die Hover-Karte mit stummem
+  // Endlos-Clip — auch mit Sleep. Die Karte kommt erst, wenn JB den Fokus bewegt.
+  else if(!tvpOffen){const tv=document.getElementById('tv'); if(tv&&tv.style.display!=='none')tvMalen({vorschau:false});}
 }
 /* Was kommt nach einem Filmende? Heute: nichts — keine nächste Folge, keine
    Musik (eine Automatik „nächste Folge" ist nicht bestätigt). JB 24.09.2026 zum
@@ -8242,7 +8257,7 @@ function tvZu(){
 }
 async function tvLaden(){
   tvProfilModus=false;
-  try{tvFilmReihen=await (await fetch('/api/filme/reihen?profil='+encodeURIComponent(tvProfil()))).json();}
+  try{tvFilmReihen=filmReihenAnwenden(await (await fetch('/api/filme/reihen?profil='+encodeURIComponent(tvProfil()))).json());}
   catch(e){tvFilmReihen={weiterschauen:[],top:[],neu:[],genres:{}};}
   /* Auch vom Sofa aus muss ein Ausfall sichtbar sein: hier sah JB sieben Tage
      lang eine völlig normale Netflix-Oberfläche, während der Spiegel alterte. */
@@ -8553,7 +8568,7 @@ async function tvAnfrage(e){
     else toast('➕ '+(r.fehler||'Anfrage fehlgeschlagen.'));
   }catch(x){toast('➕ Anfrage nicht erreichbar.');}
 }
-function tvMalen(){
+function tvMalen(opt){                                 // opt.vorschau===false: Fokus ohne Hover-Karte (Filmende)
   tvKopfMalen();
   const inhalt=document.getElementById('tv-inhalt');
   tvReihenListe=tvReihenFuer().filter(([,items])=>items.length);
@@ -8589,9 +8604,9 @@ function tvMalen(){
   if(s&&tvTab==='suche'){const v=s.value; s.focus(); s.value=''; s.value=v;
     tvFokus={r:-1,i:Math.max(0,TV_TABS.findIndex(t=>t[0]===tvTab))};}   // Fokus gehört dem Feld
   if(tvTab==='home')tvHeroMalen();                     // Billboard lädt asynchron nach
-  tvFokusMalen();
+  tvFokusMalen(!(opt&&opt.vorschau===false));
 }
-function tvFokusMalen(){
+function tvFokusMalen(vorschau){                       // vorschau===false: Kachel fokussieren, Karte nicht öffnen
   document.querySelectorAll('#tv .tv-fokus').forEach(x=>x.classList.remove('tv-fokus'));
   // Suchfeld loslassen, sobald der Fokus in den Reihen ist (Fokus-Falle).
   const feld=document.getElementById('tv-suche');
@@ -8610,7 +8625,7 @@ function tvFokusMalen(){
   }
   const k=document.querySelector(`#tv .tv-kachel[data-r="${tvFokus.r}"][data-i="${tvFokus.i}"]`);
   if(k){k.classList.add('tv-fokus'); k.scrollIntoView({block:'nearest',inline:'nearest'});
-    snippetAus(); snippetAn(k);}                       // D-Pad-Fokus = Hover (Fernbedienung)
+    snippetAus(); if(vorschau!==false)snippetAn(k);}   // D-Pad-Fokus = Hover (Fernbedienung)
 }
 function tvHeroDa(){return !!document.querySelector('#tv-hero [data-hero]');}
 function tvKachelKlick(ev,r,i){
@@ -8811,7 +8826,7 @@ async function tvMerk(id){
   }catch(e){toast('🎞 Merken fehlgeschlagen.');}
 }
 async function tvLadenStill(){
-  try{tvFilmReihen=await (await fetch('/api/filme/reihen?profil='+encodeURIComponent(tvProfil()))).json();}catch(e){}
+  try{tvFilmReihen=filmReihenAnwenden(await (await fetch('/api/filme/reihen?profil='+encodeURIComponent(tvProfil()))).json());}catch(e){}
 }
 function tvStaffel(n){tvInfoStaffel=n; tvInfoFokus={r:1,i:0}; tvInfoMalen();}
 function tvQualitaet(h){return h>=2000?'4K':h>=1000?'HD':h>=720?'720p':'';}   // 1040 = anamorphes HD
@@ -9247,7 +9262,10 @@ async function huelleMelden(){
 }
 async function vlcBefehl(cmd,extra){
   try{
-    if(cmd==='play'||cmd==='stop'){                   // Stopp überholt einen wartenden Start
+    // Stopp überholt einen wartenden Start — außer er gilt nur einem Titel
+    // (nur_key, Freigabe am Filmende): der trifft am Server nur sich selbst
+    // und würgte sonst eine gerade wartende Musik ab (Prüfung Runde 2).
+    if(cmd==='play'||(cmd==='stop'&&!(extra&&extra.nur_key))){
       const g=++vlcStartGen;
       if(cmd==='play'){await huelleMelden(); if(g!==vlcStartGen)return null;}
     }

@@ -17,7 +17,8 @@ Geprüft wird das ERGEBNIS:
   Erwähnung, wie der Wächter „_smtc_einrichten nur in main".
 
 JBs echtes Startmenü berührt KEIN Test: jeder Schreib-Test bekommt tmp_path,
-und eine Wache macht den Standard-Ordner in diesem Modul unbrauchbar.
+und die Wache aus tests/conftest.py sperrt den Standard-Ordner in JEDEM Test
+(laut, auch im Hintergrundfaden — geprüft in tests/test_wachen.py).
 """
 import ast
 import json
@@ -27,8 +28,6 @@ import subprocess
 import sys
 import types
 
-import pytest
-
 MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WURZEL = os.path.dirname(MODUL_DIR)
 if MODUL_DIR not in sys.path:
@@ -37,14 +36,6 @@ if MODUL_DIR not in sys.path:
 import windows_kennung as wk  # noqa: E402  (Import setzt nichts und schreibt nichts)
 
 KENNUNG = "JBK.SyncYouTube"
-
-
-@pytest.fixture(autouse=True)
-def startmenue_gesperrt(monkeypatch):
-    """Wache: vergisst ein Test den Ordner, landet er nie in JBs Startmenü."""
-    def gesperrt():
-        raise AssertionError("Test griff auf das echte Startmenü zu")
-    monkeypatch.setattr(wk, "startmenue_ordner", gesperrt)
 
 
 def _ps(skript, **umgebung):
@@ -193,7 +184,7 @@ def test_zweiter_start_schreibt_nichts(tmp_path):
 
 
 def test_eigener_veralteter_eintrag_wird_nachgezogen(tmp_path):
-    """Programm verschoben (oder erst exe, dann Quellbetrieb): der EIGENE
+    """Programm verschoben — das bisherige Ziel startet nicht mehr: der EIGENE
     Eintrag (erkennbar an der Kennung) zeigt danach auf den neuen Ort."""
     alt = wk.startziel(False, sys.executable, str(tmp_path / "Alter Ort" / "System"))
     assert wk.startmenue_eintrag(ordner=str(tmp_path), ziel=alt) == "angelegt"
@@ -202,6 +193,50 @@ def test_eigener_veralteter_eintrag_wird_nachgezogen(tmp_path):
     assert gelesen["argumente"] == wk.startziel(False, sys.executable, MODUL_DIR)["argumente"]
     assert gelesen["kennung"] == KENNUNG
     assert sorted(os.listdir(tmp_path)) == ["SyncYouTube.lnk"]
+
+
+def _attrappe_exe(pfad):
+    """Eine Datei, die als Startziel „da" ist (gestartet wird sie nie)."""
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    pfad.write_bytes(b"MZ")
+    return str(pfad)
+
+
+def test_eintrag_folgt_nicht_jedem_start(tmp_path):
+    """Prüfung Runde 2 (mittel): Das Soll-Ziel entstand bei jedem Start aus
+    sys.executable, und ein eigener Eintrag mit anderem Ziel wurde
+    überschrieben — der LETZTE Start gewann. Ein einziger Start der exe (sie
+    nimmt ihren eigenen Ordner als Datenordner) stellte den Eintrag auf einen
+    anderen Datenbestand um, ein Start mit dem Basis-Python auf ein Python ohne
+    die venv-Pakete. EINE stabile Regel: das Ziel wechselt nur, wenn das
+    bisherige nicht mehr startet (Programm verschoben, exe entfernt)."""
+    exe = _attrappe_exe(tmp_path / "Programm" / "SyncYouTube.exe")
+    exe_ziel = wk.startziel(True, exe, MODUL_DIR)
+    basis = _attrappe_exe(tmp_path / "Basis" / "python.exe")
+    _attrappe_exe(tmp_path / "Basis" / "pythonw.exe")
+    basis_ziel = wk.startziel(False, basis, MODUL_DIR)
+
+    quelle = tmp_path / "quelle"
+    quelle.mkdir()
+    assert wk.startmenue_eintrag(ordner=str(quelle)) == "angelegt"      # Quellbetrieb (venv)
+    vorher = _stand(quelle / "SyncYouTube.lnk")
+    for ziel in (exe_ziel, basis_ziel):                                 # ein Start der exe, des Basis-Pythons
+        assert wk.startmenue_eintrag(ordner=str(quelle), ziel=ziel) == "behalten"
+        assert _stand(quelle / "SyncYouTube.lnk") == vorher, ziel["ziel"]
+
+    umgekehrt = tmp_path / "umgekehrt"                                  # zuerst die exe: sie bleibt
+    umgekehrt.mkdir()
+    assert wk.startmenue_eintrag(ordner=str(umgekehrt), ziel=exe_ziel) == "angelegt"
+    vorher = _stand(umgekehrt / "SyncYouTube.lnk")
+    assert wk.startmenue_eintrag(ordner=str(umgekehrt)) == "behalten"
+    assert _stand(umgekehrt / "SyncYouTube.lnk") == vorher
+
+    os.remove(exe)                                                      # exe entfernt: startet nicht mehr
+    assert wk.startmenue_eintrag(ordner=str(umgekehrt)) == "aktualisiert"
+    gelesen = _windows_liest(umgekehrt / "SyncYouTube.lnk")
+    assert os.path.normcase(gelesen["ziel"]) == os.path.normcase(_pythonw()), gelesen
+    assert gelesen["kennung"] == KENNUNG
+    assert wk.startmenue_eintrag(ordner=str(umgekehrt)) == "unveraendert"
 
 
 def test_fremde_verknuepfung_bleibt_unberuehrt(tmp_path, monkeypatch):

@@ -28,6 +28,7 @@ _sitzung = {}                              # {"token","user_id","version"}
 _fehlversuch_ts = 0.0                      # letzter GESCHEITERTER Abzug (Backoff)
 _anmelde_sperre_ts = 0.0                   # Anmelde-Backoff (403 ⇒ 10 min Ruhe)
 _merkmal_ruhe_ts = 0.0                     # Ruhe nach abgelehnter Anmeldeform (nur die Automatik)
+_druck_sitzung = {"ruhe": 0.0, "sitzung": None}   # JBs EINE Anmeldung je Ruhe (s. _druck_in_ruhe)
 _anmelde_lock = threading.Lock()           # EINE Anmeldung zur Zeit (s. _anmelden)
 _datei_locks = {}                          # je Pfad ein Lock (s. _json_aendern)
 _datei_locks_lock = threading.Lock()
@@ -51,7 +52,10 @@ ZUGANG_ARTEN = (ART_MERKMAL, ART_ANMELDUNG, ART_DROSSEL, ART_KEIN_ZUGANG)
 # Kurztexte ohne Adresse und ohne Rohtext: die dürfen auch an fremde Geräte im
 # WLAN (die Zustands-Route maskiert den rohen Fehlertext, s. youtube_app).
 FEHLER_ART_TEXT = {
-    ART_MERKMAL: "Renés Server lehnt die Anmeldeform ab (HTTP 401 trotz frischer Anmeldung)",
+    # Prüfung Runde 2: dieselbe Lage entsteht, wenn zwei SyncYouTube-Prozesse
+    # (exe und Quellstart) mit derselben DeviceId laufen — beide Ursachen nennen.
+    ART_MERKMAL: ("Renés Server lehnt die Anmeldeform ab (HTTP 401 trotz frischer Anmeldung) "
+                  "— oder ein zweites SyncYouTube nutzt dieselbe Gerätekennung"),
     ART_ANMELDUNG: "Renés Server lehnt Benutzer oder Passwort ab (HTTP 401 bei der Anmeldung)",
     ART_DROSSEL: "Renés Server bremst gerade die Anmeldung (HTTP 403, vorübergehend)",
     ART_NETZ: "Renés Server nicht erreichbar",
@@ -202,14 +206,15 @@ def _server_version_public(url):
     return "?"
 
 
-def _anmelden(merkmal_ruhe=True):
+def _anmelden(druck=False):
     """Die aktuelle Sitzung als KOPIE (Token, Benutzer-Id, Version) oder None.
 
     Eine Kopie, kein Verweis auf `_sitzung`: ein anderer Faden kann die Sitzung
     jederzeit erneuern — wer mitten im Ruf ist, soll sein Token behalten und bei
     einem 401 genau dieses als abgelehnt melden (s. `_neu_anmelden`).
-    `merkmal_ruhe=False`: ein ausdrücklicher Druck (Film starten) meldet sich
-    auch in der Merkmal-Ruhe an — nie in der 403-Drossel (s. _anmelden_ungesperrt)."""
+    `druck=True`: JBs ausdrücklicher Druck (Film starten, Browser-Strom) darf die
+    Merkmal-Ruhe übergehen — aber nur mit EINER Anmeldung je Ruhe (s.
+    `_druck_in_ruhe`), nie in der 403-Drossel (s. _anmelden_ungesperrt)."""
     kopie = dict(_sitzung)
     if kopie.get("token"):
         return kopie
@@ -226,8 +231,33 @@ def _anmelden(merkmal_ruhe=True):
     with _anmelde_lock:
         if _sitzung.get("token"):
             return dict(_sitzung)
-        s = _anmelden_ungesperrt(merkmal_ruhe)
+        if druck and time.time() < _merkmal_ruhe_ts:
+            return _druck_in_ruhe()
+        s = _anmelden_ungesperrt()
         return dict(s) if s else None
+
+
+def _druck_in_ruhe():
+    """JBs Druck in der Merkmal-Ruhe — NUR unter `_anmelde_lock` rufen.
+
+    Höchstens EIN Anmeldeversuch je Ruhe (Prüfung Runde 2). Vorher meldete sich
+    jeder stream_url-Ruf an, sobald die Sitzung leer war: auch die Hover-Vorschau
+    und jede Range-Anfrage des Browser-Players. Die Automatik bekam mit dem
+    frischen Token 401 und verwarf die Sitzung wieder — gemessen eine Anmeldung
+    je Runde, der Sturm, den die Ruhe verhindern soll. Jetzt bekommt jeder
+    weitere Druck derselben Ruhe die Sitzung dieser einen Anmeldung, auch wenn
+    die Automatik sie inzwischen verworfen hat: ein laufender Browser-Film holt
+    seine nächste Range-Anfrage mit demselben Token. Eine neue Ruhe (neuer
+    Zeitstempel) gibt wieder genau einen Versuch."""
+    ruhe = _merkmal_ruhe_ts
+    if _druck_sitzung["ruhe"] != ruhe:
+        if time.time() < _anmelde_sperre_ts:   # 403-Drossel: kein Versuch, der eine bleibt frei
+            return None
+        _druck_sitzung["ruhe"] = ruhe
+        s = _anmelden_ungesperrt(merkmal_ruhe=False)
+        _druck_sitzung["sitzung"] = dict(s) if s else None
+    s = _druck_sitzung["sitzung"]
+    return dict(s) if s else None
 
 
 def _anmelden_ungesperrt(merkmal_ruhe=True):
@@ -315,7 +345,8 @@ def _merkmal_abgelehnt(token):
     jede Kachel und jede Folgenliste Renés Server mit neuen Anmeldungen bedrängt
     (dasselbe Konto nutzt SyncFindus: dessen Drossel wäre mitbetroffen).
     Die Ruhe gilt nur der Automatik: ⟳ Abgleichen hebt sie auf
-    (merkmal_ruhe_aufheben), ein Film-Start meldet sich trotzdem an (stream_url)."""
+    (merkmal_ruhe_aufheben), JBs Druck (Film-Start, Browser-Strom) meldet sich
+    einmal je Ruhe trotzdem an (stream_url mit druck=True, s. _druck_in_ruhe)."""
     global _merkmal_ruhe_ts, _anmelde_art
     with _anmelde_lock:
         if _sitzung.get("token") == token:
@@ -1297,12 +1328,17 @@ def _strom_adresse(basis, item_id, token):
             f"?static=true&{STROM_TOKEN_PARAM}={urllib.parse.quote(token or '', safe='')}")
 
 
-def stream_url(item_id):
+def stream_url(item_id, druck=False):
     """Direct-Play-URL für den LOKALEN VLC (Token in der URL ist ok, weil sie
-    diesen PC nie verlässt — Clients bekommen sie NICHT). VLC-Start und Browser-
-    Proxy holen sie auf JBs Druck: die Merkmal-Ruhe hält sie nicht auf (Prüfung
-    Runde 1: vorher 503 für 10 Minuten), die 403-Drossel schon."""
-    s = _anmelden(merkmal_ruhe=False)
+    diesen PC nie verlässt — Clients bekommen sie NICHT).
+
+    `druck=True` NUR für JBs ausdrückliche Drücke: VLC-Start und Browser-Proxy.
+    Die kommen durch die Merkmal-Ruhe (Prüfung Runde 1: vorher 503 für 10
+    Minuten), mit höchstens einer Anmeldung je Ruhe (Runde 2, s. _druck_in_ruhe).
+    Ohne `druck` (Hover-Vorschau, jede Automatik) hält die Ruhe sie auf — vorher
+    war stream_url ganz ausgenommen, und die Vorschau meldete sich mit an.
+    Die 403-Drossel gilt immer."""
+    s = _anmelden(druck=druck)
     z = _zugang()
     if not (s and z):
         return None
@@ -1506,7 +1542,11 @@ def fortschritt_nachreichen():
             schritte.append((juengste, False))
         angekommen = False
         for m, nur_gesehen in schritte:
-            teil = {_q_schluessel(x) for x in gruppe if _q_ts(x) <= _q_ts(m)} - erledigt
+            # Eine bloße Stelle erledigt nie ein „gesehen" (Prüfung Runde 2):
+            # sonst löschte die angekommene jüngere Stelle ein „gesehen", das
+            # Jellyfin eben abgewiesen hatte — statt es als abgewiesen zu merken.
+            teil = {_q_schluessel(x) for x in gruppe
+                    if _q_ts(x) <= _q_ts(m) and (nur_gesehen or not x.get("gesehen"))} - erledigt
             grund = _fortschritt_senden_mit_grund(
                 m["item"], m.get("position_s") or 0, nur_gesehen, nur_gesehen=nur_gesehen)
             if grund == SENDE_OK:

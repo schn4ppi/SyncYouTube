@@ -86,14 +86,22 @@ def startmenue_ordner():
 def startmenue_eintrag(ordner=None, ziel=None, log=None, faden=False):
     """Die Verknüpfung „SyncYouTube" anlegen oder nachziehen.
 
-    Ergebnis: "angelegt", "aktualisiert", "unveraendert", "fremd" (eine
+    Ergebnis: "angelegt", "aktualisiert", "unveraendert", "behalten" (eigener
+    Eintrag mit einem anderen, noch startbaren Ziel — s. unten), "fremd" (eine
     Verknüpfung gleichen Namens ohne unsere Kennung — bleibt unberührt),
     "kein_ziel" (nichts Startbares) oder "fehler". Protokolliert werden nur
     Probleme. Geschrieben wird über eine Zwischendatei im selben Ordner und
     os.replace: ein Abbruch hinterlässt nie eine halbe Verknüpfung, die beim
     nächsten Start als „fremd" gälte. faden=True: im eigenen Hintergrundfaden
     (eigenes COM-Apartment, der Start wartet nicht); gibt den Faden zurück.
-    ordner/ziel nur für Tests und Sonderfälle."""
+    ordner/ziel nur für Tests und Sonderfälle.
+
+    EINE stabile Regel (Prüfung Runde 2): das Ziel eines eigenen Eintrags
+    wechselt nur, wenn das bisherige nicht mehr startet (Programm verschoben,
+    exe entfernt). Vorher gewann der letzte Start: ein einziger Start der exe
+    (Datenordner = ihr eigener Ordner) stellte den Eintrag auf einen anderen
+    Datenbestand um, ein Start mit dem Basis-Python auf ein Python ohne die
+    venv-Pakete — bis der nächste Quellstart ihn zurückstellte."""
     if faden:
         t = threading.Thread(target=startmenue_eintrag, name="startmenue-eintrag", daemon=True,
                              kwargs={"ordner": ordner, "ziel": ziel, "log": log})
@@ -120,6 +128,8 @@ def startmenue_eintrag(ordner=None, ziel=None, log=None, faden=False):
                     return "fremd"
                 if _gleich(ist, soll):
                     return "unveraendert"
+                if not _gleiches_ziel(ist, soll) and _startbar(ist):
+                    return "behalten"
                 ergebnis = "aktualisiert"
             zwischen = pfad + ".neu"
             _schreiben(zwischen, soll)
@@ -130,14 +140,30 @@ def startmenue_eintrag(ordner=None, ziel=None, log=None, faden=False):
         return "fehler"
 
 
-def _gleich(ist, soll):
-    def pfad(p):
-        return os.path.normcase(os.path.normpath(p)) if p else ""
-    return (pfad(ist["ziel"]) == pfad(soll["ziel"])
+def _pfad(p):
+    return os.path.normcase(os.path.normpath(p)) if p else ""
+
+
+def _gleiches_ziel(ist, soll):
+    """Startet der Eintrag dasselbe (Programm, Argumente, Arbeitsordner)?"""
+    return (_pfad(ist["ziel"]) == _pfad(soll["ziel"])
             and ist["argumente"] == soll["argumente"]
-            and pfad(ist["arbeitsordner"]) == pfad(soll["arbeitsordner"])
+            and _pfad(ist["arbeitsordner"]) == _pfad(soll["arbeitsordner"]))
+
+
+def _startbar(ist):
+    """Startet der vorhandene Eintrag noch? Das Programm liegt da, und im
+    Quellbetrieb auch das Skript aus den Argumenten (youtube_app.py)."""
+    if not ist.get("ziel") or not os.path.isfile(ist["ziel"]):
+        return False
+    skript = (ist.get("argumente") or "").strip().strip('"')
+    return not skript.lower().endswith(".py") or os.path.isfile(skript)
+
+
+def _gleich(ist, soll):
+    return (_gleiches_ziel(ist, soll)
             and ist["beschreibung"] == BESCHREIBUNG
-            and pfad(ist["symbol"][0]) == pfad(soll["symbol"][0])
+            and _pfad(ist["symbol"][0]) == _pfad(soll["symbol"][0])
             and ist["symbol"][1] == soll["symbol"][1])
 
 

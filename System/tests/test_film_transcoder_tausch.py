@@ -111,7 +111,7 @@ def _teile(*extra, tick_echt=False):
              "tvpVideoTauschen", "tvFilmPlayer", "tvpZu"] + list(extra)
     if tick_echt:                          # mit dem echten Ende-Weg samt Meldestelle
         namen += ["tvpTick", "tvpFilmEnde", "tvpMeldeDauer", "filmFortschrittMelden",
-                  "filmGemeldetAnwenden", "filmLokalNachziehen"]
+                  "filmGemeldetAnwenden", "filmReihenAnwenden", "filmLokalNachziehen"]
     return ([_modul_js(), "const medienS=medienSitzung(()=>null);", _js_zeile(q, "let tvpAbgeloest"),
              _js_zeile(q, "let tvpGesehenGemeldet"), _js_zeile(q, "let tvpRateWert"), ATTRAPPE]
             + ([] if tick_echt else [TICK_STUB])

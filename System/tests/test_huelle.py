@@ -709,7 +709,9 @@ globalThis.fetch=async(url,opt)=>{
   if(url==='/api/filme/play'){ serverKey='film:'+k.id; spur.push('server-play:'+k.id); }
   else if(url==='/api/live/play'){ serverKey='live:'+k.name; spur.push('server-live:'+k.name); }
   else if(url==='/api/vlc'&&k.cmd==='play'){ serverKey=k.key; spur.push('server-play:'+k.key); }
-  else if(url==='/api/vlc'&&k.cmd==='stop'){ serverKey=''; spur.push('server-stop'); }
+  else if(url==='/api/vlc'&&k.cmd==='stop'){                // nur_key: nur DIESEN Titel (Server)
+    if(!k.nur_key||k.nur_key===serverKey)serverKey='';
+    spur.push('server-stop'+(k.nur_key?'@'+k.nur_key:'')); }
   return {json:async()=>({verfuegbar:true, zustand:'spielt', key:serverKey})};
 };
 // Jede Anmeldung ist ein eigener js_api-Faden: wann sie zurückkehrt, ist offen.
@@ -758,6 +760,26 @@ aus(erg);
     assert e["musik"] == {"spur": ["server-play:m2", "erster:null"], "key": "m2"}, e["musik"]
     assert e["stopp"] == {"spur": ["server-stop"], "key": ""}, e["stopp"]
     assert e["live"] == {"spur": ["server-live:L2", "fernbedienung:L2"], "key": "live:L2"}, e["live"]
+
+
+def test_filmende_stopp_ueberholt_keinen_wartenden_musikstart(tmp_path):
+    """Prüfung Runde 2 (niedrig): Der Freigabe-Stopp am Filmende
+    (vlcBefehl('stop',{nur_key:'film:'+id})) zählte vlcStartGen hoch wie jeder
+    Stopp — ein Musik-'play', das gerade auf video_melden wartete, brach still
+    ab. Ein Stopp mit nur_key trifft am Server nur seinen eigenen Titel; er
+    überholt auch auf der Seite nichts. Ein Stopp OHNE nur_key (Gerät
+    gewechselt, Liste leer) überholt weiter (test_ueberholter_start_…)."""
+    q = _pc()
+    teile = _start_zaehler(q) + [_js_funktion(q, n) for n in (
+        "huelleMelden", "vlcBefehl", "filmePlayVlc", "tvLivePlay")]
+    (e,) = _lauf(tmp_path, WETTLAUF, *teile, r"""
+const erg={};
+dauern.push(40);                                     // m1 meldet noch, da endet der Film
+erg.ende=await fall(async()=>{ const a=vlcBefehl('play',{key:'m1'}); await warte(10);
+  await Promise.all([a,vlcBefehl('stop',{nur_key:'film:F1'})]); });
+aus(erg);
+""")
+    assert e["ende"] == {"spur": ["server-stop@film:F1", "server-play:m1"], "key": "m1"}, e["ende"]
 
 
 def test_gleichzeitige_anmeldungen_legen_genau_ein_panel_an(dotnet, netz, monkeypatch):
@@ -820,11 +842,13 @@ def test_gleichzeitige_anmeldungen_legen_genau_ein_panel_an(dotnet, netz, monkey
 # es — pausiert, nicht gestoppt, die Stelle bleibt. Musik, ein Video in VLCs
 # eigenem Fenster und eines im Panel einer anderen Hülle bleiben unberührt.
 #
-# Die Attrappe modelliert den Unterschied, auf den es ankommt: set_hwnd wirkt
-# erst beim NÄCHSTEN Medium (libvlc). Ein Video, das vor der Anmeldung eines
-# Panels startete, bleibt in VLCs eigenem Fenster, auch wenn das Handle danach
-# gesetzt ist — „eingebettet" im Status sagt darum nicht, wohin das LAUFENDE
-# Bild geht.
+# Das SZENARIO (Start vor der Anmeldung) bildet eine libvlc-Eigenheit nach:
+# set_hwnd wirkt erst beim NÄCHSTEN Medium. Ein Video, das vor der Anmeldung
+# eines Panels startete, bleibt in VLCs eigenem Fenster, auch wenn das Handle
+# danach gesetzt ist — „eingebettet" im Status sagt darum nicht, wohin das
+# LAUFENDE Bild geht. Die Attrappe selbst kennt kein Bildziel (set_hwnd wird
+# nur verzeichnet): geprüft wird die Buchführung des Servers (hwnd_spiel). Die
+# libvlc-Annahme ist dokumentiert, live aber nicht gemessen (Prüfung Runde 2).
 
 FILM = {"key": "film:f1", "url": "http://jellyfin.test/strom"}
 LIVE = {"key": "live:Das Erste", "url": "http://live.test/strom"}
@@ -945,6 +969,113 @@ def test_abmelden_ohne_pausen_wunsch_haelt_nichts_an(video, fenster_welt):
     sp = _spielt_im_panel(fenster_welt, video)
     st = app.vlc_kommando({"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND})
     assert _angehalten(sp) == [] and st["zustand"] == "spielt" and app._vlc["hwnd"] == 0
+
+
+def test_abmelden_geht_auch_wenn_die_videopruefung_wirft(video, fenster_welt, monkeypatch):
+    """Prüfung Runde 2 (niedrig): _vlc_zeigt_bild stand VOR dem Ausnahme-Schirm.
+    Warf es (die Suche nach einer verschobenen Datei läuft per os.walk), fiel
+    auch die Abmeldung aus — HTTP 500, die Hülle schluckt es still, und das
+    Handle des zerstörten Panels blieb angemeldet."""
+    _spielt_im_panel(fenster_welt, video)
+
+    def wirft(key):
+        raise OSError("Laufwerk weg")
+    monkeypatch.setattr(app, "_pfad_zu_key", wirft)
+    app.vlc_kommando(dict(ZU))
+    assert app._vlc["hwnd"] == 0, "das Panel blieb angemeldet"
+
+
+# -------- Hülle zu: die Stelle des Films geht an Jellyfin (Prüfung Runde 2)
+# „Die Stelle bleibt" galt nur, solange der Server lebte: die Seite meldet
+# Fortschritt nur bei Filmende, ⏭/⏮ und Esc — mit der Hülle geht auch die
+# Seite. Der Film stand pausiert im Server-VLC; Jellyfin und „Weiterschauen"
+# behielten die alte Stelle, und spätestens nach der Neustart-Sperre (30 Min)
+# oder beim Herunterfahren war sie ganz weg. Jetzt meldet der Server beim
+# Pausieren selbst — dieselbe Meldestelle wie /api/filme/fortschritt
+# (filme.fortschritt), in einem eigenen Faden, damit Jellyfin den VLC nicht
+# aufhält. „gesehen" meldet er dabei NICHT: ob das Schließen im Abspann wie
+# Esc zählt, ist JBs Entscheidung (offen).
+
+@pytest.fixture
+def meldungen(monkeypatch):
+    """filme.fortschritt als Attrappe: zeichnet auf, und prüft, dass die
+    Meldung NICHT unter _vlc_lock läuft (ein anderer Faden muss die Sperre
+    bekommen, während gemeldet wird)."""
+    aufgezeichnet, fertig = type("Meldungen", (list,), {})(), threading.Event()
+
+    def fortschritt(item_id, position_s, gesehen=False):
+        frei = []
+
+        def pruefen():                                  # die Sperre gibt nur ihr Besitzer frei
+            bekommen = app._vlc_lock.acquire(timeout=1)
+            frei.append(bekommen)
+            if bekommen:
+                app._vlc_lock.release()
+        pruefer = threading.Thread(target=pruefen)
+        pruefer.start()
+        pruefer.join(2)
+        aufgezeichnet.append({"id": item_id, "pos": position_s, "gesehen": gesehen,
+                              "vlc_frei": bool(frei and frei[0])})
+        fertig.set()
+        return True
+    monkeypatch.setattr(app.filme, "fortschritt", fortschritt)
+    aufgezeichnet.fertig = fertig
+    return aufgezeichnet
+
+
+def _warten(meldungen, soll=True):
+    """Die Meldung läuft in einem eigenen Faden: auf sie warten (oder, wenn
+    keine kommen darf, kurz sicherstellen, dass keine kommt)."""
+    meldungen.fertig.wait(3 if soll else 0.3)
+    return list(meldungen)
+
+
+def test_huelle_zu_meldet_die_stelle_des_films(video, fenster_welt, meldungen):
+    """Film im Panel, bei 50:00 von 100:00: pausiert UND die Stelle geht an
+    Jellyfin — ohne den VLC zu sperren, ohne „gesehen"."""
+    sp = _spielt_im_panel(fenster_welt, FILM)
+    sp.zeit = 3_000_400                                 # ms (libvlc get_time)
+    sp.get_length = lambda: 6_000_000
+    app.vlc_kommando(dict(ZU))
+    assert _angehalten(sp) == [("pause", 1)], sp.rufe
+    assert _warten(meldungen) == [{"id": "f1", "pos": 3000, "gesehen": False, "vlc_frei": True}], \
+        list(meldungen)
+
+
+def test_huelle_zu_meldet_auch_im_abspann_nur_die_stelle(video, fenster_welt, meldungen):
+    """Im Abspann (95 %): die Stelle ja, „gesehen" nicht — offen für JB."""
+    sp = _spielt_im_panel(fenster_welt, FILM)
+    sp.zeit = 5_700_000
+    sp.get_length = lambda: 6_000_000
+    app.vlc_kommando(dict(ZU))
+    assert _warten(meldungen) == [{"id": "f1", "pos": 5700, "gesehen": False, "vlc_frei": True}]
+
+
+@pytest.mark.parametrize("fall", ["ladend", "live", "bibliothek", "musik", "eigenes_fenster",
+                                  "ohne_pausen_wunsch"])
+def test_huelle_zu_meldet_nur_einen_laufenden_film(video, fenster_welt, meldungen, fall):
+    """Kein Film (Live, Bibliotheks-Video, Musik), ein Film außerhalb dieses
+    Panels, eine Abmeldung ohne Pausen-Wunsch: nichts zu melden. Ein Film, der
+    noch öffnet (libvlc: Zeit 0), meldet keine Stelle — sie würde die
+    Weiterschauen-Stelle auf 0 zurücksetzen."""
+    zu = dict(ZU)
+    if fall == "eigenes_fenster":                       # lief vor der Anmeldung: VLCs eigenes Fenster
+        fenster_welt[HWND] = 77
+        app.vlc_kommando({"cmd": "play", **FILM})
+        app.vlc_kommando({"cmd": "fenster", "hwnd": HWND, "pid": 77})
+        sp = app._vlc["spieler"]
+    else:
+        start = {"ladend": FILM, "live": LIVE, "bibliothek": video, "musik": {"key": "abc|mp3"},
+                 "ohne_pausen_wunsch": FILM}[fall]
+        sp = _spielt_im_panel(fenster_welt, start)
+    if fall == "ladend":
+        sp.zustand, sp.zeit = "O", 0
+    else:
+        sp.zeit = 3_000_000
+    if fall == "ohne_pausen_wunsch":
+        zu = {"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND}
+    app.vlc_kommando(zu)
+    assert _warten(meldungen, soll=False) == [], (fall, list(meldungen))
 
 
 class ServerNetz(Netz):

@@ -41,6 +41,11 @@ Aufrufer nimmt den heutigen Weg — nie schlechter als vorher.
 
 Cookie-WERTE liest dieses Modul nie aus und schreibt sie nirgends hin; die
 Prüfung der Kopie zählt nur Zeilen.
+
+ZWILLING (Prüfung Runde 2): `_wal_kopf` und `_stimmig_kopieren` sind fast
+wortgleich mit `SyncFindus/System/fremde_datenbank.py` (`_wal_kopf`,
+`_stimmig_kopieren`). Ein Gleichheits-Wächter fehlt — eine Korrektur dort
+gehört auch hierher (Familien-Lehrbuch L17, Nachtrag zu L90).
 """
 import contextlib
 import os

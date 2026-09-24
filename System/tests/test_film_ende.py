@@ -54,7 +54,7 @@ ZEILEN = ("let tvpTimer=", "let tvpMeta=", "let tvpModus=", "let tvpTc=", "let t
 # dann läuft der alte Ende-Weg, und die Tests scheitern am VERHALTEN.
 NEU_ZEILEN = ("let tvpGesehenGemeldet",)
 NEU = ("tvpFilmEnde", "tvpMeldeDauer", "filmFortschrittMelden", "filmGemeldetAnwenden",
-       "filmLokalNachziehen", "nachFilmEnde", "sleepHaeltAn")
+       "filmLokalNachziehen", "nachFilmEnde", "sleepHaeltAn", "filmReihenAnwenden")
 NAMEN = ("tvpTick", "tvpZu", "tvpFolgePosMerken", "medienNachFilm", "tvpLandePos", "tvSerienPlay",
          "filmLaeuft", "filmStopp", "tvpZielAusfuehren", "tvpWechselStarten", "tvpZurueckZiel",
          "tvpWeiterZiel", "tvpBasis", "tvpFolgenHolen", "tvpFolge", "tvpZurueck", "sleepSetzen",
@@ -118,12 +118,48 @@ async function ruhe(){for(let i=0;i<50;i++)await null;}   // Mikro-Aufgaben abar
 """
 
 
-def _teile():
+# Der ECHTE Neuzeichnen-Weg des Fernsehmodus (Prüfung Runde 2): tvMalen →
+# tvFokusMalen → snippetAn öffnet auf der Fokus-Kachel die Hover-Karte und
+# startet nach 450 ms + 2,2 s einen stummen Endlos-Clip (<video muted loop>).
+# Die Attrappe `tvMalen(){zeichnungen.push('tv')}` sah diesen Start nicht; hier
+# laufen die echten Funktionen, und das DOM zählt Karten und Clip-Starts
+# (fakeMedia: play() schreibt 'play:vorschau' ins _log).
+TV_ECHT = ("tvMalen", "tvFokusMalen", "snippetAn", "snippetAus")
+TV_DOM = r"""
+const karten=[];
+globalThis.setInterval=()=>0; globalThis.clearInterval=()=>{};   // Karten-Takt: kein echter Faden
+globalThis.CSS={escape:s=>String(s)}; globalThis.innerWidth=1920; globalThis.innerHeight=1080;
+const kachel={dataset:{fid:'F1', r:'0', i:'0'}, isConnected:true, classList:{add(){}, remove(){}},
+  scrollIntoView(){}, getBoundingClientRect(){return {left:0, top:0, width:200, height:112, right:200};}};
+document.querySelector=sel=>{
+  if(sel.startsWith('#tv .tv-kachel'))return kachel;
+  if(sel.startsWith('.tv-hoverkarte'))return karten[0]||null;
+  return null;};
+document.querySelectorAll=sel=>sel==='.tv-hoverkarte'?[...karten]:[];
+document.createElement=()=>({dataset:{}, style:{}, innerHTML:'', isConnected:true, offsetHeight:240,
+  querySelector(sel){return sel==='video.tv-snip'?(this._v=this._v||fakeMedia({id:'vorschau', dataset:{snip:'F1'}})):null;},
+  remove(){const i=karten.indexOf(this); if(i>=0)karten.splice(i,1); this.isConnected=false;}});
+document.body.appendChild=el=>{el.parentNode=document.body; karten.push(el);};
+function tvKopfMalen(){} function tvHeroMalen(){zeichnungen.push('hero');} function tvSeitenMalen(){}
+function tvReihenFuer(){return [['Weiterschauen',[{art:'film', id:'F1', name:'F1', bild:'', dauer:100, pos:0}]]];}
+_els['tv-inhalt']={innerHTML:''};
+const vorschau=()=>({karten:karten.length, clip:_log.filter(x=>x==='play:vorschau').length});
+"""
+
+
+def _teile(echt_tv=False):
     q = _pc()
     zeilen = [_js_zeile(q, z) for z in ZEILEN]
     zeilen += [_js_zeile(q, z) for z in NEU_ZEILEN if re.search(r"^" + re.escape(z), q, re.M)]
     namen = [n for n in NAMEN if n not in NEU or re.search(r"^(?:async )?function " + n + r"\(", q, re.M)]
-    return zeilen + [STUBS] + [_js_funktion(q, n) for n in namen]
+    stubs = STUBS
+    if echt_tv:
+        attrappe = "function tvMalen(){zeichnungen.push('tv');}\n"
+        assert stubs.count(attrappe) == 1
+        stubs = stubs.replace(attrappe, "") + TV_DOM
+        zeilen.append(_js_zeile(q, "let snipTimer="))
+        namen = namen + list(TV_ECHT)
+    return zeilen + [stubs] + [_js_funktion(q, n) for n in namen]
 
 
 def test_bausteine_gibt_es():
@@ -263,6 +299,28 @@ aus(r);
     assert e["abspann"] == {"gnade": True, "offen": False, "vlc": ["vlc:stop@film:e3"],
                             "koerper": [{"id": "e3", "position_s": 2300, "gesehen": True}]}, e["abspann"]
     assert e["mitte"] == {"gnade": True, "offen": False, "vlc": ["vlc:stop@film:e3"], "koerper": []}, e["mitte"]
+
+
+def test_langsamer_vlc_start_wird_nicht_abgewuergt(tmp_path):
+    """Prüfung Runde 2 (niedrig): vlc_status meldet Opening, Buffering und
+    NothingSpecial als 'aus'. Nach 8 Takten ohne 'spielt' schließt die
+    Fernbedienung wie bisher — seit 3bd24a9 schickte das Ende zusätzlich den
+    Freigabe-Stopp und beendete so einen Jellyfin-Strom, der nur länger als
+    rund 8 s zum Öffnen brauchte. Vorher lief er weiter (ohne Fernbedienung;
+    Esc beendet ihn, der Schlüssel bleibt dafür gemerkt). Der Stopp gilt nur
+    einem echten Ende: libvlc meldet 'ende', oder der Film lief schon."""
+    (e,) = _lauf(tmp_path, *_teile(), r"""
+const r={};
+lage({modus:'vlc', lief:false, ticks:9, pos:600});
+antwort={zustand:'aus', key:'film:e3', pos:0, dauer:0}; await tvpTick();
+r.langsam={offen:tvpOffen, koerper:koerper(), vlc:[...vlc], key:vlcKeyLetzter};
+lage({modus:'vlc', lief:true, pos:1200, dauer:2400});         // lief, dann abgerissen: freigeben
+antwort={zustand:'aus', key:'film:e3', pos:1200, dauer:2400}; await tvpTick();
+r.abgerissen={offen:tvpOffen, vlc:[...vlc]};
+aus(r);
+""")
+    assert e["langsam"] == {"offen": False, "koerper": [], "vlc": [], "key": "film:e3"}, e["langsam"]
+    assert e["abgerissen"] == {"offen": False, "vlc": ["vlc:stop@film:e3"]}, e["abgerissen"]
 
 
 def test_kurzes_ende_beim_folgenwechsel_schliesst_nicht(tmp_path):
@@ -419,6 +477,42 @@ aus(r);
     assert e["serie"]["weiter"] == "film:e4@0", e["serie"]
 
 
+def test_frisch_geladene_reihen_behalten_die_meldung(tmp_path):
+    """Prüfung Runde 2 (niedrig): Den Spiegel zieht nur eine ANGENOMMENE Meldung
+    nach. Liegt sie in der Warteschlange (Renés Server lehnt ab — seit 23.09.
+    der Normalfall), holen tvLaden, tvLadenStill und filmeLaden beim nächsten
+    Öffnen die alten Reihen: „Weiterschauen" zeigte den gesehenen Film wieder,
+    samt alter Stelle. Die Merk-Tabelle dieser Seite galt nur für die Info;
+    jetzt auch für frisch geladene Reihen (Stelle, ✓, raus aus Weiterschauen)."""
+    q = _pc()
+    extra = [_js_zeile(q, "let tvProfile=")] + [_js_funktion(q, n) for n in (
+        "tvLaden", "tvLadenStill", "filmeLaden", "filmWarnung", "filmDauerGrob")]
+    (e,) = _lauf(tmp_path, *_teile(), *extra, r"""
+const r={}, g=a=>a.map(x=>x.id+':'+x.position_s+(x.gesehen?'✓':''));
+const spiegel=()=>({weiterschauen:[F('F1',3000),F('F2',100)], top:[F('F1',3000)], neu:[],
+                    genres:{Drama:[F('F2',100)]}});
+lage({id:'F1', pos:5990, dauer:6000, meta:{typ:'film', laufzeit_min:100}, info:false, daten:null});
+antwort={zustand:'aus', key:'', pos:6000, dauer:6000}; await tvpTick();   // F1: gesehen gemeldet
+filmFortschrittMelden('F2', 3100, 6000);                                  // F2: nur die Stelle
+ANTWORTEN=[['/api/filme/reihen', spiegel()], ['/api/filme/zustand', {zugang:true}]];
+await tvLaden();                                           // Fernsehmodus wieder geöffnet
+r.tv={weiter:g(tvFilmReihen.weiterschauen), top:g(tvFilmReihen.top), drama:g(tvFilmReihen.genres.Drama)};
+ANTWORTEN=[['/api/filme/reihen', spiegel()]];
+await tvLadenStill();
+r.still=g(tvFilmReihen.weiterschauen);
+ANTWORTEN=[['/api/filme/reihen', spiegel()], ['/api/filme/zustand', {zugang:true}]];
+_els['filme-reihen']={innerHTML:''};
+await filmeLaden();                                        // Filme-Tab
+const html=_els['filme-reihen'].innerHTML;
+r.filmeTab=(html.split('Weiterschauen</div>')[1]||'').split('</div></div>')[0];
+aus(r);
+""")
+    assert e["tv"] == {"weiter": ["F2:3100"], "top": ["F1:0✓"], "drama": ["F2:3100"]}, e["tv"]
+    assert e["still"] == ["F2:3100"], e["still"]
+    assert 'title="F2' in e["filmeTab"], e
+    assert 'title="F1' not in e["filmeTab"], "der gesehene Film steht im Filme-Tab in Weiterschauen"
+
+
 # --------------------------------------------------- Sleep: nichts startet
 
 def test_sleep_aktiv_oder_abgelaufen_nach_dem_filmende_startet_nichts(tmp_path):
@@ -429,28 +523,53 @@ def test_sleep_aktiv_oder_abgelaufen_nach_dem_filmende_startet_nichts(tmp_path):
     keine nächste Folge, keine Musik, kein VLC-Start — und die EINE
     Entscheidung nachFilmEnde sagt „schlaf". Heute startet dort auch ohne Sleep
     nichts (eine Automatik „nächste Folge" ist nicht bestätigt); wer sie baut,
-    muss nachFilmEnde fragen, sonst wird dieser Test rot."""
-    e = _lauf(tmp_path, *_teile(), r"""
+    muss nachFilmEnde fragen, sonst wird dieser Test rot.
+
+    Prüfung Runde 2 (mittel): Bei geschlossener Info zeichnet das Ende den
+    sichtbaren Fernsehmodus neu (tvMalen) — und das öffnete auf der Fokus-Kachel
+    die Hover-Karte mit einem stummen Endlos-Clip, auch mit Sleep. Die Attrappe
+    für tvMalen sah das nicht. Jetzt laufen tvMalen, tvFokusMalen, snippetAn und
+    snippetAus echt (TV_DOM), beide Ansichten (Info offen, Fernsehmodus mit
+    geschlossener Info) werden gefahren, und alle Zeitgeber laufen ab: keine
+    Karte, kein Clip. Blindheits-Probe: dasselbe DOM zählt eine Karte samt Clip,
+    wenn JB den Fokus bewegt (tvMalen ohne Ende-Weg)."""
+    e = _lauf(tmp_path, *_teile(echt_tv=True), r"""
 const faelle=[['ohne',()=>sleepSetzen('0')], ['minuten',()=>sleepSetzen('30')], ['titel',()=>sleepSetzen('titel')],
               ['abgelaufen',()=>{sleepSetzen('1'); timerLaeuftAb();}]];
-for(const [modus,geraet] of [['browser','browser'],['vlc','vlc']]){
+for(const ansicht of ['info','tv']){
+ for(const [modus,geraet] of [['browser','browser'],['vlc','vlc']]){
   for(const [fall,stellen] of faelle){
-    lage({modus, geraet, pos:2395, dauer:2400}); stellen(); vlc.length=0;
+    lage({modus, geraet, pos:2395, dauer:2400, ...(ansicht==='tv'?{info:false, daten:null}:{})});
+    if(ansicht==='tv')_els.tv={style:{display:''}}; else delete _els.tv;
+    tvFokus={r:0,i:0}; karten.length=0;                  // Fokus auf der Kachel: Vorgabe beim Öffnen
+    stellen(); vlc.length=0;
     antwort=modus==='browser'?{zustand:'aus', key:'', pos:2400, dauer:2400}
                             :{zustand:'ende', key:'film:e3', pos:0, dauer:0};
     await takte(3);
-    aus({modus, fall, offen:tvpOffen, starts:[...starts], vlc:[...vlc], musik:_log.filter(x=>x.startsWith('play:')),
+    const r={ansicht, modus, fall, offen:tvpOffen, starts:[...starts], vlc:[...vlc],
+         musik:_log.filter(x=>x.startsWith('play:')),
          entscheidung:(typeof nachFilmEnde==='function')?nachFilmEnde().art:'fehlt',
-         gemeldet:koerper().length});
+         gemeldet:koerper().length, neu_gezeichnet:zeichnungen.includes('hero')};
+    timerLaeuftAb(); timerLaeuftAb();                  // Karte (450 ms), dann Clip (2,2 s)
+    r.vorschau=vorschau();
+    aus(r);
   }
+ }
 }
+delete _els.tv;
 sleepSetzen('1'); timerLaeuftAb(); sleepSetzen('0');
 aus({fall:'neu gestellt', entscheidung:(typeof nachFilmEnde==='function')?nachFilmEnde().art:'fehlt'});
+lage({info:false, daten:null}); tvpOffen=false; karten.length=0; tvFokus={r:0,i:0};
+tvMalen(); timerLaeuftAb(); timerLaeuftAb();              // JB bewegt den Fokus: die Karte gehört dazu
+aus({fall:'blindprobe', vorschau:vorschau()});
 """)
-    *filme_faelle, neu = e
-    assert len(filme_faelle) == 8
+    *filme_faelle, neu, blind = e
+    assert len(filme_faelle) == 16
+    assert blind["vorschau"] == {"karten": 1, "clip": 1}, f"Attrappe blind für die Vorschau: {blind}"
     for x in filme_faelle:
         assert x["offen"] is False and x["gemeldet"] == 1, x
+        assert x["neu_gezeichnet"] is (x["ansicht"] == "tv"), f"Ende-Weg nicht gefahren: {x}"
+        assert x["vorschau"] == {"karten": 0, "clip": 0}, f"nach dem Filmende startete die Vorschau: {x}"
         assert x["starts"] == [] and x["musik"] == [], f"nach dem Filmende startete etwas: {x}"
         erlaubt = ["vlc:stop@film:e3"] if x["modus"] == "vlc" else []
         assert x["vlc"] == erlaubt, x

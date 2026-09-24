@@ -2072,7 +2072,10 @@ def test_testmodus_leitet_alle_daten_um(tmp_path):
     quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
     import re as _re
     zustand = _re.findall(r'os\.path\.join\(SCRIPT_DIR, "([^"]+)"\)', quelle)
-    boese = [z for z in zustand if z.endswith(".json") or z in ("abo_index",)]
+    # Prüfung Runde 2: auch die Protokolle (.jsonl) — yt_fehler.jsonl und
+    # js_fehler.jsonl hingen am Code-Ort, eine --testmodus-Probe schrieb in
+    # JBs Produktiv-Protokolle (der Filter kannte nur .json).
+    boese = [z for z in zustand if z.endswith((".json", ".jsonl")) or z in ("abo_index",)]
     assert not boese, f"Zustandsdateien haengen noch an SCRIPT_DIR: {boese}"
     assert "DATEN_DIR" in quelle, "Kein DATEN_DIR - der Testmodus kann nichts umleiten"
 

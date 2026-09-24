@@ -2650,7 +2650,10 @@ def _video_im_panel_pausieren(panel):
     der Anmeldung zeigt VLCs eigenes Fenster und läuft weiter. „Läuft" heißt
     spielt, öffnet oder puffert (ein ladender Film spielte gleich ins Leere).
     set_pause(1) statt toggle: ein schon pausiertes Video bliebe sonst nicht
-    stehen. Nur unter _vlc_lock rufen. True = pausiert."""
+    stehen. Nur unter _vlc_lock rufen. True = pausiert.
+
+    Ein Jellyfin-Film meldet dabei seine Stelle (Prüfung Runde 2, s.
+    _film_stelle_melden): mit der Hülle geht auch die Seite, die sonst meldet."""
     try:
         panel = int(panel or 0)
     except (TypeError, ValueError):
@@ -2658,16 +2661,50 @@ def _video_im_panel_pausieren(panel):
     sp = _vlc["spieler"]
     if not panel or sp is None or (_vlc.get("hwnd_spiel") or 0) != panel:
         return False
-    if not _vlc_zeigt_bild(_vlc.get("key") or ""):
-        return False
+    key = _vlc.get("key") or ""
     try:
+        # Im Schirm (Prüfung Runde 2): _vlc_zeigt_bild sucht eine verschobene
+        # Datei per os.walk — warf das, fiel auch das Abmelden aus (HTTP 500).
+        if not _vlc_zeigt_bild(key):
+            return False
         import vlc
         if sp.get_state() not in (vlc.State.Playing, vlc.State.Opening, vlc.State.Buffering):
             return False
         sp.set_pause(1)
-        return True
     except Exception:                                # noqa: BLE001 — abgemeldet wird trotzdem
         return False
+    _film_stelle_melden(sp, key)
+    return True
+
+
+def _film_stelle_melden(sp, key):
+    """Hülle zu mit einem Jellyfin-Film im Panel (Prüfung Runde 2): die Stelle
+    an Jellyfin, über DIESELBE Meldestelle wie /api/filme/fortschritt. Vorher
+    stand der Film nur pausiert im Server-VLC — Jellyfin und „Weiterschauen"
+    behielten die alte Stelle, und nach der Neustart-Sperre (30 Min) oder beim
+    Herunterfahren war sie weg. Die Seite, die sonst meldet (Ende, ⏭/⏮, Esc),
+    geht mit der Hülle.
+
+    Nur eine echte Stelle (> 0): ein Film, der noch öffnet, stünde auf 0 und
+    setzte die Weiterschauen-Stelle zurück. „gesehen" geht NICHT mit — ob das
+    Schließen im Abspann wie Esc zählt, entscheidet JB (offen). Gemeldet wird
+    in einem eigenen Faden: Jellyfin (bis 15 s) darf _vlc_lock nicht halten.
+    Unter _vlc_lock rufen (get_time ist ein libvlc-Ruf)."""
+    if not key.startswith("film:") or len(key) <= 5:
+        return
+    try:
+        ms = int(sp.get_time() or 0)
+    except Exception:                                # noqa: BLE001 — ohne Stelle nichts zu melden
+        return
+    if ms <= 0:
+        return
+
+    def senden(item_id=key[5:], pos=int(round(ms / 1000))):
+        try:
+            filme.fortschritt(item_id, pos, gesehen=False)   # scheitert es, reiht filme es ein
+        except Exception:                            # noqa: BLE001 — die Hülle ist schon zu
+            pass
+    threading.Thread(target=senden, daemon=True, name="film-stelle-huelle").start()
 
 
 def _vlc_reset():
@@ -2835,9 +2872,16 @@ def _vlc_ereignis(_ereignis=None, name="", *_):
     verbietet libvlc dort) und nicht auf _vlc_lock warten: ein Handler hält
     sie womöglich gerade in sp.stop(), und stop kann auf genau diesen Faden
     warten. Darum nur den Beginn einer Pause merken (ein Wert, keine Sperre)
-    und einen kurzen Faden anstoßen, der den Status abholt."""
+    und einen kurzen Faden anstoßen, der den Status abholt.
+
+    Jede ANDERE Meldung (Spielen, Stopp, Ende, Fehler) beendet die Pause auch
+    hier (Prüfung Runde 2): libvlc steht schon auf Paused, bevor seine Meldung
+    ankommt — eine Prüfung in diesem Fenster rechnete sonst mit dem Beginn der
+    VORIGEN Pause und gab den Neustart womöglich sofort frei."""
     if name == "MediaPlayerPaused":
         _vlc["pause_seit"] = _pause_uhr()            # auch ohne Windows-Brücke
+    else:
+        _vlc["pause_seit"] = None                    # nur ein Wert: keine Sperre, kein libvlc-Ruf
     if _smtc is None:
         return
     threading.Thread(target=_smtc_aus_vlc, name="VLC-Ereignis", daemon=True).start()
@@ -5229,7 +5273,10 @@ def _fehltext(exc):
 # in der Anzeige auf 42 Zeichen gekuerzt. Wer am Telefon fragt »was steht denn
 # da?«, konnte es nicht sagen. Muster ist der schon vorhandene Rekorder
 # js_fehler.jsonl: eine Zeile je Vorfall, Deckel 200 KB, aeltestes faellt weg.
-FEHLER_LOG = os.path.join(SCRIPT_DIR, "yt_fehler.jsonl")
+# Beide Protokolle am DATEN_DIR (Prüfung Runde 2): am SCRIPT_DIR schrieb eine
+# --testmodus-Probe in JBs Produktiv-Protokolle. Im Betrieb ist beides derselbe Ordner.
+FEHLER_LOG = os.path.join(DATEN_DIR, "yt_fehler.jsonl")
+JS_FEHLER_LOG = os.path.join(DATEN_DIR, "js_fehler.jsonl")
 _fehler_lock = threading.Lock()
 
 
@@ -6228,7 +6275,9 @@ class Handler(BaseHTTPRequestHandler):
             # h264+AC3 → nur der Ton wird AAC), sonst libx264; Container
             # wird fragmentiertes MP4 — das spielt jedes <video>.
             q = parse_qs(urlparse(self.path).query)
-            url = filme.stream_url((q.get("id") or [""])[0])
+            # JBs Druck (der Film läuft, weil er ▶ gedrückt hat): durch die
+            # Merkmal-Ruhe, höchstens eine Anmeldung je Ruhe (Prüfung Runde 2).
+            url = filme.stream_url((q.get("id") or [""])[0], druck=True)
             if not url:
                 return _antwort(self, 503, {"fehler": "Anmeldung bei Jellyfin "
                                             "gescheitert — heilt sich nach dem "
@@ -6441,7 +6490,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._config(daten)
             elif self.path == "/api/js_fehler":      # Fehler-Rekorder der Oberfläche
                 try:
-                    pfad = os.path.join(SCRIPT_DIR, "js_fehler.jsonl")
+                    pfad = JS_FEHLER_LOG
                     # Deckel 200 KB: Ältestes fällt weg, nie ungebremst wachsen.
                     if os.path.exists(pfad) and os.path.getsize(pfad) > 200_000:
                         with open(pfad, encoding="utf-8", errors="replace") as f:
@@ -6522,7 +6571,7 @@ class Handler(BaseHTTPRequestHandler):
                                                 "hinweis": "Ein Abzug läuft bereits."})
                 return _antwort(self, 200, {"gestartet": True})
             elif self.path == "/api/filme/play":       # Jellyfin-Strom in den LOKALEN VLC
-                strom = filme.stream_url(daten.get("id") or "")
+                strom = filme.stream_url(daten.get("id") or "", druck=True)   # JBs Druck
                 if not strom:
                     return _antwort(self, 503, {"fehler": "Jellyfin nicht erreichbar "
                                                           "(Zugang/Netz pruefen)."})

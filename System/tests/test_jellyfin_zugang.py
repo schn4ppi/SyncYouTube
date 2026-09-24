@@ -42,6 +42,7 @@ def _einrichten(pfad, monkeypatch):
     filme._fehlversuch_ts = 0.0
     filme._anmelde_sperre_ts = 0.0
     filme._merkmal_ruhe_ts = 0.0
+    filme._druck_sitzung.update(ruhe=0.0, sitzung=None)
     filme._anmelde_art = ""
     monkeypatch.setattr(filme, "_zugang", lambda: {
         "url": "https://jelly.example", "benutzer": "JBK", "passwort": PASSWORT})
@@ -53,6 +54,7 @@ def _neustart():
     filme._fehlversuch_ts = 0.0
     filme._anmelde_sperre_ts = 0.0
     filme._merkmal_ruhe_ts = 0.0
+    filme._druck_sitzung.update(ruhe=0.0, sitzung=None)
     filme._anmelde_art = ""
 
 
@@ -326,6 +328,63 @@ def test_film_start_versucht_es_trotz_merkmal_ruhe(tmp_path, monkeypatch):
     assert filme.stream_url("f1") is None and jf.anmeldungen() == 1, "Drossel übergangen"
 
 
+def test_merkmal_ruhe_haelt_die_hover_vorschau_und_bremst_den_strom(tmp_path, monkeypatch):
+    """Prüfung Runde 2 (mittel): stream_url war für VLC-Start und Proxy GANZ aus
+    der Ruhe genommen — damit meldete sich auch die automatische Hover-Vorschau
+    (snippet_backen) an und JEDE Anfrage an /api/filme/direkt. Die Automatik
+    bekam mit diesem Token 401 und verwarf die Sitzung; der nächste stream_url-
+    Ruf meldete sich neu an. Gemessen: 5 Anmeldungen in 5 Runden — genau der
+    Sturm, den die Ruhe verhindern soll (Renés 403-Drossel trifft auch SyncFindus).
+
+    Jetzt: die Hover-Vorschau ist Automatik und hält die Ruhe ein. Browser-Strom
+    und VLC-Start sind JBs Druck: höchstens EINE Anmeldung je Ruhe, und jeder
+    weitere Druck bekommt die Adresse mit dem Token dieser Anmeldung — der Film
+    läuft weiter, auch wenn die Automatik die Sitzung zwischendurch verwirft."""
+    import subprocess
+
+    import youtube_app as app
+    _einrichten(tmp_path, monkeypatch)
+    _alter_spiegel()                             # f1 im Katalog: die Vorschau würde wirklich backen
+    jf = JellyfinAttrappe("12", lehnt_ab=True)
+    monkeypatch.setattr(filme, "_http", jf)
+    filme.katalog_abzug()
+    assert filme.zustand()["fehler_art"] == "merkmal_abgelehnt"
+    befehle, geoeffnet, vlc = [], [], []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: befehle.append(cmd))
+
+    def fake_urlopen(req, timeout=None):
+        geoeffnet.append(req.full_url)
+        raise urllib.error.URLError("Testende")
+    monkeypatch.setattr(app.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(app, "vlc_kommando", lambda d: vlc.append(d) or {"ok": True})
+    vorher = jf.anmeldungen()
+    for _ in range(5):                           # Maus über Kacheln, Folgenliste im Wechsel
+        filme.snippet_backen("f1")
+        filme.episoden_mit_grund("s1")
+    assert jf.anmeldungen() == vorher, "die Hover-Vorschau hat sich in der Ruhe angemeldet"
+    assert befehle == [], "ffmpeg ohne Strom-Adresse gestartet"
+    for _ in range(5):                           # Browser-Film: Range-Anfragen, dazwischen Automatik
+        _route("/api/filme/direkt?id=f1")
+        filme.episoden_mit_grund("s1")
+    assert jf.anmeldungen() == vorher + 1, (
+        f"{jf.anmeldungen() - vorher} Anmeldungen in einer Ruhe (höchstens eine)")
+    assert len(geoeffnet) == 5, f"nur {len(geoeffnet)} von 5 Strom-Anfragen bekamen eine Adresse"
+    assert all(u.endswith("api_key=" + jf.tokens[-1]) for u in geoeffnet), geoeffnet
+    status, _antwort = _post("/api/filme/play", {"id": "f1"})   # zweiter Film-Start, dieselbe Ruhe
+    assert status == 200 and vlc and vlc[0]["url"].endswith("api_key=" + jf.tokens[-1]), vlc
+    assert jf.anmeldungen() == vorher + 1
+    # Eine NEUE Ruhe (⟳ Abgleichen hob die alte auf, die Automatik löste sie
+    # wieder aus) gibt dem Druck wieder genau eine Anmeldung.
+    filme.merkmal_ruhe_aufheben()
+    filme.katalog_abzug()
+    assert filme.zustand()["fehler_art"] == "merkmal_abgelehnt"
+    vorher = jf.anmeldungen()
+    for _ in range(3):
+        _route("/api/filme/direkt?id=f1")
+        filme.episoden_mit_grund("s1")
+    assert jf.anmeldungen() == vorher + 1
+
+
 def test_zweiter_prozess_loest_die_merkmal_ruhe_nicht_aus(tmp_path, monkeypatch):
     """Ein fremder Prozess mit derselben DeviceId (etwa die Quellstart-Kopie)
     meldet sich zwischen unserer Neuanmeldung und der Wiederholung an — sein
@@ -461,6 +520,7 @@ def test_zustand_route_nennt_die_fehlerart_und_maskiert_fremde_geraete(tmp_path,
     assert z["fehler_art"] == "merkmal_abgelehnt" and z["server_version"] == "12.1.0"
     assert "jelly.example" not in json.dumps(z), "Adresse an ein fremdes Gerät"
     assert "Anmeldeform" in z["fehler"], z["fehler"]
+    assert "zweites SyncYouTube" in z["fehler"], "Runde 2: die zweite mögliche Ursache fehlt"
 
 
 def _warnung(tmp_path, z):
@@ -481,6 +541,9 @@ def test_film_warnung_sagt_je_fehlerart_was_los_ist(tmp_path):
     er antwortete, er lehnte nur die Anmeldeform ab."""
     w = _warnung(tmp_path, dict(BASIS_Z, fehler_art="merkmal_abgelehnt"))
     assert "antwortet" not in w and "Anmeldeform" in w and "12.1.0" in w, w
+    # Prüfung Runde 2: dieselbe Lage entsteht, wenn zwei SyncYouTube-Prozesse
+    # (exe und Quellstart) mit derselben DeviceId laufen — ehrlich beide nennen.
+    assert "zweites SyncYouTube" in w and "Gerätekennung" in w, w
     assert "5100" in w, "der Hinweis auf den gezeigten Spiegel fehlt"
     w = _warnung(tmp_path, dict(BASIS_Z, fehler_art="anmeldung_abgelehnt"))
     assert "Passwort" in w and "Sync-Jellyfin" in w and "antwortet" not in w, w
@@ -775,6 +838,34 @@ def test_aelteres_gesehen_geht_nicht_verloren(tmp_path, monkeypatch):
     assert _queue() == eintraege
 
 
+def test_abgewiesenes_gesehen_bleibt_auch_wenn_die_juengere_stelle_ankommt(tmp_path, monkeypatch):
+    """Prüfung Runde 2 (niedrig): Weist Jellyfin das „gesehen" ab (4xx) und nimmt
+    die jüngere Stelle an, rechnete der Stellen-Schritt das „gesehen" mit zu
+    seinen erledigten Einträgen — und _aufraeumen prüft „erledigt" vor
+    „abgewiesen": die Meldung verschwand, obwohl der Docstring „Gelöscht wird er
+    nicht" zusagt. Eine bloße Stelle erledigt nie ein „gesehen"."""
+    _einrichten(tmp_path, monkeypatch)
+    _queue_setzen([{"item": "f1", "position_s": 2350, "gesehen": True, "ts": 1.0},
+                   {"item": "f1", "position_s": 40, "gesehen": False, "ts": 2.0}])
+    jf = JellyfinAttrappe("12", antworten=[("/System/Info", 200, {}),
+                                           ("/Sessions/Playing/Progress", 204, b""),
+                                           ("/PlayedItems/", 400, b"")])
+    monkeypatch.setattr(filme, "_http", jf)
+    assert filme.fortschritt_nachreichen() == 1
+    assert _meldungen(jf) == [("gesehen", "f1", None), ("progress", "f1", 40)], _meldungen(jf)
+    q = _queue()
+    assert [(m["item"], m["gesehen"], m.get("abgewiesen")) for m in q] == [
+        ("f1", True, True)], q
+    # Eine ältere Stelle VOR dem „gesehen" ist mit der jüngeren Stelle erledigt.
+    _queue_setzen([{"item": "f1", "position_s": 30, "gesehen": False, "ts": 0.5},
+                   {"item": "f1", "position_s": 2350, "gesehen": True, "ts": 1.0},
+                   {"item": "f1", "position_s": 40, "gesehen": False, "ts": 2.0}])
+    assert filme.fortschritt_nachreichen() == 1
+    q = _queue()
+    assert [(m["position_s"], m["gesehen"], m.get("abgewiesen")) for m in q] == [
+        (2350, True, True)], q
+
+
 def test_abgelehnte_anmeldeform_ist_kein_kaputter_eintrag(tmp_path, monkeypatch):
     """401 auch nach frischer Anmeldung ist ein Server-/Zugangsproblem, kein
     Fehler des Eintrags: nichts wird als abgewiesen markiert, alles bleibt für
@@ -863,7 +954,7 @@ def test_browser_proxy_antwortet_bei_jellyfin_fehler_ehrlich(tmp_path, monkeypat
 
     import youtube_app as app
     geheim = "https://jelly.example/Videos/f1/stream?static=true&api_key=GEHEIM-TOKEN"
-    monkeypatch.setattr(filme, "stream_url", lambda iid: geheim)
+    monkeypatch.setattr(filme, "stream_url", lambda iid, druck=False: geheim)
     for fehler, status_soll, wort in (
             (urllib.error.HTTPError(geheim, 401, "Unauthorized", {}, io.BytesIO(b"")), 401, "401"),
             (urllib.error.HTTPError(geheim, 503, "Unavailable", {}, io.BytesIO(b"")), 503, "503"),
@@ -900,7 +991,7 @@ def test_transcoder_zweig_antwortet_bei_jellyfin_fehler_ehrlich(tmp_path, monkey
 
     import youtube_app as app
     geheim = "https://jelly.example/Videos/f1/stream?static=true&api_key=GEHEIM-TOKEN"
-    monkeypatch.setattr(filme, "stream_url", lambda iid: geheim)
+    monkeypatch.setattr(filme, "stream_url", lambda iid, druck=False: geheim)
     monkeypatch.setattr(app, "_ffmpeg_exe", lambda: r"C:\bin\ffmpeg.exe")
     gestartet, jellyfin = [], {"gibt_heraus": False}
 

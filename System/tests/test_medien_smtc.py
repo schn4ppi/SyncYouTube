@@ -968,7 +968,7 @@ def neustart_welt(monkeypatch, vlc_attrappe):
     monkeypatch.setattr(app.Q, "items", [])
     monkeypatch.setattr(app, "_letzter_stream", 0.0)
     uhr = types.SimpleNamespace(t=1_000_000.0)
-    monkeypatch.setattr(app, "_pause_uhr", lambda: uhr.t, raising=False)
+    monkeypatch.setattr(app, "_pause_uhr", lambda: uhr.t)   # umbenannt? dann laut (AttributeError)
     return uhr
 
 
@@ -1019,6 +1019,29 @@ def test_pause_zaehlt_ab_ihrem_beginn_nicht_ab_der_ersten_pruefung(monkeypatch, 
     assert app._code_leerlauf() is False, "die neue Pause erbt den Beginn der alten"
     uhr.t += 6 * MINUTE
     assert app._code_leerlauf() is True
+
+
+def test_neue_pause_erbt_nie_den_beginn_der_alten_auch_vor_ihrer_meldung(monkeypatch, vlc_attrappe,
+                                                                         neustart_welt):
+    """Prüfung Runde 2 (niedrig): Nur MediaPlayerPaused schrieb pause_seit;
+    gelöscht wurde es nur von der Prüfung und von _vlc_reset. libvlc stellt den
+    Zustand auf Paused und meldet es erst danach (auf seinem Faden, hinter dem
+    GIL). Traf eine Prüfung dieses Fenster, rechnete sie mit dem Beginn der
+    VORIGEN Pause — lag der über 30 Minuten zurück, war der Neustart sofort
+    frei. Jetzt löscht jede andere libvlc-Meldung (Spielen, Stopp, Ende,
+    Fehler) den Beginn; im Fenster zählt dann die erste Beobachtung."""
+    monkeypatch.setattr(vlc_attrappe.Spieler, "meldet", True)
+    uhr = neustart_welt
+    app.vlc_kommando({"cmd": "play", "key": "abc|mp3"})
+    sp = app._vlc["spieler"]
+    app.vlc_kommando({"cmd": "pause"})
+    sp.ereignisse.abwarten()
+    uhr.t += 40 * MINUTE                               # lange Pause, keine Prüfung dazwischen
+    app.vlc_kommando({"cmd": "toggle"})                # weiter: libvlc meldet Spielen
+    sp.ereignisse.abwarten()
+    uhr.t += MINUTE
+    sp.zustand = "p"                                   # schon pausiert, die Meldung ist noch unterwegs
+    assert app._code_leerlauf() is False, "die neue Pause erbte den Beginn der alten: Neustart frei"
 
 
 def test_pause_ohne_libvlc_meldung_zaehlt_ab_der_ersten_beobachtung(vlc_attrappe, neustart_welt):
