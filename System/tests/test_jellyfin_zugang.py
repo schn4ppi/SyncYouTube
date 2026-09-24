@@ -667,6 +667,70 @@ def test_browser_proxy_antwortet_bei_jellyfin_fehler_ehrlich(tmp_path, monkeypat
         assert "GEHEIM-TOKEN" not in blob and "jelly.example" not in blob, blob
 
 
+class _Strom:
+    """urlopen-Antwort (Kontextmanager) für die Vorprobe."""
+    status = 206
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_transcoder_zweig_antwortet_bei_jellyfin_fehler_ehrlich(tmp_path, monkeypatch):
+    """Prüfung Runde 1 (mittel): Der tc=1-Zweig (HEVC/AC3/DTS im Browser und der
+    Rückfall nach jedem Fehler im Direkt-Zweig) schickte `200` ab, BEVOR ffmpeg
+    ein Byte hatte. Lehnte Jellyfin die Adresse ab, bekam der Browser 200 mit
+    leerem Strom. Jetzt fragt der Server vorab EIN Byte (Range 0-0) und
+    antwortet bei einem Fehler wie der Direkt-Zweig — ffmpeg startet dann gar
+    nicht. Nie die Adresse (sie trägt das Token)."""
+    import io
+
+    import youtube_app as app
+    geheim = "https://jelly.example/Videos/f1/stream?static=true&api_key=GEHEIM-TOKEN"
+    monkeypatch.setattr(filme, "stream_url", lambda iid: geheim)
+    monkeypatch.setattr(app, "_ffmpeg_exe", lambda: r"C:\bin\ffmpeg.exe")
+    gestartet, jellyfin = [], {"gibt_heraus": False}
+
+    class Prozess:
+        """ffmpeg liest die Adresse selbst: lehnt Jellyfin ab, kommt NICHTS."""
+        def __init__(self, cmd):
+            gestartet.append(cmd)
+            self.stdout = io.BytesIO(b"FMP4" * 4 if jellyfin["gibt_heraus"] else b"")
+
+        def kill(self):
+            pass
+    monkeypatch.setattr(app, "_tc_starten", Prozess)
+    pfad = "/api/filme/direkt?id=f1&tc=1&vcopy=1&start=0"
+    for fehler, status_soll, wort in (
+            (urllib.error.HTTPError(geheim, 401, "Unauthorized", {}, io.BytesIO(b"")), 401, "401"),
+            (urllib.error.HTTPError(geheim, 404, "Not Found", {}, io.BytesIO(b"")), 404, "404"),
+            (urllib.error.URLError("getaddrinfo failed: jelly.example"), 502, "nicht erreichbar"),
+            (TimeoutError("timed out"), 502, "nicht erreichbar")):
+        def fake_urlopen(req, timeout=None, _f=fehler):
+            raise _f
+        monkeypatch.setattr(app.urllib.request, "urlopen", fake_urlopen)
+        status, antwort = _route(pfad, lokal=False)
+        assert status == status_soll, (fehler, status, antwort)
+        assert wort in antwort["fehler"], antwort
+        blob = json.dumps(antwort)
+        assert "GEHEIM-TOKEN" not in blob and "jelly.example" not in blob, blob
+        assert gestartet == [], "ffmpeg darf bei abgelehntem Strom nicht starten"
+    # Gesund: die Vorprobe fragt genau ein Byte, dann streamt ffmpeg wie bisher.
+    proben = []
+
+    def gesund(req, timeout=None):
+        proben.append((req.full_url, req.get_header("Range")))
+        return _Strom()
+    monkeypatch.setattr(app.urllib.request, "urlopen", gesund)
+    jellyfin["gibt_heraus"] = True
+    status, rumpf = _route(pfad, lokal=False)
+    assert status == 200 and rumpf == b"FMP4" * 4, (status, rumpf)
+    assert proben == [(geheim, "bytes=0-0")], proben
+    assert len(gestartet) == 1 and geheim in gestartet[0]
+
+
 def test_alter_zustand_ohne_fehlerart_wird_nicht_nachtraeglich_eingeordnet(tmp_path, monkeypatch):
     """JBs filme_zustand.json vom 24.09. trägt „Items-Abruf HTTP 401" OHNE
     fehler_art. Daraus darf keine erfundene Einordnung werden: Anzeige und

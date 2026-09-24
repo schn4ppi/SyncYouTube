@@ -5648,6 +5648,37 @@ def _tc_starten(cmd):
             cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return _tc_prozess
+
+
+def _strom_fehler(e=None):
+    """(Status, Körper) für einen Jellyfin-Strom, den Renés Server nicht
+    herausgibt — EINE Stelle für Direkt- und Transcoder-Zweig des Browser-
+    Proxys: Jellyfins Status (HTTPError) oder 502 (Netz). Nie die Adresse
+    (sie trägt das Token)."""
+    if isinstance(e, urllib.request.HTTPError):
+        return e.code, {"fehler": f"Renés Server gibt den Film nicht heraus "
+                                  f"(Jellyfin HTTP {e.code}).",
+                        "jellyfin_status": e.code}
+    return 502, {"fehler": "Renés Server nicht erreichbar."}
+
+
+def _strom_vorprobe(url):
+    """Gibt Jellyfin den Strom heraus? EIN Byte fragen (Range 0-0): None = ja,
+    sonst (Status, Körper) wie _strom_fehler. Für den Transcoder-Zweig
+    (Prüfung Runde 1): ffmpeg liest die Adresse selbst, und der Proxy schickte
+    200, bevor ffmpeg ein Byte hatte — eine Ablehnung kam beim Browser als 200
+    mit leerem Strom an."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(
+                url, headers={"Range": "bytes=0-0"}), timeout=30):
+            return None
+    except urllib.request.HTTPError as e:
+        e.close()
+        return _strom_fehler(e)
+    except OSError:                                  # URLError, Zeitüberschreitung
+        return _strom_fehler()
+
+
 _letzter_stream = 0.0
 _START_SIGNATUR = None                               # in main() gesetzt
 _neu_sig = None
@@ -6102,6 +6133,9 @@ class Handler(BaseHTTPRequestHandler):
             if (q.get("tc") or ["0"])[0] == "1":
                 if not _ffmpeg_exe():
                     return _antwort(self, 503, {"fehler": "ffmpeg fehlt"})
+                abgelehnt = _strom_vorprobe(url)
+                if abgelehnt:                            # ehrlich wie der Direkt-Zweig; ffmpeg startet nicht
+                    return _antwort(self, *abgelehnt)
                 try:
                     start = max(0, int(float((q.get("start") or ["0"])[0])))
                 except (TypeError, ValueError):
@@ -6142,12 +6176,9 @@ class Handler(BaseHTTPRequestHandler):
                     # Strom. Jetzt Jellyfins Status und ein kurzer Text; nie die
                     # Adresse (sie trägt das Token).
                     e.close()
-                    return _antwort(self, e.code, {
-                        "fehler": f"Renés Server gibt den Film nicht heraus "
-                                  f"(Jellyfin HTTP {e.code}).",
-                        "jellyfin_status": e.code})
+                    return _antwort(self, *_strom_fehler(e))
                 except OSError:                          # URLError, Zeitüberschreitung
-                    return _antwort(self, 502, {"fehler": "Renés Server nicht erreichbar."})
+                    return _antwort(self, *_strom_fehler())
                 with r:
                     self.send_response(r.status)
                     for h in ("Content-Type", "Content-Length",
