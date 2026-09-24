@@ -183,7 +183,12 @@ def test_abzug_scheitert_spiegel_bleibt(tmp_path, monkeypatch):
     # NICHT sofort den naechsten Abzug anstossen - sonst haemmert er in
     # Dauerschleife auf Renés Server ein (live fast passiert am 05.08.).
     assert filme.sync_faellig(alter_s=0) is False, "Fehlschlag ohne Backoff"
+    # Backoff abgelaufen: Seit 24.09. steht die Stufe in filme_zustand.json
+    # (übersteht den Selbst-Neustart) — also dort 31 Minuten zurückdrehen,
+    # nicht nur den Prozess-Merker löschen.
     filme._fehlversuch_ts = 0.0
+    filme.fam.json_aendern(filme._pfade["zustand"], lambda d: d.__setitem__(
+        "letzter_versuch", d["letzter_versuch"] - 31 * 60))
     assert filme.sync_faellig(alter_s=0) is True
 
 

@@ -31,6 +31,7 @@ _anmelde_lock = threading.Lock()           # EINE Anmeldung zur Zeit (s. _anmeld
 _datei_locks = {}                          # je Pfad ein Lock (s. _json_aendern)
 _datei_locks_lock = threading.Lock()
 FEHL_BACKOFF_S = 30 * 60                   # nach Fehlschlag frühestens in 30 min wieder
+FEHL_BACKOFF_MAX_S = 6 * 3600              # Staffel 30 min, 1 h, 2 h, 4 h, dann 6 h
 META_HALTBAR_S = 14 * 24 * 3600            # Ratings altern langsam (Spec)
 OMDB_TAGES_DECKEL = 950                    # Free-Key: 1.000/Tag — Puffer lassen
 GERAET_KOPF = ('MediaBrowser Client="Sync", Device="SyncYouTube", '
@@ -46,6 +47,16 @@ ART_NETZ = "netz"                          # Zeitüberschreitung, Verbindung, DN
 ART_SERVER = "server"                      # 5xx, sonstiger Status, unlesbare Antwort
 ART_KEIN_ZUGANG = "kein_zugang"            # nichts im Keyring
 ZUGANG_ARTEN = (ART_MERKMAL, ART_ANMELDUNG, ART_DROSSEL, ART_KEIN_ZUGANG)
+# Kurztexte ohne Adresse und ohne Rohtext: die dürfen auch an fremde Geräte im
+# WLAN (die Zustands-Route maskiert den rohen Fehlertext, s. youtube_app).
+FEHLER_ART_TEXT = {
+    ART_MERKMAL: "Renés Server lehnt die Anmeldeform ab (HTTP 401 trotz frischer Anmeldung)",
+    ART_ANMELDUNG: "Renés Server lehnt Benutzer oder Passwort ab (HTTP 401 bei der Anmeldung)",
+    ART_DROSSEL: "Renés Server bremst gerade die Anmeldung (HTTP 403, vorübergehend)",
+    ART_NETZ: "Renés Server nicht erreichbar",
+    ART_SERVER: "Renés Server antwortet fehlerhaft",
+    ART_KEIN_ZUGANG: "Kein Jellyfin-Zugang im Keyring (Sync-Jellyfin)",
+}
 MERKMAL_RUHE_S = 600                       # frisches Token abgelehnt ⇒ 10 min keine Anmeldung
 _anmelde_art = ""                          # Grund der letzten gescheiterten Anmeldung
 GENRE_JE_TYP = 100                         # Filme UND Serien je bis hierhin (s. reihen())
@@ -420,10 +431,23 @@ def _zustand_merken(erg):
             d["fehlversuche"] = 0
         else:
             d["fehler"] = erg.get("fehler") or "unbekannt"
-            d["fehlversuche"] = int(d.get("fehlversuche") or 0) + 1
+            # Die Fehlerart (24.09.): „antwortet nicht" passte auf den echten
+            # Ausfall nicht — der Server antwortete, er lehnte die Anmeldeform ab.
+            d["fehler_art"] = erg.get("art") or ART_SERVER
+            try:
+                d["fehlversuche"] = int(d.get("fehlversuche") or 0) + 1
+            except (TypeError, ValueError):
+                d["fehlversuche"] = 1
             d.setdefault("fehler_seit", jetzt)
         if erg.get("ok"):
             d.pop("fehler_seit", None)
+            d.pop("fehler_art", None)
+        # Die TATSÄCHLICHE Server-Version, sobald bekannt — auch aus einem
+        # Fehlschlag (/System/Info/Public). Der Spiegel zeigte sonst weiter
+        # „10.11.11", während Renés Server längst 12.1.0 war.
+        version = erg.get("server_version")
+        if version and version != "?":
+            d["server_version"] = version
     try:
         _json_aendern(_pfade["zustand"], _setzen, standard={})
     except (OSError, ValueError):          # Melden darf den Abzug nie kippen
@@ -436,28 +460,67 @@ def zustand():
 
     `still_seit_s` ist die Zeit seit dem letzten ERFOLG (nicht seit dem letzten
     Versuch): genau die Größe, die beim 403-Ausfall niemand sah."""
-    d = fam.json_laden(_pfade.get("zustand") or "", {}) or {}
+    d = _zustand_lesen()
     kat = katalog_lesen()
     stand = kat.get("stand") or 0
     erfolg = d.get("letzter_erfolg") or stand
+    fehler = d.get("fehler") or ""
     return {
         "stand": stand,
         "anzahl": len(kat.get("eintraege") or []),
-        "server_version": kat.get("server_version") or "?",
+        "server_version": d.get("server_version") or kat.get("server_version") or "?",
         "letzter_erfolg": erfolg,
         "letzter_versuch": d.get("letzter_versuch") or 0,
-        "fehler": d.get("fehler") or "",
-        "fehlversuche": int(d.get("fehlversuche") or 0),
+        "fehler": fehler,
+        "fehler_art": (d.get("fehler_art") or ART_SERVER) if fehler else "",
+        "fehlversuche": d["fehlversuche"],
         "still_seit_s": max(0.0, time.time() - erfolg) if erfolg else 0.0,
         "zugang": bool(_zugang()),
     }
 
 
+def _zustand_lesen():
+    """filme_zustand.json robust lesen — eine kaputte Datei darf weder die
+    Anzeige noch den Backoff umwerfen."""
+    d = fam.json_laden(_pfade.get("zustand") or "", {}) or {}
+    if not isinstance(d, dict):
+        d = {}
+    try:
+        d["fehlversuche"] = max(0, int(d.get("fehlversuche") or 0))
+    except (TypeError, ValueError):
+        d["fehlversuche"] = 0
+    try:
+        d["letzter_versuch"] = float(d.get("letzter_versuch") or 0)
+    except (TypeError, ValueError):
+        d["letzter_versuch"] = 0.0
+    return d
+
+
 def katalog_abzug():
     """Voll-Abzug → filme_katalog.json (atomar; scheitert er, bleibt der alte
     Spiegel stehen — Ausfall-Verhalten laut Spec). Der Ausgang wird IMMER in
-    `filme_zustand.json` festgehalten, siehe `_zustand_merken`."""
-    return _zustand_merken(_katalog_abzug())
+    `filme_zustand.json` festgehalten, siehe `_zustand_merken`.
+
+    Nichts fliegt ungezählt heraus (Nebenfund 24.09.): eine Ausnahme ließ
+    früher weder Zustand noch Backoff zurück, und der 5-s-Ticker stieß den
+    nächsten Abzug sofort an — bei einer Anmelde-Ausnahme alle 5 Sekunden."""
+    try:
+        erg = _katalog_abzug()
+    except Exception as e:                 # noqa: BLE001 — zählen statt ausbrechen
+        erg = _abzug_gescheitert(ART_SERVER, f"Abzug abgebrochen ({type(e).__name__})")
+    return _zustand_merken(erg)
+
+
+def _abzug_gescheitert(art, fehler, url=""):
+    """Fehlschlag mit Backoff. Bei abgelehnter Anmeldeform zusätzlich die
+    Server-Version ohne Anmeldung holen: dann ist die Ursache sofort benannt
+    (der Ausfall vom 23.09. hätte „Jellyfin 12.1.0" gezeigt statt „10.11.11")."""
+    global _fehlversuch_ts
+    _fehlversuch_ts = time.time()
+    erg = {"ok": False, "anzahl": 0, "art": art, "fehler": fehler}
+    if art == ART_MERKMAL and url:
+        erg["server_version"] = _server_version_public(url)
+    return erg
 
 
 def _katalog_abzug():
@@ -468,9 +531,9 @@ def _katalog_abzug():
                 "fehler": "Kein Zugang im Keyring (Sync-Jellyfin)."}
     s = _anmelden()
     if not s:
-        _fehlversuch_ts = time.time()
-        return {"ok": False, "anzahl": 0, "art": _anmelde_art or ART_NETZ,
-                "fehler": "Anmeldung fehlgeschlagen."}
+        art = _anmelde_art or ART_NETZ
+        return _abzug_gescheitert(art, FEHLER_ART_TEXT.get(art) or "Anmeldung fehlgeschlagen.",
+                                  z["url"])
     # Live gemessen (05.08., Renés Server): der Voll-Abzug in EINEM Ruf läuft
     # in jeden Timeout (>300 s), und MediaStreams ist das teure Feld (63 s für
     # 200 Titel MIT, 57 s für 1000 OHNE). Darum: seitenweise à 1000 ohne
@@ -486,25 +549,25 @@ def _katalog_abzug():
             f"&IncludeItemTypes=Movie,Series&Fields={felder}"
             f"&StartIndex={start}&Limit=1000", timeout=180)
         if art == ART_MERKMAL:
-            _fehlversuch_ts = time.time()
-            return {"ok": False, "anzahl": 0, "art": art,
-                    "fehler": "Items-Abruf HTTP 401 trotz frischer Anmeldung "
-                              "(Anmeldeform abgelehnt)"}
+            return _abzug_gescheitert(art, "Items-Abruf HTTP 401 trotz frischer Anmeldung "
+                                           "(Anmeldeform abgelehnt)", z["url"])
         if art:
-            _fehlversuch_ts = time.time()
-            return {"ok": False, "anzahl": 0, "art": art,
-                    "fehler": f"Items-Abruf: {ausnahme}" if ausnahme
-                    else "Anmeldung fehlgeschlagen."}
+            return _abzug_gescheitert(art, f"Items-Abruf: {ausnahme}" if ausnahme
+                                      else FEHLER_ART_TEXT.get(art) or "Anmeldung fehlgeschlagen.")
         if st != 200:
-            _fehlversuch_ts = time.time()
-            return {"ok": False, "anzahl": 0, "art": ART_SERVER,
-                    "fehler": f"Items-Abruf HTTP {st}"}
-        d = json.loads(roh)
-        seite = d.get("Items") or []
+            return _abzug_gescheitert(ART_SERVER, f"Items-Abruf HTTP {st}")
+        try:
+            d = json.loads(roh)
+            seite = d.get("Items") or []
+            neue = [_eintrag(it) for it in seite]
+            gesamt = d.get("TotalRecordCount") or len(seite)
+        except (ValueError, AttributeError, TypeError):
+            # 200 ohne lesbares JSON (Wartungs- oder Proxy-Seite): zählen und
+            # warten, nicht mit einer Ausnahme am Backoff vorbei.
+            return _abzug_gescheitert(ART_SERVER, "Items-Abruf: unlesbare Antwort (kein JSON)")
         if not seite:
             break
-        eintraege.extend(_eintrag(it) for it in seite)
-        gesamt = d.get("TotalRecordCount") or len(seite)
+        eintraege.extend(neue)
         start += 1000
     # Die Version der Sitzung, die die letzte Seite geholt hat (nach einer
     # Neuanmeldung steht sie in _sitzung, nicht in der Kopie vom Anfang).
@@ -513,8 +576,11 @@ def _katalog_abzug():
         "stand": time.time(), "server_version": version,
         "eintraege": eintraege})
     _fehlversuch_ts = 0.0                  # Erfolg löst den Backoff
-    fortschritt_nachreichen()              # liegengebliebene Meldungen mitnehmen
-    return {"ok": True, "anzahl": len(eintraege), "fehler": ""}
+    try:
+        fortschritt_nachreichen()          # liegengebliebene Meldungen mitnehmen
+    except Exception:                      # noqa: BLE001 — der Abzug selbst ist gelungen
+        pass
+    return {"ok": True, "anzahl": len(eintraege), "fehler": "", "server_version": version}
 
 
 def katalog_lesen():
@@ -525,14 +591,38 @@ def katalog_lesen():
         return {"stand": 0, "server_version": "?", "eintraege": []}
 
 
+def backoff_s(fehlversuche):
+    """Wartezeit nach `fehlversuche` Fehlschlägen in Folge: 30 min, 1 h, 2 h,
+    4 h, dann höchstens 6 h (so fällt die Automatik nie ganz aus)."""
+    try:
+        n = int(fehlversuche or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        return 0
+    return min(FEHL_BACKOFF_S * 2 ** min(n - 1, 16), FEHL_BACKOFF_MAX_S)
+
+
 def sync_faellig(alter_s=6 * 3600):
     """Fällig nach 6 h — aber NIE direkt nach einem Fehlschlag: sonst hämmert
     der 5-s-Ticker bei totem/langsamem Server in Dauerschleife auf Renés
     Rechner ein (live fast passiert am 05.08. — Timeout-Lauf und der Ticker
-    stieß sofort den nächsten an). Backoff = Selbstheilungs-Regel."""
-    if time.time() - _fehlversuch_ts < FEHL_BACKOFF_S:
+    stieß sofort den nächsten an). Backoff = Selbstheilungs-Regel.
+
+    Seit 24.09. mit Gedächtnis: Der Backoff stand nur im Prozess-Speicher, und
+    die App startet sich bei jeder Code-Änderung selbst neu — danach war der
+    Abzug sofort wieder fällig (51 Versuche in gut 18 Stunden). Jetzt zählen
+    `fehlversuche` und `letzter_versuch` aus filme_zustand.json, gestaffelt
+    (backoff_s). Der Knopf ⟳ Abgleichen fragt hier nicht nach: er bleibt frei."""
+    jetzt = time.time()
+    if jetzt - _fehlversuch_ts < FEHL_BACKOFF_S:
         return False
-    return (time.time() - (katalog_lesen().get("stand") or 0)) >= alter_s
+    d = _zustand_lesen()
+    zuletzt = d["letzter_versuch"]
+    # Ein Zeitstempel weit in der Zukunft (Uhr verstellt) darf nicht ewig sperren.
+    if d["fehlversuche"] and zuletzt <= jetzt + 60 and jetzt - zuletzt < backoff_s(d["fehlversuche"]):
+        return False
+    return (jetzt - (katalog_lesen().get("stand") or 0)) >= alter_s
 
 
 # ---------------------------------------------------------------- Bilder
@@ -723,8 +813,12 @@ def episoden(serien_id):
         f"/Shows/{sauber}/Episodes?userId={{uid}}&Fields=RunTimeTicks", timeout=30)
     if art or st != 200:
         return []
+    try:
+        items = json.loads(roh).get("Items") or []
+    except (ValueError, AttributeError):   # Wartungs-/Proxy-Seite statt JSON
+        return []
     out = []
-    for it in json.loads(roh).get("Items") or []:
+    for it in items:
         ud = it.get("UserData") or {}
         ticks = it.get("RunTimeTicks") or 0
         out.append({"id": it.get("Id") or "", "titel": it.get("Name") or "",
