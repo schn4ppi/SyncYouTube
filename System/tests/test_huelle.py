@@ -46,6 +46,9 @@ import youtube_app as app  # noqa: E402  (Import startet keinen Server)
 vlc_attrappe = test_medien_smtc.vlc_attrappe          # Fixture: nachgebautes python-vlc
 
 HWND = 4242
+# Die Abmeldung beim Schließen der Hülle: vergleichen und löschen (nur_wenn)
+# und — JB 24.09.2026 „Pausieren" — ein Video in genau diesem Panel anhalten.
+ZU = {"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND, "pausieren_wenn_video": True}
 
 
 # ---------------------------------------------------------------- Attrappen
@@ -391,7 +394,9 @@ def test_schliessen_meldet_nur_das_eigene_panel_ab(dotnet, netz, webview_attrapp
     """Fenster zu (webview.start() kehrt zurück): die Hülle meldet ihr Panel
     ab — im Hauptfaden, mit kurzem Timeout, und nur als „vergleichen und
     löschen": der Server nullt nur, wenn noch DIESES Fenster angemeldet ist
-    (eine zweite, neuere Hülle bleibt eingebettet)."""
+    (eine zweite, neuere Hülle bleibt eingebettet). In DERSELBEN Anfrage bittet
+    sie, ein Video in ihrem Panel anzuhalten (JB 24.09.: „Pausieren"; was der
+    Server daraus macht, prüft der Abschnitt „Hülle zu" unten)."""
     waehrend = []
 
     def leben(fenster):
@@ -402,7 +407,7 @@ def test_schliessen_meldet_nur_das_eigene_panel_ab(dotnet, netz, webview_attrapp
     assert huelle.main() == 0
     assert all(d.get("hwnd") for d in waehrend), "abgemeldet, solange das Fenster offen war"
     letzte = netz.anfragen[-1]
-    assert letzte["daten"] == {"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND}, letzte
+    assert letzte["daten"] == ZU, letzte
     assert letzte["timeout"] is not None and letzte["timeout"] <= 2, letzte["timeout"]
     assert letzte["hauptfaden"], "Abmelden gehört in den Hauptfaden (nie in den UI-Faden)"
 
@@ -423,7 +428,7 @@ def test_schliessen_bei_totem_server_endet_trotzdem(dotnet, monkeypatch, webview
     t0 = time.monotonic()
     assert huelle.main() == 0
     assert time.monotonic() - t0 < 3
-    assert netz.an_vlc()[-1] == {"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND}
+    assert netz.an_vlc()[-1] == ZU
 
 
 # ------------------------------------------ Befund 2: Server-Seite (/api/vlc)
@@ -790,3 +795,175 @@ def test_gleichzeitige_anmeldungen_legen_genau_ein_panel_an(dotnet, netz, monkey
         gemeldet = {d["hwnd"] for d in netz.an_vlc()}
         assert len(form.panels) == 1, (zweiter, f"{len(form.panels)} Panels angelegt")
         assert gemeldet == {api._video._hwnd}, (zweiter, gemeldet, api._video._hwnd)
+
+
+# -------- Hülle zu, während darin ein Video über VLC läuft (JB 24.09.2026)
+# JB: „Pausieren" (Musik läuft in jedem Fall weiter). Bisher meldete die Hülle
+# ihr Panel nur ab: das Video lief im Server-VLC weiter, sein Bild ins
+# zerstörte Panel — hörbar, aber unsichtbar. Jetzt entscheidet der Server in
+# DERSELBEN Anfrage, unter derselben Sperre (kein Wettlauf zwischen
+# Status-Abfrage und Pause): läuft ein VIDEO in genau DIESES Panel, pausiert er
+# es — pausiert, nicht gestoppt, die Stelle bleibt. Musik, ein Video in VLCs
+# eigenem Fenster und eines im Panel einer anderen Hülle bleiben unberührt.
+#
+# Die Attrappe modelliert den Unterschied, auf den es ankommt: set_hwnd wirkt
+# erst beim NÄCHSTEN Medium (libvlc). Ein Video, das vor der Anmeldung eines
+# Panels startete, bleibt in VLCs eigenem Fenster, auch wenn das Handle danach
+# gesetzt ist — „eingebettet" im Status sagt darum nicht, wohin das LAUFENDE
+# Bild geht.
+
+FILM = {"key": "film:f1", "url": "http://jellyfin.test/strom"}
+LIVE = {"key": "live:Das Erste", "url": "http://live.test/strom"}
+
+
+@pytest.fixture
+def video(vlc_attrappe, tmp_path):
+    """Ein Bibliotheks-Video (dieselbe Grenze wie die Seite: die Datei ist
+    keine Audio-Datei, dateiart 'video')."""
+    datei = tmp_path / "clip.mp4"
+    datei.write_bytes(b"x" * 10)
+    app._geladen["vid|beste"] = {"pfad": str(datei), "titel": "Ein Video"}
+    return {"key": "vid|beste"}
+
+
+def _spielt_im_panel(fenster_welt, start):
+    """Panel angemeldet, DANACH gestartet: das Bild geht ins Panel."""
+    fenster_welt[HWND] = 77
+    app.vlc_kommando({"cmd": "fenster", "hwnd": HWND, "pid": 77})
+    st = app.vlc_kommando({"cmd": "play", **start})
+    assert st["zustand"] == "spielt" and st["eingebettet"] is True, st
+    sp = app._vlc["spieler"]
+    sp.rufe.clear()
+    return sp
+
+
+def _angehalten(sp):
+    return [r for r in sp.rufe if r[0] in ("pause", "toggle", "stop")]
+
+
+@pytest.mark.parametrize("art", ["bibliothek", "film", "live"])
+def test_huelle_zu_pausiert_das_video_in_ihrem_panel(video, fenster_welt, art):
+    """Bibliotheks-Video, Jellyfin-Film und Live-TV im Panel: pausiert (nicht
+    gestoppt — der Titel bleibt geladen, JB kann an der Stelle weiter), und
+    das Panel ist abgemeldet."""
+    start = {"bibliothek": video, "film": FILM, "live": LIVE}[art]
+    sp = _spielt_im_panel(fenster_welt, start)
+    st = app.vlc_kommando(dict(ZU))
+    assert _angehalten(sp) == [("pause", 1)], f"{art}: {sp.rufe}"
+    assert st["zustand"] == "pause", f"{art}: das Video läuft ins zerstörte Panel weiter"
+    assert app._vlc["hwnd"] == 0 and st["eingebettet"] is False
+    assert app._vlc["key"] == start["key"], "gestoppt statt pausiert"
+
+
+def test_huelle_zu_laesst_musik_weiterspielen(vlc_attrappe, fenster_welt):
+    """Musik (Audio-Datei) im Gerät VLC: läuft weiter, nur das Panel geht."""
+    sp = _spielt_im_panel(fenster_welt, {"key": "abc|mp3"})
+    st = app.vlc_kommando(dict(ZU))
+    assert _angehalten(sp) == [], sp.rufe
+    assert st["zustand"] == "spielt" and app._vlc["hwnd"] == 0
+
+
+def test_huelle_zu_pausiert_kein_video_einer_anderen_huelle(video, fenster_welt):
+    """Das Video läuft im Panel einer anderen (neueren) Hülle, die alte geht
+    zu: nichts pausieren, nichts abmelden."""
+    fenster_welt.update({HWND: 77, 5151: 88})
+    app.vlc_kommando({"cmd": "fenster", "hwnd": 5151, "pid": 88})
+    app.vlc_kommando({"cmd": "play", **video})
+    sp = app._vlc["spieler"]
+    sp.rufe.clear()
+    st = app.vlc_kommando(dict(ZU))
+    assert sp.rufe == [] and st["zustand"] == "spielt"
+    assert app._vlc["hwnd"] == 5151 and st["eingebettet"] is True
+
+
+def test_huelle_zu_haelt_ein_video_in_vlcs_eigenem_fenster_nicht_an(video, fenster_welt):
+    """Das Video lief schon, bevor die Hülle ihr Panel anmeldete (etwa ein
+    Film vom Handy, im Vollbild): set_hwnd wirkt erst beim nächsten Medium,
+    das Bild ist in VLCs eigenem Fenster und bleibt beim Schließen der Hülle
+    sichtbar — nicht anhalten, obwohl der Status 'eingebettet' meldet."""
+    fenster_welt[HWND] = 77
+    app.vlc_kommando({"cmd": "play", **FILM})
+    st = app.vlc_kommando({"cmd": "fenster", "hwnd": HWND, "pid": 77})
+    assert st["eingebettet"] is True
+    sp = app._vlc["spieler"]
+    sp.rufe.clear()
+    st = app.vlc_kommando(dict(ZU))
+    assert _angehalten(sp) == [] and st["zustand"] == "spielt", sp.rufe
+    assert app._vlc["hwnd"] == 0
+
+
+def test_huelle_zu_pausiert_ihr_video_auch_nach_anmeldung_einer_neuen(video, fenster_welt):
+    """Das Video läuft im Panel der alten Hülle; eine neue meldet sich an (ihr
+    Handle gilt erst ab dem nächsten Medium). Die alte geht zu: ihr Video
+    pausiert, die Anmeldung der neuen bleibt."""
+    sp = _spielt_im_panel(fenster_welt, video)
+    fenster_welt[5151] = 88
+    app.vlc_kommando({"cmd": "fenster", "hwnd": 5151, "pid": 88})
+    sp.rufe.clear()
+    st = app.vlc_kommando(dict(ZU))
+    assert _angehalten(sp) == [("pause", 1)], sp.rufe
+    assert app._vlc["hwnd"] == 5151 and st["eingebettet"] is True
+
+
+@pytest.mark.parametrize("zustand", ["O", "B"])                  # Opening, Buffering
+def test_huelle_zu_pausiert_auch_ein_ladendes_video(video, fenster_welt, zustand):
+    """Ein Film, der gerade öffnet oder puffert (Jellyfin-Strom), läuft
+    gleich weiter — ins zerstörte Panel. Auch er wird angehalten."""
+    sp = _spielt_im_panel(fenster_welt, FILM)
+    sp.zustand = zustand
+    app.vlc_kommando(dict(ZU))
+    assert _angehalten(sp) == [("pause", 1)], sp.rufe
+
+
+def test_huelle_zu_setzt_ein_pausiertes_video_nicht_fort(video, fenster_welt):
+    """Schon pausiert: bleibt pausiert (ein Umschalten per toggle hätte es
+    gerade beim Schließen fortgesetzt)."""
+    sp = _spielt_im_panel(fenster_welt, video)
+    app.vlc_kommando({"cmd": "pause"})
+    sp.rufe.clear()
+    st = app.vlc_kommando(dict(ZU))
+    assert st["zustand"] == "pause" and ("toggle",) not in sp.rufe and ("pause", 0) not in sp.rufe
+
+
+def test_abmelden_ohne_pausen_wunsch_haelt_nichts_an(video, fenster_welt):
+    """Der Wunsch kommt nur von der schließenden Hülle: eine Abmeldung ohne
+    ihn (ältere Hülle) meldet nur ab, wie bisher."""
+    sp = _spielt_im_panel(fenster_welt, video)
+    st = app.vlc_kommando({"cmd": "fenster", "hwnd": 0, "nur_wenn": HWND})
+    assert _angehalten(sp) == [] and st["zustand"] == "spielt" and app._vlc["hwnd"] == 0
+
+
+class ServerNetz(Netz):
+    """urlopen-Attrappe, die /api/vlc an den ECHTEN Server-Befehl reicht
+    (im selben Prozess): der Test prüft den Vertrag zwischen Hülle und Server
+    am Ergebnis — spielt das Video nach dem Schließen noch?"""
+
+    def __call__(self, anfrage, timeout=None):
+        antwort = super().__call__(anfrage, timeout)
+        letzte = self.anfragen[-1]
+        if letzte["url"].endswith("/api/vlc") and letzte["daten"]:
+            app.vlc_kommando(letzte["daten"])
+        return antwort
+
+
+@pytest.mark.parametrize("art", ["video", "musik"])
+def test_huelle_schliessen_pausiert_video_und_laesst_musik(dotnet, monkeypatch, webview_attrappe,
+                                                           video, fenster_welt, art):
+    """Ende zu Ende: die Hülle legt ihr Panel an und meldet es an, ein Titel
+    startet hinein, das Fenster geht zu (webview.start kehrt zurück). Danach
+    ist das Panel abgemeldet; ein Video steht auf Pause, Musik spielt weiter."""
+    netz = ServerNetz()
+    monkeypatch.setattr(huelle.urllib.request, "urlopen", netz)
+    fenster_welt[HWND] = os.getpid()                             # das Panel lebt in DIESEM Prozess
+    start = video if art == "video" else {"key": "abc|mp3"}
+
+    def leben(fenster):
+        _leben_mit_panel(fenster)
+        st = app.vlc_kommando({"cmd": "play", **start})
+        assert st["eingebettet"] is True and st["zustand"] == "spielt", st
+
+    webview_attrappe.leben = leben
+    assert huelle.main() == 0
+    st = app.vlc_status()
+    assert app._vlc["hwnd"] == 0, "Panel nicht abgemeldet"
+    assert st["zustand"] == ("pause" if art == "video" else "spielt"), (art, st["zustand"])

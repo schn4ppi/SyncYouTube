@@ -9,7 +9,10 @@ noch nicht, startet die Hülle ihn selbst und wartet, bis er antwortet.
 
 Bedienung: F11 = Vollbild (TV-Modus-Grundlage; die eigene TV-Design-Runde
 folgt laut Spec separat). Fenster zu = nur die Hülle endet, der Server läuft
-weiter (Downloads/VLC spielen weiter — bewusst, wie der Browser-Tab vorher).
+weiter (Downloads und Musik im VLC laufen weiter — bewusst, wie der
+Browser-Tab vorher). Nur ein Video, das gerade in IHR Panel spielt, hält der
+Server beim Schließen an (JB 24.09.2026: „Pausieren"; sonst liefe es hörbar,
+aber unsichtbar weiter).
 
 NÄCHSTE ETAPPE (nicht hier): VLC-Video per set_hwnd IN dieses Fenster
 einbetten — dann ersetzt der VLC-Motor das <video>-Element vollständig und
@@ -169,14 +172,18 @@ class VideoFenster:
         renderte ins Leere, Filme verloren ihr Vollbild). 'nur_wenn' =
         vergleichen und löschen: der Server nullt nur, solange noch DIESES
         Fenster angemeldet ist; eine zweite offene Hülle bleibt eingebettet.
+        'pausieren_wenn_video' (JB 24.09.2026: „Pausieren"): spielt gerade
+        ein Video in DIESES Panel, hält der Server es an — er entscheidet das
+        in derselben Anfrage unter seiner VLC-Sperre (kein Wettlauf zwischen
+        Status-Abfrage und Pause); Musik läuft weiter.
         Läuft nach webview.start() im Hauptfaden — nie im closing-Handler,
         der synchron im UI-Faden läuft (fröre das Fenster bis zum Timeout
         ein). Server aus = nichts abzumelden, Fehler still."""
         if not self._hwnd:
             return
         try:
-            with self._an_server({"cmd": "fenster", "hwnd": 0, "nur_wenn": self._hwnd},
-                                 timeout=2):
+            with self._an_server({"cmd": "fenster", "hwnd": 0, "nur_wenn": self._hwnd,
+                                  "pausieren_wenn_video": True}, timeout=2):
                 pass
         except Exception:                            # noqa: BLE001 — Server aus/zu langsam
             pass

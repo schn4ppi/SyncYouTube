@@ -2534,6 +2534,7 @@ def fernsteuerung_info():
 _vlc = {"instanz": None, "spieler": None, "key": "", "grund": "", "vol_wunsch": None,
         "hwnd": 0,                                   # Hüllen-Fenster (set_hwnd, Etappe set_hwnd)
         "hwnd_pid": 0,                               # ... und der Prozess, dem es gehört
+        "hwnd_spiel": 0,                             # Fenster, in das das LAUFENDE Medium rendert
         "pause_seit": None}                          # Beginn der laufenden Pause (_pause_uhr)
 _vlc_lock = threading.RLock()   # RLock: die Selbstheilung wiederholt den Befehl im Lock
 
@@ -2601,6 +2602,47 @@ def _fenster_merken(daten):
     _vlc["hwnd"] = h
     _vlc["hwnd_pid"] = zahl(daten.get("pid")) if h else 0
     return True
+
+
+def _vlc_zeigt_bild(key):
+    """Zeigt dieser VLC-Titel ein Bild? film:/live: sind Videoströme; ein
+    Bibliotheks-Titel ist ein Video, wenn seine Datei keine Audio-Datei ist —
+    dieselbe Grenze wie 'dateiart' in bibliothek_liste, nach der die Seite
+    ihr Video-Panel zeigt (huelleVideoRect)."""
+    if key.startswith(("film:", "live:")):
+        return True
+    pfad = _pfad_zu_key(key) if key else None
+    return bool(pfad) and not pfad.lower().endswith(AUDIO_EXT)
+
+
+def _video_im_panel_pausieren(panel):
+    """Hülle zu (JB 24.09.2026: „Pausieren", Musik läuft in jedem Fall
+    weiter): läuft gerade ein VIDEO in genau dieses Panel, hart pausieren —
+    pausiert, nicht gestoppt, die Stelle bleibt. Sonst liefe es ins zerstörte
+    Fenster weiter: hörbar, aber unsichtbar. Maßgeblich ist das Fenster, das
+    beim Start des laufenden Mediums galt (hwnd_spiel), nicht das gerade
+    angemeldete: set_hwnd wirkt erst beim nächsten Medium, ein Video von vor
+    der Anmeldung zeigt VLCs eigenes Fenster und läuft weiter. „Läuft" heißt
+    spielt, öffnet oder puffert (ein ladender Film spielte gleich ins Leere).
+    set_pause(1) statt toggle: ein schon pausiertes Video bliebe sonst nicht
+    stehen. Nur unter _vlc_lock rufen. True = pausiert."""
+    try:
+        panel = int(panel or 0)
+    except (TypeError, ValueError):
+        return False
+    sp = _vlc["spieler"]
+    if not panel or sp is None or (_vlc.get("hwnd_spiel") or 0) != panel:
+        return False
+    if not _vlc_zeigt_bild(_vlc.get("key") or ""):
+        return False
+    try:
+        import vlc
+        if sp.get_state() not in (vlc.State.Playing, vlc.State.Opening, vlc.State.Buffering):
+            return False
+        sp.set_pause(1)
+        return True
+    except Exception:                                # noqa: BLE001 — abgemeldet wird trotzdem
+        return False
 
 
 def _vlc_reset():
@@ -2938,6 +2980,11 @@ def _vlc_kommando_kern(daten):
             return vlc_status()
         vorher = _vlc.get("hwnd") or 0
         if cmd == "fenster":
+            # Hülle zu: ein Video in IHREM Panel anhalten — in derselben
+            # Anfrage und unter derselben Sperre wie das Abmelden, damit
+            # zwischen Prüfen und Pausieren kein anderer Befehl liegt.
+            if daten.get("pausieren_wenn_video"):
+                _video_im_panel_pausieren(daten.get("nur_wenn"))
             if not _fenster_merken(daten):           # fremdes Fenster angemeldet: nichts tun
                 return vlc_status()
             if _vlc["spieler"] is None and not _vlc["hwnd"]:
@@ -2963,6 +3010,10 @@ def _vlc_kommando_kern(daten):
                     sp.set_media(_vlc["instanz"].media_new(pfad))
                 sp.play()
                 _vlc["key"] = daten.get("key") or ""
+                # Wohin rendert DIESES Medium? set_hwnd wirkt erst beim
+                # nächsten; die Hülle hält beim Schließen nur ein Video in
+                # ihrem eigenen Panel an (_video_im_panel_pausieren).
+                _vlc["hwnd_spiel"] = _vlc.get("hwnd") or 0
                 # Sprach-Wunsch fürs Nachziehen merken (die Spur-Liste ist erst
                 # NACH dem asynchronen Start da; leer/orig = Datei-Standard).
                 _vlc["ton_wunsch"] = (str(daten.get("ton") or "").lower() or None)
