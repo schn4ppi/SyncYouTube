@@ -4391,7 +4391,9 @@ def test_film_player_rueckweg():
     assert "vlcKeyLetzter=s.key" in quelle[i:_funktionsende(quelle, i)], \
         "der Film-Takt muss den key selbst pflegen"
     i = quelle.index("async function filmStopp")
-    assert "tvInfo(id)" in quelle[i:_funktionsende(quelle, i)], \
+    # Seit 24.09.2026 bei Folgen die Info der SERIE (tvInfo(infoId)); das
+    # Verhalten prueft tests/test_film_nebenfunde.py mit deno.
+    assert "tvInfo(infoId)" in quelle[i:_funktionsende(quelle, i)], \
         "<- muss zur Detailansicht zurueck"
     i = quelle.index("function tvFilmPlayer")
     assert "requestFullscreen" in quelle[i:_funktionsende(quelle, i)], \

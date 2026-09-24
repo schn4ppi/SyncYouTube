@@ -12,6 +12,8 @@ Seite, ausgeführt mit deno (Hilfen aus test_medientasten_verhalten.py):
   startete sie aber immer bei 0 — die Folgen-Kachel übergab ihre Stelle, der
   Knopf nicht. Jetzt gilt dieselbe Regel wie beim Landen per ⏮/⏭
   (tvpLandePos: gesehen, ab 90 % oder bis 30 s = Anfang).
+* Esc/← bei einer Folge mit geschlossener Info öffnete die Info der FOLGE
+  (typ 'folge', ohne Staffeln und Folgenliste) statt der Serie.
 
 Die Attrappe modelliert den Unterschied, um den es geht (Lehrbuch: „Attrappe
 muss den Unterschied modellieren"): welches Element ins Vollbild geht
@@ -94,3 +96,55 @@ aus({
     assert e["abspann"] == ["e2", 0], "ab 90 % (Abspann): von vorn, wie beim Landen per ⏮/⏭"
     assert e["neu"] == ["e2", 0]
     assert e["alle"] == ["e1", 0], "alles gesehen: erste Folge von vorn, auch mit alter Stelle"
+
+
+# ------------------------------------------------------------ Esc bei Folgen
+
+# Echtes filmStopp mit echtem tvpZu und tvpFolgePosMerken (tvpZu merkt die
+# Stelle in der Folgenliste, zeichnet aber nichts). tvInfoMalen schreibt mit,
+# was die Info-Seite zeigen würde: bei einer Serie die Stellen der Folgen,
+# bei einem Film seine Stelle.
+FILMSTOPP = r"""
+var tvpOffen=true, tvpIdAkt='', tvpPos=0, tvpMeta=null, vlcKeyLetzter='', vlcSpielt=false, tvFilmReihen=null,
+    tvInfoDaten=null, tvInfoOffen=false, tvpWechselGen=1, tvpWechsel=null, tvpModusNaechster=null,
+    tvpFolgenCache=null, _tvpSprungTimer=null, tvpModus='browser', tvpTc=false, tvpTcOffset=0, tvpTimer=null;
+const infos=[], bilder=[];
+globalThis.fetch=()=>Promise.resolve({});
+function tvpBefehl(){} function vlcBefehl(){} function toast(){} function zeit(s){return String(s);}
+function vlcPosGeschaetzt(){return 0;} function medienNachFilm(){} function tvpAbgeloestFreigeben(){}
+function tvInfo(id){infos.push(id);}
+function tvInfoMalen(){bilder.push(tvInfoDaten.d.typ==='serie'
+  ?tvInfoDaten.eps.map(x=>x.id+':'+x.position_s).join(',') :'film:'+tvInfoDaten.d.position_s);}
+function lage(o){
+  tvpOffen=o.offen??true; tvpIdAkt=o.id??''; tvpPos=o.pos??0; tvpMeta=o.meta??null;
+  vlcKeyLetzter=o.key??''; vlcSpielt=!!o.vlc; tvInfoOffen=!!o.info; tvInfoDaten=o.daten??null;
+  infos.length=0; bilder.length=0;
+}
+const E=(id,pos)=>({id, staffel:1, folge:+id.slice(1), laufzeit_min:40, position_s:pos, gesehen:false});
+"""
+
+
+def _filmstopp_teile():
+    q = _pc()
+    return [FILMSTOPP] + [_js_funktion(q, n) for n in ("tvpFolgePosMerken", "tvpZu", "filmLaeuft", "filmStopp")]
+
+
+def test_esc_bei_folge_oeffnet_die_info_der_serie(tmp_path):
+    """← führt IMMER zur Detailansicht zurück (JB) — bei einer Folge ist das
+    die Serie (serie_id aus tvpMeta), nicht die Folge selbst: deren Info hat
+    keine Staffeln und keine Folgenliste. Die Meta zählt nur, wenn sie zur
+    beendeten Kennung gehört (VLC ohne offenen Player: tvpMeta ist dann oft
+    vom vorigen Film übrig)."""
+    (e,) = _lauf(tmp_path, *_filmstopp_teile(), r"""
+const r={};
+lage({id:'e3', pos:1500, meta:{typ:'folge', serie_id:'s9', titel:'Dark · S1 F3'}});
+await filmStopp(); r.folge=[...infos];
+lage({id:'F1', pos:700, meta:{typ:'film', titel:'Film'}});
+await filmStopp(); r.film=[...infos];
+lage({offen:false, id:'e3', meta:{typ:'folge', serie_id:'s9'}, key:'film:F2', vlc:true});
+await filmStopp(); r.fremdeMeta=[...infos];
+aus(r);
+""")
+    assert e["folge"] == ["s9"], "Esc bei einer Folge: Info der SERIE"
+    assert e["film"] == ["F1"], "Esc bei einem Film: seine Info wie bisher"
+    assert e["fremdeMeta"] == ["F2"], "übrig gebliebene Meta einer anderen Kennung lenkt nicht um"

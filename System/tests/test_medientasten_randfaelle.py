@@ -548,7 +548,7 @@ def test_esc_speichert_die_offene_folge(tmp_path):
     q = _pc()
     (e,) = _lauf(tmp_path, r"""
 var tvpOffen=true, tvpIdAkt='F9', tvpPos=1234, vlcKeyLetzter='k1', vlcSpielt=true, tvFilmReihen=null,
-    tvInfoDaten=null, tvInfoOffen=true, tvpWechselGen=1, tvpWechsel=null, tvpModusNaechster=null;
+    tvInfoDaten=null, tvInfoOffen=true, tvpWechselGen=1, tvpWechsel=null, tvpModusNaechster=null, tvpMeta=null;
 const merk=[], vlc=[], zu=[];
 globalThis.fetch=(u,o)=>{merk.push(JSON.parse(o.body)); return Promise.resolve({});};
 function tvpBefehl(){} function vlcBefehl(c){vlc.push(c);} function tvpZu(){zu.push(1); tvpOffen=false;}

@@ -4637,6 +4637,11 @@ async function filmStopp(){
   }
   const id=tvpOffen?tvpIdAkt:(vlcKeyLetzter||'').slice(5); if(!id)return;
   const pos=Math.round((tvpOffen?tvpPos:vlcPosGeschaetzt())||0);
+  // Bei einer Folge führt ← zur Info der SERIE (die Folgen-Info hat keine
+  // Staffeln). Die Meta zählt nur, wenn sie zu dieser Kennung gehört — ohne
+  // offenen Player ist sie sonst vom vorigen Film übrig.
+  const meta=(tvpIdAkt===id&&tvpMeta)||{};
+  const infoId=(meta.typ==='folge'&&meta.serie_id)||id;
   tvpBefehl('stop'); vlcKeyLetzter=''; vlcSpielt=false;
   try{fetch('/api/filme/fortschritt',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({id, position_s:pos})}).catch(()=>{});}catch(e){}
@@ -4654,7 +4659,7 @@ async function filmStopp(){
   }
   toast('🎬 Film beendet — gemerkt bei '+zeit(pos)+'.');
   // ← bringt IMMER zur Detailansicht zurück (JB) — auch wenn sie zu war.
-  if(!tvInfoOffen&&id)tvInfo(id);
+  if(!tvInfoOffen&&id)tvInfo(infoId);
 }
 document.addEventListener('keydown',ev=>{
   // Esc beendet den laufenden Film — überall, außer ein Menü/Panel liegt oben
