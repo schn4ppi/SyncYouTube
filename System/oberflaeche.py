@@ -10850,7 +10850,11 @@ document.addEventListener('keydown',e=>{
       if(filmTasten()){const v=document.getElementById('tvp-video');   // Browser-Film: seinen Ton
         if(v){v.muted=!v.muted; toast(v.muted?'🔇 stumm':'🔊 Ton an');} return;}
       if(el){el.muted=!el.muted; toast(el.muted?'🔇 stumm':'🔊 Ton an');}},
-    vollbild:()=>plbFullscreen(), pip:()=>plbPip(),
+    // Film offen: F schaltet das FILM-Vollbild (wie der Knopf der Fernbedienung),
+    // I tut nichts — der Film hat kein Bild-in-Bild, die Musik darunter ist
+    // unsichtbar (Nebenbefund 24.09.: beide griffen in die Musik).
+    vollbild:()=>{if(filmTasten()){tvpVollbild(); return;} plbFullscreen();},
+    pip:()=>{if(filmTasten())return; plbPip();},
     untertitel:()=>{if(typeof subCycle==='function')subCycle();},
     anfang:()=>{if(filmTasten()){tvpSpringeAuf(0); return;} if(el)el.currentTime=0;},
     // Musik-Werkzeuge greifen bei offenem Film NICHT in die Musik darunter
