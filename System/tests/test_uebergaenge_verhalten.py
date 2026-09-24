@@ -528,9 +528,19 @@ aus({src:fremd.src, paused:fremd.paused, adoptEl, spielt:_els['pl-el']!==fremd})
 const passt=mediaEl({id:'passt',src:'/media?id=c',paused:false,isConnected:false}); passt._key='c';
 adoptEl=passt; plGeraet='vlc'; playerState.idx=2; renderPlayerMedia();
 aus({src:passt.src, paused:passt.paused, vlc:calls.includes('vlc-ansicht')});
+// Prüfung Runde 1 (niedrig): der Titel ist aus der Bibliothek verschwunden.
+// renderPlayerMedia kehrte im Zweig „Kein Titel" früh zurück, BEVOR die
+// Freigabe griff — adoptEl blieb gesetzt und spielte weiter. Erreichbar über
+// Radio (prüft den Nachfolger nicht gegen die Bibliothek).
+plGeraet='browser'; xfNext=null; adoptEl=null; radioAktiv=true; uebergang='crossfade';
+playerState={idx:0,queue:['a','b','c'],quelle:''};
+{ const el=starte(0); el.currentTime=97; feuer(el,'timeupdate'); bild(500);
+  const nx=xfNext; _fehlt.add('b'); el.ended=true; el.paused=true; feuer(el,'ended');
+  aus({vorbereitet:nx&&nx._key, adoptEl, src:nx&&nx.src, paused:nx&&nx.paused}); _fehlt.clear(); }
 """)
     assert e[0] == {"src": "", "paused": True, "adoptEl": None, "spielt": True}, e[0]
     assert e[1] == {"src": "", "paused": True, "vlc": True}, e[1]
+    assert e[2] == {"vorbereitet": "b", "adoptEl": None, "src": "", "paused": True}, e[2]
 
 
 # ------------------------------------------------ Befund 3 + Menü: Sleep-Timer

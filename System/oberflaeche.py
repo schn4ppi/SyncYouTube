@@ -9567,6 +9567,9 @@ function renderPlayerMedia(){
     // Titel ist über die Oberfläche nicht mehr anzuhalten), das Overlay zeigte
     // den alten Titel.
     xfAbbrechen(); if(plGeraet==='vlc')vlcBefehl('stop');
+    // Übernahme-Element (Blende in einen Titel, der inzwischen aus der
+    // Bibliothek verschwand, z. B. Radio): es spielt schon — freigeben.
+    if(adoptEl){medienS.freigeben(adoptEl); adoptEl=null;}
     if(!filmTasten())medienS.leeren();
     return;
   }

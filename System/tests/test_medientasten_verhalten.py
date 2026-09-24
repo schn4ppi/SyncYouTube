@@ -348,7 +348,7 @@ def test_leere_warteschlange_raeumt_das_overlay(tmp_path):
     q = _pc()
     (e,) = _lauf(tmp_path, _modul_js(), _js_zeile(q, "const medienS="),
                  _js_funktion(q, "filmTasten"), _js_funktion(q, "renderPlayerMedia"), r"""
-var tvpOffen=false, plGeraet='vlc'; const calls=[];
+var tvpOffen=false, plGeraet='vlc', adoptEl=null; const calls=[];
 _els['pl-media']={innerHTML:'x'};
 function spulStopp(){} function aktKey(){return undefined;} function libFind(){return null;}
 function xfAbbrechen(){calls.push('xfAbbrechen');}
