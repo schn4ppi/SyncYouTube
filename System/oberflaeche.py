@@ -3950,12 +3950,30 @@ function filmDauerGrob(s){
   if(st<48)return st+' Stunden';
   return Math.round(st/24)+' Tagen';
 }
+/* Je Fehlerart ehrlich (24.09.): der Ausfall ab dem 23.09. hieß hier „antwortet
+   nicht" — Renés Server antwortete aber, er lehnte nur unsere Anmeldeform ab
+   (Jellyfin 12). Fremde Geräte bekommen fehler nur als Kurztext ohne Adresse;
+   die Texte hier nutzen den Rohtext deshalb nur bei Netz- und Serverfehlern. */
 function filmWarnung(z){
   if(!z)return '';
   if(!z.zugang)return '⚙ Kein Jellyfin-Zugang eingerichtet — der Filmteil ist aus.';
-  if(z.fehler&&(z.still_seit_s||0)>8*3600)
-    return '⚠ Renés Server antwortet seit '+filmDauerGrob(z.still_seit_s)+' nicht ('
-      +z.fehler+'). Gezeigt wird der letzte Spiegel von '+(z.anzahl||0)+' Titeln.';
+  if(z.fehler&&(z.still_seit_s||0)>8*3600){
+    const seit=filmDauerGrob(z.still_seit_s);
+    const rest=' Gezeigt wird der letzte Spiegel von '+(z.anzahl||0)+' Titeln.';
+    const ver=(z.server_version&&z.server_version!=='?')?' (Jellyfin '+z.server_version+')':'';
+    if(z.fehler_art==='merkmal_abgelehnt')
+      return '⚠ Renés Server'+ver+' lehnt seit '+seit+' unsere Anmeldeform ab — die Anmeldung '
+        +'selbst klappt, gebraucht wird ein Programm-Update.'+rest;
+    if(z.fehler_art==='anmeldung_abgelehnt')
+      return '⚠ Renés Server lehnt seit '+seit+' Benutzer oder Passwort ab — Zugang in der '
+        +'Windows-Anmeldeinformationsverwaltung prüfen (Dienst Sync-Jellyfin).'+rest;
+    if(z.fehler_art==='drossel')
+      return '⏳ Renés Server bremst seit '+seit+' die Anmeldung (HTTP 403). Das heilt sich '
+        +'sonst nach Minuten — hält es an, René fragen.'+rest;
+    if(z.fehler_art==='server')
+      return '⚠ Renés Server liefert seit '+seit+' keine brauchbare Antwort ('+z.fehler+').'+rest;
+    return '⚠ Renés Server antwortet seit '+seit+' nicht ('+z.fehler+').'+rest;
+  }
   if((z.still_seit_s||0)>24*3600)
     return '⏳ Der letzte Abgleich mit Renés Server war vor '+filmDauerGrob(z.still_seit_s)
       +' — neue Filme fehlen hier noch.';

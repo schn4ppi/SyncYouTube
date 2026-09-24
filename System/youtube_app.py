@@ -6002,9 +6002,13 @@ class Handler(BaseHTTPRequestHandler):
             # ABER: der rohe Fehlertext kann eine urllib-Ausnahme MIT Renés
             # Server-Adresse enthalten. Fremde Geräte im WLAN bekommen deshalb
             # nur die Tatsache, nicht den Wortlaut.
+            # Seit 24.09. mit Fehlerart: fremde Geräte bekommen einen Kurztext je
+            # Art (ohne Adresse, ohne Rohtext) statt pauschal „nicht erreichbar"
+            # — der Ausfall vom 23.09. war erreichbar, er lehnte die Anmeldeform ab.
             z = filme.zustand()
             if not self._ist_lokal() and z.get("fehler"):
-                z["fehler"] = "Server nicht erreichbar"
+                z["fehler"] = filme.FEHLER_ART_TEXT.get(z.get("fehler_art"),
+                                                        "Server nicht erreichbar")
             _antwort(self, 200, z)
         elif self.path.startswith("/api/filme/reihen"):
             _antwort(self, 200, filme.reihen(self._geraet_profil()))

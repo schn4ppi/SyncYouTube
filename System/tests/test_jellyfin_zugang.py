@@ -259,3 +259,110 @@ def test_kein_token_und_kein_passwort_in_dateien(tmp_path, monkeypatch):
     z = json.load(open(filme._pfade["zustand"], encoding="utf-8"))
     assert set(z) <= {"letzter_versuch", "letzter_erfolg", "anzahl", "fehler",
                       "fehlversuche", "fehler_seit", "fehler_art", "server_version"}, z
+
+
+# ------------------------------------------------------ Route + Anzeige
+
+def _handler(pfad, lokal=True):
+    """Eine Handler-Instanz OHNE Server und ohne Socket: die Antwort landet in
+    einem Puffer. So läuft die echte Route, ohne Port 8776 anzufassen."""
+    import email.message
+    import io
+
+    import youtube_app as app
+    h = object.__new__(app.Handler)
+    h.path, h.command, h.request_version = pfad, "GET", "HTTP/1.1"
+    h.requestline = f"GET {pfad} HTTP/1.1"
+    h.client_address = ("127.0.0.1" if lokal else "192.168.178.50", 50000)
+    h.headers = email.message.Message()
+    h.wfile = io.BytesIO()
+    h._hat_zugriff = lambda: True                # Kopplung ist hier nicht das Thema
+    return h
+
+
+def _antwort_von(h):
+    roh = h.wfile.getvalue()
+    kopf, _, rumpf = roh.partition(b"\r\n\r\n")
+    status = int(kopf.split(b" ", 2)[1]) if kopf else 0
+    return status, rumpf
+
+
+def _route(pfad, lokal=True):
+    h = _handler(pfad, lokal)
+    h.do_GET()
+    status, rumpf = _antwort_von(h)
+    return status, (json.loads(rumpf) if rumpf.startswith(b"{") else rumpf)
+
+
+def test_zustand_route_nennt_die_fehlerart_und_maskiert_fremde_geraete(tmp_path, monkeypatch):
+    """Am PC der Wortlaut, im WLAN nur die Fehlerart mit einem Kurztext ohne
+    Adresse und ohne Rohtext (der kann eine urllib-Ausnahme MIT Renés Adresse
+    enthalten). Vorher bekam jedes fremde Gerät „Server nicht erreichbar" —
+    auch wenn der Server erreichbar war und nur die Anmeldeform ablehnte."""
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12", lehnt_ab=True))
+    filme.katalog_abzug()
+    filme.fam.json_aendern(filme._pfade["zustand"], lambda d: d.__setitem__(
+        "fehler", "Items-Abruf: <urlopen error https://jelly.example/geheim>"))
+    st, z = _route("/api/filme/zustand")
+    assert st == 200 and z["fehler_art"] == "merkmal_abgelehnt"
+    assert "jelly.example" in z["fehler"], "am PC der volle Wortlaut"
+    st, z = _route("/api/filme/zustand", lokal=False)
+    assert z["fehler_art"] == "merkmal_abgelehnt" and z["server_version"] == "12.1.0"
+    assert "jelly.example" not in json.dumps(z), "Adresse an ein fremdes Gerät"
+    assert "Anmeldeform" in z["fehler"], z["fehler"]
+
+
+def _warnung(tmp_path, z):
+    from test_medientasten_verhalten import _js_funktion, _lauf, _pc
+    q = _pc()
+    (e,) = _lauf(tmp_path, _js_funktion(q, "filmDauerGrob"), _js_funktion(q, "filmWarnung"),
+                 "aus({w: filmWarnung(" + json.dumps(z) + ")});")
+    return e["w"]
+
+
+BASIS_Z = {"zugang": True, "fehler": "Items-Abruf HTTP 401 trotz frischer Anmeldung",
+           "still_seit_s": 20 * 3600, "anzahl": 5100, "server_version": "12.1.0"}
+
+
+def test_film_warnung_sagt_je_fehlerart_was_los_ist(tmp_path):
+    """filmWarnung mit dem ECHTEN Seiten-JavaScript (deno). Der Ausfall vom
+    23./24.09. hieß dort „Renés Server antwortet seit … nicht" — irreführend:
+    er antwortete, er lehnte nur die Anmeldeform ab."""
+    w = _warnung(tmp_path, dict(BASIS_Z, fehler_art="merkmal_abgelehnt"))
+    assert "antwortet" not in w and "Anmeldeform" in w and "12.1.0" in w, w
+    assert "5100" in w, "der Hinweis auf den gezeigten Spiegel fehlt"
+    w = _warnung(tmp_path, dict(BASIS_Z, fehler_art="anmeldung_abgelehnt"))
+    assert "Passwort" in w and "Sync-Jellyfin" in w and "antwortet" not in w, w
+    w = _warnung(tmp_path, dict(BASIS_Z, fehler_art="drossel"))
+    assert "bremst" in w and "René fragen" in w and "antwortet" not in w, w
+    w = _warnung(tmp_path, dict(BASIS_Z, fehler_art="netz", fehler="Renés Server nicht erreichbar"))
+    assert "antwortet seit" in w and "nicht" in w, w
+    w = _warnung(tmp_path, dict(BASIS_Z, fehler_art="server", fehler="Items-Abruf HTTP 503"))
+    assert "HTTP 503" in w and "antwortet seit" not in w, w
+    # Alter Zustand ohne Fehlerart (vor dem 24.09. geschrieben): wie bisher.
+    alt = dict(BASIS_Z)
+    assert "antwortet seit" in _warnung(tmp_path, alt)
+    # Calm: ein einzelner kurzer Fehlschlag bleibt still — auch mit Fehlerart.
+    assert _warnung(tmp_path, dict(BASIS_Z, fehler_art="merkmal_abgelehnt",
+                                   still_seit_s=3600)) == ""
+
+
+def test_fernsehmodus_zeigt_dieselbe_ehrliche_warnung(tmp_path):
+    """Der Fernsehmodus nutzt dieselbe Warnung (Gegenprüfung 24.09.: mittesten)."""
+    from test_medientasten_verhalten import _js_funktion, _lauf, _pc
+    q = _pc()
+    z = dict(BASIS_Z, fehler_art="merkmal_abgelehnt")
+    (e,) = _lauf(tmp_path, _js_funktion(q, "filmDauerGrob"), _js_funktion(q, "filmWarnung"),
+                 _js_funktion(q, "tvKopfMalen"), r"""
+const TV_TABS=[]; var tvTab='home', tvProfile=[];
+function tvProfil(){return 'standard';} function esc(t){return String(t);}
+document.createElement=()=>({});
+const gesetzt=[];
+_els['tv-kopf']={innerHTML:'', insertAdjacentElement(wo,el){gesetzt.push([wo,el.id,el.textContent]);}};
+var tvFilmZustand=""" + json.dumps(z) + r""";
+tvKopfMalen();
+aus({gesetzt});
+""")
+    ((wo, ident, text),) = e["gesetzt"]
+    assert ident == "tv-warnung" and "Anmeldeform" in text and "antwortet" not in text, text
