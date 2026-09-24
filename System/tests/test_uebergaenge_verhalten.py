@@ -19,6 +19,7 @@ el.volume und den Web-Audio-Graphen selbst) und ob timeupdate im verdeckten
 Tab wirklich weiterläuft (bekanntes Browserverhalten, nicht gemessen).
 """
 import os
+import re
 import sys
 
 HIER = os.path.dirname(os.path.abspath(__file__))
@@ -34,10 +35,15 @@ from test_medientasten_verhalten import (  # noqa: E402
 )
 
 # Der Player-Kern, den diese Tests mit ausführen (echter Seiten-Code).
-KERN = ("aktKey", "queueIdxPassend", "playerAdvance", "xfAbbrechen", "xfNaechsterIndex",
-        "xfIstAudio", "starteCrossfade", "xfLautstaerke", "xfUebernehmen", "gaplessPreload",
-        "uebergangTick", "renderPlayerMedia", "sleepSetzen", "sleepAusloesen", "sleepLabel",
+KERN = ("aktKey", "queueIdxPassend", "nachEnde", "playerAdvance", "xfAbbrechen",
+        "xfZuruecknehmen", "xfNaechsterIndex", "xfNachfolgerGilt", "xfPruefen", "xfIstAudio",
+        "starteCrossfade", "xfLautstaerke", "xfUebernehmen", "gaplessPreload", "uebergangTick",
+        "plTitelEnde", "renderPlayerMedia", "sleepSetzen", "sleepAusloesen", "sleepLabel",
         "repeatCycle")
+# In dieser Runde neu: fehlen sie (Rot-Lauf am alten Stand), bleiben sie weg —
+# wer sie braucht, bricht dann mit „… is not defined". Dass es sie gibt,
+# erzwingt test_uebergangs_bausteine_gibt_es.
+NEU = ("nachEnde", "xfZuruecknehmen", "xfNachfolgerGilt", "xfPruefen", "plTitelEnde")
 
 UMGEBUNG = r"""
 let _T=0; const performance={now:()=>_T};                 // steuerbare Uhr
@@ -86,8 +92,22 @@ const r3=v=>Math.round(v*1000)/1000;
 def _kern(q, *extra):
     """Attrappe + Baustein + echter Player-Kern der Seite."""
     teile = [UMGEBUNG, _modul_js(), _js_zeile(q, "const medienS="), _js_zeile(q, "let sleepTimer=")]
-    teile += [_js_funktion(q, n) for n in KERN + extra]
+    teile += [_js_funktion(q, n) for n in KERN + extra
+              if n not in NEU or re.search(r"^function " + n + r"\(", q, re.M)]
     return teile
+
+
+def test_uebergangs_bausteine_gibt_es():
+    """Die EINE Entscheidung „was kommt nach dem Titelende?" und ihre Helfer
+    stehen als Top-Level-Funktionen in der Seite; der ended-Listener ist die
+    benannte Funktion (sonst wäre sie nicht mit dem echten Code prüfbar)."""
+    q = _pc()
+    for n in NEU:
+        _js_funktion(q, n)
+    rumpf = _js_funktion(q, "renderPlayerMedia")
+    assert "addEventListener('ended',plTitelEnde)" in rumpf
+    assert "nachEnde(" in _js_funktion(q, "playerAdvance"), "playerAdvance fragt die EINE Entscheidung"
+    assert "nachEnde(" in _js_funktion(q, "xfNaechsterIndex"), "die Übergänge fragen dieselbe"
 
 
 # ------------------------------------------- Pause/Rücksprung in der Blende
@@ -254,3 +274,216 @@ bild(1000);
 aus({gain:r3(vizGain.gain.value), laeuft:!!xfNext});
 """)
     assert e == {"gain": 0.8, "laeuft": True}, e
+
+
+# ------------------------------------ Befund 2: EINE Entscheidung nach dem Ende
+# Vorher entschieden zwei Stellen: playerAdvance kannte Sleep, Radio,
+# Wiederholen, Zufall und Abspielart; die Übergänge (xfNaechsterIndex) nur
+# Radio und Wiederholen-alle, und das Titelende übernahm den vorbereiteten
+# Nachfolger an playerAdvance vorbei.
+
+ENDE = r"""
+function neu(o){o=o||{};                               // Grundzustand je Fall (Modul-Variablen, nicht globalThis)
+  xfNext=null; adoptEl=null; vizGain=null; calls.length=0; crossfadeSek=4;
+  radioAktiv=!!o.radioAktiv; playShuffle=!!o.playShuffle; playRepeat=o.playRepeat||'aus';
+  uebergang=o.uebergang||'crossfade'; _passt=o._passt||(()=>true); sleepSetzen('0');
+  playerState={idx:0,queue:['a','b','c'],quelle:''};}
+const titel=()=>calls.filter(c=>c.startsWith('titel:')).map(c=>c.slice(6));
+function vorEnde(idx,rest){const el=starte(idx); el.currentTime=100-rest; feuer(el,'timeupdate'); bild(500); return el;}
+function ende(el){el.ended=true; el.paused=true; feuer(el,'ended');}
+"""
+
+
+def test_player_advance_reihenfolge_bleibt(tmp_path):
+    """playerAdvance ohne Übergang: die Reihenfolge Sleep · Radio (schlägt
+    Wiederholen-eins) · eins · Zufall · Abspielart · alle · Bibliothek. Am
+    alten Stand grün, damit das Zusammenlegen nichts verschiebt."""
+    q = _pc()
+    e = _lauf(tmp_path, *_kern(q), ENDE, r"""
+const faelle=[
+ ['sleep',  ()=>{sleepSetzen('titel');}],
+ ['radio',  ()=>{radioAktiv=true;}],
+ ['radioEnde',()=>{radioAktiv=true; playerState.idx=2;}],
+ ['radioEins',()=>{radioAktiv=true; playRepeat='eins';}],
+ ['eins',   ()=>{playRepeat='eins';}],
+ ['zufall', ()=>{playShuffle=true; playerState.queue=['a','b','c','d']; Math.random=()=>0.99;}],
+ ['zufallLeer',()=>{playShuffle=true; _passt=x=>x.id==='a';}],
+ ['art',    ()=>{_passt=x=>x.id!=='b';}],
+ ['alle',   ()=>{playRepeat='alle'; playerState.idx=2; _passt=x=>x.id!=='a';}],
+ ['stopp',  ()=>{playerState.idx=2;}],
+ ['bib',    ()=>{playerState.queue=['a'];}],
+];
+for(const [name,f] of faelle){neu(); f(); calls.length=0; const vorher=playerState.idx;
+  playerAdvance();
+  aus({name, idx:playerState.idx, vorher, titel:titel(), bib:calls.includes('bib'), sleep:sleepTitelende});}
+""")
+    r = {x["name"]: x for x in e}
+    assert r["sleep"]["titel"] == [] and r["sleep"]["sleep"] is False
+    assert r["radio"]["idx"] == 1 and r["radio"]["titel"] == ["b"]
+    assert r["radioEnde"]["idx"] == 2 and r["radioEnde"]["titel"] == ["c"], "Radio am Ende: gleicher Index"
+    assert r["radioEins"]["idx"] == 1, "Radio schlägt Wiederholen-eins (Verhalten bleibt)"
+    assert r["eins"]["idx"] == 0 and r["eins"]["titel"] == ["a"]
+    assert r["zufall"]["idx"] == 3 and r["zufall"]["titel"] == ["d"]
+    assert r["zufallLeer"]["titel"] == [], "Zufall ohne passenden Kandidaten: Stopp"
+    assert r["art"]["idx"] == 2 and r["art"]["titel"] == ["c"], "Abspielart überspringt b"
+    assert r["alle"]["idx"] == 1 and r["alle"]["titel"] == ["b"], "alle: von vorn, erster passender"
+    assert r["stopp"]["titel"] == [] and r["stopp"]["bib"] is False
+    assert r["bib"]["bib"] is True and r["bib"]["titel"] == []
+
+
+def test_sleep_nach_diesem_titel_schlaegt_den_uebergang(tmp_path):
+    q = _pc()
+    e = _lauf(tmp_path, *_kern(q), ENDE, r"""
+for(const art of ['crossfade','gapless','automix']){
+  neu({uebergang:art}); sleepSetzen('titel'); const el=starte(0); calls.length=0;
+  el.currentTime=art==='gapless'?90:97; feuer(el,'timeupdate'); bild(500);
+  const vorbereitet=!!xfNext; ende(el);
+  aus({art, vorbereitet, titel:titel(), bleibt:_els['pl-el']===el, sleep:sleepTitelende});
+}
+""")
+    for x in e:
+        assert x["vorbereitet"] is False, f"{x['art']}: bei Sleep nach diesem Titel kein Übergang"
+        assert x["titel"] == [] and x["bleibt"] is True, f"{x['art']}: nach dem Titel ist Schluss"
+        assert x["sleep"] is False, f"{x['art']}: der Sleep-Timer hat ausgelöst"
+
+
+def test_wiederholen_eins_schlaegt_den_uebergang(tmp_path):
+    q = _pc()
+    e = _lauf(tmp_path, *_kern(q), ENDE, r"""
+for(const art of ['crossfade','gapless','automix']){
+  neu({uebergang:art, playRepeat:'eins'}); const el=starte(0); calls.length=0;
+  el.currentTime=art==='gapless'?90:97; feuer(el,'timeupdate'); bild(500);
+  const vorbereitet=!!xfNext; ende(el);
+  const jetzt=_els['pl-el'];
+  aus({art, vorbereitet, titel:titel(), idx:playerState.idx, frisch:jetzt!==el&&!_audios.includes(jetzt)});
+}
+""")
+    for x in e:
+        assert x["vorbereitet"] is False, f"{x['art']}: eins blendet nicht in den nächsten Titel"
+        assert x["titel"] == ["a"] and x["idx"] == 0 and x["frisch"] is True, x
+
+
+def test_sleep_oder_eins_waehrend_der_blende_nehmen_sie_zurueck(tmp_path):
+    """Wettlauf: Sleep bzw. eins wird erst gesetzt, wenn der Nachfolger schon
+    hörbar einblendet. sleepSetzen/repeatCycle nehmen die Blende sofort
+    zurück; wird die Regel am Menü vorbei gesetzt, fängt das Titelende sie."""
+    q = _pc()
+    sleep, eins, direkt, anAus = _lauf(tmp_path, *_kern(q), ENDE, r"""
+function lauf(name,setzen){
+  neu({playRepeat:'alle'}); const el=vorEnde(0,3); bild(500); const nx=xfNext; calls.length=0;
+  setzen(el);
+  const sofort={weg:xfNext===null, src:nx.src, paused:nx.paused, vol:r3(el.volume), xf:el._xf};
+  feuer(el,'timeupdate'); bild(500);
+  const wieder=!!xfNext; ende(el);
+  aus({name, sofort, wieder, titel:titel(), sleep:sleepTitelende, vol:r3(el.volume), src:nx.src});
+}
+lauf('sleep',()=>sleepSetzen('titel'));
+lauf('eins',()=>repeatCycle());                         // alle -> eins
+lauf('direkt',()=>{sleepTitelende=true;});              // am Menü vorbei
+// an, ein timeupdate im Fenster (uebergangTick merkt „Blende versucht"), wieder aus
+lauf('anAus',el=>{sleepSetzen('titel'); feuer(el,'timeupdate'); sleepSetzen('0');});
+""")
+    for x in (sleep, eins):
+        assert x["sofort"] == {"weg": True, "src": "", "paused": True, "vol": 0.4, "xf": False}, x
+        assert x["wieder"] is False, f"{x['name']}: im Fenster startet keine neue Blende"
+    assert sleep["titel"] == [] and sleep["sleep"] is False
+    assert eins["titel"] == ["a"], "eins: derselbe Titel frisch von vorn"
+    assert direkt["sofort"]["weg"] is False, "am Menü vorbei: die Blende läuft bis zum Ende"
+    assert direkt["titel"] == [] and direkt["src"] == "" and direkt["vol"] == 0.4, \
+        "das Titelende nimmt sie zurück: Nachfolger freigegeben, alter Titel wieder laut, Schluss"
+    # Dokumentierte Grenze (Gegenprüfung, Korrektur 3): Sleep im Fenster an und
+    # wieder aus — für DIESEN Wechsel keine Blende mehr, das Ende schaltet hart weiter.
+    assert anAus["wieder"] is False and anAus["titel"] == ["b"], anAus
+
+
+def test_normaler_uebergang_und_radio_mit_eins_laufen_weiter(tmp_path):
+    """Gegenprobe gegen „Übergänge ganz aus": ohne Sleep/eins übernimmt das
+    Titelende den Nachfolger; Radio schlägt eins (Verhalten wie bisher)."""
+    q = _pc()
+    e = _lauf(tmp_path, *_kern(q), ENDE, r"""
+for(const [name,o] of [['normal',{}],['gapless',{uebergang:'gapless'}],['radioEins',{radioAktiv:true,playRepeat:'eins'}]]){
+  neu(o); const el=vorEnde(0,name==='gapless'?10:3); const nx=xfNext; calls.length=0; ende(el);
+  aus({name, key:nx&&nx._key, uebernommen:!!nx&&_els['pl-el']===nx, idx:playerState.idx, titel:titel()});
+}
+""")
+    for x in e:
+        assert x["key"] == "b" and x["uebernommen"] is True and x["idx"] == 1 and x["titel"] == ["b"], x
+
+
+def test_titelende_eines_abgeloesten_elements_schaltet_nicht(tmp_path):
+    """Der ended-Listener nimmt das Element aus dem Ereignis: meldet ein schon
+    abgelöstes (nicht mehr im Dokument), entscheidet es nichts mehr."""
+    q = _pc()
+    (e,) = _lauf(tmp_path, *_kern(q), ENDE, r"""
+neu(); const alt=starte(0); starte(1); calls.length=0;
+alt.ended=true; feuer(alt,'ended');
+aus({titel:titel(), idx:playerState.idx, verbunden:alt.isConnected});
+""")
+    assert e == {"titel": [], "idx": 1, "verbunden": False}, e
+
+
+def test_zufall_und_abspielart_gelten_auch_fuer_den_uebergang(tmp_path):
+    """Zufall: der Index wird EINMAL gezogen und im vorbereiteten Element
+    gehalten (ein zweiter Zug am Titelende darf ihn nicht ändern).
+    Abspielart: ein nicht passender Titel wird übersprungen."""
+    q = _pc()
+    zufall, art = _lauf(tmp_path, *_kern(q), ENDE, r"""
+neu({playShuffle:true}); playerState.queue=['a','b','c','d']; Math.random=()=>0.99;
+{ const el=vorEnde(0,3); const nx=xfNext; Math.random=()=>0; ende(el);
+  aus({key:nx&&nx._key, uebernommen:!!nx&&_els['pl-el']===nx, idx:playerState.idx}); }
+neu({_passt:x=>x.id!=='b'});
+{ const el=vorEnde(0,3); const nx=xfNext; ende(el);
+  aus({key:nx&&nx._key, uebernommen:!!nx&&_els['pl-el']===nx, idx:playerState.idx}); }
+""")
+    assert zufall == {"key": "d", "uebernommen": True, "idx": 3}, zufall
+    assert art == {"key": "c", "uebernommen": True, "idx": 2}, art
+
+
+# ------------------------------- Befund 4: Warteschlangen-Umbau in der Blende
+# Vorher setzte die Übernahme blind den gemerkten Index; nach einem Umbau
+# zeigte er auf einen anderen Titel, renderPlayerMedia verwarf das schon
+# spielende Element ohne Freigabe — es lief verwaist und unsteuerbar weiter.
+# Regel (Gegenprüfung): übernommen wird nur, was die Warteschlange JETZT als
+# Nächstes vorsieht; sonst freigeben und normal weiter.
+
+def test_warteschlangen_umbau_waehrend_der_blende(tmp_path):
+    q = _pc()
+    extra = ("plqRemove", "queueAlsNaechstes", "queueUmkehren")
+    e = _lauf(tmp_path, *_kern(q, *extra), ENDE, r"""
+function fall(name, queue, idx, umbau, art){
+  neu({uebergang:art}); playerState.queue=queue; const el=vorEnde(idx,art==='gapless'?10:3);
+  const nx=xfNext; calls.length=0; _log.length=0;
+  umbau(); ende(el);
+  const jetzt=_els['pl-el'];
+  aus({name, vorbereitet:nx&&nx._key, uebernommen:jetzt===nx, titel:titel(), idx:playerState.idx,
+       aktuell:playerState.queue[playerState.idx], nxSrc:nx&&nx.src, nxPaused:nx&&nx.paused,
+       gestartet:_log.includes('play:'+(nx&&nx.id))});
+}
+fall('davorWeg', ['z','a','b','c'], 1, ()=>plqRemove(0));
+fall('nachfolgerWeg', ['z','a','b','c'], 1, ()=>plqRemove(2));
+fall('alsNaechstes', ['a','b','c'], 0, ()=>queueAlsNaechstes('N'));
+fall('umkehren', ['a','b','c','d'], 1, ()=>queueUmkehren());
+// Gapless: der gepufferte Nachfolger darf nach dem Umbau nicht einmal kurz anlaufen
+fall('alsNaechstesGapless', ['a','b','c'], 0, ()=>queueAlsNaechstes('N'), 'gapless');
+""")
+    r = {x["name"]: x for x in e}
+    assert r["davorWeg"]["uebernommen"] is True and r["davorWeg"]["aktuell"] == "b", r["davorWeg"]
+    for name, soll in (("nachfolgerWeg", "c"), ("alsNaechstes", "N"), ("umkehren", "a"),
+                       ("alsNaechstesGapless", "N")):
+        x = r[name]
+        assert x["uebernommen"] is False and x["aktuell"] == soll and x["titel"] == [soll], x
+        assert x["nxSrc"] == "" and x["nxPaused"] is True, f"{name}: das vorbereitete Element ist frei"
+    assert r["alsNaechstesGapless"]["gestartet"] is False, r["alsNaechstesGapless"]
+
+
+def test_verworfenes_uebernahme_element_wird_freigegeben(tmp_path):
+    """Verteidigung in renderPlayerMedia: passt das übernommene Element nicht
+    zum Titel, wird es freigegeben statt nur vergessen."""
+    q = _pc()
+    (e,) = _lauf(tmp_path, *_kern(q), r"""
+starte(0);
+const fremd=mediaEl({id:'fremd',src:'/media?id=x',paused:false}); fremd._key='x'; adoptEl=fremd;
+playerState.idx=1; renderPlayerMedia();
+aus({src:fremd.src, paused:fremd.paused, adoptEl, spielt:_els['pl-el']!==fremd});
+""")
+    assert e == {"src": "", "paused": True, "adoptEl": None, "spielt": True}, e

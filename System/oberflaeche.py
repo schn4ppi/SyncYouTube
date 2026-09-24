@@ -5588,7 +5588,8 @@ function shuffleToggle(){playShuffle=!playShuffle;
   transportRender();}
 function repeatCycle(){playRepeat=(playRepeat==='aus')?'alle':(playRepeat==='alle'?'eins':'aus');
   try{localStorage.setItem('ytdl_repeat',playRepeat);}catch(e){}
-  transportRender();}
+  transportRender();
+  xfPruefen();}                                        // eins: eine laufende Blende in den nächsten Titel zurücknehmen
 /* Zieht NUR die Zustände der Transport-Knöpfe nach (classList/innerHTML des
    einzelnen Knopfs) — kein Neuaufbau der Leiste, darum reagiert der Klick sofort. */
 function transportRender(){
@@ -5624,24 +5625,40 @@ function queueIdxPassend(start,dir){
   }
   return -1;
 }
-function playerAdvance(){                             // automatisch nach Titel-Ende
-  if(sleepTitelende){sleepAusloesen(); return;}      // Sleep-Timer „nach diesem Titel"
+/* EINE Entscheidung „was kommt nach dem Titelende?" — playerAdvance UND die
+   Übergänge (Crossfade/Gapless/Automix) fragen hier, damit Sleep, Radio,
+   Wiederholen, Zufall und Abspielart überall gleich gelten (vorher kannten die
+   Übergänge nur Radio und „alle" und blendeten an allem anderen vorbei).
+   Reihenfolge wie bisher: Sleep „nach diesem Titel" · Radio (schlägt
+   Wiederholen-eins) · eins · Zufall · nächster passender (alle: von vorn) ·
+   Einzeltitel -> Bibliothek. xf: darf ein Übergang in diesen Titel laufen?
+   bevorzugt: bei Zufall den schon gezogenen (vorbereiteten) Titel behalten. */
+function nachEnde(bevorzugt){
+  if(sleepTitelende)return {art:'schlaf'};             // Sleep-Timer „nach diesem Titel"
   if(radioAktiv){                                    // Radio läuft linear + füllt endlos nach
     radioNachfuellen();
-    if(playerState.idx<playerState.queue.length-1)playerState.idx++;
-    renderPlayerMedia(); return;
+    const i=playerState.idx, weiter=i<playerState.queue.length-1;
+    return {art:'titel', idx:weiter?i+1:i, xf:weiter};
   }
-  if(playRepeat==='eins'){renderPlayerMedia(); return;}   // gleichen Titel wiederholen
-  if(playShuffle&&playerState.queue.length>1){            // Zufall: anderer PASSENDER Titel
-    const kand=playerState.queue.map((k,i)=>i)
-      .filter(i=>i!==playerState.idx&&(x=>x&&x.vorhanden&&artPasst(x))(libFind(playerState.queue[i])));
-    if(kand.length){playerState.idx=kand[Math.floor(Math.random()*kand.length)]; renderPlayerMedia();}
-    return;
+  if(playRepeat==='eins')return {art:'titel', idx:playerState.idx, xf:false};   // gleichen Titel neu starten
+  const q=playerState.queue;
+  if(playShuffle&&q.length>1){                         // Zufall: anderer PASSENDER Titel
+    const kand=q.map((k,i)=>i)
+      .filter(i=>i!==playerState.idx&&(x=>x&&x.vorhanden&&artPasst(x))(libFind(q[i])));
+    if(!kand.length)return {art:'stopp'};
+    const b=bevorzugt===undefined?-1:kand.findIndex(i=>q[i]===bevorzugt);
+    return {art:'titel', idx:b>=0?kand[b]:kand[Math.floor(Math.random()*kand.length)], xf:true};
   }
   let n=queueIdxPassend(playerState.idx+1,1);             // nächster passender in der Reihe
   if(n<0&&playRepeat==='alle')n=queueIdxPassend(0,1);
-  if(n>=0){playerState.idx=n; renderPlayerMedia();}
-  else if(playerState.queue.length<=1)naechstesAusBibliothek();
+  if(n>=0)return {art:'titel', idx:n, xf:true};
+  return q.length<=1?{art:'bibliothek'}:{art:'stopp'};    // stopp: Playlist (nach Abspielart) zu Ende
+}
+function playerAdvance(d){                             // automatisch nach Titel-Ende
+  if(!(d&&d.art))d=nachEnde();                         // plTitelEnde reicht seine Entscheidung durch
+  if(d.art==='schlaf'){sleepAusloesen(); return;}
+  if(d.art==='titel'){playerState.idx=d.idx; renderPlayerMedia(); return;}
+  if(d.art==='bibliothek')naechstesAusBibliothek();
   // sonst: Playlist (nach Abspielart) zu Ende -> Stopp
 }
 
@@ -5725,6 +5742,7 @@ function sleepSetzen(v){
   if(v==='titel'){sleepTitelende=true;}
   else{const min=parseInt(v,10)||0; if(min>0){sleepEndeZeit=Date.now()+min*60000; sleepTimer=setTimeout(sleepAusloesen,min*60000);}}
   sleepLabel();
+  xfPruefen();                                         // „nach diesem Titel": eine laufende Blende zurücknehmen
 }
 function sleepAusloesen(){const el=document.getElementById('pl-el'); if(el)el.pause();
   sleepTimer=null; sleepEndeZeit=0; sleepTitelende=false; sleepLabel();}
@@ -7500,11 +7518,29 @@ function xfAbbrechen(){                                // laufenden Übergang ve
   if(xfNext){medienS.freigeben(xfNext); xfNext=null;}   // nur pausiert hielt es Windows' Eintrag fest
   if(vizGain){try{vizGain.gain.value=1;}catch(e){}}
 }
-function xfNaechsterIndex(){
-  let ni=playerState.idx+1;
-  if(radioAktiv){ radioNachfuellen(); return ni<playerState.queue.length?ni:-1; }
-  if(ni<playerState.queue.length)return ni;
-  return playRepeat==='alle'?0:-1;                     // „Alle wiederholen" blendet in den Anfang
+function xfNaechsterIndex(){                           // dieselbe Entscheidung wie playerAdvance (-1: kein Übergang)
+  const d=nachEnde(); return (d.art==='titel'&&d.xf)?d.idx:-1;
+}
+function xfNachfolgerGilt(d){                          // ist der vorbereitete Titel laut Entscheidung d noch dran?
+  return !!(xfNext&&d.art==='titel'&&d.xf&&playerState.queue[d.idx]===xfNext._key);
+}
+function xfZuruecknehmen(el){                          // Übergang verwerfen, alter Titel wieder in eingestellter Lautstärke
+  xfAbbrechen(); if(el){el._xf=false; try{el.volume=plVol/100;}catch(e){}}
+}
+function xfPruefen(){                                  // Regel umgestellt (Sleep, Wiederholen): darf die Blende noch?
+  if(xfNext&&!xfNachfolgerGilt(nachEnde(xfNext._key)))xfZuruecknehmen(document.getElementById('pl-el'));
+}
+/* 'ended' des Player-Elements. Übernommen wird der vorbereitete Nachfolger nur,
+   wenn er JETZT noch dran ist (Sleep, Wiederholen, Warteschlangen-Umbau seit
+   der Vorbereitung); sonst wird er freigegeben und es geht normal weiter. */
+function plTitelEnde(ev){
+  const el=ev&&ev.target; if(!el||!el.isConnected)return;   // abgelöstes Element entscheidet nichts mehr
+  const d=nachEnde(xfNext?xfNext._key:undefined);
+  if(xfNext){
+    if(xfNachfolgerGilt(d)){xfUebernehmen(d.idx); return;}
+    xfZuruecknehmen(el);
+  }
+  playerAdvance(d);
 }
 function xfIstAudio(key){const x=libFind(key); return !!(x&&x.vorhanden&&((x.kategorie==='MP3')||(!x.vcodec&&x.acodec)));}
 function starteCrossfade(cur, restSek){
@@ -7540,11 +7576,11 @@ function xfLautstaerke(){
   if(vizGain){try{vizGain.gain.value=1-p;}catch(e){}} else {try{cur.volume=v*(1-p);}catch(e){}}
   try{nx.volume=v*p;}catch(e){}
 }
-function xfUebernehmen(){                              // Titel-Ende: vorbereitetes Element übernehmen
+function xfUebernehmen(idx){                           // Titel-Ende: vorbereitetes Element übernehmen (idx: frisch entschieden)
   if(!xfNext)return false;
   adoptEl=xfNext; xfNext=null; adoptEl.volume=plVol/100; adoptEl._xfAlt=null;
   if(adoptEl.paused)adoptEl.play().catch(()=>{});      // Gapless: gepuffertes Element startet SOFORT
-  playerState.idx=adoptEl._ni;
+  playerState.idx=(idx===undefined)?adoptEl._ni:idx;
   renderPlayerMedia(); return true;
 }
 function gaplessPreload(){                             // nächsten Titel nur PUFFERN (nicht abspielen)
@@ -9422,7 +9458,9 @@ function renderPlayerMedia(){
     if(!filmTasten())medienS.leeren();
     return;
   }
-  const uebernahme=(adoptEl&&adoptEl._key===k)?adoptEl:null; adoptEl=null;
+  const uebernahme=(adoptEl&&adoptEl._key===k)?adoptEl:null;
+  if(adoptEl&&!uebernahme)medienS.freigeben(adoptEl);  // verworfen: spielt es schon, nie verwaist weiterlaufen lassen
+  adoptEl=null;
   if(!uebernahme)xfAbbrechen();                        // normaler Wechsel -> evtl. laufenden Fade verwerfen
   const src='/media?id='+encodeURIComponent(k);
   try{fetch('/api/played',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});}catch(e){}
@@ -9461,8 +9499,8 @@ function renderPlayerMedia(){
   // (gemessen: „YouTube-Downloader (pausiert)" neben der VLC-Sitzung).
   if(altEl&&altEl!==el)medienS.freigeben(altEl);
   if(el){
-    // Ende: wenn schon ein Crossfade läuft, das nächste Element übernehmen, sonst normal weiter
-    el.addEventListener('ended',()=>{ if(xfNext)xfUebernehmen(); else playerAdvance(); });
+    // Ende: vorbereiteten Nachfolger übernehmen, wenn er noch dran ist, sonst normal weiter
+    el.addEventListener('ended',plTitelEnde);
     // Play/Pause-Symbol überall sofort nachziehen (JB 05.08.) — cmdNow malt
     // die Kopfzeile, transportRender die data-tr-Knöpfe der Player-Leiste.
     el.addEventListener('play',()=>{cmdNowRender(); transportRender(); if(el.isConnected)medienZustand('playing');});
@@ -9474,7 +9512,7 @@ function renderPlayerMedia(){
       // Element spielte abgekoppelt weiter und wurde dabei lauter. Übergang
       // abbrechen, Lautstärke zurück — beim Weiterspielen startet uebergangTick
       // ihn mit der Restzeit neu. Gapless ist nicht betroffen (dort wartet xfNext).
-      if(!el.ended&&xfNext&&!xfNext.paused){xfAbbrechen(); el._xf=false; try{el.volume=plVol/100;}catch(e){}}
+      if(!el.ended&&xfNext&&!xfNext.paused)xfZuruecknehmen(el);
     });
     // Zeitleiste im Overlay: nach Sprüngen (Overlay-Regler, Pfeile, Kapitel,
     // Leiste) und Tempowechseln rechnete Windows mit der alten Stelle weiter —
@@ -9483,8 +9521,7 @@ function renderPlayerMedia(){
       if(!el.isConnected)return;
       // Zurück aus dem Überblend-Fenster gesprungen: sonst hört man den NÄCHSTEN
       // Titel, während der alte stumm weiterläuft.
-      if(t==='seeked'&&el._xf&&el.duration-el.currentTime>crossfadeSek+0.5){
-        xfAbbrechen(); el._xf=false; try{el.volume=plVol/100;}catch(e){}}
+      if(t==='seeked'&&el._xf&&el.duration-el.currentTime>crossfadeSek+0.5)xfZuruecknehmen(el);
       medienZustand(el.paused?'paused':'playing');
     }));
     el.addEventListener('timeupdate',()=>subTick(el));   // Untertitel/Karaoke mitlaufen lassen
