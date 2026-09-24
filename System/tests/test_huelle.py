@@ -739,3 +739,54 @@ aus(erg);
     assert e["musik"] == {"spur": ["server-play:m2", "erster:null"], "key": "m2"}, e["musik"]
     assert e["stopp"] == {"spur": ["server-stop"], "key": ""}, e["stopp"]
     assert e["live"] == {"spur": ["server-live:L2", "fernbedienung:L2"], "key": "live:L2"}, e["live"]
+
+
+def test_gleichzeitige_anmeldungen_legen_genau_ein_panel_an(dotnet, netz, monkeypatch):
+    """Prüfung Runde 1 (niedrig): vorbereiten() (frueh), setzen() (video_rect)
+    und video_melden() prüfen `if not self._hwnd` und legen danach ohne Sperre
+    an — jeder in seinem eigenen Faden. Überlappen sich zwei, bevor ein Panel
+    existiert, entstehen ZWEI Panels, und der Server behält womöglich das
+    unsichtbare. Die Attrappe modelliert den Unterschied: jedes Panel hat seine
+    eigene Handle-Nummer, und Invoke hat EINEN UI-Faden, der gerade beschäftigt
+    ist, bis beide Rufe angekommen sind (höchstens 0,5 s)."""
+    nummern = iter(range(5001, 5100))
+
+    class ZaehlPanel(PanelAttrappe):
+        def __init__(self):
+            super().__init__()
+            n = next(nummern)
+            self.Handle = types.SimpleNamespace(ToInt64=lambda: n)
+    monkeypatch.setattr(sys.modules["System.Windows.Forms"], "Panel", ZaehlPanel)
+
+    class BeschaeftigteForm(FormAttrappe):
+        def __init__(self):
+            super().__init__()
+            self._ui = threading.Lock()
+            self._beide = threading.Barrier(2, timeout=0.5)
+
+        def Invoke(self, aktion):
+            self.invokes += 1
+            try:
+                self._beide.wait()
+            except threading.BrokenBarrierError:
+                pass
+            with self._ui:
+                aktion()
+
+    for zweiter in ("video_rect", "frueh"):
+        api = huelle.Bruecke()
+        form = BeschaeftigteForm()
+        api._fenster = types.SimpleNamespace(native=form)
+        netz.anfragen.clear()
+        wege = {"video_rect": lambda: api.video_rect(0, 0, 10, 10, True),
+                "frueh": lambda: api._video.vorbereiten(form)}
+        faeden = [threading.Thread(target=api.video_melden),
+                  threading.Thread(target=wege[zweiter])]
+        for f in faeden:
+            f.start()
+        for f in faeden:
+            f.join(5)
+        assert not any(f.is_alive() for f in faeden), "Hänger"
+        gemeldet = {d["hwnd"] for d in netz.an_vlc()}
+        assert len(form.panels) == 1, (zweiter, f"{len(form.panels)} Panels angelegt")
+        assert gemeldet == {api._video._hwnd}, (zweiter, gemeldet, api._video._hwnd)

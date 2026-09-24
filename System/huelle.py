@@ -18,6 +18,7 @@ der Browser-Player kann in der Hülle abgeschaltet werden.
 import os
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
@@ -73,6 +74,12 @@ class VideoFenster:
         self._panel = None
         self._gemeldet = False                       # hwnd schon an den Server?
         self._fenster = None                         # pywebview-Fenster (Maus-Weiterleitung)
+        # EINE Anlage zur Zeit (Prüfung Runde 1): frueh(), video_rect und
+        # video_melden laufen je in einem eigenen Faden; zwei gleichzeitige
+        # Rufe legten zwei Panels an, und der Server behielt womöglich das
+        # unsichtbare. Kein Deadlock: der UI-Faden nimmt diese Sperre nie
+        # (Invoke wartet auf ihn, er nicht auf uns).
+        self._anlage_sperre = threading.Lock()
 
     def _anlegen(self, form):
         # WICHTIG (live gemessen): ein rohes CreateWindowExW aus dem js_api-
@@ -103,6 +110,14 @@ class VideoFenster:
         form.Invoke(Action(tu))
         return self._hwnd
 
+    def _panel_sichern(self, form):
+        """Panel anlegen, falls noch keins da ist — Prüfung und Anlage unter
+        EINER Sperre (die zweite Prüfung darin sieht das Panel des ersten)."""
+        with self._anlage_sperre:
+            if not self._hwnd:
+                self._anlegen(form)
+        return self._hwnd
+
     def _js(self, code, drossel_s):
         """JS in der Oberfläche ausführen (best-effort, MouseMove gedrosselt).
         WICHTIG: nie auf dem WinForms-UI-Thread blocken — evaluate_js wartet
@@ -121,7 +136,6 @@ class VideoFenster:
                 fenster.evaluate_js(code)
             except Exception:                        # noqa: BLE001 — Weck-Ruf ist Kür
                 pass
-        import threading
         threading.Thread(target=tu, daemon=True).start()
 
     def vorbereiten(self, form):
@@ -130,8 +144,7 @@ class VideoFenster:
         Play noch nicht und öffnete VLCs EIGENES Vollbild; das Panel blieb
         schwarz). Früh gemeldet = jeder Film rendert von Anfang an IM Fenster."""
         try:
-            if not self._hwnd:
-                self._anlegen(form)
+            self._panel_sichern(form)
             self.melden()
         except Exception:                            # noqa: BLE001 — Kür
             pass
@@ -196,7 +209,7 @@ class VideoFenster:
         if not self._hwnd:
             if not (an and form is not None):
                 return
-            self._anlegen(form)
+            self._panel_sichern(form)
         self.melden()
         from System import Action
 
