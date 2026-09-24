@@ -2388,7 +2388,7 @@ function optionenToggle(ev){
   const kl=m.querySelector('#opt_klick'); if(kl)kl.value=klickArt();
   const pr=m.querySelector('#opt_plqrahmen'); if(pr)pr.value=plqRahmenArt();
   const sk=m.querySelector('#opt_skin'); if(sk)sk.value=aktuellerSkin();
-  const slp=m.querySelector('#opt_sleep'); if(slp)slp.value=sleepTitelende?'titel':'0'; sleepLabel();
+  const slp=m.querySelector('#opt_sleep'); if(slp)slp.value=sleepTitelende?'titel':(sleepEndeZeit?sleepStufe:'0'); sleepLabel();
   const ub=m.querySelector('#opt_ueb'); if(ub)ub.value=uebergang;
   subStilInit();                                       // Untertitel-Stil-Selects mit gemerktem Stand
   fernInfoMalen();
@@ -5736,16 +5736,18 @@ function radioNachfuellen(){                          // hält den Stream unendl
 }
 
 /* ---- Sleep-Timer (Nutzer schaltet ein/aus) ---- */
-let sleepTimer=null, sleepTitelende=false, sleepEndeZeit=0;
+let sleepTimer=null, sleepTitelende=false, sleepEndeZeit=0, sleepStufe='0';   // sleepStufe: gewählte Minuten fürs Menü
 function sleepSetzen(v){
-  clearTimeout(sleepTimer); sleepTimer=null; sleepTitelende=false; sleepEndeZeit=0;
+  clearTimeout(sleepTimer); sleepTimer=null; sleepTitelende=false; sleepEndeZeit=0; sleepStufe='0';
   if(v==='titel'){sleepTitelende=true;}
-  else{const min=parseInt(v,10)||0; if(min>0){sleepEndeZeit=Date.now()+min*60000; sleepTimer=setTimeout(sleepAusloesen,min*60000);}}
+  else{const min=parseInt(v,10)||0; if(min>0){sleepStufe=String(min); sleepEndeZeit=Date.now()+min*60000; sleepTimer=setTimeout(sleepAusloesen,min*60000);}}
   sleepLabel();
   xfPruefen();                                         // „nach diesem Titel": eine laufende Blende zurücknehmen
 }
-function sleepAusloesen(){const el=document.getElementById('pl-el'); if(el)el.pause();
-  sleepTimer=null; sleepEndeZeit=0; sleepTitelende=false; sleepLabel();}
+function sleepAusloesen(){
+  // Gerät VLC hat kein pl-el: dort den Motor anhalten (sonst spielte er weiter).
+  if(vlcAktiv())vlcBefehl('pause'); else{const el=document.getElementById('pl-el'); if(el)el.pause();}
+  sleepTimer=null; sleepEndeZeit=0; sleepTitelende=false; sleepStufe='0'; sleepLabel();}
 function sleepLabel(){const l=document.getElementById('sleepval'); if(!l)return;
   l.textContent=sleepTitelende?'· nach diesem Titel':(sleepEndeZeit?('· noch '+Math.max(1,Math.round((sleepEndeZeit-Date.now())/60000))+' min'):'');}
 

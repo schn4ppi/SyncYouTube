@@ -487,3 +487,49 @@ playerState.idx=1; renderPlayerMedia();
 aus({src:fremd.src, paused:fremd.paused, adoptEl, spielt:_els['pl-el']!==fremd});
 """)
     assert e == {"src": "", "paused": True, "adoptEl": None, "spielt": True}, e
+
+
+# ------------------------------------------------ Befund 3 + Menü: Sleep-Timer
+# Eine Uhr, die der Test auslöst (sonst hielte ein echter 15-min-Timer deno fest).
+UHR = r"""
+const _timer=[];
+globalThis.setTimeout=(f,ms)=>{_timer.push({f,ms}); return _timer.length;};
+globalThis.clearTimeout=id=>{if(_timer[id-1])_timer[id-1].f=()=>{};};
+function timerLaeuftAb(){_timer.splice(0).forEach(t=>t.f());}
+"""
+
+
+def test_sleep_timer_stoppt_auch_vlc(tmp_path):
+    """Am Gerät VLC gibt es kein pl-el: der Minuten-Timer setzte nur die
+    Anzeige zurück, VLC spielte weiter. Der Film bleibt unberührt (JB-Frage)."""
+    q = _pc()
+    vlc_min, vlc_titel, browser = _lauf(tmp_path, UHR, *_kern(q), ENDE, r"""
+neu(); _vlc=true; delete _els['pl-el']; calls.length=0;
+sleepSetzen('15'); timerLaeuftAb();
+aus({fall:'vlcMinuten', calls:[...calls], ende:sleepEndeZeit});
+neu(); _vlc=true; delete _els['pl-el']; sleepSetzen('titel'); calls.length=0;
+playerAdvance();                                        // wie vlcTick beim Zustand 'ende'
+aus({fall:'vlcTitel', calls:[...calls], sleep:sleepTitelende});
+neu(); _vlc=false; const el=starte(0); calls.length=0;
+sleepSetzen('30'); timerLaeuftAb();
+aus({fall:'browser', calls:[...calls], pausiert:el.paused, ende:sleepEndeZeit});
+""")
+    assert vlc_min == {"fall": "vlcMinuten", "calls": ["vlc:pause"], "ende": 0}, vlc_min
+    assert vlc_titel == {"fall": "vlcTitel", "calls": ["vlc:pause"], "sleep": False}, vlc_titel
+    assert browser == {"fall": "browser", "calls": [], "pausiert": True, "ende": 0}, browser
+
+
+def test_sleep_menue_zeigt_die_laufende_stufe(tmp_path):
+    """Das Optionen-Menü zeigte bei laufendem Minuten-Timer „aus" — „aus"
+    erneut zu wählen löste kein change aus, der Timer war übers Menü nicht
+    abzuschalten. Geprüft wird die echte Zeile aus dem Menü-Aufbau."""
+    q = _pc()
+    m = re.search(r"^\s*(const slp=m\.querySelector\('#opt_sleep'\);.*)$", q, re.M)
+    assert m, "Sleep-Zeile im Optionen-Menü nicht gefunden"
+    (e,) = _lauf(tmp_path, UHR, *_kern(q), "function menue(m){" + m.group(1) + " return slp.value;}", r"""
+const slp={value:''}, M={querySelector:s=>s==='#opt_sleep'?slp:null}, werte=[];
+for(const v of ['30','titel','0','60']){sleepSetzen(v); werte.push(menue(M));}
+timerLaeuftAb(); werte.push(menue(M));                  // abgelaufen: wieder „aus"
+aus({werte});
+""")
+    assert e == {"werte": ["30", "titel", "0", "60", "0"]}, e
