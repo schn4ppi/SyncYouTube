@@ -445,6 +445,21 @@ def _eintrag(it):
 _ID_FORM = re.compile(r"^[0-9a-fA-F-]{16,64}$")
 
 
+# Jellyfin-Routen (Stand 25.09.2026, am Quelltext v12.1 geprüft): die alten Formen
+# /Users/{uid}/Items, /Users/{uid}/Items/{id} und /Users/{uid}/PlayedItems/{id}
+# beantwortet 12.1 noch, aber als [Obsolete] und aus der API-Beschreibung
+# ausgeblendet (ItemsController.cs:721-723, UserLibraryController.cs:117-120,
+# PlaystateController.cs:120-124). Laut Release-Notiz v12.0 dürfen solche Routen
+# in jeder Hauptversion ohne Vorwarnung fallen. Die Nachfolger gibt es seit
+# 10.10.7 (also auch auf „JB Zuhause", 10.11.11); die Alt-Route ruft in 12.1
+# wörtlich die neue auf, die Antwortform ist dieselbe. Die Benutzer-Id geht als
+# Merkmal `userId` mit — eine fremde wäre 403 (RequestHelpers.GetUserId).
+def _titel_pfad(item_id):
+    """GET /Items/{id}?userId= — ein Titel samt UserData und MediaStreams
+    (UserLibraryController.GetItem, Antwort BaseItemDto)."""
+    return "/Items/" + urllib.parse.quote(str(item_id), safe="") + "?userId={uid}"
+
+
 def _folge_holen(item_id):
     """Eine EPISODE direkt bei Jellyfin nachschlagen (steht nie im Spiegel).
 
@@ -464,7 +479,7 @@ def _folge_holen(item_id):
         return None
     # Mit 401-Heilung wie jeder andere Weg (bis 24.09. fehlte sie hier: ein
     # entwertetes Token ließ jede Folge als „Film nicht gefunden" enden).
-    st, roh, art, _ = _jellyfin_ruf("/Users/{uid}/Items/" + item_id)
+    st, roh, art, _ = _jellyfin_ruf(_titel_pfad(item_id))
     if art or st != 200:
         return None
     try:
@@ -623,8 +638,10 @@ def _katalog_abzug():
     eintraege, start, gesamt = [], 0, None
     while gesamt is None or start < gesamt:
         # 401 heilt _jellyfin_ruf selbst (einmal frisch anmelden, alle Köpfe neu).
+        # GET /Items?userId= (ItemsController.GetItems, Antwort QueryResult mit
+        # Items + TotalRecordCount) statt der veralteten /Users/{uid}/Items.
         st, roh, art, ausnahme = _jellyfin_ruf(
-            "/Users/{uid}/Items?Recursive=true"
+            "/Items?userId={uid}&Recursive=true"
             f"&IncludeItemTypes=Movie,Series&Fields={felder}"
             f"&StartIndex={start}&Limit=1000", timeout=180)
         if art == ART_MERKMAL:
@@ -838,7 +855,7 @@ def detail(item_id, profil="standard"):
         m["video_codec"] = e.get("video_codec") or ""
         m["audio_codec"] = e.get("audio_codec") or ""
         try:
-            st, roh, fehlart, _ = _jellyfin_ruf("/Users/{uid}/Items/" + item_id)
+            st, roh, fehlart, _ = _jellyfin_ruf(_titel_pfad(item_id))
             if st == 200 and not fehlart:
                 voll = json.loads(roh)
                 for strom in voll.get("MediaStreams") or []:
@@ -1312,10 +1329,15 @@ def seerr_meine(n=20):
 
 # ---------------------------------------------------------------- Abspielen
 
-# Wie das Token in die Strom-Adresse kommt. Ob Jellyfin 12 `api_key=` noch
-# annimmt (oder `ApiKey=` bzw. den Authorization-Kopf will), ist ungemessen
-# (Befund 4 vom 24.09.: erst live messen, dann umstellen — und zwar HIER).
-STROM_TOKEN_PARAM = "api_key"
+# Wie das Token in die Strom-Adresse kommt (Befund 4 vom 24.09., am 25.09. am
+# Quelltext v12.1 beantwortet, live nicht gemessen): Jellyfin 12.1 liest in der
+# Adresse nur `ApiKey` (AuthorizationContext.cs:103-106); `api_key` nur mit dem
+# Legacy-Schalter (:108-111), den die Migration DisableLegacyAuthorization beim
+# Update abschaltet — bei René nachweislich aus. Weil der Strom-Endpunkt anonym
+# ist (VideosController ohne [Authorize]), lief der Film mit `api_key` trotzdem,
+# aber ohne Konto. `ApiKey` lesen auch 10.10.7 und 10.11.11. Gilt für ALLE
+# Verbraucher: VLC, Browser-Proxy (samt ffmpeg-Umwandlung) und Szenen-Vorschau.
+STROM_TOKEN_PARAM = "ApiKey"
 
 
 def _strom_adresse(basis, item_id, token):
@@ -1390,8 +1412,12 @@ def _fortschritt_senden_mit_grund(item_id, position_s, gesehen=False, nur_gesehe
         grund = _sende_grund(st)
         if grund != SENDE_OK or not gesehen:
             return grund
+    # POST /UserPlayedItems/{id}?userId= (PlaystateController.MarkPlayedItem,
+    # Antwort 200 mit UserItemDataDto) statt der veralteten
+    # /Users/{uid}/PlayedItems/{id}.
     st, _, art, _ = _jellyfin_ruf(
-        "/Users/{uid}/PlayedItems/" + urllib.parse.quote(str(item_id), safe=""), daten={})
+        "/UserPlayedItems/" + urllib.parse.quote(str(item_id), safe="") + "?userId={uid}",
+        daten={})
     if art:
         return SENDE_SERVER
     return _sende_grund(st)

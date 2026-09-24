@@ -64,6 +64,13 @@ def _zurueckdrehen(sekunden):
         "letzter_versuch", float(d["letzter_versuch"]) - sekunden), standard={})
 
 
+def _strom_token(url):
+    """Das Token, das eine Strom-Adresse trägt — gleich unter welchem Namen."""
+    import urllib.parse
+    q = urllib.parse.parse_qs(url.partition("?")[2])
+    return (q.get("ApiKey") or q.get("api_key") or [""])[0]
+
+
 def _alter_spiegel():
     """Ein Spiegel vom 20.09. mit der damaligen Server-Version."""
     filme.fam.json_schreiben(filme._pfade["katalog"], {
@@ -133,7 +140,7 @@ def test_netzfehler_wird_benannt(tmp_path, monkeypatch):
 def test_serverfehler_wird_benannt_und_erfolg_raeumt_auf(tmp_path, monkeypatch):
     _einrichten(tmp_path, monkeypatch)
     jf = JellyfinAttrappe("12", antworten=[("/System/Info", 200, {"Version": "12.1.0"}),
-                                           ("/Users/u1/Items?", 503, b"")])
+                                           ("/Items?", 503, b"")])
     monkeypatch.setattr(filme, "_http", jf)
     assert filme.katalog_abzug()["ok"] is False
     assert filme.zustand()["fehler_art"] == "server"
@@ -154,7 +161,7 @@ def test_antwort_ohne_json_bricht_nicht_aus_dem_abzug(tmp_path, monkeypatch):
     for name, antworten in (
             ("anmeldung", None),
             ("katalog", [("/System/Info", 200, {"Version": "12.1.0"}),
-                         ("/Users/u1/Items?", 200, html)])):
+                         ("/Items?", 200, html)])):
         _einrichten(tmp_path / name, monkeypatch)
         if antworten is None:
             monkeypatch.setattr(filme, "_http", lambda *a, **k: (200, html))
@@ -369,9 +376,9 @@ def test_merkmal_ruhe_haelt_die_hover_vorschau_und_bremst_den_strom(tmp_path, mo
     assert jf.anmeldungen() == vorher + 1, (
         f"{jf.anmeldungen() - vorher} Anmeldungen in einer Ruhe (höchstens eine)")
     assert len(geoeffnet) == 5, f"nur {len(geoeffnet)} von 5 Strom-Anfragen bekamen eine Adresse"
-    assert all(u.endswith("api_key=" + jf.tokens[-1]) for u in geoeffnet), geoeffnet
+    assert all(_strom_token(u) == jf.tokens[-1] for u in geoeffnet), geoeffnet
     status, _antwort = _post("/api/filme/play", {"id": "f1"})   # zweiter Film-Start, dieselbe Ruhe
-    assert status == 200 and vlc and vlc[0]["url"].endswith("api_key=" + jf.tokens[-1]), vlc
+    assert status == 200 and vlc and _strom_token(vlc[0]["url"]) == jf.tokens[-1], vlc
     assert jf.anmeldungen() == vorher + 1
     # Eine NEUE Ruhe (⟳ Abgleichen hob die alte auf, die Automatik löste sie
     # wieder aus) gibt dem Druck wieder genau eine Anmeldung.
@@ -400,7 +407,7 @@ def test_zweiter_prozess_loest_die_merkmal_ruhe_nicht_aus(tmp_path, monkeypatch)
     fremd = {"offen": True}
 
     def http(url, daten=None, kopf=None, timeout=15):
-        if fremd["offen"] and jf.anmeldungen() == 2 and "/Users/u1/Items?" in url:
+        if fremd["offen"] and jf.anmeldungen() == 2 and "/Items?" in url:
             fremd["offen"] = False
             jf.tokens.append("TOKEN-FREMD")      # der andere Prozess meldet sich an
         return jf(url, daten, kopf, timeout)
@@ -680,8 +687,8 @@ def _meldungen(jf):
     for pfad, _k, daten in jf.rufe:
         if pfad.startswith("/Sessions/Playing/Progress"):
             out.append(("progress", daten["ItemId"], daten["PositionTicks"] // 10_000_000))
-        elif "/PlayedItems/" in pfad:
-            out.append(("gesehen", pfad.rsplit("/", 1)[1], None))
+        elif "PlayedItems/" in pfad:
+            out.append(("gesehen", pfad.partition("?")[0].rsplit("/", 1)[1], None))
     return out
 
 
@@ -702,7 +709,7 @@ def test_gesehen_wird_geprueft_und_sonst_nachgereicht(tmp_path, monkeypatch):
     _einrichten(tmp_path / "kaputt", monkeypatch)
     jf = JellyfinAttrappe("12", antworten=[("/System/Info", 200, {}),
                                            ("/Sessions/Playing/Progress", 204, b""),
-                                           ("/PlayedItems/", 500, b"")])
+                                           ("/UserPlayedItems/", 500, b"")])
     monkeypatch.setattr(filme, "_http", jf)
     assert filme.fortschritt("f1", 2350, gesehen=True) is False
     q = _queue()
@@ -722,7 +729,7 @@ def test_gesehen_heilt_einen_401_mit_genau_einer_anmeldung(tmp_path, monkeypatch
     erst = []
 
     def http(url, daten=None, kopf=None, timeout=15):
-        if "/PlayedItems/" in url and not erst:
+        if "PlayedItems/" in url and not erst:
             erst.append(1)
             jf.entwertet.add(jf.tokens[-1])      # zweite Sitzung: Token 1 ist weg
             return 401, b""
@@ -833,7 +840,7 @@ def test_aelteres_gesehen_geht_nicht_verloren(tmp_path, monkeypatch):
     _queue_setzen(eintraege)
     monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12", antworten=[
         ("/System/Info", 200, {}), ("/Sessions/Playing/Progress", 204, b""),
-        ("/PlayedItems/", 500, b"")]))
+        ("/UserPlayedItems/", 500, b"")]))
     assert filme.fortschritt_nachreichen() == 0
     assert _queue() == eintraege
 
@@ -849,7 +856,7 @@ def test_abgewiesenes_gesehen_bleibt_auch_wenn_die_juengere_stelle_ankommt(tmp_p
                    {"item": "f1", "position_s": 40, "gesehen": False, "ts": 2.0}])
     jf = JellyfinAttrappe("12", antworten=[("/System/Info", 200, {}),
                                            ("/Sessions/Playing/Progress", 204, b""),
-                                           ("/PlayedItems/", 400, b"")])
+                                           ("/UserPlayedItems/", 400, b"")])
     monkeypatch.setattr(filme, "_http", jf)
     assert filme.fortschritt_nachreichen() == 1
     assert _meldungen(jf) == [("gesehen", "f1", None), ("progress", "f1", 40)], _meldungen(jf)
@@ -884,7 +891,7 @@ def test_abgelehnte_anmeldeform_ist_kein_kaputter_eintrag(tmp_path, monkeypatch)
         _queue_setzen(eintraege)
         monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12", antworten=[
             ("/System/Info", 200, {}), ("/Sessions/Playing/Progress", status, b""),
-            ("/PlayedItems/", status, b"")]))
+            ("/UserPlayedItems/", status, b"")]))
         assert filme.fortschritt_nachreichen() == 0
         assert _queue() == eintraege, status
 
@@ -895,20 +902,22 @@ MARKE = "https://marke.example/strom"
 
 
 def test_strom_adresse_entsteht_an_einer_stelle(tmp_path, monkeypatch):
-    """Befund 4 bleibt eine Messfrage (nimmt Jellyfin 12 `api_key=` in der Adresse
-    noch an?). Umgestellt wird erst nach der Live-Messung — aber dann an EINER
-    Stelle. Aufruf statt Erwähnung: VLC-Start, Browser-Proxy und Szenen-Vorschau
-    bekommen alle, was `_strom_adresse` baut."""
+    """Befund 4 (nimmt Jellyfin 12 `api_key=` in der Adresse noch an?) ist am
+    Quelltext v12.1 beantwortet: nein, nur `ApiKey` (AuthorizationContext.cs:
+    103-111). Umgestellt am 25.09. an EINER Stelle (STROM_TOKEN_PARAM). Aufruf
+    statt Erwähnung: VLC-Start, Browser-Proxy und Szenen-Vorschau bekommen alle,
+    was `_strom_adresse` baut (mit echter Adresse und samt tc=1:
+    test_jellyfin12_jeder_strom_verbraucher_holt_mit_jbs_konto)."""
     import subprocess
 
     import youtube_app as app
     _einrichten(tmp_path, monkeypatch)
     monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12"))
     assert filme.katalog_abzug()["ok"]
-    # Form heute (unverändert): Token als api_key in der Adresse, Kennung kodiert
-    # — eine Kennung vom Client darf keine andere Jellyfin-Route ansteuern.
+    # Form: Token als ApiKey in der Adresse, Kennung kodiert — eine Kennung vom
+    # Client darf keine andere Jellyfin-Route ansteuern.
     assert filme.stream_url("f1") == ("https://jelly.example/Videos/f1/stream"
-                                      "?static=true&api_key=TOKEN-1")
+                                      "?static=true&ApiKey=TOKEN-1")
     assert "/System/Info" not in filme.stream_url("../../System/Info?x=")
     monkeypatch.setattr(filme, "_strom_adresse", lambda basis, iid, tok: f"{MARKE}/{iid}")
     assert filme.stream_url("f1") == MARKE + "/f1"
@@ -945,6 +954,86 @@ def test_strom_adresse_entsteht_an_einer_stelle(tmp_path, monkeypatch):
     assert geoeffnet == [MARKE + "/f1"], geoeffnet
 
 
+class _JfAntwort:
+    """urlopen-Antwort aus dem, was die Jellyfin-Attrappe liefert."""
+
+    def __init__(self, status, rumpf):
+        self.status, self._rest = status, [rumpf]
+        self.headers = {"Content-Type": "video/x-matroska", "Content-Length": str(len(rumpf))}
+
+    def read(self, n=-1):
+        return self._rest.pop(0) if self._rest else b""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_jellyfin12_jeder_strom_verbraucher_holt_mit_jbs_konto(tmp_path, monkeypatch):
+    """Jellyfin 12.1 übergeht `api_key` in der Adresse still (AuthorizationContext.cs:
+    108-111, Legacy-Schalter bei René aus); der Strom-Endpunkt ist anonym, der Film
+    lief also weiter — aber ohne Konto, durch eine Lücke, die Jellyfin schließen
+    will (jellyfin#13984). `ApiKey` liest 12.1 immer (:103-106), 10.10.7/10.11.11
+    ebenso.
+
+    Vier Verbraucher holen die Strom-Adresse, KEINER mit Ausweis-Kopf (das Token
+    reist nur in der Adresse): VLC-Start (libVLC öffnet sie selbst), Browser-Proxy
+    /api/filme/direkt (urllib, reicht nur Range durch), die Umwandlung tc=1
+    (Vorprobe mit urllib, dann ffmpeg -i) und die Szenen-Vorschau (ffmpeg -i).
+    Jede Adresse, die ein Verbraucher WIRKLICH öffnen würde, geht an die
+    Jellyfin-12-Attrappe — und die muss bei allen fünf Abrufen JBs Konto sehen."""
+    import io
+    import subprocess
+
+    import youtube_app as app
+    _einrichten(tmp_path, monkeypatch)
+    _alter_spiegel()                             # f1 im Katalog: die Vorschau backt wirklich
+    jf = JellyfinAttrappe("12")
+    monkeypatch.setattr(filme, "_http", jf)
+    # 1) VLC-Start
+    vlc = []
+    monkeypatch.setattr(app, "vlc_kommando", lambda d: vlc.append(d) or {"ok": True})
+    status, _antwort = _post("/api/filme/play", {"id": "f1"})
+    assert status == 200 and vlc, (status, vlc)
+    jf.strom_abruf(vlc[0]["url"])
+
+    # 2) Browser-Proxy: urllib holt, was Jellyfin (die Attrappe) herausgibt.
+    def urlopen(req, timeout=None):
+        st, rumpf = jf.strom_abruf(req.full_url, dict(req.header_items()))
+        return _JfAntwort(st, rumpf)
+    monkeypatch.setattr(app.urllib.request, "urlopen", urlopen)
+    h = _handler("/api/filme/direkt?id=f1")
+    h.headers["Range"] = "bytes=0-"
+    h.do_GET()
+    status, rumpf = _antwort_von(h)
+    assert status == 206 and rumpf == b"STROM", (status, rumpf)
+    # 3) Umwandlung tc=1: Vorprobe (Range 0-0), dann liest ffmpeg die Adresse selbst.
+    monkeypatch.setattr(app, "_ffmpeg_exe", lambda: r"C:\bin\ffmpeg.exe")
+    tc = []
+
+    class Prozess:
+        def __init__(self, cmd):
+            tc.append(cmd)
+            self.stdout = io.BytesIO(b"FMP4")
+
+        def kill(self):
+            pass
+    monkeypatch.setattr(app, "_tc_starten", Prozess)
+    status, rumpf = _route("/api/filme/direkt?id=f1&tc=1&vcopy=1&start=0")
+    assert status == 200 and rumpf == b"FMP4" and len(tc) == 1, (status, rumpf, tc)
+    jf.strom_abruf(tc[0][tc[0].index("-i") + 1])
+    # 4) Szenen-Vorschau
+    befehle = []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: befehle.append(cmd))
+    filme.snippet_backen("f1")
+    assert len(befehle) == 1, befehle
+    jf.strom_abruf(befehle[0][befehle[0].index("-i") + 1])
+    # VLC, Proxy, Vorprobe, ffmpeg-Umwandlung, Vorschau: fünf Abrufe, alle mit JBs Konto.
+    assert [konto for _p, konto in jf.stroeme] == ["u1"] * 5, jf.stroeme
+
+
 def test_browser_proxy_antwortet_bei_jellyfin_fehler_ehrlich(tmp_path, monkeypatch):
     """Gegenprüfung 24.09. (Befund 4, Korrektur 3): HTTPError ist ein OSError, und
     `except (OSError, ConnectionError): pass` schickte GAR KEINE Antwort — der
@@ -953,7 +1042,7 @@ def test_browser_proxy_antwortet_bei_jellyfin_fehler_ehrlich(tmp_path, monkeypat
     import io
 
     import youtube_app as app
-    geheim = "https://jelly.example/Videos/f1/stream?static=true&api_key=GEHEIM-TOKEN"
+    geheim = "https://jelly.example/Videos/f1/stream?static=true&ApiKey=GEHEIM-TOKEN"
     monkeypatch.setattr(filme, "stream_url", lambda iid, druck=False: geheim)
     for fehler, status_soll, wort in (
             (urllib.error.HTTPError(geheim, 401, "Unauthorized", {}, io.BytesIO(b"")), 401, "401"),
@@ -990,7 +1079,7 @@ def test_transcoder_zweig_antwortet_bei_jellyfin_fehler_ehrlich(tmp_path, monkey
     import io
 
     import youtube_app as app
-    geheim = "https://jelly.example/Videos/f1/stream?static=true&api_key=GEHEIM-TOKEN"
+    geheim = "https://jelly.example/Videos/f1/stream?static=true&ApiKey=GEHEIM-TOKEN"
     monkeypatch.setattr(filme, "stream_url", lambda iid, druck=False: geheim)
     monkeypatch.setattr(app, "_ffmpeg_exe", lambda: r"C:\bin\ffmpeg.exe")
     gestartet, jellyfin = [], {"gibt_heraus": False}

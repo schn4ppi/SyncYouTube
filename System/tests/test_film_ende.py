@@ -648,7 +648,7 @@ def test_spiegel_und_abzug_schreiben_nacheinander(tmp_path, monkeypatch):
     _spiegel(tmp_path, monkeypatch)
     monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12", antworten=[
         ("/System/Info", 200, {"Version": "12.1.0"}),
-        ("/Users/u1/Items", 200, FAKE_ITEMS), ("/Sessions/Playing/Progress", 204, b"")]))
+        ("/Items?", 200, FAKE_ITEMS), ("/Sessions/Playing/Progress", 204, b"")]))
     gesehen = []
     echt = filme.fam.json_schreiben
 

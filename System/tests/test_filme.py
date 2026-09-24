@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 
 MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if MODUL_DIR not in sys.path:
@@ -55,6 +56,52 @@ def _token_im_kopf(kopf, server="12"):
     return m.group(1) if m else ""
 
 
+def _token_in_adresse(pfad, server="12"):
+    """Welches Token ein Jellyfin dieser Version in der ADRESSE findet.
+
+    Jellyfin 12.1 liest dort nur `ApiKey`; `api_key` nur mit dem Legacy-Schalter,
+    den die Migration DisableLegacyAuthorization beim Update abschaltet
+    (AuthorizationContext.cs:103-111 v12.1). Ohne Schalter wird `api_key` still
+    übergangen — der Abruf ist dann anonym. 10.11 (Schalter noch an) liest beide
+    (ac 10.11.11 Z. 105/110). Der Name ist in ASP.NET groß/klein-unabhängig."""
+    q = {k.lower(): v[0] for k, v in
+         urllib.parse.parse_qs(pfad.partition("?")[2]).items()}
+    tok = q.get("apikey") or ""
+    if not tok and server == "10.11":
+        tok = q.get("api_key") or ""
+    return tok
+
+
+# Die veralteten Routen, die Jellyfin 12.1 NOCH beantwortet ([Obsolete] +
+# IgnoreApi; Release-Notiz v12.0: „can be removed in any major release without
+# warning"), und ihre Nachfolger (seit 10.10.7 da, also auch mit 10.11.11):
+#   GET  /Users/{u}/Items               → GET  /Items?userId=         (ItemsController.cs:721 → :171)
+#   GET  /Users/{u}/Items/{id}          → GET  /Items/{id}?userId=    (UserLibraryController.cs:117 → :82)
+#   POST /Users/{u}/PlayedItems/{id}    → POST /UserPlayedItems/{id}?userId= (PlaystateController.cs:120 → :72)
+#   …/Users/{u}/Items/{id}/UserData     → /UserItems/{id}/UserData?userId=
+# Die Alt-Route ruft in 12.1 wörtlich die neue auf (gleiche Antwortform).
+_ALT_ROUTE = re.compile(r"/Users/([^/?]+)/(Items|PlayedItems)(?:/([^/?]+))?(/UserData)?")
+
+
+def _nachfolger(pfad):
+    """(Pfad in Nachfolge-Form, war_veraltet) — so wie 12.1 die Alt-Route intern
+    weiterreicht: die Benutzer-Id aus dem Pfad wird zum Merkmal `userId`."""
+    teil, _, query = pfad.partition("?")
+    m = _ALT_ROUTE.fullmatch(teil)
+    if not m:
+        return pfad, False
+    uid, art, iid, userdata = m.groups()
+    if art == "PlayedItems" and iid and not userdata:
+        neu = "/UserPlayedItems/" + iid
+    elif art == "Items" and iid:
+        neu = f"/UserItems/{iid}/UserData" if userdata else "/Items/" + iid
+    elif art == "Items" and not userdata:
+        neu = "/Items"
+    else:
+        return pfad, False
+    return neu + "?userId=" + uid + ("&" + query if query else ""), True
+
+
 def _fake_http(antworten, server="12", mitschrift=None):
     """antworten: Liste (teil_der_url, status, json_objekt); gematcht per
     Teilstring. Unerwartete URL = Testfehler (nichts geht still ins Netz).
@@ -93,8 +140,20 @@ class JellyfinAttrappe:
                       künftiger Kopf-Wechsel aus: Anmeldung 200, Abruf 401).
     entwerte_ersten:  der erste Datenabruf entwertet Token 1 (eine zweite Sitzung
                       mit derselben DeviceId hat sich angemeldet).
-    antworten:        Liste (teil_des_pfads, status, obj|bytes).
-    Jeder Ruf landet in `rufe` als (pfad, kopf, daten)."""
+    antworten:        Liste (teil_des_pfads, status, obj|bytes), gematcht gegen
+                      die NACHFOLGE-Form des Pfads (s. _nachfolger).
+    Jeder Ruf landet in `rufe` als (pfad, kopf, daten) — der Pfad so, wie er
+    gesendet wurde.
+
+    Jellyfin 12.1 wie gemessen am Quelltext (25.09.2026):
+    * Token aus `Authorization: MediaBrowser …, Token=…` oder `?ApiKey=`;
+      `api_key` wird übergangen (s. _token_in_adresse).
+    * Veraltete Routen antworten WEITER (wie 12.1), landen aber in `veraltet` —
+      ein Test beweist die neue Route also am Mitschnitt, nicht am Ausfall.
+    * `userId` fremd ⇒ 403 (RequestHelpers.GetUserId: SecurityException).
+    * `/Videos/{id}/stream` ist anonym erreichbar (VideosController.cs:38-39 und
+      :314-315 ohne [Authorize]): 206 auch ohne gültiges Token. `stroeme` hält
+      je Abruf (pfad, konto) fest — konto '' heißt: Jellyfin sah KEIN Konto."""
 
     def __init__(self, version="12", anmeldung=200, lehnt_ab=False,
                  entwerte_ersten=False, antworten=None, public_version="12.1.0"):
@@ -103,12 +162,22 @@ class JellyfinAttrappe:
         self.public_version = public_version
         self.antworten = antworten if antworten is not None else STANDARD_ANTWORTEN
         self.tokens, self.rufe, self.entwertet = [], [], set()
+        self.veraltet, self.stroeme = [], []
 
     def anmeldungen(self):
         return sum(1 for p, _k, _d in self.rufe if p.startswith(FREI[0]))
 
     def datenrufe(self):
         return [(p, k) for p, k, _d in self.rufe if not p.startswith(FREI)]
+
+    def _gueltig(self, tok):
+        return bool(tok and not self.lehnt_ab and self.tokens
+                    and tok == self.tokens[-1] and tok not in self.entwertet)
+
+    def strom_abruf(self, url, kopf=None):
+        """Wie VLC, ffmpeg und der Browser-Proxy die Strom-Adresse holen: ein
+        nackter GET (höchstens ein Range-Kopf), kein Ausweis-Kopf."""
+        return self(url, kopf=kopf or {})
 
     def __call__(self, url, daten=None, kopf=None, timeout=15):
         assert url.startswith(BASIS), "nur Renés (Attrappen-)Server: " + url
@@ -122,16 +191,25 @@ class JellyfinAttrappe:
                                     "User": {"Id": "u1"}}).encode()
         if pfad.startswith(FREI[1]):
             return 200, json.dumps({"Version": self.public_version}).encode()
-        tok = _token_im_kopf(kopf, self.version)
-        if (self.lehnt_ab or not self.tokens or tok != self.tokens[-1]
-                or tok in self.entwertet):
+        tok = _token_im_kopf(kopf, self.version) or _token_in_adresse(pfad, self.version)
+        if re.match(r"/Videos/[^/?]+/stream(?:[.?]|$)", pfad):
+            self.stroeme.append((pfad, "u1" if self._gueltig(tok) else ""))
+            return 206, b"STROM"
+        if not self._gueltig(tok):
             return 401, b""
         if (self.entwerte_ersten and not self.entwertet
                 and not pfad.startswith("/System/Info")):
             self.entwertet.add(tok)
             return 401, b""
+        neu, alt = _nachfolger(pfad)
+        if alt:
+            self.veraltet.append(pfad)
+        nutzer = {k.lower(): v[0] for k, v in
+                  urllib.parse.parse_qs(neu.partition("?")[2]).items()}.get("userid")
+        if nutzer is not None and nutzer != "u1":
+            return 403, b""
         for teil, status, obj in self.antworten:
-            if teil in pfad:
+            if teil in neu:
                 return status, obj if isinstance(obj, bytes) else json.dumps(obj).encode()
         raise AssertionError("unerwarteter Pfad: " + pfad)
 
@@ -422,18 +500,19 @@ FOLGE = {"Id": FOLGE_ID, "Name": "Geheimnisse", "Type": "Episode",
          "ProviderIds": {}, "ImageTags": {}, "UserData": {},
          "MediaStreams": [{"Type": "Video", "Codec": "h264", "Height": 1080}]}
 
-# Was die JellyfinAttrappe auf Datenabrufe antwortet (Reihenfolge zählt:
-# der Katalog-Pfad „/Users/u1/Items?" vor dem Einzel-Pfad „/Users/u1/Items/").
+# Was die JellyfinAttrappe auf Datenabrufe antwortet — gematcht gegen die
+# NACHFOLGE-Form (eine Alt-Route bekommt dieselbe Antwort, s. _nachfolger).
+# Katalog „/Items?", Einzel-Titel „/Items/<id>?", Bilder „/Items/<id>/Images/".
 STANDARD_ANTWORTEN = [
     ("/System/Info", 200, {"Version": "12.1.0"}),
-    ("/Users/u1/Items?", 200, FAKE_ITEMS),
-    ("/Users/u1/Items/" + FOLGE_ID, 200, FOLGE),
-    ("/Users/u1/Items/f1", 200, dict(FAKE_ITEMS["Items"][0], MediaStreams=[
+    ("/Items?", 200, FAKE_ITEMS),
+    ("/Items/" + FOLGE_ID + "?", 200, FOLGE),
+    ("/Items/f1?", 200, dict(FAKE_ITEMS["Items"][0], MediaStreams=[
         {"Type": "Video", "Codec": "hevc", "Height": 2160}])),
     ("/Images/", 200, b"JPEGDATEN"),
     ("/Shows/s1/Episodes", 200, FAKE_EPS),
     ("/Sessions/Playing/Progress", 204, b""),
-    ("/PlayedItems/", 200, {}),
+    ("/UserPlayedItems/", 200, {}),
 ]
 
 
@@ -946,9 +1025,9 @@ def test_jeder_jellyfin_abruf_traegt_den_ganzen_ausweis(tmp_path, monkeypatch):
         assert kopf.get("Authorization") == filme.GERAET_KOPF + f', Token="{tok}"', (pfad, kopf)
         assert kopf.get("X-Emby-Token") == tok, (pfad, kopf)   # für ältere Server
         wege.add(re.sub(r"[0-9a-f]{32}|f1|s1|u1", "·", pfad.split("?")[0]))
-    assert wege >= {"/System/Info", "/Users/·/Items", "/Items/·/Images/Primary",
-                    "/Shows/·/Episodes", "/Users/·/Items/·", "/Sessions/Playing/Progress",
-                    "/Users/·/PlayedItems/·"}, wege
+    assert wege >= {"/System/Info", "/Items", "/Items/·/Images/Primary",
+                    "/Shows/·/Episodes", "/Items/·", "/Sessions/Playing/Progress",
+                    "/UserPlayedItems/·"}, wege
 
 
 def _wege_mit_heilung():
@@ -1009,3 +1088,76 @@ def test_frisches_token_eines_anderen_fadens_wird_nicht_verworfen(tmp_path, monk
     assert filme.fortschritt("f1", 42) is True
     assert anmeldungen == [], "das frische Token des anderen Fadens wurde verworfen"
     assert filme._sitzung["token"] == "FRISCH"
+
+
+# ------------------------------- Jellyfin 12: Nachfolge-Routen + ApiKey (25.09.2026)
+
+def _merkmale(pfad):
+    return urllib.parse.parse_qs(pfad.partition("?")[2])
+
+
+def test_jellyfin12_jeder_weg_ruft_die_nachfolge_route(tmp_path, monkeypatch):
+    """Jellyfin 12.1 beantwortet /Users/{uid}/Items, /Users/{uid}/Items/{id} und
+    /Users/{uid}/PlayedItems/{id} noch, markiert sie aber [Obsolete] und blendet
+    sie aus der API-Beschreibung aus (ItemsController.cs:721-723,
+    UserLibraryController.cs:117-120, PlaystateController.cs:120-124 v12.1). Laut
+    Release-Notiz v12.0 dürfen solche Routen in jeder Hauptversion ohne
+    Vorwarnung fallen — dann stünde der Film-Teil wieder still wie am 23.09.
+    Die Nachfolger (/Items?userId=, /Items/{id}?userId=, /UserPlayedItems/{id})
+    gibt es seit 10.10.7, also auch auf „JB Zuhause" (10.11.11); die Alt-Route
+    ruft in 12.1 wörtlich die neue auf, die Antwortform ist dieselbe.
+
+    Die Attrappe beantwortet die Alt-Routen wie 12.1 weiter. Darum beweist der
+    Mitschnitt die neue Route, nicht ein Ausfall: kein Ruf auf einer Alt-Route,
+    und jeder Weg mit JBs Benutzer-Id als Merkmal (eine fremde Id wäre 403)."""
+    for version in ("12", "10.11"):
+        _einrichten(tmp_path / version, monkeypatch)
+        jf = JellyfinAttrappe(version)
+        monkeypatch.setattr(filme, "_http", jf)
+        monkeypatch.setattr(filme, "_meta_keys", lambda: {})
+        assert filme.katalog_abzug()["ok"], version                   # Katalog-Abzug
+        assert filme.detail("f1")["hoehe"] == 2160, version            # Technik-Abruf
+        assert filme.detail(FOLGE_ID)["typ"] == "folge", version       # _folge_holen
+        assert filme.fortschritt("f1", 2350, gesehen=True) is True, version
+        assert jf.veraltet == [], (version, jf.veraltet)
+        rufe = [p for p, _k in jf.datenrufe()]
+        katalog = [p for p in rufe if p.partition("?")[0] == "/Items"]
+        assert len(katalog) == 1, (version, rufe)
+        m = _merkmale(katalog[0])
+        assert m["userId"] == ["u1"] and m["Recursive"] == ["true"], (version, m)
+        assert m["IncludeItemTypes"] == ["Movie,Series"], (version, m)
+        assert m["StartIndex"] == ["0"] and m["Limit"] == ["1000"], (version, m)
+        einzeln = [p for p in rufe if re.fullmatch(r"/Items/[^/]+", p.partition("?")[0])]
+        assert {p.partition("?")[0] for p in einzeln} == {"/Items/f1", "/Items/" + FOLGE_ID}, \
+            (version, rufe)
+        assert all(_merkmale(p) == {"userId": ["u1"]} for p in einzeln), (version, einzeln)
+        gesehen = [(p, d) for p, _k, d in jf.rufe if "PlayedItems" in p]
+        assert gesehen == [("/UserPlayedItems/f1?userId=u1", {})], (version, gesehen)
+
+
+def test_jellyfin12_strom_adresse_gehoert_zu_jbs_konto(tmp_path, monkeypatch):
+    """Jellyfin 12.1 liest das Token in der Adresse nur noch als `ApiKey`
+    (AuthorizationContext.cs:103-106 v12.1); `api_key` gilt nur mit dem
+    Legacy-Schalter (:108-111), den die Migration DisableLegacyAuthorization beim
+    Update abschaltet — bei René nachweislich aus (51-mal 401 mit reinem
+    X-Emby-Token, Commit a60f93e). Weil der Strom-Endpunkt anonym ist
+    (VideosController ohne [Authorize]), lief der Film mit `api_key` trotzdem,
+    aber als Abruf OHNE Konto — durch eine Lücke, die Jellyfin schließen will
+    (jellyfin#13984). `ApiKey` lesen auch 10.10.7 und 10.11.11 (Z. 100/105).
+
+    Verhalten statt Schreibweise: die Adresse aus stream_url geht nackt (wie VLC
+    und ffmpeg sie holen, höchstens mit Range) an die Attrappe, und die muss
+    JBs Konto sehen. Die Verbraucher selbst prüft
+    test_jellyfin_zugang.test_jellyfin12_jeder_strom_verbraucher_holt_mit_jbs_konto."""
+    for version in ("12", "10.11"):
+        _einrichten(tmp_path / version, monkeypatch)
+        jf = JellyfinAttrappe(version)
+        monkeypatch.setattr(filme, "_http", jf)
+        url = filme.stream_url("f1")
+        assert url and url.startswith(BASIS + "/Videos/f1/stream?static=true&"), url
+        assert jf.strom_abruf(url, {"Range": "bytes=0-0"})[0] == 206
+        assert jf.stroeme == [(url[len(BASIS):], "u1")], (version, jf.stroeme)
+        # Ein veraltetes Token bleibt anonym (die Attrappe zählt nicht jedes Token).
+        jf.entwertet.add(jf.tokens[-1])
+        jf.strom_abruf(url)
+        assert jf.stroeme[-1][1] == "", (version, jf.stroeme)
