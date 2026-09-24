@@ -22,19 +22,42 @@ import zipfile
 SYSTEM = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WURZEL = os.path.dirname(SYSTEM)
 BAU = os.path.join(SYSTEM, "build_tmp", "quellstart")
-PY_VER = "3.12.10"
+# Paket-Python = Bau-Python (Befund 24.09.2026): pip installiert mit DIESEM Python
+# (sys.executable) und wählt Binärteile für seine Fassung. Bis v.1.2.6 lag im Paket
+# ein 3.12.10 neben cp314-Dateien aus der 3.14-venv — Pillow war nicht ladbar,
+# pywinrt wäre es auch nicht gewesen. `--python-version` allein schützt nicht:
+# Umgebungsmarker wertet pip weiter gegen das LAUFENDE Python aus. Also dieselbe
+# Fassung, und der Rauchtest am fertigen Paket bleibt Pflicht.
+PY_VER = "{}.{}.{}".format(*sys.version_info[:3])
 PY_URL = (f"https://www.python.org/ftp/python/{PY_VER}/"
           f"python-{PY_VER}-embed-amd64.zip")
-PAKETE = ["yt-dlp", "pystray", "pillow", "mutagen", "pykakasi",
-          "keyring", "qrcode", "python-vlc"]
+# Gepinnt wie SyncDashTray/System/requirements.txt (dort ohne Pin: die Fassung der
+# Familien-venv, aus der auch die exe gebaut wird) — exe und ZIP eines Releases
+# tragen so dieselben Fassungen. Der Wächter test_quellstart_paket gleicht ab.
+# yt-dlp[default] bringt yt-dlp-ejs mit („Required for full YouTube support").
+PAKETE = ["yt-dlp[default]==2026.8.19", "pystray==0.19.5", "pillow==12.2.0",
+          "mutagen==1.48.1", "pykakasi==2.3.0", "keyring==25.7.0", "qrcode==8.2",
+          "python-vlc==3.0.21203",
+          # Windows-Medienanmeldung des VLC-Motors (medien_smtc.py, JB-Go 23.09.)
+          "winrt-runtime==3.2.1", "winrt-Windows.Foundation==3.2.1",
+          "winrt-Windows.Media==3.2.1", "winrt-Windows.Media.Interop==3.2.1",
+          "winrt-Windows.Storage.Streams==3.2.1"]
+
+
+def _embed_pfad():
+    """Zwischenspeicher des Embeddable MIT Fassung im Namen: ein altes 3.12-Archiv
+    (bis 24.09. hieß es fassungslos python-embed.zip) darf nie als 3.14 gelten."""
+    return os.path.join(BAU, f"python-{PY_VER}-embed-amd64.zip")
 
 
 def _python_holen(ziel):
     """Signiertes Embeddable-Python von python.org laden + entpacken."""
-    zp = os.path.join(BAU, "python-embed.zip")
+    zp = _embed_pfad()
     if not os.path.exists(zp):
-        print(f"Lade {PY_URL} …")
-        urllib.request.urlretrieve(PY_URL, zp)
+        print(f"Lade {PY_URL} ...")
+        teil = zp + ".teil"                   # halber Download gilt nie als Zwischenspeicher
+        urllib.request.urlretrieve(PY_URL, teil)
+        os.replace(teil, zp)
     with zipfile.ZipFile(zp) as z:
         z.extractall(ziel)
     # site-packages aktivieren: im ._pth 'import site' einkommentieren und
@@ -55,8 +78,13 @@ def _pakete_holen(lib):
     # ASCII-Ausgaben: die Windows-Konsole laeuft auf cp1252 und wirft bei
     # Sonderzeichen einen UnicodeEncodeError — der Bau starb daran lautlos
     # und liess die ALTE zip liegen (Fund 07.08., fast ausgeliefert).
+    # --only-binary=:all: — nur fertige Räder, nie eine sdist mit dem Bau-Compiler;
+    # --no-compile — kein Bytecode des Bau-Pythons im Paket; --isolated — keine
+    # pip-Einstellungen dieses PCs (Index, Proxy) im Bau.
     print("Installiere Abhaengigkeiten nach:", lib)
-    subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade",
+    subprocess.run([sys.executable, "-m", "pip", "--isolated", "install",
+                    "--disable-pip-version-check", "--no-warn-script-location",
+                    "--only-binary=:all:", "--no-compile",
                     "--target", lib, *PAKETE], check=True)
 
 
