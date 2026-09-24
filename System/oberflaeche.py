@@ -4062,8 +4062,10 @@ async function filmePlayVlc(id,pos,meta,wechsel){
   // Vollbild-Ordnung (JB: „nicht im Vordergrund"): erst das BROWSER-Vollbild
   // verlassen — sonst kämpfen zwei Fullscreens und das VLC-Bild liegt hinten.
   if(document.fullscreenElement){try{document.exitFullscreen();}catch(e){}}
+  const gen=tvpWechselGen;                             // Esc und jeder neuere Folgenwechsel zählen hoch
   try{
     await huelleMelden();                              // Hülle: Film rendert ins Panel
+    if(gen!==tvpWechselGen)return;                     // während der Anmeldung überholt: gar nicht erst starten
     const r=await fetch('/api/filme/play',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id, vol:plVol, pos:pos||0})});
     const d=await r.json();
@@ -8315,8 +8317,10 @@ async function tvLiveLaden(){
 }
 async function tvLivePlay(e){
   if(document.fullscreenElement){try{document.exitFullscreen();}catch(x){}}
+  const g=++liveStartGen;
   try{
     await huelleMelden();                              // Hülle: Sender rendert ins Panel
+    if(g!==liveStartGen)return;                        // während der Anmeldung überholt: nichts mehr starten
     const r=await (await fetch('/api/live/play',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({url:e.url, name:e.name, vol:plVol})})).json();
     if(r.fehler){toast('📡 '+r.fehler); return;}
@@ -9118,6 +9122,12 @@ function vlcAktiv(){
    Fenster (Filme im Vollbild). Wartet höchstens HUELLE_MELDEN_MS, Fehler
    still: der Start selbst geht immer weiter. Im Browser: nichts. */
 const HUELLE_MELDEN_MS=3000;
+/* Überholte Starts (Prüfung Runde 1): jede Anmeldung ist ein eigener js_api-
+   Faden, ihre Rückkehr-Reihenfolge ist offen — ohne Zähler startete bei
+   schnellem ⏭ der ÄLTERE Titel als letzter. Wer während der Anmeldung
+   überholt wurde (neuerer Start, Stopp), schickt nichts mehr. Filme prüfen
+   dafür tvpWechselGen (Esc und jeder Folgenwechsel zählen dort hoch). */
+let vlcStartGen=0, liveStartGen=0;
 async function huelleMelden(){
   const api=window.pywebview&&window.pywebview.api;
   if(!api||typeof api.video_melden!=='function')return;
@@ -9128,7 +9138,10 @@ async function huelleMelden(){
 }
 async function vlcBefehl(cmd,extra){
   try{
-    if(cmd==='play')await huelleMelden();
+    if(cmd==='play'||cmd==='stop'){                   // Stopp überholt einen wartenden Start
+      const g=++vlcStartGen;
+      if(cmd==='play'){await huelleMelden(); if(g!==vlcStartGen)return null;}
+    }
     const r=await fetch('/api/vlc',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(Object.assign({cmd:cmd},extra||{}))});
     const d=await r.json();

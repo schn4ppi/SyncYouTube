@@ -639,8 +639,8 @@ def test_seite_meldet_das_panel_vor_jedem_vlc_start(tmp_path):
     /api/live/play) auf video_melden; ein kaputter, hängender oder fehlender
     Ruf hält den Start nie auf; im Browser passiert nichts Neues."""
     q = _pc()
-    teile = [_js_funktion(q, n) for n in ("huelleMelden", "vlcBefehl", "filmePlayVlc",
-                                          "tvLivePlay")]
+    teile = _start_zaehler(q) + [_js_funktion(q, n) for n in (
+        "huelleMelden", "vlcBefehl", "filmePlayVlc", "tvLivePlay")]
     (e,) = _lauf(tmp_path, SEITE, *teile, r"""
 const erg={};
 huelle(langsam);
@@ -668,3 +668,74 @@ aus(erg);
     for fall in ("abgelehnt", "wirft", "haengt", "alte_huelle", "browser"):
         assert e[fall] == ["fetch:/api/vlc:play"], (fall, e[fall])
     assert e["browser_film"] == ["fetch:/api/filme/play", "fernbedienung"], e["browser_film"]
+
+
+def _start_zaehler(q):
+    """Die Zähler-Zeile der Seite (überholte VLC-Starts), falls es sie gibt — am
+    alten Stand fehlt sie, dann läuft der Rot-Lauf ohne sie."""
+    m = re.search(r"^let vlcStartGen.*$", q, re.M)
+    return [m.group(0)] if m else []
+
+
+WETTLAUF = r"""
+var plVol=80, tvpWechselGen=0, tvpWechsel=null, tvpModusNaechster=null, tvpModus='browser',
+    tvpOffen=false, tvpIdAkt='', tvInfoDaten=null;
+const HUELLE_MELDEN_MS=3000;
+const spur=[]; let serverKey='';                 // der EINE VLC am PC
+function toast(t){ spur.push('toast:'+t); }
+function tvFilmPlayer(id,titel){ spur.push('fernbedienung:'+(id||titel)); }
+async function smtcTaste(){}
+globalThis.fetch=async(url,opt)=>{
+  const k=opt&&opt.body?JSON.parse(opt.body):{};
+  if(url==='/api/filme/play'){ serverKey='film:'+k.id; spur.push('server-play:'+k.id); }
+  else if(url==='/api/live/play'){ serverKey='live:'+k.name; spur.push('server-live:'+k.name); }
+  else if(url==='/api/vlc'&&k.cmd==='play'){ serverKey=k.key; spur.push('server-play:'+k.key); }
+  else if(url==='/api/vlc'&&k.cmd==='stop'){ serverKey=''; spur.push('server-stop'); }
+  return {json:async()=>({verfuegbar:true, zustand:'spielt', key:serverKey})};
+};
+// Jede Anmeldung ist ein eigener js_api-Faden: wann sie zurückkehrt, ist offen.
+const dauern=[];
+window.pywebview={api:{video_rect(){}, video_melden(){ const ms=dauern.shift();
+  return new Promise(r=>setTimeout(()=>r(true),ms)); }}};
+const warte=ms=>new Promise(r=>setTimeout(r,ms));
+function folge(id){ const gen=++tvpWechselGen; tvpWechsel={gen,id};
+  return filmePlayVlc(id,0,{titel:id},gen); }
+async function fall(f){ spur.length=0; serverKey=''; await f(); await warte(60);
+  return {spur:spur.slice(), key:serverKey}; }
+"""
+
+
+def test_ueberholter_start_in_der_huelle_wuergt_den_neueren_nicht_ab(tmp_path):
+    """Prüfung Runde 1 (mittel): Seit d44a709 wartet jeder VLC-Start in der Hülle
+    auf video_melden (bis 3 s, je Anmeldung ein eigener js_api-Faden). Kehrt
+    die ältere Anmeldung NACH der jüngeren zurück, startete der ältere Titel
+    als letzter. Gemessen am alten Stand: zwei Folgenwechsel A, B — VLC spielte
+    B, dann A, dann stoppte der Überholt-Schutz A: VLC aus, die Oberfläche
+    zeigte die Fernbedienung von B. Jetzt schickt ein Start, der während der
+    Anmeldung überholt wurde (neuerer Start, Esc, Stopp), gar nichts."""
+    q = _pc()
+    teile = _start_zaehler(q) + [_js_funktion(q, n) for n in (
+        "huelleMelden", "vlcBefehl", "filmePlayVlc", "tvLivePlay")]
+    (e,) = _lauf(tmp_path, WETTLAUF, *teile, r"""
+const erg={};
+dauern.push(40,5);                                   // A meldet langsam, B schnell
+erg.folgen=await fall(async()=>{ const a=folge('A'); await warte(10); await Promise.all([a,folge('B')]); });
+dauern.push(40);                                     // Esc (filmStopp zählt hoch) während A meldet
+erg.esc=await fall(async()=>{ const a=filmePlayVlc('A',0,{titel:'A'}); await warte(10);
+  tvpWechselGen++; await a; });
+dauern.push(40,5);
+erg.musik=await fall(async()=>{ const a=vlcBefehl('play',{key:'m1'}); await warte(10);
+  const r=await Promise.all([a,vlcBefehl('play',{key:'m2'})]); spur.push('erster:'+JSON.stringify(r[0])); });
+dauern.push(40);                                     // Gerät gewechselt / Liste leer: stop während m1 meldet
+erg.stopp=await fall(async()=>{ const a=vlcBefehl('play',{key:'m1'}); await warte(10);
+  await Promise.all([a,vlcBefehl('stop')]); });
+dauern.push(40,5);
+erg.live=await fall(async()=>{ const a=tvLivePlay({url:'u1',name:'L1'}); await warte(10);
+  await Promise.all([a,tvLivePlay({url:'u2',name:'L2'})]); });
+aus(erg);
+""")
+    assert e["folgen"] == {"spur": ["server-play:B", "fernbedienung:B"], "key": "film:B"}, e["folgen"]
+    assert e["esc"] == {"spur": [], "key": ""}, e["esc"]
+    assert e["musik"] == {"spur": ["server-play:m2", "erster:null"], "key": "m2"}, e["musik"]
+    assert e["stopp"] == {"spur": ["server-stop"], "key": ""}, e["stopp"]
+    assert e["live"] == {"spur": ["server-live:L2", "fernbedienung:L2"], "key": "live:L2"}, e["live"]
