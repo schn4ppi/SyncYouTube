@@ -233,6 +233,24 @@ class Bruecke:
         except Exception:                            # noqa: BLE001 — Einbettung ist Kür
             return False
 
+    def video_melden(self):
+        """Die Seite ruft das VOR jedem VLC-Start (Befund 24.09.): das Panel
+        beim Server (neu) anmelden. Die einmalige Anmeldung reichte nicht —
+        nach jedem Selbst-Neustart des Servers ist das Handle dort weg, und
+        das erste Video öffnete VLCs eigenes Fenster. Fehlt das Panel noch
+        (frueh() fand kein Formular), entsteht es hier. True = angemeldet."""
+        try:
+            v = self._video
+            v._gemeldet = False
+            form = self._fenster.native if self._fenster else None
+            if form is not None:
+                v.vorbereiten(form)                  # Panel bei Bedarf anlegen + melden
+            else:
+                v.melden()
+            return bool(v._gemeldet)
+        except Exception:                            # noqa: BLE001 — Einbettung ist Kür
+            return False
+
 
 def main():
     import webview

@@ -4045,6 +4045,7 @@ async function filmePlayVlc(id,pos,meta,wechsel){
   // verlassen — sonst kämpfen zwei Fullscreens und das VLC-Bild liegt hinten.
   if(document.fullscreenElement){try{document.exitFullscreen();}catch(e){}}
   try{
+    await huelleMelden();                              // Hülle: Film rendert ins Panel
     const r=await fetch('/api/filme/play',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id, vol:plVol, pos:pos||0})});
     const d=await r.json();
@@ -8286,6 +8287,7 @@ async function tvLiveLaden(){
 async function tvLivePlay(e){
   if(document.fullscreenElement){try{document.exitFullscreen();}catch(x){}}
   try{
+    await huelleMelden();                              // Hülle: Sender rendert ins Panel
     const r=await (await fetch('/api/live/play',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({url:e.url, name:e.name, vol:plVol})})).json();
     if(r.fehler){toast('📡 '+r.fehler); return;}
@@ -9070,8 +9072,23 @@ function vlcAktiv(){
   const istAudio=x.dateiart?x.dateiart==='audio':((x.kategorie==='MP3')||(!x.vcodec&&x.acodec));
   return istAudio||!!window.pywebview;
 }
+/* Hülle (Befund 24.09.): das Video-Panel VOR jedem VLC-Start beim Server
+   (neu) anmelden. Die Hülle meldete es nur einmal; nach jedem Selbst-Neustart
+   des Servers war es dort weg, und das erste Video öffnete VLCs eigenes
+   Fenster (Filme im Vollbild). Wartet höchstens HUELLE_MELDEN_MS, Fehler
+   still: der Start selbst geht immer weiter. Im Browser: nichts. */
+const HUELLE_MELDEN_MS=3000;
+async function huelleMelden(){
+  const api=window.pywebview&&window.pywebview.api;
+  if(!api||typeof api.video_melden!=='function')return;
+  let uhr=0;
+  try{await Promise.race([api.video_melden(),new Promise(r=>{uhr=setTimeout(r,HUELLE_MELDEN_MS);})]);}
+  catch(e){}
+  finally{clearTimeout(uhr);}
+}
 async function vlcBefehl(cmd,extra){
   try{
+    if(cmd==='play')await huelleMelden();
     const r=await fetch('/api/vlc',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(Object.assign({cmd:cmd},extra||{}))});
     const d=await r.json();

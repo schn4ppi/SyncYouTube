@@ -38,6 +38,7 @@ for _pfad in (MODUL_DIR, HIER):
         sys.path.insert(0, _pfad)
 
 import test_medien_smtc  # noqa: E402  (dieselbe libvlc-Attrappe für die Server-Seite)
+from test_medientasten_verhalten import _js_funktion, _lauf, _pc  # noqa: E402
 
 import huelle  # noqa: E402  (Import startet weder Fenster noch Server)
 import youtube_app as app  # noqa: E402  (Import startet keinen Server)
@@ -245,8 +246,8 @@ def test_pywebview_durchlauf_sieht_nur_die_methoden(dotnet, netz):
     m = re.search(r"JSON\.parse\('(.*)'\)\);", fenster.skripte[-1])
     assert m, "finish-Skript ohne Funktionsliste"
     funktionen = sorted(f["func"] for f in json.loads(m.group(1)))
-    assert funktionen == ["video_rect"], \
-        f"die Seite sieht mehr als die js_api-Methoden: {funktionen}"
+    assert funktionen == ["video_melden", "video_rect"], \
+        f"die Seite sieht nicht genau die js_api-Methoden: {funktionen}"
     assert Stolperdraht.zugriffe == 0, \
         f"pywebview lief {Stolperdraht.zugriffe}× durch das .NET-Panel (Rekursionsfalle)"
 
@@ -263,7 +264,7 @@ def test_js_api_ohne_daten(dotnet, netz):
         funde = _durchlauf(api)
     except RuntimeError as e:
         pytest.fail(f"Durchlauf erreicht das .NET-Panel: {e}")
-    assert sorted(funde) == ["video_rect"], funde
+    assert sorted(funde) == ["video_melden", "video_rect"], funde
     assert Stolperdraht.zugriffe == 0
 
 
@@ -571,3 +572,99 @@ def test_fensterpruefung_am_echten_fenster():
         u32.DestroyWindow(h)
     assert app._hwnd_lebt(h, os.getpid()) is False, "zerstörtes Fenster lebt nicht"
     assert app._hwnd_lebt(0, os.getpid()) is False
+
+
+# ------------------- Befund 4: Neu-Anmeldung nach einem Server-Selbst-Neustart
+# Die Hülle meldete ihr Panel nur EINMAL an. Nach jedem Selbst-Neustart des
+# Servers (neuer Backend-Code, Update) ist das Handle dort weg; das erste
+# Video danach öffnete VLCs eigenes Fenster, Filme im Vollbild. Die Seite
+# meldet darum in der Hülle VOR jedem VLC-Start neu an (video_melden).
+
+def test_video_melden_meldet_erneut(dotnet, netz):
+    """melden() ist einmalig; video_melden() setzt das zurück und meldet neu."""
+    api, _ = _bruecke_mit_panel()
+    assert len(netz.an_vlc()) == 1
+    api._video.melden()
+    assert len(netz.an_vlc()) == 1, "melden() bleibt einmalig"
+    assert api.video_melden() is True
+    assert netz.an_vlc() == [{"cmd": "fenster", "hwnd": HWND, "pid": os.getpid()}] * 2
+
+
+def test_video_melden_legt_fehlendes_panel_an(dotnet, netz):
+    """frueh() fand 1,5 s nach dem Start noch kein Formular: dann entsteht das
+    Panel beim ersten video_melden, damit schon das erste Video einbettet."""
+    api = huelle.Bruecke()
+    form = FormAttrappe()
+    api._fenster = types.SimpleNamespace(native=form)
+    assert api.video_melden() is True
+    assert form.panels and form.panels[0].Visible is False, "Panel angelegt, aber unsichtbar"
+    assert netz.an_vlc() == [{"cmd": "fenster", "hwnd": HWND, "pid": os.getpid()}]
+
+
+def test_video_melden_ohne_fenster_und_ohne_server_still(dotnet, monkeypatch):
+    """Kein Fenster, Server aus: False, keine Ausnahme (die Seite startet trotzdem)."""
+    import urllib.error
+    monkeypatch.setattr(huelle.urllib.request, "urlopen",
+                        Netz(fehler=urllib.error.URLError("aus")))
+    assert huelle.Bruecke().video_melden() is False
+    api, _ = _bruecke_mit_panel()
+    assert api.video_melden() is False
+
+
+SEITE = r"""
+var plVol=80, tvpWechselGen=0, tvpWechsel=null, tvpModusNaechster=null, tvpModus='browser',
+    tvpOffen=false, tvpIdAkt='', tvInfoDaten=null;
+const HUELLE_MELDEN_MS=50;                       // statt 3 s: der Test wartet nicht
+function toast(t){ _log.push('toast:'+t); }
+function tvFilmPlayer(){ _log.push('fernbedienung'); }
+async function smtcTaste(){}
+globalThis.fetch=async(url,opt)=>{
+  const k=opt&&opt.body?JSON.parse(opt.body):{};
+  _log.push('fetch:'+url+(k.cmd?':'+k.cmd:''));
+  return {json:async()=>({verfuegbar:true, zustand:'spielt'})};
+};
+function huelle(melden){ window.pywebview={api:Object.assign({video_rect(){}},
+  melden?{video_melden:melden}:{})}; }
+// Anmeldung wie ein echter js_api-Ruf: fertig erst nach einem Makrotask.
+// Ohne await stünde der Start im Protokoll VOR 'gemeldet'.
+const langsam=()=>new Promise(r=>setTimeout(()=>{ _log.push('gemeldet'); r(true); },5));
+async function fall(f){ _log.length=0; await f(); await new Promise(r=>setTimeout(r,20));
+  return _log.slice(); }
+"""
+
+
+def test_seite_meldet_das_panel_vor_jedem_vlc_start(tmp_path):
+    """Das ECHTE Seiten-JS (deno): in der Hülle wartet jeder VLC-Start (Musik
+    und Video über /api/vlc, Film über /api/filme/play, Live-TV über
+    /api/live/play) auf video_melden; ein kaputter, hängender oder fehlender
+    Ruf hält den Start nie auf; im Browser passiert nichts Neues."""
+    q = _pc()
+    teile = [_js_funktion(q, n) for n in ("huelleMelden", "vlcBefehl", "filmePlayVlc",
+                                          "tvLivePlay")]
+    (e,) = _lauf(tmp_path, SEITE, *teile, r"""
+const erg={};
+huelle(langsam);
+erg.musik=await fall(()=>vlcBefehl('play',{key:'k'}));
+erg.status=await fall(()=>vlcBefehl('status'));
+erg.film=await fall(()=>filmePlayVlc('f1',0,{titel:'F'},0));
+erg.live=await fall(()=>tvLivePlay({url:'u',name:'N'}));
+huelle(()=>Promise.reject(new Error('kaputt')));
+erg.abgelehnt=await fall(()=>vlcBefehl('play',{key:'k'}));
+huelle(()=>{ throw new Error('sofort'); });
+erg.wirft=await fall(()=>vlcBefehl('play',{key:'k'}));
+huelle(()=>new Promise(()=>{}));
+erg.haengt=await fall(()=>vlcBefehl('play',{key:'k'}));
+huelle(null);
+erg.alte_huelle=await fall(()=>vlcBefehl('play',{key:'k'}));
+delete globalThis.pywebview;
+erg.browser=await fall(()=>vlcBefehl('play',{key:'k'}));
+erg.browser_film=await fall(()=>filmePlayVlc('f1',0,{titel:'F'},0));
+aus(erg);
+""")
+    assert e["musik"] == ["gemeldet", "fetch:/api/vlc:play"], e["musik"]
+    assert e["status"] == ["fetch:/api/vlc:status"], "nur Starts melden an, nicht der Takt"
+    assert e["film"] == ["gemeldet", "fetch:/api/filme/play", "fernbedienung"], e["film"]
+    assert e["live"] == ["gemeldet", "fetch:/api/live/play", "fernbedienung"], e["live"]
+    for fall in ("abgelehnt", "wirft", "haengt", "alte_huelle", "browser"):
+        assert e[fall] == ["fetch:/api/vlc:play"], (fall, e[fall])
+    assert e["browser_film"] == ["fetch:/api/filme/play", "fernbedienung"], e["browser_film"]

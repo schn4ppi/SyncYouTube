@@ -515,7 +515,7 @@ function toast(){} function tvFilmPlayer(){befehle.push('auf');}
 async function vlcBefehl(c){befehle.push(c); return {key:serverKey};}
 // Während der VLC-Start (POST) läuft, kommt der nächste Druck: neue Generation, neues Ziel
 globalThis.fetch=async()=>{tvpWechselGen=3; tvpWechsel={gen:3,id:neuesZiel}; return {json:async()=>({ok:true})};};
-""", _js_funktion(q, "filmePlayVlc"), r"""
+""", _js_funktion(q, "huelleMelden"), _js_funktion(q, "filmePlayVlc"), r"""
 await filmePlayVlc('F4',0,{titel:'Vier'},2);                       // überholt, VLC spielt noch F4
 const a=[...befehle]; befehle.length=0;
 tvpWechselGen=2; tvpWechsel={gen:2,id:'F4'}; neuesZiel='F4';
