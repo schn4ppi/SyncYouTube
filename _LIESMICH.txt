@@ -7,16 +7,21 @@ Handy-Ansicht, Fernbedienung): README.md im selben Ordner.
 Start:      SyncYouTube.bat doppelklicken. Das schwarze Fenster
             schließt sich sofort wieder — die App läuft FENSTERLOS im Hintergrund
             (pythonw) weiter, der Browser öffnet automatisch
-            http://127.0.0.1:8776 (nur lokal). Steuerung über das TRAY-SYMBOL
-            unten rechts (Terracotta-Kreis): „Öffnen", „Downloads-Ordner",
-            „Beenden". Ganz ohne kurzes Aufblitzen: stattdessen
-            „SyncYouTube (ohne Fenster).vbs" doppelklicken.
+            http://127.0.0.1:8776 (nur lokal). Ganz ohne kurzes Aufblitzen:
+            stattdessen „SyncYouTube (ohne Fenster).vbs" doppelklicken.
             Als eigenes Programmfenster ohne Browser: SyncYouTube-Fenster.bat.
+            Ein eigenes TRAY-SYMBOL (Terracotta-Kreis unten rechts: „Öffnen",
+            „Downloads-Ordner", „Beenden") gibt es NUR in der SyncYouTube.exe
+            (JB 14.07.2026). Beim Start über die .bat/.vbs gibt es keins.
 
-Beenden:    Tray-Symbol unten rechts -> „Beenden". (Kein Fenster zum Schließen.)
+Beenden:    In der SyncYouTube.exe: Tray-Symbol -> „Beenden".
+            Beim Start über SyncYouTube.bat/.vbs (kein Tray, kein Fenster): in
+            PowerShell  Invoke-RestMethod -Method Post http://127.0.0.1:8776/api/beenden
+            (speichert die Warteschlange). Das Dashboard kann die App starten,
+            aber nicht beenden (Stand 24.09.2026).
 
-WICHTIG:    Nach Updates am Programm die App EINMAL neu starten (Tray ->
-            Beenden, dann .bat erneut). Seit 08.07. lädt die Oberfläche danach
+WICHTIG:    Nach Updates am Programm die App EINMAL neu starten (beenden wie
+            oben, dann .bat erneut). Seit 08.07. lädt die Oberfläche danach
             bei jedem Browser-Refresh (F5) frisch — Änderungen an der Seite
             erscheinen also ohne weiteren Neustart. Wenn du neue Funktionen
             NICHT siehst: App einmal neu starten, dann F5.
@@ -128,8 +133,8 @@ Löschen:    Der 🗑-Knopf (an jedem Titel und in der Auswahl-Leiste) verschieb
             den Titel aus Liste und Playlists. Gut fürs Aufräumen im Archiv.
 
 Build:      Unten in der Leiste steht der Baustand (z.B. „Build 2026-07-09 · 9").
-            Wenn eine neue Funktion fehlt: App einmal neu starten (Tray ->
-            Beenden, .bat neu), dann F5 — der Baustand sollte dann aktuell sein.
+            Wenn eine neue Funktion fehlt: App einmal neu starten (beenden wie
+            unter „Beenden", .bat neu), dann F5 — der Baustand sollte dann aktuell sein.
 
 Playlists:  In der Playlist-Leiste der Bibliothek: „＋ Neu" erstellt eine,
             „＋ Playlist" an einem Titel fügt ihn zur gewählten Playlist hinzu,

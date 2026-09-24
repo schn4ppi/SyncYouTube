@@ -1,17 +1,20 @@
 # Lizenzen und Quellcode
 
-Diese Datei gilt für die **aktuelle Fassung v.1.2.4**. Ältere Fassungen bündelten andere
+Diese Datei gilt für die **aktuelle Fassung v.1.2.6**. Ältere Fassungen bündelten andere
 Stände; ihre Angabe steht im jeweiligen [Release](../../releases). Kurzfassung auf der
-Startseite: [README](README.md#lizenz).
+Startseite: [README](README.md#lizenz). Die mit „ab dem nächsten Bau" markierten
+Bestandteile (pywinrt samt Visual-C++-Laufzeit) sind in v.1.2.6 noch nicht enthalten.
 
 Warum das hier steht und nicht auf der Startseite: die Aufzählung ist lang, ändert sich
 mit jedem Bau und interessiert niemanden, der die App nur benutzen will.
 
 **GPL-3.0-or-later** (siehe [LICENSE](LICENSE)). Diese Lizenz gilt für den eigenen Code
-in diesem Repo. Die ausgelieferte `SyncYouTube.exe` v1.2.4 packt zusätzlich fremde
+in diesem Repo. Die ausgelieferte `SyncYouTube.exe` v1.2.6 packt zusätzlich fremde
 Bibliotheken und drei fertige Programme ein; die Liste unten ist aus der Bauliste des
 Builds (`System/build/SyncYouTube/Analysis-00.toc`) und den Paket-Angaben der
-Python-Umgebung gemessen, nicht aus dem Gedächtnis geschrieben.
+Python-Umgebung gemessen, nicht aus dem Gedächtnis geschrieben. Gemessen wurde sie am
+08.09.2026 an der Bauliste von v.1.2.4; die Bauliste von v.1.2.6 (ebenfalls 08.09.) trägt
+bei den zehn Paketen, deren Fassung in ihr steht, dieselben Fassungen (nachgeprüft 24.09.).
 
 **Es gibt keinen Lizenz-Konflikt.** Jeder Bestandteil ist mit GPL-3.0-or-later
 verträglich: GPL-2.0-**or-later** darf auf Version 3 gehoben werden, Apache-2.0 ist
@@ -47,6 +50,12 @@ Quellen samt ihrem Lizenztext auffindbar. Nach Lizenz gebündelt:
   Deprecated 1.3.1 · jaconv 0.5.0 · jaraco.classes 3.4.0 · jaraco.context 6.1.2 ·
   jaraco.functools 4.5.0 · keyring 25.7.0 · more-itertools 11.1.0 · pefile 2024.8.26 ·
   pythonnet 3.1.0 · PyYAML 6.0.3 · setuptools 82.0.1 · six 1.17.0 · urllib3 2.7.0.
+- **MIT, ab dem nächsten Bau:** [pywinrt](https://github.com/pywinrt/pywinrt) für die
+  Windows-Medienanmeldung des VLC-Motors: winrt-runtime · winrt-Windows.Foundation ·
+  winrt-Windows.Media · winrt-Windows.Media.Interop · winrt-Windows.Storage.Streams, je
+  3.2.1. Copyright (c) Microsoft Corporation; Copyright (c) 2021-2025 David Lechner. Die
+  Pakete bringen keinen Lizenztext mit; er liegt unverändert (Stand der Marke `v3.2.1`)
+  als `System/lizenzen/pywinrt_LICENSE.txt` bei.
 - **MIT-CMU:** pillow 12.2.0 (die Angabe „MIT-HPND" hier war falsch).
 - **BSD (2- oder 3-Klausel, 0BSD):** chardet 7.6.0 · idna 3.18 · psutil 7.2.2 ·
   pycparser 3.0 · pyreadline3 3.5.6 · pywin32-ctypes 0.2.3 · qrcode 8.2 ·
@@ -62,6 +71,34 @@ Quellen samt ihrem Lizenztext auffindbar. Nach Lizenz gebündelt:
   darum mit in die exe, ohne eigenständig installiert zu sein): importlib_metadata 8.7.1
   (Apache-2.0) · backports.tarfile 1.2.0 · tomli 2.4.0 · wheel 0.46.3 · zipp 3.23.0
   (die vier zuletzt genannten MIT).
+
+### Microsoft Visual C++-Laufzeit (ab dem nächsten Bau)
+
+Das Paket winrt-runtime 3.2.1 bringt eine eigene `msvcp140.dll` mit (Microsoft Visual
+C++-Laufzeit, Fassung 14.29.30157.0, von Microsoft signiert); sie liegt unverändert neben
+den winrt-Erweiterungen. Sie steht **nicht** unter MIT, sondern unter den
+Lizenzbedingungen von Visual Studio: Dateien aus `VC\redist` gehören dort zum
+„Distributable Code" und dürfen unverändert mit einem Programm weitergegeben werden
+([REDIST-Liste, Abschnitt „Visual C++ Runtime Files"](https://learn.microsoft.com/en-us/visualstudio/releases/2019/redistribution)).
+Zugleich schreibt Microsoft, die Weitergabe sei „limited to licensed Visual Studio users"
+([Redistribute Visual C++ Files](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)).
+Hier kommt die `msvcp140.dll` als Teil des pywinrt-Pakets von PyPI mit. Ob diese
+Weitergabe über pywinrt davon gedeckt ist, ist **nicht geprüft** — ein offener Punkt.
+
+### Quellstart-Paket (`SyncYouTube-Quellstart.zip`)
+
+Das Quellstart-Paket enthält kein PyInstaller, dafür:
+
+- das eingebettete Python von python.org in der Fassung des Bau-Pythons (heute 3.14.5),
+  PSF-Lizenz, Text in `python/LICENSE.txt`;
+- die in `System/tools/quellstart_paket.py` gepinnten Pakete (dieselben Fassungen wie
+  oben) mit ihren Lizenztexten in `lib/*.dist-info`; der pywinrt-Text fehlt dort und liegt
+  als `System/lizenzen/pywinrt_LICENSE.txt` bei. Deren Abhängigkeiten (etwa certifi,
+  urllib3, websockets, colorama) wählt pip beim Bau; ihre Fassungen können deshalb von
+  der exe abweichen;
+- ffmpeg, ffprobe und Deno wie oben, dazu `LICENSE`, diese Datei und das `README.md`.
+
+Bis v.1.2.6 fehlten im Quellstart-Paket `LICENSE` und diese Datei.
 
 ### Wo der Quellcode liegt
 

@@ -73,7 +73,7 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
 
 1. **Python 3.12+** und die Pakete:
    ```
-   pip install "yt-dlp[default]" pykakasi pystray pillow
+   pip install "yt-dlp[default]" pykakasi pystray pillow mutagen keyring qrcode
    pip install python-vlc winrt-runtime winrt-Windows.Foundation winrt-Windows.Media winrt-Windows.Media.Interop winrt-Windows.Storage.Streams
    ```
    Die zweite Zeile braucht nur das Gerät „VLC“: `python-vlc` steuert ein installiertes VLC,
@@ -138,14 +138,30 @@ Er bleibt als Alternative, etwa in stark abgeriegelten Umgebungen:
 1. `SyncYouTube-Quellstart.zip` aus den Releases laden und entpacken.
 2. `SyncYouTube-Quellstart.bat` doppelklicken — gestartet wird der **offizielle,
    von der Python Software Foundation signierte** Python-Interpreter; unsere
-   `.py`-Dateien sind für Smart App Control Daten, keine Programme.
+   `.py`-Dateien sind für Smart App Control Daten, keine Programme. ffmpeg, ffprobe
+   und Deno liegen im Paket (`System/bin/`).
+
+Was im Quellstart anders ist als in der exe:
+
+- **Kein Tray-Symbol, kein Beenden-Knopf.** Das Tray-Symbol gibt es nur in der exe; der
+  Quellstart läuft unsichtbar im Hintergrund (`pythonw`), bis Windows herunterfährt.
+  Sauber beenden (die Warteschlange wird gespeichert) in PowerShell:
+  `Invoke-RestMethod -Method Post http://127.0.0.1:8776/api/beenden`. Notfalls im
+  Task-Manager den Prozess `pythonw.exe` beenden.
+- **Kein Ordner-Dialog.** Das eingebettete Python bringt kein tkinter mit; „📁 wählen"
+  öffnet deshalb kein Fenster, sondern meldet, dass der Dialog nicht verfügbar ist. Den
+  Zielordner tippt man ins Feld daneben.
+- **Kein Selbst-Update.** Eine neue Fassung heißt: neues ZIP aus den Releases.
 
 Alternativ mit eigenem Python (von [python.org](https://python.org), signiert):
-Repo laden, `pip install yt-dlp pystray pillow mutagen pykakasi keyring qrcode python-vlc
-winrt-runtime winrt-Windows.Foundation winrt-Windows.Media winrt-Windows.Media.Interop
-winrt-Windows.Storage.Streams`, dann `pythonw System\youtube_app.py`. Die `winrt`-Pakete
-melden den VLC-Motor bei Windows als Medienquelle an (Titel im Medien-Overlay,
-Medientasten); ohne sie spielt VLC genauso, nur ohne diese Anmeldung.
+Repo laden, `pip install "yt-dlp[default]" pystray pillow mutagen pykakasi keyring qrcode
+python-vlc winrt-runtime winrt-Windows.Foundation winrt-Windows.Media
+winrt-Windows.Media.Interop winrt-Windows.Storage.Streams`, den Ordner `System/bin/` mit
+`ffmpeg.exe`, `ffprobe.exe` und `deno.exe` füllen (siehe oben), dann
+`pythonw System\youtube_app.py`. Das `[default]` bringt yt-dlp-ejs mit, ohne das YouTube
+nicht vollständig funktioniert. Die `winrt`-Pakete melden den VLC-Motor bei Windows als
+Medienquelle an (Titel im Medien-Overlay, Medientasten); ohne sie spielt VLC genauso, nur
+ohne diese Anmeldung.
 
 ## Lizenz
 

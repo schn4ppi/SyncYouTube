@@ -532,3 +532,71 @@ def test_rauchtest_verdrahtet_alle_pruefungen(qp, monkeypatch, tmp_path):
     _schreiben(os.path.join(paket, "System", "tools", "medien_probe.py"), b"")
     text = "\n".join(qp._rauchtest(paket, kopiert))
     assert "_x.cp312-win_amd64.pyd" in text and "System/tools/medien_probe.py" in text
+
+
+# ---------------------------------------------- Doku: README und LIZENZEN.md
+
+def _readme():
+    return open(os.path.join(WURZEL_ECHT, "README.md"), encoding="utf-8").read()
+
+
+def _lizenzen():
+    return open(os.path.join(WURZEL_ECHT, "LIZENZEN.md"), encoding="utf-8").read()
+
+
+def test_readme_pip_befehle_folgen_der_paketliste(qp):
+    # EINE Liste (PAKETE): jeder README-Abschnitt mit pip-Befehlen nennt jedes Paket
+    # des Quellstarts, yt-dlp MIT [default] (sonst fehlt yt-dlp-ejs). Bis 24.09.
+    # nannte der eine Abschnitt kein [default], der andere kein mutagen/keyring/qrcode.
+    erwartet = set()
+    for eintrag in qp.PAKETE:
+        name, extra, _ = _zerlegen(eintrag)
+        erwartet.add(f"{_normname(name)}[{extra}]" if extra else _normname(name))
+    geprueft = []
+    for abschnitt in re.split(r"\n(?=#{2,3} )", _readme()):
+        befehle = (re.findall(r"`(pip install [^`]*)`", abschnitt)
+                   + re.findall(r"^\s*(pip install .*)$", abschnitt, re.M))
+        if not befehle:
+            continue
+        titel = abschnitt.strip().splitlines()[0]
+        geprueft.append(titel)
+        genannt = set()
+        for wort in " ".join(befehle).split():
+            wort = wort.strip('"\'')
+            m = re.fullmatch(r"([A-Za-z0-9_.\-]+)(\[[^\]]+\])?", wort)
+            if m:
+                genannt.add(_normname(m.group(1)) + (m.group(2) or ""))
+        fehlend = sorted(erwartet - genannt)
+        assert not fehlend, f"README-Abschnitt {titel!r}: pip-Befehle ohne {fehlend}"
+    assert len(geprueft) >= 2, f"zu wenige pip-Abschnitte gefunden: {geprueft}"
+
+
+def _genannt(text, name):
+    norm = lambda s: re.sub(r"[-_.]+", "-", s.lower())    # noqa: E731
+    return re.search(rf"(?<![a-z0-9-]){re.escape(norm(name))}(?![a-z0-9-])", norm(text))
+
+
+def test_lizenzen_nennt_jede_verteilung_des_quellstarts(qp):
+    # Jede Verteilung EINZELN (der Familien-Wächter lässt bei winrt schon den
+    # Modulnamen genügen — Gegenprüfung 24.09.), dazu der beigelegte pywinrt-Text.
+    text = _lizenzen()
+    fehlend = [n for n in (_zerlegen(p)[0] for p in qp.PAKETE) if not _genannt(text, n)]
+    assert not fehlend, f"LIZENZEN.md nennt nicht: {fehlend}"
+    assert "System/lizenzen/pywinrt_LICENSE.txt" in text
+
+
+def test_lizenzen_msvcp140_nur_mit_beleg():
+    # Die C++-Laufzeit steht NICHT unter MIT; eine Angabe dazu braucht die Quelle.
+    for absatz in re.split(r"\n\s*\n", _lizenzen()):
+        if "msvcp140" in absatz.lower():
+            assert "https://learn.microsoft.com/" in absatz, absatz
+
+
+def test_lizenzen_versionskopf_ist_die_aktuelle_fassung():
+    # Bis 24.09. stand „aktuelle Fassung v.1.2.4" im Kopf, ausgeliefert war 1.2.6.
+    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
+    fassung = re.search(r'^__version__ = "([^"]+)"', quelle, re.M).group(1)
+    kopf = re.search(r"aktuelle Fassung\W*v\.?\s*([0-9.]+)", _lizenzen())
+    assert kopf, "LIZENZEN.md nennt keine aktuelle Fassung"
+    assert kopf.group(1).rstrip(".") == fassung, \
+        f"LIZENZEN.md gilt für v.{kopf.group(1)}, youtube_app ist {fassung}"
