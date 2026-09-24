@@ -2533,7 +2533,8 @@ def fernsteuerung_info():
 
 _vlc = {"instanz": None, "spieler": None, "key": "", "grund": "", "vol_wunsch": None,
         "hwnd": 0,                                   # Hüllen-Fenster (set_hwnd, Etappe set_hwnd)
-        "hwnd_pid": 0}                               # ... und der Prozess, dem es gehört
+        "hwnd_pid": 0,                               # ... und der Prozess, dem es gehört
+        "pause_seit": None}                          # Beginn der laufenden Pause (_pause_uhr)
 _vlc_lock = threading.RLock()   # RLock: die Selbstheilung wiederholt den Befehl im Lock
 
 
@@ -2613,7 +2614,7 @@ def _vlc_reset():
                 obj.release()
             except Exception:                        # noqa: BLE001 — schon tot ist auch ok
                 pass
-    _vlc.update(instanz=None, spieler=None, key="", grund="")
+    _vlc.update(instanz=None, spieler=None, key="", grund="", pause_seit=None)
 
 
 def _vlc_spieler():
@@ -2701,14 +2702,23 @@ def _vlc_laedt():
         return False
 
 
-def _vlc_spielt_gerade():
-    """Spielt der VLC-Motor gerade (oder öffnet/puffert)? Der Selbst-Neustart
-    ersetzt den Prozess samt libvlc und Windows-Sitzung. Beim Browser-Stream
-    hält ihn _letzter_stream auf; beim VLC-Motor fragt er hier nach — auch
-    ohne offene Seite, dann setzt niemand _letzter_stream. Pause hält ihn
-    (wie beim Browser) nicht auf. Ist die Sperre gerade besetzt, arbeitet
-    jemand am VLC: im Zweifel „spielt", die 5-s-Schleife fragt gleich wieder
-    — warten darf sie hier nicht."""
+PAUSE_SPERRE = 30 * 60.0      # s: so lange hält ein PAUSIERTER VLC den Selbst-Neustart höchstens auf
+_pause_uhr = time.time        # Wanduhr: eine Pause über den Standby zählt mit; Tests stellen sie
+
+
+def _vlc_haelt_neustart_auf():
+    """Hält der VLC-Motor den Selbst-Neustart auf? Der Neustart ersetzt den
+    Prozess samt libvlc und Windows-Sitzung. Beim Browser-Stream hält ihn
+    _letzter_stream auf; beim VLC-Motor fragt er hier nach — auch ohne offene
+    Seite, dann setzt niemand _letzter_stream. Spielen, Öffnen und Puffern
+    halten ihn immer auf. Eine PAUSE hält ihn höchstens PAUSE_SPERRE seit
+    ihrem Beginn auf (JB 24.09.2026: „Pause sperrt 30 Min"): der Neustart
+    nähme den pausierten Titel mit, ein über Tage pausierter hielte aber jedes
+    Code-Update auf. Den Beginn meldet libvlc (_vlc_ereignis) — diese Prüfung
+    läuft erst, wenn neuer Code da ist, oft lange nach dem Pausieren. Kam
+    keine Meldung, zählt die erste Beobachtung hier. Ist die Sperre gerade
+    besetzt, arbeitet jemand am VLC: im Zweifel „hält auf", die 5-s-Schleife
+    fragt gleich wieder — warten darf sie hier nicht."""
     if not _vlc_lock.acquire(timeout=0.2):
         return True
     try:
@@ -2716,8 +2726,15 @@ def _vlc_spielt_gerade():
         if sp is None:
             return False
         import vlc
-        return sp.get_state() in (vlc.State.Playing, vlc.State.Opening, vlc.State.Buffering)
-    except Exception:                                # noqa: BLE001 — ein kaputter Spieler spielt nicht
+        zustand = sp.get_state()
+        if zustand != vlc.State.Paused:
+            _vlc["pause_seit"] = None                # Pause vorbei: die nächste zählt neu
+            return zustand in (vlc.State.Playing, vlc.State.Opening, vlc.State.Buffering)
+        seit = _vlc.get("pause_seit")
+        if seit is None:                             # keine libvlc-Meldung: ab jetzt zählen
+            seit = _vlc["pause_seit"] = _pause_uhr()
+        return _pause_uhr() - seit < PAUSE_SPERRE
+    except Exception:                                # noqa: BLE001 — ein kaputter Spieler hält nichts auf
         return False
     finally:
         _vlc_lock.release()
@@ -2729,6 +2746,10 @@ def _vlc_ereignisse_anhaengen(sp):
     geschlossener Seite (VLC spielt im Server weiter) stünde das Overlay dann
     unbegrenzt auf „spielt" und finge die Play/Pause-Taste ab (Skeptiker-
     Befund 24.09.). Ereignisse statt eines eigenen Takts (Last-Budget).
+    Die Pause-Meldung liefert zugleich den Beginn einer Pause für den
+    Selbst-Neustart (_vlc_haelt_neustart_auf). Jeder Rückruf bekommt den
+    Ereignis-Namen mit: python-vlc hält EINEN Rückruf je Typ, ein zweiter
+    event_attach desselben Typs hängte den ersten still ab.
     Fehlt event_manager (Attrappe, altes python-vlc), bleibt es beim Abgleich
     über die Seite."""
     try:
@@ -2737,16 +2758,19 @@ def _vlc_ereignisse_anhaengen(sp):
         for name in ("MediaPlayerEndReached", "MediaPlayerStopped",
                      "MediaPlayerEncounteredError", "MediaPlayerPlaying",
                      "MediaPlayerPaused"):
-            em.event_attach(getattr(vlc.EventType, name), _vlc_ereignis)
+            em.event_attach(getattr(vlc.EventType, name), _vlc_ereignis, name)
     except Exception:                                # noqa: BLE001 — Kür, VLC spielt auch ohne
         pass
 
 
-def _vlc_ereignis(_ereignis=None, *_):
+def _vlc_ereignis(_ereignis=None, name="", *_):
     """Rückruf auf dem libvlc-eigenen Faden. Darf libvlc NICHT aufrufen (das
     verbietet libvlc dort) und nicht auf _vlc_lock warten: ein Handler hält
     sie womöglich gerade in sp.stop(), und stop kann auf genau diesen Faden
-    warten. Darum nur einen kurzen Faden anstoßen, der den Status abholt."""
+    warten. Darum nur den Beginn einer Pause merken (ein Wert, keine Sperre)
+    und einen kurzen Faden anstoßen, der den Status abholt."""
+    if name == "MediaPlayerPaused":
+        _vlc["pause_seit"] = _pause_uhr()            # auch ohne Windows-Brücke
     if _smtc is None:
         return
     threading.Thread(target=_smtc_aus_vlc, name="VLC-Ereignis", daemon=True).start()
@@ -5713,7 +5737,7 @@ def _code_leerlauf():
             return False
     except Exception:                                # noqa: BLE001 — im Zweifel NICHT neu starten
         return False
-    if _vlc_spielt_gerade():                         # Gerät VLC: nie mitten im Titel
+    if _vlc_haelt_neustart_auf():                    # Gerät VLC: nie mitten im Titel, Pause max. 30 Min
         return False
     return (time.time() - _letzter_stream) > STREAM_RUHE
 

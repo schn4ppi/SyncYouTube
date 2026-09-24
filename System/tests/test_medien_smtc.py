@@ -197,9 +197,13 @@ class FakeEreignisse:
     def __init__(self):
         self.rueckrufe = {}
         self.dauer = []
+        self.faeden = []
 
     def event_attach(self, typ, rueckruf, *args, **kw):
-        self.rueckrufe.setdefault(typ, []).append((rueckruf, args, kw))
+        # Wie python-vlc: EIN Rückruf je Ereignistyp (EventManager._callbacks[k]),
+        # ein zweites event_attach ersetzt den ersten — ein zusätzlich
+        # angehängter Rückruf würde den vorhandenen still abhängen.
+        self.rueckrufe[typ] = [(rueckruf, args, kw)]
         return 0
 
     def feuern(self, typ):
@@ -209,8 +213,15 @@ class FakeEreignisse:
                 f(types.SimpleNamespace(type=typ), *args, **kw)
                 self.dauer.append(time.monotonic() - t0)
         t = threading.Thread(target=lauf, name="libvlc-Attrappe", daemon=True)
+        self.faeden.append(t)
         t.start()
         return t
+
+    def abwarten(self, frist=2.0):
+        """Alle bisher gefeuerten Ereignisse sind zugestellt."""
+        for t in list(self.faeden):
+            t.join(frist)
+            assert not t.is_alive(), "ein libvlc-Ereignis hängt"
 
 
 @pytest.fixture
@@ -221,7 +232,12 @@ def vlc_attrappe(monkeypatch, tmp_path):
     `Spieler.asynchron = True` bildet nach, was libvlc wirklich tut: play,
     set_pause und set_time wirken erst später (hier: beim nächsten `takt()`),
     play öffnet zuerst (Opening). Ohne diesen Unterschied wären die Stellen,
-    die genau DAFÜR gebaut sind, in den Tests unsichtbar."""
+    die genau DAFÜR gebaut sind, in den Tests unsichtbar.
+
+    `Spieler.meldet = True` bildet nach, dass libvlc JEDEN echten Wechsel
+    (Spielen, Pause, Stopp) als Ereignis auf seinem eigenen Faden meldet.
+    Ohne (Vorgabe) meldet die Attrappe nur das Titelende — das bildet den
+    Fall nach, dass keine Meldung ankommt."""
     fake_vlc = types.ModuleType("vlc")
     fake_vlc.State = types.SimpleNamespace(Playing="P", Paused="p", Ended="E", Error="X",
                                            Stopped="S", Opening="O", Buffering="B",
@@ -234,11 +250,19 @@ def vlc_attrappe(monkeypatch, tmp_path):
 
     class FakeSpieler:
         asynchron = False
+        meldet = False
+        MELDUNG = {"P": "Playing", "p": "Paused", "S": "Stopped"}
 
         def __init__(self):
             self.zustand, self.zeit, self.vol, self.rufe = "N", 0, 100, []
             self._offen = []
             self.ereignisse = FakeEreignisse()
+
+        def _wechsel(self, neu):
+            """libvlc meldet nur einen ECHTEN Wechsel (Pause auf Pause: nichts)."""
+            alt, self.zustand = self.zustand, neu
+            if self.meldet and neu != alt and neu in self.MELDUNG:
+                self.ereignisse.feuern(self.MELDUNG[neu])
 
         def _spaeter(self, aenderung):
             if self.asynchron:
@@ -267,19 +291,19 @@ def vlc_attrappe(monkeypatch, tmp_path):
             self.rufe.append(("play",))
             if self.asynchron:
                 self.zustand = "O"
-            self._spaeter(lambda: setattr(self, "zustand", "P"))
+            self._spaeter(lambda: self._wechsel("P"))
 
         def pause(self):
             self.rufe.append(("toggle",))
-            self.zustand = "p" if self.zustand == "P" else "P"
+            self._wechsel("p" if self.zustand == "P" else "P")
 
         def set_pause(self, x):
             self.rufe.append(("pause", x))
-            self._spaeter(lambda: setattr(self, "zustand", "p" if x else "P"))
+            self._spaeter(lambda: self._wechsel("p" if x else "P"))
 
         def stop(self):
             self.rufe.append(("stop",))
-            self.zustand = "S"
+            self._wechsel("S")
 
         def set_hwnd(self, h):
             self.rufe.append(("hwnd", h))
@@ -926,6 +950,100 @@ def test_neustart_wartet_solange_vlc_spielt(monkeypatch, vlc_attrappe):
     finally:
         frei.set()
         t.join(2)
+
+
+# JB 24.09.2026: „Pause sperrt 30 Min". Nach einem Selbst-Neustart ist ein
+# pausierter VLC-Titel weg (⏯ spielt nichts mehr, ein pausierter Film schließt
+# sich ganz). Darum hält eine Pause den Neustart auf — aber höchstens 30
+# Minuten seit ihrem BEGINN, sonst hielte ein über Tage pausierter Titel jedes
+# Code-Update auf.
+MINUTE = 60.0
+
+
+@pytest.fixture
+def neustart_welt(monkeypatch, vlc_attrappe):
+    """Sonst ruhig (kein Download, kein Browser-Stream, keine Windows-Brücke)
+    und eine stellbare Uhr für die Pause."""
+    monkeypatch.setattr(app, "_smtc", None)
+    monkeypatch.setattr(app.Q, "items", [])
+    monkeypatch.setattr(app, "_letzter_stream", 0.0)
+    uhr = types.SimpleNamespace(t=1_000_000.0)
+    monkeypatch.setattr(app, "_pause_uhr", lambda: uhr.t, raising=False)
+    return uhr
+
+
+def test_pause_haelt_neustart_hoechstens_30_minuten_auf(monkeypatch, vlc_attrappe, neustart_welt):
+    monkeypatch.setattr(vlc_attrappe.Spieler, "meldet", True)
+    uhr = neustart_welt
+    app.vlc_kommando({"cmd": "play", "key": "abc|mp3"})
+    sp = app._vlc["spieler"]
+    app.vlc_kommando({"cmd": "pause"})
+    sp.ereignisse.abwarten()
+    assert sp.zustand == "p"
+    assert app._code_leerlauf() is False, "frisch pausiert: der Neustart würfe den Titel weg"
+    uhr.t += 29 * MINUTE
+    assert app._code_leerlauf() is False, "29 Minuten Pause: der Neustart würfe den Titel weg"
+    uhr.t += 2 * MINUTE
+    assert app._code_leerlauf() is True, "31 Minuten Pause hält den Neustart noch immer auf"
+    # Spielen hält ihn immer auf, egal wie lange; der Stopp gibt ihn sofort frei.
+    app.vlc_kommando({"cmd": "toggle"})
+    sp.ereignisse.abwarten()
+    uhr.t += 5 * 60 * MINUTE
+    assert app._code_leerlauf() is False, "startet mitten im VLC-Titel neu"
+    app.vlc_kommando({"cmd": "stop"})
+    sp.ereignisse.abwarten()
+    assert app._code_leerlauf() is True, "nach dem Stopp darf sofort neu gestartet werden"
+
+
+def test_pause_zaehlt_ab_ihrem_beginn_nicht_ab_der_ersten_pruefung(monkeypatch, vlc_attrappe,
+                                                                    neustart_welt):
+    # Die Neustart-Prüfung läuft erst, wenn neuer Code auf der Platte liegt —
+    # oft lange nach dem Pausieren. Den Beginn meldet libvlc selbst (Ereignis
+    # auf seinem Faden), auch ohne Windows-Brücke.
+    monkeypatch.setattr(vlc_attrappe.Spieler, "meldet", True)
+    uhr = neustart_welt
+    app.vlc_kommando({"cmd": "play", "key": "abc|mp3"})
+    sp = app._vlc["spieler"]
+    app.vlc_kommando({"cmd": "pause"})
+    sp.ereignisse.abwarten()
+    uhr.t += 31 * MINUTE                               # erst jetzt kommt neuer Code
+    assert app._code_leerlauf() is True, \
+        "die 30 Minuten zählen erst ab der ersten Prüfung statt ab dem Beginn der Pause"
+    # Weiter und wieder Pause, ohne Prüfung dazwischen: die NEUE Pause zählt.
+    app.vlc_kommando({"cmd": "toggle"})
+    sp.ereignisse.abwarten()
+    uhr.t += 20 * MINUTE
+    app.vlc_kommando({"cmd": "toggle"})
+    sp.ereignisse.abwarten()
+    uhr.t += 25 * MINUTE
+    assert app._code_leerlauf() is False, "die neue Pause erbt den Beginn der alten"
+    uhr.t += 6 * MINUTE
+    assert app._code_leerlauf() is True
+
+
+def test_pause_ohne_libvlc_meldung_zaehlt_ab_der_ersten_beobachtung(vlc_attrappe, neustart_welt):
+    # Kommt keine Pause-Meldung an (Ereignis nicht angehängt), zählt die erste
+    # Beobachtung der 5-s-Schleife: nie unbegrenzt, nie mit einer älteren Pause.
+    uhr = neustart_welt
+    app.vlc_kommando({"cmd": "play", "key": "abc|mp3"})
+    app.vlc_kommando({"cmd": "pause"})
+    assert app._code_leerlauf() is False
+    uhr.t += 29 * MINUTE
+    assert app._code_leerlauf() is False
+    uhr.t += 2 * MINUTE
+    assert app._code_leerlauf() is True, "ohne libvlc-Meldung hält eine Pause den Neustart unbegrenzt auf"
+    app.vlc_kommando({"cmd": "toggle"})
+    assert app._code_leerlauf() is False, "startet mitten im VLC-Titel neu"
+    app.vlc_kommando({"cmd": "toggle"})
+    assert app._code_leerlauf() is False, "die neue Pause erbt den Beginn der alten"
+    uhr.t += 31 * MINUTE
+    assert app._code_leerlauf() is True
+    # Selbstheilung: ein frisch aufgebauter Spieler erbt keine alte Pause.
+    app._vlc_reset()
+    app.vlc_kommando({"cmd": "play", "key": "xyz|mp3"})
+    app.vlc_kommando({"cmd": "pause"})
+    uhr.t += MINUTE
+    assert app._code_leerlauf() is False, "der neue Spieler erbt die Pause des alten"
 
 
 def test_windows_knopf_zeigt_sofort_das_gewollte(monkeypatch, vlc_attrappe, bruecke, winrt_attrappe):
