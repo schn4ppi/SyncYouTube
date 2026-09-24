@@ -42,6 +42,8 @@
 !System/medien_smtc.py
 # 24.09.2026: App-Kennung JBK.SyncYouTube + Startmenü-Eintrag (JB-Entscheid).
 !System/windows_kennung.py
+# 24.09.2026: Firefox-Cookies samt WAL für yt-dlp (Lehre aus SyncFindus).
+!System/cookie_kopie.py
 !System/tools/medien_probe.py
 !System/fernbedienung.py
 !System/geo.py

@@ -15,6 +15,7 @@ Suite-Regeln: stdlib-HTTP-Server (kein Framework), nur 127.0.0.1, nichts
 Destruktives (Entfernen aus der Liste löscht NIE Dateien), atomare JSON-Writes,
 alles UTF-8. Einzige Fremdbibliothek: yt-dlp (Core-venv). ffmpeg liegt in bin/.
 """
+import contextlib
 import glob
 import hashlib
 import json
@@ -35,6 +36,7 @@ from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
+import cookie_kopie         # Firefox-Cookies samt WAL für yt-dlp (Lehre aus SyncFindus, 24.09.2026)
 import geo
 import medien_smtc          # Windows-Medienanmeldung des VLC-Motors (pywinrt erst bei Bedarf)
 import update
@@ -734,6 +736,30 @@ def _ydl_basis_opts(mit_cookies=True):
     return opts
 
 
+@contextlib.contextmanager
+def _ydl(opts):
+    """`yt_dlp.YoutubeDL(opts)` — die Firefox-Cookies dabei aus einer Kopie SAMT WAL.
+
+    yt-dlp kopiert beim Lesen der Firefox-Cookies nur `cookies.sqlite`, nicht das
+    `-wal` (gemessen an 2026.08.19); frische Anmelde-Cookies stehen aber noch
+    dort. `cookie_kopie` legt deshalb vorher eine vollständige Kopie in einen
+    eigenen Ordner, und yt-dlp bekommt dessen Pfad als Firefox-Profil. Scheitert
+    das, geht `opts` UNVERÄNDERT weiter — der heutige Weg.
+
+    Die Kopie lebt so lange wie der YoutubeDL (er liest die Cookies erst beim
+    ersten Abruf) und ist danach weg. Die Optionen des Aufrufers bleiben
+    unberührt: Seine Cookie-Heilung wirft danach weiter `("firefox",)` aus
+    SEINEM Dict. Jeder YoutubeDL der Programm-Dateien entsteht hier
+    (Wächter `tests/test_cookies_wal.py`).
+    """
+    import yt_dlp
+    with cookie_kopie.firefox_profil(opts.get("cookiesfrombrowser")) as profil:
+        if profil:
+            opts = dict(opts, cookiesfrombrowser=("firefox", profil))
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            yield ydl
+
+
 # Massvolle Drossel nach Leitplanke P10 — NUR fuer den Download-Weg.
 #
 # Sie stand zuerst in `_ydl_basis_opts` und wirkte damit auf alle sechs Aufrufer:
@@ -806,7 +832,6 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
     abo: Abo-Id — fertige Downloads landen dann in der Abo-Playlist;
     ersetzt: alte Bibliotheks-Keys, die NACH dem Erfolg in den Papierkorb gehen.
     Läuft im Hintergrund-Thread, damit die Oberfläche nie blockiert."""
-    import yt_dlp
     platzhalter = Q.neu(url, None, qualitaet)
     if abo:
         platzhalter["abo"] = abo
@@ -832,7 +857,7 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
                  "noplaylist": (not ganze_liste) and ist_einzelvideo(url)})
     try:
         try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
+            with _ydl(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
         except Exception as e:                       # noqa: BLE001 — Cookie-Probleme heilen
             # Sperre zuerst: die Bot-Meldung TRAEGT den Cookie-Hinweis in sich,
@@ -840,7 +865,7 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
             if _ist_sperre(e) or not _ist_cookie_fehler(e):
                 raise
             opts.pop("cookiesfrombrowser", None)
-            with yt_dlp.YoutubeDL(opts) as ydl:
+            with _ydl(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
     except Exception as e:                           # noqa: BLE001 — Nutzer sieht den Text
         voll = str(e)
@@ -2392,7 +2417,6 @@ def transkript_suche(q, limit=40):
 def untertitel_nachladen(key):
     """Untertitel für einen vorhandenen Titel nachträglich von YouTube holen
     (nur die .vtt, kein Video-Download). Läuft im Hintergrund-Thread."""
-    import yt_dlp
     e = _geladen.get(key)
     pfad = _pfad_zu_key(key)
     if not (e and pfad):
@@ -2409,7 +2433,7 @@ def untertitel_nachladen(key):
                  "outtmpl": {"default": ziel + ".%(ext)s"}})   # .vtt landet im Untertitel-Ordner
     for _ in (1, 2):
         try:
-            with yt_dlp.YoutubeDL(opts) as y:
+            with _ydl(opts) as y:
                 y.extract_info(url, download=True)             # skip_download: nur Untertitel
             return
         except Exception:                            # noqa: BLE001 — Cookie/Netz, 2. Versuch ohne Cookies
@@ -3690,13 +3714,12 @@ if not isinstance(_abos, list):
 def _abo_flach(url, limit=60):
     """Flacher yt-dlp-Blick auf Kanal/Playlist (ohne Download): info-Dict mit
     entries (id/title/duration/live_status) — Basis für Prüfen und Backkatalog."""
-    import yt_dlp
     opts = _ydl_basis_opts()
     opts.update({"extract_flat": "in_playlist", "skip_download": True,
                  "playlistend": limit, "noplaylist": False})
     for _ in (1, 2):
         try:
-            with yt_dlp.YoutubeDL(opts) as y:
+            with _ydl(opts) as y:
                 return y.extract_info(url, download=False) or {}
         except Exception:                            # noqa: BLE001 — Cookie/Netz, 2. Versuch ohne Cookies
             opts.pop("cookiesfrombrowser", None)
@@ -4374,7 +4397,6 @@ def _abos_hintergrund():
 def _enrich_eintrag(key, e):
     """Fehlende Metadaten (Titel/Kanal/Dauer/Datum) für einen Alt-Eintrag per
     yt-dlp nachladen (nur Metadaten, kein Download)."""
-    import yt_dlp
     vid = key.split("|")[0]
     if not _plausible_id(vid):
         return False
@@ -4383,7 +4405,7 @@ def _enrich_eintrag(key, e):
     info = None
     for _ in (1, 2):
         try:
-            with yt_dlp.YoutubeDL(opts) as y:
+            with _ydl(opts) as y:
                 info = y.extract_info(f"https://www.youtube.com/watch?v={vid}", download=False)
             break
         except Exception:                            # noqa: BLE001 — Cookie/Netz, 2. Versuch ohne Cookies
@@ -5258,13 +5280,12 @@ def herunterladen(item):
 def _zugang_ok(url, extra_opts, timeout=30):
     """Schneller Check (nur Metadaten, ohne Cookies): gibt es mit diesen Optionen
     Zugang zum Video (kein Geo-Fehler, Formate vorhanden)?"""
-    import yt_dlp
     opts = _ydl_basis_opts(mit_cookies=False)
     opts.update({"skip_download": True, "noplaylist": True,
                  "quiet": True, "no_warnings": True, "socket_timeout": 20})
     opts.update(extra_opts or {})
     try:
-        with yt_dlp.YoutubeDL(opts) as y:
+        with _ydl(opts) as y:
             info = y.extract_info(url, download=False)
         return bool(info) and bool(info.get("formats") or info.get("url") or info.get("entries"))
     except Exception:                                # noqa: BLE001 — jeder Fehler = kein Zugang
@@ -5370,7 +5391,6 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
     # max_wiederholungen ueberhaupt gefragt wurden. Der ganze Neuversuch-
     # Mechanismus war unerreichbar; aufgefangen hat es erst das Netz in
     # worker_schleife, das den Eintrag stumm auf »fehler« setzte.
-    import yt_dlp
 
     def hook(d):
         if item["id"] in Q.abbrueche:
@@ -5474,7 +5494,7 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
         opts.update(extra_opts)
 
     def _lauf(o):
-        with yt_dlp.YoutubeDL(o) as ydl:
+        with _ydl(o) as ydl:
             return ydl.extract_info(item["url"], download=True)
 
     try:
