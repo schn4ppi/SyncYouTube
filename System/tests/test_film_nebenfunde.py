@@ -14,11 +14,19 @@ Seite, ausgeführt mit deno (Hilfen aus test_medientasten_verhalten.py):
   (tvpLandePos: gesehen, ab 90 % oder bis 30 s = Anfang).
 * Esc/← bei einer Folge mit geschlossener Info öffnete die Info der FOLGE
   (typ 'folge', ohne Staffeln und Folgenliste) statt der Serie.
+* Esc/← bei einer Folge mit OFFENER Info zeichnete die Seite nicht neu: die
+  Stelle stand zwar in der Folgenliste, die Kachel zeigte aber den alten Stand
+  (neu gezeichnet wurde nur, wenn die Info-Seite genau diesen Film zeigte).
 
 Die Attrappe modelliert den Unterschied, um den es geht (Lehrbuch: „Attrappe
 muss den Unterschied modellieren"): welches Element ins Vollbild geht
 (#tv-player des Films oder der Musik-Player) und wie der zweite Druck das
-Vollbild wieder verlässt.
+Vollbild wieder verlässt; bei Esc laufen das echte tvpZu und
+tvpFolgePosMerken, damit sichtbar wird, WANN die Stelle der Folge in der
+Liste steht (erst nach tvpZu) und was die Info-Seite dann zeigt.
+
+Nicht hier gemessen: das Bild im echten Browser (Vollbild, Info-Seite); die
+Oberfläche wurde für diese Runde nicht live gestartet.
 """
 import os
 import sys
@@ -148,3 +156,25 @@ aus(r);
     assert e["folge"] == ["s9"], "Esc bei einer Folge: Info der SERIE"
     assert e["film"] == ["F1"], "Esc bei einem Film: seine Info wie bisher"
     assert e["fremdeMeta"] == ["F2"], "übrig gebliebene Meta einer anderen Kennung lenkt nicht um"
+
+
+def test_esc_bei_folge_zeichnet_die_offene_info_neu(tmp_path):
+    """Die offene Info zeigt die SERIE, beendet wird eine FOLGE: die Stelle
+    landet (über tvpZu) in der Folgenliste, und danach wird neu gezeichnet —
+    die Kachel zeigt die neue Stelle. Ein Film zeichnet weiterhin genau einmal,
+    mit seiner neuen Stelle; eine geschlossene Info wird nicht gezeichnet,
+    sondern (wie bisher) geöffnet."""
+    (e,) = _lauf(tmp_path, *_filmstopp_teile(), r"""
+const r={};
+lage({id:'e3', pos:1500, meta:{typ:'folge', serie_id:'s9'}, info:true,
+      daten:{d:{id:'s9', typ:'serie'}, eps:[E('e2',1200), E('e3',0), E('e4',0)]}});
+await filmStopp(); r.serie={bilder:[...bilder], infos:[...infos]};
+lage({id:'F1', pos:700, meta:{typ:'film'}, info:true, daten:{d:{id:'F1', typ:'film', position_s:0}, eps:[]}});
+await filmStopp(); r.film={bilder:[...bilder], infos:[...infos]};
+lage({id:'F1', pos:700, meta:{typ:'film'}});
+await filmStopp(); r.zu={bilder:[...bilder], infos:[...infos]};
+aus(r);
+""")
+    assert e["serie"] == {"bilder": ["e2:1200,e3:1500,e4:0"], "infos": []}, e["serie"]
+    assert e["film"] == {"bilder": ["film:700"], "infos": []}, "ein Film: genau einmal, mit neuer Stelle"
+    assert e["zu"] == {"bilder": [], "infos": ["F1"]}, "geschlossene Info: öffnen statt zeichnen"

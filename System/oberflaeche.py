@@ -4649,8 +4649,12 @@ async function filmStopp(){
   if(tvFilmReihen){Object.values(tvFilmReihen).forEach(v=>{
     if(Array.isArray(v))v.forEach(merk);
     else if(v&&typeof v==='object')Object.values(v).forEach(a=>Array.isArray(a)&&a.forEach(merk));});}
-  if(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id){tvInfoDaten.d.position_s=pos; tvInfoMalen();}
+  if(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)tvInfoDaten.d.position_s=pos;
   if(typeof tvpZu==='function')tvpZu();               // Fernbedienung mit abräumen
+  // Offene Info neu zeichnen, NACH tvpZu: erst dann steht die Stelle einer
+  // Folge in der Folgenliste — die Info zeigt die Serie, nicht die Folge
+  // (Nebenbefund 24.09.: die Kachel blieb auf dem alten Stand).
+  if(tvInfoOffen)tvInfoMalen();
   // Zurück ins TV-Vollbild, wenn der Fernsehmodus offen ist (die Esc-Taste
   // ist die nötige Nutzer-Geste).
   const tv=document.getElementById('tv');

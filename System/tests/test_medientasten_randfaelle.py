@@ -553,6 +553,7 @@ const merk=[], vlc=[], zu=[];
 globalThis.fetch=(u,o)=>{merk.push(JSON.parse(o.body)); return Promise.resolve({});};
 function tvpBefehl(){} function vlcBefehl(c){vlc.push(c);} function tvpZu(){zu.push(1); tvpOffen=false;}
 function toast(){} function zeit(s){return String(s);} function vlcPosGeschaetzt(){return 0;} function tvInfo(){}
+function tvInfoMalen(){}
 """, _js_funktion(q, "filmLaeuft"), _js_funktion(q, "filmStopp"), r"""
 const laeuft=filmLaeuft(); await filmStopp();
 const film={merk:[...merk], zu:zu.length, laeuft};
