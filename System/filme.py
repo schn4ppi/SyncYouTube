@@ -35,6 +35,19 @@ META_HALTBAR_S = 14 * 24 * 3600            # Ratings altern langsam (Spec)
 OMDB_TAGES_DECKEL = 950                    # Free-Key: 1.000/Tag — Puffer lassen
 GERAET_KOPF = ('MediaBrowser Client="Sync", Device="SyncYouTube", '
                'DeviceId="sync-jb", Version="1.0"')
+USER_AGENT = "SyncYouTube/1.0 (Sync-Familie, Film-Fundament)"
+# Warum ein Jellyfin-Ruf scheiterte. Vor dem 24.09.2026 gab es nur EINEN Text
+# („antwortet nicht"), und der passte auf den echten Fall gerade nicht: Renés
+# Server antwortete, er lehnte nur die Anmeldeform ab.
+ART_MERKMAL = "merkmal_abgelehnt"          # Anmeldung 200, Abruf mit frischem Token wieder 401
+ART_ANMELDUNG = "anmeldung_abgelehnt"      # AuthenticateByName 401: Benutzer/Passwort
+ART_DROSSEL = "drossel"                    # AuthenticateByName 403: Renés Sperre, vorübergehend
+ART_NETZ = "netz"                          # Zeitüberschreitung, Verbindung, DNS
+ART_SERVER = "server"                      # 5xx, sonstiger Status, unlesbare Antwort
+ART_KEIN_ZUGANG = "kein_zugang"            # nichts im Keyring
+ZUGANG_ARTEN = (ART_MERKMAL, ART_ANMELDUNG, ART_DROSSEL, ART_KEIN_ZUGANG)
+MERKMAL_RUHE_S = 600                       # frisches Token abgelehnt ⇒ 10 min keine Anmeldung
+_anmelde_art = ""                          # Grund der letzten gescheiterten Anmeldung
 GENRE_JE_TYP = 100                         # Filme UND Serien je bis hierhin (s. reihen())
 # Renés Bibliothek ist ZWEISPRACHIG getaggt (gemessen 13.08.2026 an 4885 Titeln):
 # dieselbe Kategorie steht mal englisch, mal deutsch am Werk. Ohne Zusammenführung
@@ -136,10 +149,50 @@ def _http(url, daten=None, kopf=None, timeout=15):
         return e.code, e.read() or b"{}"
 
 
+def _kopf(token=""):
+    """Der Ausweis, der an JEDE Jellyfin-Anfrage gehört — nicht nur an die Anmeldung.
+
+    Renés Server läuft seit dem Update zwischen 20.09. und 24.09.2026 auf
+    Jellyfin 12.1.0. Die Anmeldung trug schon beide Kopf-Formen, jeder Datenabruf
+    danach aber das Token nur im alten `X-Emby-Token`. Die Anmeldung gelang, jeder
+    Abruf bekam 401, auch mit dem ganz frischen Token (51 Fehlversuche „Items-Abruf
+    HTTP 401"). SyncFindus schickt gegen denselben Server und dasselbe Konto diese
+    Form (`_ausweis_koepfe`) und lief durch. Die Wurzel: beim 10.11-Update am 06.08.
+    wurde nur die Anmeldung nachgezogen — es gab keine gemeinsame Kopf-Funktion.
+
+    Beide Formen zu schicken kostet nichts und trägt über den Übergang: ein älterer
+    Server liest `X-Emby-Token`, ein neuer das Token im `Authorization`-Kopf.
+    Nach einer Neuanmeldung IMMER den ganzen Satz neu bauen: ein altes Token im
+    `Authorization`-Kopf überstimmt ein neues in `X-Emby-Token`."""
+    kopf = {"Authorization": GERAET_KOPF + (f', Token="{token}"' if token else ""),
+            "X-Emby-Authorization": GERAET_KOPF,
+            "User-Agent": USER_AGENT}
+    if token:
+        kopf["X-Emby-Token"] = token
+    return kopf
+
+
+def _server_version_public(url):
+    """Server-Version OHNE Anmeldung (GET /System/Info/Public) — für ehrliche
+    Fehlertexte, wenn angemeldete Rufe abgelehnt werden. '?' bei jeder Störung."""
+    try:
+        st, roh = _http(url + "/System/Info/Public", timeout=10)
+        if st == 200:
+            return str(json.loads(roh or b"{}").get("Version") or "?")
+    except Exception:                      # noqa: BLE001 — Version ist Kür
+        pass
+    return "?"
+
+
 def _anmelden():
-    global _anmelde_sperre_ts
-    if _sitzung.get("token"):
-        return _sitzung
+    """Die aktuelle Sitzung als KOPIE (Token, Benutzer-Id, Version) oder None.
+
+    Eine Kopie, kein Verweis auf `_sitzung`: ein anderer Faden kann die Sitzung
+    jederzeit erneuern — wer mitten im Ruf ist, soll sein Token behalten und bei
+    einem 401 genau dieses als abgelehnt melden (s. `_neu_anmelden`)."""
+    kopie = dict(_sitzung)
+    if kopie.get("token"):
+        return kopie
     # EINE Anmeldung zur Zeit — der Sturm passt in EINEN Prozess.
     #
     # Der Kommentar unten schrieb den 403 vom 06.08. den „Zweitprozessen" zu.
@@ -152,42 +205,128 @@ def _anmelden():
     # Token (zweite Prüfung IN der Sperre, weil der Erste inzwischen fertig ist).
     with _anmelde_lock:
         if _sitzung.get("token"):
-            return _sitzung
-        return _anmelden_ungesperrt()
+            return dict(_sitzung)
+        s = _anmelden_ungesperrt()
+        return dict(s) if s else None
 
 
 def _anmelden_ungesperrt():
-    global _anmelde_sperre_ts
+    """Anmelden — NUR unter `_anmelde_lock` rufen. Merkt bei einem Fehlschlag in
+    `_anmelde_art`, warum (für die ehrliche Anzeige)."""
+    global _anmelde_sperre_ts, _anmelde_art
     # Anmelde-Backoff (Fund 06.08.): Nach einem Fehlschlag ist RUHE —
     # 403 = 10 Minuten (Anmeldesperre ausklingen lassen), sonst 60 s.
+    # Der Grund bleibt der, der die Ruhe ausgelöst hat.
     if time.time() < _anmelde_sperre_ts:
         return None
     z = _zugang()
     if not z:
+        _anmelde_art = ART_KEIN_ZUGANG
         return None
     try:
-        # Jellyfin 10.11 (Renés Server-Update 06.08.): der alte
-        # X-Emby-Authorization-Kopf ist abgekündigt — beide Formen senden.
+        # Beide Kopf-Formen (10.11 kündigte X-Emby-Authorization ab), s. _kopf.
         st, roh = _http(z["url"] + "/Users/AuthenticateByName",
                         daten={"Username": z["benutzer"], "Pw": z["passwort"]},
-                        kopf={"X-Emby-Authorization": GERAET_KOPF,
-                              "Authorization": GERAET_KOPF})
+                        kopf=_kopf())
     except Exception:                      # noqa: BLE001 — Server aus/Netz weg
         _anmelde_sperre_ts = time.time() + 60
+        _anmelde_art = ART_NETZ
         return None
     if st != 200:
+        # 403 ist auf Renés Server eine VORÜBERGEHENDE Drossel gehäufter
+        # Anmeldungen (06.08., SyncFindus 28.08.) — kein Dauerzustand.
         _anmelde_sperre_ts = time.time() + (600 if st == 403 else 60)
+        _anmelde_art = {401: ART_ANMELDUNG, 403: ART_DROSSEL}.get(st, ART_SERVER)
         return None
-    d = json.loads(roh or b"{}")
-    _sitzung.update(token=d.get("AccessToken") or "",
-                    user_id=(d.get("User") or {}).get("Id") or "")
     try:
-        st, roh = _http(z["url"] + "/System/Info",
-                        kopf={"X-Emby-Token": _sitzung["token"]})
+        d = json.loads(roh or b"{}")
+        token = d.get("AccessToken") or ""
+        uid = (d.get("User") or {}).get("Id") or ""
+    except (ValueError, AttributeError):
+        token = uid = ""
+    if not token:
+        # 200 ohne lesbares Token (Wartungs- oder Proxy-Seite): ein Fehlschlag,
+        # keine Sitzung mit leerem Token — und keine Ausnahme, die den Abzug
+        # am Backoff vorbei sofort wieder anstoßen ließe.
+        _anmelde_sperre_ts = time.time() + 60
+        _anmelde_art = ART_SERVER
+        return None
+    _sitzung.update(token=token, user_id=uid)
+    _anmelde_art = ""
+    try:
+        st, roh = _http(z["url"] + "/System/Info", kopf=_kopf(token))
         _sitzung["version"] = (json.loads(roh).get("Version") or "?") if st == 200 else "?"
     except Exception:                      # noqa: BLE001 — Version ist Kür
         _sitzung["version"] = "?"
     return _sitzung
+
+
+def _neu_anmelden(abgelehnt):
+    """Nach einem 401 mit dem Token `abgelehnt`: frisch anmelden — außer ein
+    anderer Faden hat das längst getan.
+
+    Vorher stand `_sitzung.clear()` AUSSERHALB der Sperre (Nebenfund 24.09.): ein
+    Faden mit veraltetem Token warf das frische Token eines anderen Fadens weg
+    und meldete sich erneut an. Wegen derselben DeviceId entwertete das den
+    anderen — die Kaskade vom 13.08. Vergleich, Verwerfen und Neuanmeldung
+    stehen deshalb in EINER Sperre."""
+    with _anmelde_lock:
+        aktuell = _sitzung.get("token")
+        if aktuell and aktuell != abgelehnt:
+            return dict(_sitzung)
+        _sitzung.clear()
+        s = _anmelden_ungesperrt()
+        return dict(s) if s else None
+
+
+def _merkmal_abgelehnt(token):
+    """Auch das FRISCH ausgestellte Token wurde abgelehnt: eine weitere Anmeldung
+    hilft nicht (so sah der Ausfall ab dem 23.09. aus). Das Token verwerfen — nur
+    wenn es noch das aktuelle ist — und 10 Minuten keine Anmeldung, statt dass
+    jede Kachel und jede Folgenliste Renés Server mit neuen Anmeldungen bedrängt
+    (dasselbe Konto nutzt SyncFindus: dessen Drossel wäre mitbetroffen)."""
+    global _anmelde_sperre_ts, _anmelde_art
+    with _anmelde_lock:
+        if _sitzung.get("token") == token:
+            _sitzung.clear()
+        _anmelde_sperre_ts = max(_anmelde_sperre_ts, time.time() + MERKMAL_RUHE_S)
+        _anmelde_art = ART_MERKMAL
+
+
+def _jellyfin_ruf(pfad, daten=None, timeout=15):
+    """DER Weg für jeden angemeldeten Jellyfin-Abruf: Ausweis an jeder Anfrage,
+    bei 401 EINMAL frisch anmelden und mit NEU gebauten Köpfen wiederholen.
+
+    `pfad` beginnt mit '/'; `{uid}` wird durch die Benutzer-Id der Sitzung
+    ersetzt (die kann sich bei der Neuanmeldung nicht ändern, wird aber trotzdem
+    je Versuch neu eingesetzt). Rückgabe `(status, roh, art, ausnahme)`:
+    `art` ist '' wenn der Server geantwortet hat (der Aufrufer wertet den Status),
+    sonst eine ART_*-Fehlerart; `ausnahme` trägt nur bei Netzfehlern den Text."""
+    z = _zugang()
+    if not z:
+        return 0, b"", ART_KEIN_ZUGANG, ""
+    s = _anmelden()
+    if not s:
+        return 0, b"", _anmelde_art or ART_NETZ, ""
+    wiederholt = False
+    while True:
+        token = s.get("token") or ""
+        try:
+            st, roh = _http(z["url"] + pfad.replace("{uid}", s.get("user_id") or ""),
+                            daten=daten, kopf=_kopf(token), timeout=timeout)
+        except Exception as e:             # noqa: BLE001 — Netz weg / Zeitüberschreitung
+            return 0, b"", ART_NETZ, str(e) or type(e).__name__
+        if st != 401:
+            return st, roh, "", ""
+        if wiederholt:
+            _merkmal_abgelehnt(token)
+            return st, roh, ART_MERKMAL, ""
+        # Token von einer zweiten Sitzung entwertet (gleiche DeviceId, live
+        # gefunden 05.08.) ⇒ EINMAL frisch anmelden und wiederholen.
+        wiederholt = True
+        s = _neu_anmelden(token)
+        if not s:
+            return st, roh, _anmelde_art or ART_NETZ, ""
 
 
 # ---------------------------------------------------------------- Katalog
@@ -235,21 +374,16 @@ def _folge_holen(item_id):
     beliebigen Zeichenketten Rufe an Renés Server auslösen kann."""
     if not item_id or not _ID_FORM.match(item_id):
         return None
-    s = _anmelden()
-    if not s:
-        return None
-    try:
-        st, roh = _http(f"{_zugang()['url']}/Users/{s['user_id']}/Items/{item_id}",
-                        kopf={"X-Emby-Token": s["token"]})
-    except Exception:                          # noqa: BLE001 — Netz weg
-        return None
-    if st != 200:
+    # Mit 401-Heilung wie jeder andere Weg (bis 24.09. fehlte sie hier: ein
+    # entwertetes Token ließ jede Folge als „Film nicht gefunden" enden).
+    st, roh, art, _ = _jellyfin_ruf("/Users/{uid}/Items/" + item_id)
+    if art or st != 200:
         return None
     try:
         it = json.loads(roh)
     except ValueError:
         return None
-    if not it.get("Id"):
+    if not isinstance(it, dict) or not it.get("Id"):
         return None
     e = _eintrag(it)
     if it.get("Type") == "Episode":
@@ -330,12 +464,13 @@ def _katalog_abzug():
     global _fehlversuch_ts
     z = _zugang()
     if not z:                              # kein Backoff: Einrichtung fehlt nur
-        return {"ok": False, "anzahl": 0,
+        return {"ok": False, "anzahl": 0, "art": ART_KEIN_ZUGANG,
                 "fehler": "Kein Zugang im Keyring (Sync-Jellyfin)."}
     s = _anmelden()
     if not s:
         _fehlversuch_ts = time.time()
-        return {"ok": False, "anzahl": 0, "fehler": "Anmeldung fehlgeschlagen."}
+        return {"ok": False, "anzahl": 0, "art": _anmelde_art or ART_NETZ,
+                "fehler": "Anmeldung fehlgeschlagen."}
     # Live gemessen (05.08., Renés Server): der Voll-Abzug in EINEM Ruf läuft
     # in jeden Timeout (>300 s), und MediaStreams ist das teure Feld (63 s für
     # 200 Titel MIT, 57 s für 1000 OHNE). Darum: seitenweise à 1000 ohne
@@ -344,29 +479,26 @@ def _katalog_abzug():
     felder = ("Genres,ProviderIds,ProductionYear,OfficialRating,"
               "CommunityRating,RunTimeTicks,DateCreated")
     eintraege, start, gesamt = [], 0, None
-    neu_angemeldet = False
     while gesamt is None or start < gesamt:
-        try:
-            st, roh = _http(f"{z['url']}/Users/{s['user_id']}/Items?Recursive=true"
-                            f"&IncludeItemTypes=Movie,Series&Fields={felder}"
-                            f"&StartIndex={start}&Limit=1000",
-                            kopf={"X-Emby-Token": s["token"]}, timeout=180)
-        except Exception as e:             # noqa: BLE001
+        # 401 heilt _jellyfin_ruf selbst (einmal frisch anmelden, alle Köpfe neu).
+        st, roh, art, ausnahme = _jellyfin_ruf(
+            "/Users/{uid}/Items?Recursive=true"
+            f"&IncludeItemTypes=Movie,Series&Fields={felder}"
+            f"&StartIndex={start}&Limit=1000", timeout=180)
+        if art == ART_MERKMAL:
             _fehlversuch_ts = time.time()
-            return {"ok": False, "anzahl": 0, "fehler": f"Items-Abruf: {e}"}
-        if st == 401 and not neu_angemeldet:
-            # Token von einer zweiten Sitzung invalidiert (gleiche DeviceId,
-            # live gefunden 05.08.) ⇒ EINMAL frisch anmelden, Seite wiederholen.
-            neu_angemeldet = True
-            _sitzung.clear()
-            s = _anmelden()
-            if s:
-                continue
+            return {"ok": False, "anzahl": 0, "art": art,
+                    "fehler": "Items-Abruf HTTP 401 trotz frischer Anmeldung "
+                              "(Anmeldeform abgelehnt)"}
+        if art:
             _fehlversuch_ts = time.time()
-            return {"ok": False, "anzahl": 0, "fehler": "Anmeldung fehlgeschlagen."}
+            return {"ok": False, "anzahl": 0, "art": art,
+                    "fehler": f"Items-Abruf: {ausnahme}" if ausnahme
+                    else "Anmeldung fehlgeschlagen."}
         if st != 200:
             _fehlversuch_ts = time.time()
-            return {"ok": False, "anzahl": 0, "fehler": f"Items-Abruf HTTP {st}"}
+            return {"ok": False, "anzahl": 0, "art": ART_SERVER,
+                    "fehler": f"Items-Abruf HTTP {st}"}
         d = json.loads(roh)
         seite = d.get("Items") or []
         if not seite:
@@ -374,8 +506,11 @@ def _katalog_abzug():
         eintraege.extend(_eintrag(it) for it in seite)
         gesamt = d.get("TotalRecordCount") or len(seite)
         start += 1000
+    # Die Version der Sitzung, die die letzte Seite geholt hat (nach einer
+    # Neuanmeldung steht sie in _sitzung, nicht in der Kopie vom Anfang).
+    version = _sitzung.get("version") or s.get("version") or "?"
     fam.json_schreiben(_pfade["katalog"], {
-        "stand": time.time(), "server_version": s.get("version") or "?",
+        "stand": time.time(), "server_version": version,
         "eintraege": eintraege})
     _fehlversuch_ts = 0.0                  # Erfolg löst den Backoff
     fortschritt_nachreichen()              # liegengebliebene Meldungen mitnehmen
@@ -423,22 +558,9 @@ def bild_holen(item_id, art="Primary"):
     fehlt = pfad + ".fehlt"
     if os.path.exists(fehlt):
         return None
-    s = _anmelden()
-    z = _zugang()
-    if not (s and z):
-        return None
-    try:
-        st, roh = _http(f"{z['url']}/Items/{sauber}/Images/{art}",
-                        kopf={"X-Emby-Token": s["token"]})
-        if st == 401:                      # Token invalidiert ⇒ einmal frisch
-            _sitzung.clear()
-            s = _anmelden()
-            if not s:
-                return None
-            st, roh = _http(f"{z['url']}/Items/{sauber}/Images/{art}",
-                            kopf={"X-Emby-Token": s["token"]})
-    except Exception:                      # noqa: BLE001 — Netzfehler: NICHT
-        return None                        # negativ cachen, nächster Versuch frei
+    st, roh, fehlart, _ = _jellyfin_ruf(f"/Items/{sauber}/Images/{art}")
+    if fehlart:                            # Netz/Zugang: NICHT negativ cachen,
+        return None                        # nächster Versuch frei
     os.makedirs(_pfade["bilder"], exist_ok=True)
     if st == 404:                          # Titel HAT dieses Bild nicht ⇒ merken
         try:
@@ -543,32 +665,28 @@ def detail(item_id, profil="standard"):
         # Sprachen (Netflix-Detailseite: Qualität · Sound · Untertitel).
         m["video_codec"] = e.get("video_codec") or ""
         m["audio_codec"] = e.get("audio_codec") or ""
-        s = _anmelden()
-        z = _zugang()
-        if s and z:
-            try:
-                st, roh = _http(f"{z['url']}/Users/{s['user_id']}/Items/{item_id}",
-                                kopf={"X-Emby-Token": s["token"]})
-                if st == 200:
-                    voll = json.loads(roh)
-                    for strom in voll.get("MediaStreams") or []:
-                        art2 = strom.get("Type")
-                        if art2 == "Video":
-                            m["video_codec"] = m["video_codec"] or strom.get("Codec") or ""
-                            m["hoehe"] = max(m.get("hoehe") or 0, strom.get("Height") or 0)
-                        elif art2 == "Audio":
-                            m["audio_codec"] = m["audio_codec"] or strom.get("Codec") or ""
-                            m["audio_kanaele"] = max(m.get("audio_kanaele") or 0,
-                                                     strom.get("Channels") or 0)
-                            sp = strom.get("Language") or ""
-                            if sp and sp not in m["audio_sprachen"]:
-                                m["audio_sprachen"].append(sp)
-                        elif art2 == "Subtitle":
-                            sp = strom.get("Language") or ""
-                            if sp and sp not in m["sub_sprachen"]:
-                                m["sub_sprachen"].append(sp)
-            except Exception:              # noqa: BLE001 — Technik ist Kür
-                pass
+        try:
+            st, roh, fehlart, _ = _jellyfin_ruf("/Users/{uid}/Items/" + item_id)
+            if st == 200 and not fehlart:
+                voll = json.loads(roh)
+                for strom in voll.get("MediaStreams") or []:
+                    art2 = strom.get("Type")
+                    if art2 == "Video":
+                        m["video_codec"] = m["video_codec"] or strom.get("Codec") or ""
+                        m["hoehe"] = max(m.get("hoehe") or 0, strom.get("Height") or 0)
+                    elif art2 == "Audio":
+                        m["audio_codec"] = m["audio_codec"] or strom.get("Codec") or ""
+                        m["audio_kanaele"] = max(m.get("audio_kanaele") or 0,
+                                                 strom.get("Channels") or 0)
+                        sp = strom.get("Language") or ""
+                        if sp and sp not in m["audio_sprachen"]:
+                            m["audio_sprachen"].append(sp)
+                    elif art2 == "Subtitle":
+                        sp = strom.get("Language") or ""
+                        if sp and sp not in m["sub_sprachen"]:
+                            m["sub_sprachen"].append(sp)
+        except Exception:              # noqa: BLE001 — Technik ist Kür
+            pass
         # Zwei-Fragen-Regel (Nachtprüfung 06.08.): mehrere Server-Threads
         # schreiben den Meta-Cache — json_aendern mischt NUR den eigenen
         # Schlüssel ein, statt fremde frische Einträge zu überschreiben.
@@ -598,26 +716,12 @@ def episoden(serien_id):
     EIN Jellyfin-Ruf über /Shows/{id}/Episodes — liefert Staffel-/Folgen-
     Nummern und den Seh-Stand gleich mit. On demand, kein Cache: der
     Gesehen-Stand soll frisch sein."""
-    s = _anmelden()
-    z = _zugang()
-    if not (s and z):
-        return []
     sauber = re.sub(r"[^A-Za-z0-9]", "", serien_id or "")
     if not sauber:
         return []
-    url = (f"{z['url']}/Shows/{sauber}/Episodes?userId={s['user_id']}"
-           f"&Fields=RunTimeTicks")
-    try:
-        st, roh = _http(url, kopf={"X-Emby-Token": s["token"]}, timeout=30)
-        if st == 401:                      # Token invalidiert ⇒ einmal frisch
-            _sitzung.clear()
-            s = _anmelden()
-            if not s:
-                return []
-            st, roh = _http(url, kopf={"X-Emby-Token": s["token"]}, timeout=30)
-    except Exception:                      # noqa: BLE001 — Ausfall = leere Liste
-        return []
-    if st != 200:
+    st, roh, art, _ = _jellyfin_ruf(
+        f"/Shows/{sauber}/Episodes?userId={{uid}}&Fields=RunTimeTicks", timeout=30)
+    if art or st != 200:
         return []
     out = []
     for it in json.loads(roh).get("Items") or []:
@@ -1034,37 +1138,17 @@ def _queue_lesen():
 
 
 def _fortschritt_senden(item_id, position_s, gesehen):
-    s = _anmelden()
-    z = _zugang()
-    if not (s and z):
-        return False
-    try:
-        st, _ = _http(z["url"] + "/Sessions/Playing/Progress",
-                      daten={"ItemId": item_id,
-                             "PositionTicks": int(position_s) * 10_000_000,
-                             "IsPaused": False},
-                      kopf={"X-Emby-Token": s["token"]})
-        if st == 401:
-            # Live gefunden (05.08.): Jellyfin wirft das alte Token weg, sobald
-            # sich dieselbe DeviceId neu anmeldet (z. B. eine zweite Sitzung).
-            # Selbstheilung: EINMAL frisch anmelden und wiederholen.
-            _sitzung.clear()
-            s = _anmelden()
-            if not s:
-                return False
-            st, _ = _http(z["url"] + "/Sessions/Playing/Progress",
-                          daten={"ItemId": item_id,
-                                 "PositionTicks": int(position_s) * 10_000_000,
-                                 "IsPaused": False},
-                          kopf={"X-Emby-Token": s["token"]})
-    except Exception:                      # noqa: BLE001 — Netz weg ⇒ Queue
+    # Live gefunden (05.08.): Jellyfin wirft das alte Token weg, sobald sich
+    # dieselbe DeviceId neu anmeldet — die Heilung (EINMAL frisch anmelden und
+    # wiederholen) steckt seit 24.09. für alle Wege in _jellyfin_ruf.
+    st, _, art, _ = _jellyfin_ruf("/Sessions/Playing/Progress",
+                                  daten={"ItemId": item_id,
+                                         "PositionTicks": int(position_s) * 10_000_000,
+                                         "IsPaused": False})
+    if art:                                # Netz/Zugang ⇒ Queue
         return False
     if gesehen and st in (200, 204):
-        try:
-            _http(f"{z['url']}/Users/{s['user_id']}/PlayedItems/{item_id}",
-                  daten={}, kopf={"X-Emby-Token": s["token"]})
-        except Exception:                  # noqa: BLE001 — Position zaehlt schon
-            pass
+        _jellyfin_ruf("/Users/{uid}/PlayedItems/" + str(item_id), daten={})
     return st in (200, 204)
 
 

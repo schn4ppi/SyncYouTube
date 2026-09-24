@@ -4,6 +4,7 @@ Doku/SYNC_FILME_PLAN.md). Kein Netz, keine Platte ausser tmp_path; alle
 Jellyfin/TMDB/OMDb-Antworten sind Fakes — genau wie die Manga-Quellen-Tests."""
 import json
 import os
+import re
 import sys
 import time
 
@@ -34,15 +35,105 @@ FAKE_OMDB = {"imdbRating": "8.0", "Metascore": "80",
              "Ratings": [{"Source": "Rotten Tomatoes", "Value": "91%"}]}
 
 
-def _fake_http(antworten):
+BASIS = "https://jelly.example"
+# Ohne Anmeldung erreichbar — alles andere will ein Token sehen.
+FREI = ("/Users/AuthenticateByName", "/System/Info/Public")
+
+
+def _token_im_kopf(kopf, server="12"):
+    """Welches Token ein Jellyfin dieser Version in den Köpfen FINDET.
+
+    Jellyfin 12 (Renés Server seit dem Update zwischen 20.09. und 24.09.2026)
+    liest es nur aus `Authorization: MediaBrowser …, Token="…"`; der alte Kopf
+    `X-Emby-Token` zählt dort nicht mehr. Jellyfin 10.11 (der Vorgänger) liest in
+    dieser Attrappe nur `X-Emby-Token` — damit ist die Gegenprobe scharf, dass der
+    Übergang auch zu einem älteren Server trägt."""
+    kopf = kopf or {}
+    if server == "10.11":
+        return kopf.get("X-Emby-Token") or ""
+    m = re.search(r'Token="([^"]*)"', kopf.get("Authorization") or "")
+    return m.group(1) if m else ""
+
+
+def _fake_http(antworten, server="12", mitschrift=None):
     """antworten: Liste (teil_der_url, status, json_objekt); gematcht per
-    Teilstring. Unerwartete URL = Testfehler (nichts geht still ins Netz)."""
+    Teilstring. Unerwartete URL = Testfehler (nichts geht still ins Netz).
+
+    Die Attrappe wertet die Köpfe AUS (Lehrbuch L19: die Attrappe muss den
+    Unterschied modellieren). Bis 24.09.2026 ignorierte sie `kopf` — und darum
+    blieb für jeden Test unsichtbar, dass Renés Server nach dem Update auf
+    Jellyfin 12.1.0 jeden Datenabruf mit 401 ablehnte, der das Token nur im alten
+    Kopf trug. Gültig sind GEHEIM-TOKEN (die Sitzung überlebt in den Tests den
+    Tausch der Attrappe) und die Tokens der Anmelde-Antworten dieser Liste."""
+    gueltig = {FAKE_AUTH["AccessToken"]}
+    gueltig.update(obj["AccessToken"] for teil, _st, obj in antworten
+                   if "AuthenticateByName" in teil and isinstance(obj, dict)
+                   and obj.get("AccessToken"))
+
     def http(url, daten=None, kopf=None, timeout=15):
+        if mitschrift is not None:
+            mitschrift.append((url, dict(kopf or {})))
+        if url.startswith(BASIS) and not any(f in url for f in FREI):
+            if _token_im_kopf(kopf, server) not in gueltig:
+                return 401, b""
         for teil, status, obj in antworten:
             if teil in url:
                 return status, json.dumps(obj).encode("utf-8")
         raise AssertionError("unerwartete URL: " + url)
     return http
+
+
+class JellyfinAttrappe:
+    """Ein Jellyfin mit Gedächtnis: stellt je Anmeldung ein NEUES Token aus, und
+    wie das echte gilt je DeviceId nur das zuletzt ausgestellte.
+
+    version:          '12' (Token nur im Authorization-Kopf) oder '10.11'.
+    anmeldung:        Status von AuthenticateByName (401 = Passwort, 403 = Drossel).
+    lehnt_ab:         jedes Token wird abgelehnt, auch das frische (so sähe ein
+                      künftiger Kopf-Wechsel aus: Anmeldung 200, Abruf 401).
+    entwerte_ersten:  der erste Datenabruf entwertet Token 1 (eine zweite Sitzung
+                      mit derselben DeviceId hat sich angemeldet).
+    antworten:        Liste (teil_des_pfads, status, obj|bytes).
+    Jeder Ruf landet in `rufe` als (pfad, kopf, daten)."""
+
+    def __init__(self, version="12", anmeldung=200, lehnt_ab=False,
+                 entwerte_ersten=False, antworten=None, public_version="12.1.0"):
+        self.version, self.anmeldung, self.lehnt_ab = version, anmeldung, lehnt_ab
+        self.entwerte_ersten = entwerte_ersten
+        self.public_version = public_version
+        self.antworten = antworten if antworten is not None else STANDARD_ANTWORTEN
+        self.tokens, self.rufe, self.entwertet = [], [], set()
+
+    def anmeldungen(self):
+        return sum(1 for p, _k, _d in self.rufe if p.startswith(FREI[0]))
+
+    def datenrufe(self):
+        return [(p, k) for p, k, _d in self.rufe if not p.startswith(FREI)]
+
+    def __call__(self, url, daten=None, kopf=None, timeout=15):
+        assert url.startswith(BASIS), "nur Renés (Attrappen-)Server: " + url
+        pfad, kopf = url[len(BASIS):], dict(kopf or {})
+        self.rufe.append((pfad, kopf, daten))
+        if pfad.startswith(FREI[0]):
+            if self.anmeldung != 200:
+                return self.anmeldung, b""
+            self.tokens.append(f"TOKEN-{len(self.tokens) + 1}")
+            return 200, json.dumps({"AccessToken": self.tokens[-1],
+                                    "User": {"Id": "u1"}}).encode()
+        if pfad.startswith(FREI[1]):
+            return 200, json.dumps({"Version": self.public_version}).encode()
+        tok = _token_im_kopf(kopf, self.version)
+        if (self.lehnt_ab or not self.tokens or tok != self.tokens[-1]
+                or tok in self.entwertet):
+            return 401, b""
+        if (self.entwerte_ersten and not self.entwertet
+                and not pfad.startswith("/System/Info")):
+            self.entwertet.add(tok)
+            return 401, b""
+        for teil, status, obj in self.antworten:
+            if teil in pfad:
+                return status, obj if isinstance(obj, bytes) else json.dumps(obj).encode()
+        raise AssertionError("unerwarteter Pfad: " + pfad)
 
 
 def _einrichten(tmp_path, monkeypatch):
@@ -314,6 +405,28 @@ FAKE_EPS = {"Items": [
     {"Id": "e3", "Name": "Finale", "ParentIndexNumber": 2, "IndexNumber": 1,
      "UserData": {}},
 ]}
+
+# Eine Folge mit echter Jellyfin-Id (32 Hex) — _folge_holen prüft die Form.
+FOLGE_ID = "9f2c41ab7d3e40aab6c5e81d2f0a7c63"
+FOLGE = {"Id": FOLGE_ID, "Name": "Geheimnisse", "Type": "Episode",
+         "SeriesName": "Dark", "SeriesId": "s1", "ParentIndexNumber": 1,
+         "IndexNumber": 1, "Genres": [], "RunTimeTicks": 30_600_000_000,
+         "ProviderIds": {}, "ImageTags": {}, "UserData": {},
+         "MediaStreams": [{"Type": "Video", "Codec": "h264", "Height": 1080}]}
+
+# Was die JellyfinAttrappe auf Datenabrufe antwortet (Reihenfolge zählt:
+# der Katalog-Pfad „/Users/u1/Items?" vor dem Einzel-Pfad „/Users/u1/Items/").
+STANDARD_ANTWORTEN = [
+    ("/System/Info", 200, {"Version": "12.1.0"}),
+    ("/Users/u1/Items?", 200, FAKE_ITEMS),
+    ("/Users/u1/Items/" + FOLGE_ID, 200, FOLGE),
+    ("/Users/u1/Items/f1", 200, dict(FAKE_ITEMS["Items"][0], MediaStreams=[
+        {"Type": "Video", "Codec": "hevc", "Height": 2160}])),
+    ("/Images/", 200, b"JPEGDATEN"),
+    ("/Shows/s1/Episodes", 200, FAKE_EPS),
+    ("/Sessions/Playing/Progress", 204, b""),
+    ("/PlayedItems/", 200, {}),
+]
 
 
 def test_episoden(tmp_path, monkeypatch):
@@ -761,3 +874,126 @@ def test_kein_anmelde_sturm_im_eigenen_prozess(tmp_path, monkeypatch):
     assert len(anmeldungen) == 1, (
         f"{len(anmeldungen)} Anmeldungen fuer einen Bildschirm voller Kacheln — "
         "genau diese Kaskade hat Renes Server gesperrt")
+
+
+# ------------------------------------------------ Jellyfin 12 (Befund 24.09.2026)
+
+def test_jellyfin12_katalog_mit_token_im_authorization_kopf(tmp_path, monkeypatch):
+    """Renés Server läuft seit dem Update (zwischen 20.09. 14:52 und 24.09. 14:20)
+    auf Jellyfin 12.1.0. Die Anmeldung trug schon beide Kopf-Formen, jeder
+    Datenabruf danach aber das Token nur im alten `X-Emby-Token`. Ergebnis live:
+    51 Fehlversuche mit „Items-Abruf HTTP 401" — auch mit dem ganz frischen
+    Token. SyncFindus lief gegen denselben Server durch, weil es das Token im
+    `Authorization`-Kopf mitschickt. Mit dem alten Code liefert dieser Test genau
+    den Live-Text."""
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("12")
+    monkeypatch.setattr(filme, "_http", jf)
+    r = filme.katalog_abzug()
+    assert r["ok"] is True, r["fehler"]
+    assert r["anzahl"] == 2 and jf.anmeldungen() == 1
+    # /System/Info braucht ebenfalls das Token — sonst stünde „?" im Spiegel.
+    assert filme.katalog_lesen()["server_version"] == "12.1.0"
+
+
+def test_jellyfin1011_gegenprobe_alter_kopf_traegt_weiter(tmp_path, monkeypatch):
+    """Gegenprobe: ein Server, der nur `X-Emby-Token` liest, bleibt bedient."""
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("10.11")
+    monkeypatch.setattr(filme, "_http", jf)
+    r = filme.katalog_abzug()
+    assert r["ok"] is True, r["fehler"]
+    assert filme.episoden("s1") and filme.fortschritt("f1", 60) is True
+
+
+def test_jeder_jellyfin_abruf_traegt_den_ganzen_ausweis(tmp_path, monkeypatch):
+    """Wächter „Aufruf statt Erwähnung": jeder WIRKLICHE Ruf wird mitgeschrieben.
+
+    Die Wurzel des Ausfalls: Beim 10.11-Update (06.08.) wurde der neue Kopf nur
+    an der Anmeldung nachgezogen, eine gemeinsame Kopf-Funktion für alle Rufe
+    gab es nie. Darum hier jeder Weg einmal: Katalog, Server-Version, Bild,
+    Folgenliste, Detail-Technik, einzelne Folge, Fortschritt und „gesehen"."""
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("12")
+    monkeypatch.setattr(filme, "_http", jf)
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {})
+    assert filme.katalog_abzug()["ok"]
+    assert filme.bild_holen("f1") == b"JPEGDATEN"
+    assert len(filme.episoden("s1")) == 3
+    assert filme.detail("f1")["hoehe"] == 2160       # der Technik-Ruf kam durch
+    assert filme.detail(FOLGE_ID)["hoehe"] == 1080   # _folge_holen + Technik-Ruf
+    assert filme.fortschritt("f1", 2350, gesehen=True) is True
+    tok = jf.tokens[-1]
+    wege = set()
+    for pfad, kopf, _d in jf.rufe:
+        assert kopf.get("User-Agent", "").startswith("SyncYouTube"), (pfad, kopf)
+        assert kopf.get("X-Emby-Authorization") == filme.GERAET_KOPF, (pfad, kopf)
+        if pfad.startswith(FREI):
+            assert "Token=" not in kopf.get("Authorization", ""), (pfad, kopf)
+            continue
+        assert kopf.get("Authorization") == filme.GERAET_KOPF + f', Token="{tok}"', (pfad, kopf)
+        assert kopf.get("X-Emby-Token") == tok, (pfad, kopf)   # für ältere Server
+        wege.add(re.sub(r"[0-9a-f]{32}|f1|s1|u1", "·", pfad.split("?")[0]))
+    assert wege >= {"/System/Info", "/Users/·/Items", "/Items/·/Images/Primary",
+                    "/Shows/·/Episodes", "/Users/·/Items/·", "/Sessions/Playing/Progress",
+                    "/Users/·/PlayedItems/·"}, wege
+
+
+def _wege_mit_heilung():
+    """(Name, Aufruf, Prüfung) für jeden Weg, der ein entwertetes Token heilt."""
+    return [
+        ("katalog", lambda: filme.katalog_abzug(), lambda r: r["ok"]),
+        ("bild", lambda: filme.bild_holen("f1"), lambda r: r == b"JPEGDATEN"),
+        ("episoden", lambda: filme.episoden("s1"), lambda r: len(r) == 3),
+        ("folge", lambda: filme._folge_holen(FOLGE_ID), lambda r: r and r["typ"] == "folge"),
+        ("fortschritt", lambda: filme.fortschritt("f1", 42), lambda r: r is True),
+        ("gesehen", lambda: filme.fortschritt("f1", 2350, True), lambda r: r is True),
+    ]
+
+
+def test_wiederholung_nach_neuanmeldung_baut_alle_koepfe_neu(tmp_path, monkeypatch):
+    """Jellyfin entwertet Token 1 beim ersten Abruf (zweite Sitzung mit derselben
+    DeviceId). Die Wiederholung muss Token 2 in ALLEN Köpfen tragen: ein altes
+    Token im `Authorization`-Kopf überstimmt ein neues in `X-Emby-Token` — genau
+    dieser Fehler steckt in SyncFindus' Stream-Proxy (Gegenprüfung 24.09.).
+    `_folge_holen` hatte bis 24.09. gar keine Heilung: die Folge kam dann als
+    „Film nicht gefunden" an."""
+    for name, aufruf, pruefung in _wege_mit_heilung():
+        _einrichten(tmp_path / name, monkeypatch)
+        jf = JellyfinAttrappe("12", entwerte_ersten=True)
+        monkeypatch.setattr(filme, "_http", jf)
+        erg = aufruf()
+        assert pruefung(erg), (name, erg)
+        assert jf.anmeldungen() == 2, (name, jf.anmeldungen())
+        letzter = jf.datenrufe()[-1][1]
+        assert 'Token="TOKEN-2"' in letzter["Authorization"], (name, letzter)
+        assert letzter["X-Emby-Token"] == "TOKEN-2", (name, letzter)
+
+
+def test_frisches_token_eines_anderen_fadens_wird_nicht_verworfen(tmp_path, monkeypatch):
+    """Nebenfund 24.09.: `_sitzung.clear()` stand AUSSERHALB der Anmelde-Sperre.
+
+    Ein Faden mit veraltetem Token bekommt 401 — inzwischen hat sich ein anderer
+    Faden längst frisch angemeldet. Der alte Code warf dessen frisches Token weg
+    und meldete sich erneut an; wegen derselben DeviceId entwertete das den
+    anderen Faden: genau die Kaskade vom 13.08. Richtig: nur das EIGENE,
+    abgelehnte Token verwerfen, sonst das frische des anderen nehmen."""
+    _einrichten(tmp_path, monkeypatch)
+    filme._sitzung.update(token="ALT", user_id="u1", version="12.1.0")
+    anmeldungen = []
+
+    def http(url, daten=None, kopf=None, timeout=15):
+        if "AuthenticateByName" in url:
+            anmeldungen.append(url)
+            return 200, json.dumps({"AccessToken": "DRITT", "User": {"Id": "u1"}}).encode()
+        if "/System/Info" in url:
+            return 200, b'{"Version": "12.1.0"}'
+        tok = _token_im_kopf(kopf)
+        if tok == "ALT":
+            filme._sitzung.update(token="FRISCH")   # der andere Faden war schneller
+            return 401, b""
+        return (204, b"") if tok == "FRISCH" else (401, b"")
+    monkeypatch.setattr(filme, "_http", http)
+    assert filme.fortschritt("f1", 42) is True
+    assert anmeldungen == [], "das frische Token des anderen Fadens wurde verworfen"
+    assert filme._sitzung["token"] == "FRISCH"
