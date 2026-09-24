@@ -472,7 +472,9 @@ def zustand():
         "letzter_erfolg": erfolg,
         "letzter_versuch": d.get("letzter_versuch") or 0,
         "fehler": fehler,
-        "fehler_art": (d.get("fehler_art") or ART_SERVER) if fehler else "",
+        # Ein Zustand von vor dem 24.09. hat keine Art: keine erfundene
+        # Einordnung — Anzeige und Maskierung bleiben dann wie bisher.
+        "fehler_art": (d.get("fehler_art") or "") if fehler else "",
         "fehlversuche": d["fehlversuche"],
         "still_seit_s": max(0.0, time.time() - erfolg) if erfolg else 0.0,
         "zugang": bool(_zugang()),
@@ -1306,10 +1308,6 @@ def _fortschritt_senden_mit_grund(item_id, position_s, gesehen=False, nur_gesehe
     if art:
         return SENDE_SERVER
     return _sende_grund(st)
-
-
-def _fortschritt_senden(item_id, position_s, gesehen):
-    return _fortschritt_senden_mit_grund(item_id, position_s, gesehen) == SENDE_OK
 
 
 def fortschritt(item_id, position_s, gesehen=False):

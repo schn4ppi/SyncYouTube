@@ -665,3 +665,16 @@ def test_browser_proxy_antwortet_bei_jellyfin_fehler_ehrlich(tmp_path, monkeypat
         assert wort in antwort["fehler"], antwort
         blob = json.dumps(antwort)
         assert "GEHEIM-TOKEN" not in blob and "jelly.example" not in blob, blob
+
+
+def test_alter_zustand_ohne_fehlerart_wird_nicht_nachtraeglich_eingeordnet(tmp_path, monkeypatch):
+    """JBs filme_zustand.json vom 24.09. trägt „Items-Abruf HTTP 401" OHNE
+    fehler_art. Daraus darf keine erfundene Einordnung werden: Anzeige und
+    Maskierung bleiben wie bisher, bis der nächste Abzug die Art selbst notiert."""
+    _einrichten(tmp_path, monkeypatch)
+    filme.fam.json_schreiben(filme._pfade["zustand"], {
+        "letzter_versuch": time.time(), "fehler": "Items-Abruf HTTP 401",
+        "fehlversuche": 51, "fehler_seit": time.time() - 18 * 3600})
+    assert filme.zustand()["fehler_art"] == ""
+    st, z = _route("/api/filme/zustand", lokal=False)
+    assert z["fehler"] == "Server nicht erreichbar" and z["fehler_art"] == "", z
