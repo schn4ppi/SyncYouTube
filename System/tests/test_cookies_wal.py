@@ -224,7 +224,7 @@ def test_b_jeder_cookie_weg_sieht_das_wal_cookie(weg, welt, tmp_path, monkeypatc
 def test_c_original_bleibt_unberuehrt_auch_bei_exklusiver_sperre(welt):
     ziel = welt.profil / "cookies.sqlite"
     with pytest.raises(sqlite3.OperationalError, match="locked"):
-        fremd = sqlite3.connect(f"file:{ziel}?mode=ro", uri=True, timeout=0)
+        fremd = sqlite3.connect(ziel.as_uri() + "?mode=ro", uri=True, timeout=0)
         try:
             fremd.execute("SELECT count(*) FROM moz_cookies").fetchone()
         finally:
