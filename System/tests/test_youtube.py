@@ -4518,12 +4518,16 @@ def test_player_settings_und_huellen_maus():
     hs = open(os.path.join(MODUL_DIR, "huelle.py"), encoding="utf-8").read()
     assert "MouseMove" in hs and "tvpWach" in hs and "MouseDown" in hs, \
         "die Huelle muss Maus-Bewegung/Klick ans Overlay weiterreichen"
-    # Huellen-Haenger 07.08. (live seziert): pywebview introspektiert die
-    # js_api rekursiv - ein PUBLIC-Attribut mit dem Fenster-Objekt fuehrt
-    # ueber .native in .NET-Selbstbezuege (Bounds.Empty.Empty...) bis zur
-    # Endlos-Rekursion. Das Fenster haengt IMMER am _unterstrich.
-    assert "api.video._fenster" in hs and "self.fenster" not in hs, \
-        "pywebview-Fenster nie als public js_api-Attribut (Rekursionsfalle)"
+    # Huellen-Haenger 07.08. + 24.09.: pywebview introspektiert die js_api
+    # nach JEDEM Seitenaufbau rekursiv - jedes oeffentliche Daten-Attribut
+    # (07.08. fenster.native, 24.09. video.panel) fuehrt in .NET-Selbstbezuege
+    # (Bounds.Empty.Empty...) bis zum Haenger. Geprueft wird das ERGEBNIS
+    # (der alte Waechter pruefte die Schreibweise und uebersah panel); der
+    # echte pywebview-Durchlauf mit angelegtem Panel steht in test_huelle.py.
+    import huelle
+    api = huelle.Bruecke()
+    daten = [n for n in dir(api) if not n.startswith("_") and not callable(getattr(api, n))]
+    assert daten == [], f"oeffentliche Daten an der js_api (Rekursionsfalle): {daten}"
     # Alte Tabs erneuern sich selbst (JB testete tagelang mit altem Stand).
     assert '"ui_stand"' in src and "getmtime" in src
     q2 = _oberflaeche_html()

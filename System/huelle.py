@@ -58,15 +58,21 @@ class VideoFenster:
     damit Teil des Players statt eines separaten VLC-Fensters (Fernseher!).
     Die Oberfläche meldet die Ziel-Fläche über die js_api (video_rect)."""
 
+    # WICHTIG (Hüllen-Hänger 07.08. + 24.09.): pywebview läuft nach JEDEM
+    # Seitenaufbau (auch location.reload()) rekursiv über alle öffentlichen
+    # Attribute der js_api. Über ein öffentliches WinForms-Objekt (07.08.:
+    # fenster.native, 24.09.: panel) gerät es in .NET-Selbstbezüge
+    # (Bounds.Empty.Empty…) und endet nie. Darum ist hier ALLES privat
+    # (_unterstrich), und dieser Schalter nimmt das ganze Objekt zusätzlich
+    # aus dem Durchlauf (pywebviews eigener Ausschluss, webview/util.py).
+    # Wächter: tests/test_huelle.py fährt den echten Durchlauf.
+    _serializable = False
+
     def __init__(self):
-        self.hwnd = 0
-        self.panel = None
-        self.gemeldet = False                        # hwnd schon an den Server?
-        # WICHTIG (Hüllen-Hänger 07.08., live seziert): das pywebview-Fenster
-        # MUSS ein _unterstrich-Attribut sein — pywebview introspektiert die
-        # js_api rekursiv, und über fenster.native (WinForms) läuft es in
-        # .NET-Selbstbezüge (Bounds.Empty.Empty…) bis zur Endlos-Rekursion.
-        self._fenster = None
+        self._hwnd = 0
+        self._panel = None
+        self._gemeldet = False                       # hwnd schon an den Server?
+        self._fenster = None                         # pywebview-Fenster (Maus-Weiterleitung)
 
     def _anlegen(self, form):
         # WICHTIG (live gemessen): ein rohes CreateWindowExW aus dem js_api-
@@ -92,10 +98,10 @@ class VideoFenster:
             p.MouseMove += lambda s, e: self._js("tvpWach&&tvpWach()", 0.3)
             p.MouseDown += lambda s, e: self._js(
                 "tvpWach&&tvpWach();vlcBefehl&&vlcBefehl('toggle')", 0)
-            self.panel = p
-            self.hwnd = int(p.Handle.ToInt64())
+            self._panel = p
+            self._hwnd = int(p.Handle.ToInt64())
         form.Invoke(Action(tu))
-        return self.hwnd
+        return self._hwnd
 
     def _js(self, code, drossel_s):
         """JS in der Oberfläche ausführen (best-effort, MouseMove gedrosselt).
@@ -124,7 +130,7 @@ class VideoFenster:
         Play noch nicht und öffnete VLCs EIGENES Vollbild; das Panel blieb
         schwarz). Früh gemeldet = jeder Film rendert von Anfang an IM Fenster."""
         try:
-            if not self.hwnd:
+            if not self._hwnd:
                 self._anlegen(form)
             self.melden()
         except Exception:                            # noqa: BLE001 — Kür
@@ -133,21 +139,37 @@ class VideoFenster:
     def melden(self):
         """Das Handle EINMAL an den Server geben (überlebt dort auch die
         VLC-Selbstheilung); scheitert der Abruf, beim nächsten Rect erneut."""
-        if self.gemeldet or not self.hwnd:
+        if self._gemeldet or not self._hwnd:
             return
         try:
             import json as _json
             req = urllib.request.Request(
                 f"{ADRESSE}/api/vlc",
-                data=_json.dumps({"cmd": "fenster", "hwnd": self.hwnd}).encode("utf-8"),
+                data=_json.dumps({"cmd": "fenster", "hwnd": self._hwnd}).encode("utf-8"),
                 method="POST")
             with urllib.request.urlopen(req, timeout=3):
-                self.gemeldet = True
+                self._gemeldet = True
         except Exception:                            # noqa: BLE001 — nächster Versuch folgt
             pass
 
+    def verstecken(self):
+        """pywebview-Ereignis before_load: vor JEDEM Seitenaufbau (auch
+        location.reload() der Selbst-Erneuerung) das native Panel verstecken —
+        sonst verdeckt es die neu ladende Seite, bis die ihre Fläche frisch
+        meldet. before_load läuft SYNCHRON im UI-Faden (Event(…, True)), darum
+        direkt und ohne Invoke. Bewusst kein pagehide aus der Seite: das
+        bräuchte einen js_api-Faden plus Invoke auf ein womöglich schließendes
+        Formular (Prozessende hinge)."""
+        p = self._panel
+        if p is None:
+            return
+        try:
+            p.Visible = False
+        except Exception:                            # noqa: BLE001 — Kür, nie das Laden stören
+            pass
+
     def setzen(self, form, x, y, w, h, an):
-        if not self.hwnd:
+        if not self._hwnd:
             if not (an and form is not None):
                 return
             self._anlegen(form)
@@ -155,7 +177,7 @@ class VideoFenster:
         from System import Action
 
         def tu():
-            p = self.panel
+            p = self._panel
             if p is None:
                 return
             if an and w > 0 and h > 0:
@@ -170,10 +192,11 @@ class VideoFenster:
 
 
 class Bruecke:
-    """js_api der Hülle — die Oberfläche ruft window.pywebview.api.*"""
+    """js_api der Hülle — die Oberfläche ruft window.pywebview.api.*
+    REGEL: außer Methoden nichts Öffentliches (siehe VideoFenster)."""
 
     def __init__(self):
-        self.video = VideoFenster()
+        self._video = VideoFenster()
         self._fenster = None
 
     def video_rect(self, x, y, w, h, an):
@@ -181,7 +204,7 @@ class Bruecke:
         Oberfläche mit devicePixelRatio vorgerechnet). an=False versteckt."""
         try:
             form = self._fenster.native if self._fenster else None
-            self.video.setzen(form, x, y, w, h, bool(an))
+            self._video.setzen(form, x, y, w, h, bool(an))
             return True
         except Exception:                            # noqa: BLE001 — Einbettung ist Kür
             return False
@@ -202,12 +225,13 @@ def main():
         "SyncYouTube", ADRESSE, width=1360, height=860,
         background_color="#171310", min_size=(560, 420), js_api=api)
     api._fenster = fenster
-    api.video._fenster = fenster                     # für die Maus-Weiterleitung
+    api._video._fenster = fenster                    # für die Maus-Weiterleitung
+    fenster.events.before_load += api._video.verstecken   # Neuladen: Panel weg
     # Vollbild (TV): der ⛶-Knopf der Oberfläche nutzt die Fullscreen-API —
     # die trägt im WebView2 genauso wie im Browser; kein Sonderweg nötig.
     def frueh():
         time.sleep(1.5)                              # GUI erst stehen lassen
-        api.video.vorbereiten(fenster.native)
+        api._video.vorbereiten(fenster.native)
     webview.start(frueh, private_mode=False)
     return 0
 
