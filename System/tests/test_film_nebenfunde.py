@@ -140,7 +140,8 @@ const E=(id,pos)=>({id, staffel:1, folge:+id.slice(1), laufzeit_min:40, position
 
 def _filmstopp_teile():
     q = _pc()
-    return [FILMSTOPP, _js_zeile(q, "let tvpGesehenGemeldet")] + [_js_funktion(q, n) for n in (
+    return [FILMSTOPP, _js_zeile(q, "let tvpGesehenGemeldet"), _js_zeile(q, "const SEHZEIT=")] + [
+        _js_funktion(q, n) for n in (
         ("tvpFolgePosMerken", "tvpZu", "filmLaeuft", "filmStopp") + MELDESTELLE)]
 
 

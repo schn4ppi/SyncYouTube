@@ -4150,6 +4150,12 @@ function tvpVideoVerdrahten(v,id,pos){
   // Hat wirklich gespielt (erst dann meldet Chromium die Sitzung bei Windows an):
   // nur so ein Video muss tvpVideoTauschen bis zum Nachfolger halten.
   v.addEventListener('playing',()=>{v._tvpSpielte=true;});
+  // Mindest-Sehzeit: das <video> misst selbst (timeupdate, Medienzeit). Nur das
+  // AKTUELLE Film-Video: ein getauschtes feuert nach pause() noch ein timeupdate,
+  // das mit dem Versatz des neuen gerechnet eine falsche Stelle ergäbe.
+  v.addEventListener('timeupdate',()=>{
+    if(v===document.getElementById('tvp-video'))tvpSehzeitZaehlen((tvpTc?tvpTcOffset:0)+(v.currentTime||0),!v.paused);
+  });
   v.addEventListener('error',()=>{                     // Selbstheilungs-Kette:
     // direkt → Transcoder → VLC. Nicht für ein abgelöstes Video und nicht,
     // während ein Folgenwechsel lädt (die neue Folge kommt ja).
@@ -4207,6 +4213,8 @@ function tvFilmPlayer(id,titel,pos,meta){
   tvpOffen=true; tvpPos=pos||0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
   tvpIdAkt=id;
   tvpGesehenGemeldet='';                               // neuer Start: sein Ende darf wieder melden
+  // Mindest-Sehzeit: jede Wiedergabe zählt für sich, ab ihrer Startstelle.
+  tvpSeh={start:pos||0, w:0, letzte:null, stueck:null, stuecke:[]};
   // Die volle Meta aus filmePlay (Folgen stehen nie in tvInfoDaten/tvHeroDaten):
   // ohne sie fehlten bei Folgen typ/serie_id (Weiter/Zurück) und laufzeit_min —
   // im Transcode blieb die Zeitleiste dann tot (Dauer 0, Befund 23.09.).
@@ -4414,13 +4422,15 @@ function tvpZu(){
    merkt die Stelle in der Folgenliste) → melden (schreibt „gesehen" und Stelle 0
    DANACH, sonst überschriebe tvpZu sie wieder). „Gesehen" gilt nur beim eigenen
    Ende: Browser 'aus' bzw. VLC 'aus'/'ende' mit dem Schlüssel dieses Films;
-   sonst gehört der Status (Stelle!) der Musik. Rückgabe: was danach kommt. */
+   sonst gehört der Status (Stelle!) der Musik. Die Dauer geht in beiden Fällen
+   mit: ohne eigenes Ende braucht die Meldestelle sie für Jellyfins Grenze
+   (Mindest-Sehzeit). Rückgabe: was danach kommt. */
 function tvpFilmEnde(s,modusVor){
   const id=tvpIdAkt, lief=tvpLief;
   const eigen=modusVor==='browser'||(!!id&&s.key==='film:'+id);
   const echtesEnde=eigen&&(s.zustand==='aus'||s.zustand==='ende');
   const pos=Math.max(tvpPos||0,(lief&&eigen)?(s.pos||0):0);
-  const dauer=echtesEnde?tvpMeldeDauer(id):0;
+  const dauer=tvpMeldeDauer(id);                       // VOR tvpZu: danach ist der Player zu
   tvpZu();
   // libvlc hält den Endzustand samt Schlüssel, bis etwas Neues kommt: freigeben —
   // nur, wenn der VLC noch DIESEN Film hat (nur_key: sonst träfe es die Musik),
@@ -4431,7 +4441,7 @@ function tvpFilmEnde(s,modusVor){
     vlcBefehl('stop',{nur_key:'film:'+id}); vlcKeyLetzter='';}
   // Gemeldet wird, was lief — oder eine Folge, die nahe am Ende fortgesetzt
   // wurde und endete, bevor sie je 'spielt' meldete (dann zählt die Einstiegsstelle).
-  if(id&&(lief||(dauer>0&&pos>=dauer*0.9)))filmFortschrittMelden(id,pos,dauer);
+  if(id&&(lief||(echtesEnde&&dauer>0&&pos>=dauer*SEHZEIT.gesehenAb)))filmFortschrittMelden(id,pos,dauer,echtesEnde);
   else if(tvInfoOffen)tvInfoMalen();
   return nachFilmEnde();
 }
@@ -4471,6 +4481,9 @@ async function tvpTick(){
   // Ein kurzes 'ende' im Anlauf (VLC zwischen zwei Titeln) trägt die Stelle des
   // VORIGEN Mediums — sie gehört nicht zu dieser Folge.
   if(!(s.zustand==='ende'&&!tvpLief))tvpPos=s.pos||tvpPos;
+  // Mindest-Sehzeit im VLC: aus den Stellen dieses Takts, mit derselben
+  // Sprung-Regel (im Browser misst das <video> selbst, tvpVideoVerdrahten).
+  if(tvpModus!=='browser')tvpSehzeitZaehlen(s.pos,s.zustand==='spielt');
   tvpDauer=s.dauer||tvpDauer;
   tvpMedienZustand();                                  // Windows-Zeitleiste (Transcode: Offset + Meta-Dauer)
   // Lade-Spinner (JB-Go): sichtbar, bis der Film WIRKLICH spielt — deckt den
@@ -4617,12 +4630,13 @@ function tvpZielAusfuehren(z,eps){
     return;
   }
   // Die laufende Folge meldet ihre Stelle (wie filmStopp) — ein späteres
-  // „Weiter" führt genau dorthin zurück; im Abspann (ab 90 %) ist sie gesehen (JB).
+  // „Weiter" führt genau dorthin zurück; im Abspann (ab 90 %) ist sie gesehen (JB),
+  // wenn die Mindest-Sehzeit reicht — sonst die gemeldete Stelle (sehzeitUrteil).
   // Nur beim ERSTEN Druck: danach läuft die alte Folge bloß weiter, bis das Ziel lädt.
   const id=tvpIdAkt, pos=Math.round(tvpPos||0);
   if(id&&!tvpWechsel){
-    const gesehen=filmFortschrittMelden(id,pos,tvpMeldeDauer(id));
-    (eps||[]).forEach(e=>{if(e.id===id){e.position_s=gesehen?0:pos; if(gesehen)e.gesehen=true;}});
+    const m=filmFortschrittMelden(id,pos,tvpMeldeDauer(id));
+    (eps||[]).forEach(e=>{if(e.id===id){e.position_s=m.gesehen?0:m.stelle; if(m.gesehen)e.gesehen=true;}});
   }
   tvpWechselStarten(z.e.id,z.pos,z.modus);
 }
@@ -4685,30 +4699,80 @@ function tvpMedienZustand(){                           // Browser-Film: Zustand 
    EINE Meldestelle für Takt-Ende, Esc/←/✕ (filmStopp) und den Folgenwechsel
    per ⏭/⏮. Bis 24.09. sandte die Seite „gesehen" nie: Jellyfin und die lokalen
    Listen erfuhren kein Ende, die Kachel zeigte ⏸ statt ✓, „▶ Weiterschauen"
-   wählte die fertige Folge. „Gesehen" ab 90 % der Dauer — dieselbe Grenze wie
-   Jellyfin und tvpLandePos; JB: auch Esc oder ⏭ im Abspann zählen. Einmalig:
-   ist „gesehen" für eine Kennung hinausgegangen, meldet sie bis zu ihrem
-   nächsten Start nichts mehr (sonst schriebe eine späte Stelle darüber). */
-let tvpGesehenGemeldet='', filmGemeldet={};            // Kennung mit „gesehen" · id → {position_s, gesehen} dieser Seite
+   wählte die fertige Folge. JB: auch Esc oder ⏭ im Abspann zählen. Ob es
+   „gesehen" ist, entscheidet seit Runde 3 die Mindest-Sehzeit (sehzeitUrteil).
+   Einmalig: ist „gesehen" für eine Kennung hinausgegangen, meldet sie bis zu
+   ihrem nächsten Start nichts mehr (sonst schriebe eine späte Stelle darüber). */
+let tvpGesehenGemeldet='', filmGemeldet={}, tvpSeh={start:0, w:0, letzte:null, stueck:null, stuecke:[]};   // Kennung mit „gesehen" · id → {position_s, gesehen} dieser Seite · Sehzeit der offenen Wiedergabe
+/* ---- Mindest-Sehzeit (JB-Idee 24.09.2026, wörtlich: „eventuell auch gucken
+   wie lange ein film geguckt wurde, sozusagen einen mindest timer um
+   festzulegen - bedenken wenn ab einer bestimmten stelle weiter, bzw angefangen
+   wird") --------------------------------------------------------------------
+   „Gesehen" nur, wenn (a) die Stelle 90 % der Dauer erreicht (das natürliche
+   Ende liegt dahinter) UND (b) in DIESER Wiedergabe wirklich geschaute Zeit
+   W >= M, M = min(5 min, 50 % × max(0, 90 % der Dauer − Startstelle)).
+   W = Summe der Spiel-Intervalle in Medienzeit (Tempo egal); ein Schritt über
+   3 s gilt als Sprung, rückwärts und in Pause zählt nichts. Startstelle = die
+   Stelle, mit der tvFilmPlayer diese Wiedergabe öffnet (Start, Weiterschauen,
+   nächste Folge). Gemessen im Browser am <video> (timeupdate; der 1-s-Takt
+   ruht im verdeckten Tab), im VLC aus den Stellen des 1-s-Takts.
+   Verweigert die Regel „gesehen", darf die gemeldete Stelle Jellyfin nicht
+   selbst zum Haken bringen. Jellyfin 12.1 (Tag v12.1, UserDataManager.
+   UpdatePlayState, bei JEDER Progress-Meldung) setzt Played bei > 90 % der
+   Laufzeit (MaxResumePct), ab Laufzeit − 1 s und — bei Laufzeiten unter 5 min
+   (MinResumeDurationSeconds) — schon ab 5 %. Seine Laufzeit kennt die Seite nur
+   ungefähr (laufzeit_min ist auf Minuten gerundet): gerechnet wird mit Dauer −
+   30 s. Über dieser Grenze geht darum die letzte ECHT geschaute Stelle darunter
+   hinaus („vor dem Sprung"), höchstens die Grenze selbst. */
+const SEHZEIT={gesehenAb:0.9, mindestS:300, mindestAnteil:0.5, sprungS:3, jfMaxResume:0.9, jfKurzS:300, jfSpielraumS:30};
+function tvpSehzeitZaehlen(pos,spielt){                // eine Stelle der offenen Wiedergabe (Medienzeit)
+  const s=tvpSeh, vor=s.letzte;
+  if(!(pos>=0))return;
+  s.letzte=pos;
+  if(!spielt||vor===null)return;                       // Pause, erster Wert
+  const d=pos-vor;
+  if(!(d>0)||d>SEHZEIT.sprungS)return;                 // rückwärts oder Sprung
+  s.w+=d;
+  if(s.stueck&&s.stueck.bis===vor)s.stueck.bis=pos;    // läuft weiter
+  else{s.stueck={von:vor, bis:pos}; s.stuecke.push(s.stueck);}
+}
+/* Rückgabe {gesehen, stelle, zuKurz}: stelle = was an Jellyfin geht; zuKurz =
+   die Stelle reichte, die Sehzeit nicht. darfGesehen=false: kein eigenes Ende
+   (die Musik hat den VLC übernommen) — dann nur die Grenze für Jellyfin. */
+function sehzeitUrteil(pos,dauer,seh,darfGesehen){
+  const K=SEHZEIT;
+  if(!(dauer>0))return {gesehen:false, stelle:pos, zuKurz:false};   // ohne Dauer: nie „gesehen", keine Grenze bekannt
+  const amEnde=pos>=dauer*K.gesehenAb;
+  const mindest=Math.min(K.mindestS, K.mindestAnteil*Math.max(0, K.gesehenAb*dauer-seh.start));
+  if(darfGesehen&&amEnde&&seh.w>=mindest)return {gesehen:true, stelle:pos, zuKurz:false};
+  const laufzeit=dauer-K.jfSpielraumS;                 // die kleinste, die Jellyfin haben kann
+  const grenze=laufzeit<K.jfKurzS?0:Math.floor(K.jfMaxResume*laufzeit);
+  if(pos<=grenze)return {gesehen:false, stelle:pos, zuKurz:false};
+  let echt=seh.start;                                  // die letzte ECHT geschaute Stelle unter der Grenze
+  seh.stuecke.forEach(st=>{if(st.von<grenze)echt=st.bis;});
+  return {gesehen:false, stelle:Math.min(Math.round(echt),grenze), zuKurz:!!darfGesehen&&amEnde};
+}
 function tvpMeldeDauer(id){
   // Nur die OFFENE Folge hat eine gültige Dauer — ohne offenen Player (VLC,
   // Esc aus der Musik-Leiste) sind tvpDauer/tvpMeta vom vorigen Film übrig.
   if(!tvpOffen||!id||id!==tvpIdAkt)return 0;
   return tvpDauer||(((tvpMeta&&tvpMeta.laufzeit_min)||0)*60);
 }
-function filmFortschrittMelden(id,pos,dauer){           // Rückgabe: als gesehen gemeldet?
-  if(!id)return false;                                 // Live: nichts zu melden
-  if(tvpGesehenGemeldet===id)return true;
-  pos=Math.round(pos||0);
-  const gesehen=dauer>0&&pos>=dauer*0.9;
-  const koerper={id, position_s:pos}; if(gesehen)koerper.gesehen=true;
+/* Rückgabe {gesehen, stelle, zuKurz} (sehzeitUrteil). Die Sehzeit tvpSeh gehört
+   der offenen Wiedergabe — nur sie hat eine Dauer (tvpMeldeDauer), ohne Dauer
+   wird sie nicht gebraucht. darfGesehen: nur tvpFilmEnde reicht es durch. */
+function filmFortschrittMelden(id,pos,dauer,darfGesehen){
+  if(!id)return {gesehen:false, stelle:0, zuKurz:false};              // Live: nichts zu melden
+  if(tvpGesehenGemeldet===id)return {gesehen:true, stelle:0, zuKurz:false};
+  const u=sehzeitUrteil(Math.round(pos||0),dauer,tvpSeh,darfGesehen!==false);
+  const koerper={id, position_s:u.stelle}; if(u.gesehen)koerper.gesehen=true;
   try{
     fetch('/api/filme/fortschritt',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(koerper)}).catch(()=>{});
-    if(gesehen)tvpGesehenGemeldet=id;                   // erst, wenn der Ruf wirklich hinausging
+    if(u.gesehen)tvpGesehenGemeldet=id;                 // erst, wenn der Ruf wirklich hinausging
   }catch(e){}
-  filmLokalNachziehen(id,gesehen?0:pos,gesehen);       // wie Jellyfin: gesehen heißt Stelle 0
-  return gesehen;
+  filmLokalNachziehen(id,u.gesehen?0:u.stelle,u.gesehen);   // wie Jellyfin: gesehen heißt Stelle 0
+  return u;
 }
 function filmGemeldetAnwenden(e){                      // was diese Seite gemeldet hat, gilt auch für frisch Geladenes
   const m=e&&filmGemeldet[e.id];
@@ -4791,14 +4855,17 @@ async function filmStopp(){
   // Melden NACH tvpZu: das merkt die Stelle in der Folgenliste, die Meldestelle
   // schreibt „gesehen" samt Stelle 0 darüber und zeichnet die offene Info neu
   // (die Info zeigt bei Folgen die Serie — Nebenbefund 24.09.).
-  const gesehen=filmFortschrittMelden(id,pos,dauer);
+  const m=filmFortschrittMelden(id,pos,dauer);
   // Zurück ins TV-Vollbild, wenn der Fernsehmodus offen ist (die Esc-Taste
   // ist die nötige Nutzer-Geste).
   const tv=document.getElementById('tv');
   if(tv&&tv.style.display!=='none'&&!document.fullscreenElement){
     try{tv.requestFullscreen&&tv.requestFullscreen().catch(()=>{});}catch(e){}
   }
-  toast(gesehen?'🎬 Film beendet — als gesehen markiert.':'🎬 Film beendet — gemerkt bei '+zeit(pos)+'.');
+  // Die gemeldete Stelle, nicht die Sprung-Stelle (Mindest-Sehzeit).
+  toast(m.gesehen?'🎬 Film beendet — als gesehen markiert.'
+       :(m.zuKurz?'🎬 Film beendet — zu wenig geschaut für „gesehen“, gemerkt bei '
+                 :'🎬 Film beendet — gemerkt bei ')+zeit(m.stelle)+'.');
   // ← bringt IMMER zur Detailansicht zurück (JB) — auch wenn sie zu war.
   if(!tvInfoOffen&&id)tvInfo(infoId);
 }

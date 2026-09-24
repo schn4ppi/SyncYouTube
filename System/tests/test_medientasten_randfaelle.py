@@ -50,12 +50,13 @@ const eps=[
 # Die Meldestelle für Stelle und „gesehen" (folgenende.md, 24.09.2026): der
 # Folgenwechsel meldet über sie; ihr Verhalten prüft tests/test_film_ende.py.
 MELDESTELLE = ("tvpMeldeDauer", "filmFortschrittMelden", "filmGemeldetAnwenden", "filmReihenAnwenden",
-               "filmLokalNachziehen")
+               "filmLokalNachziehen", "sehzeitUrteil")   # Mindest-Sehzeit (Runde 3): test_mindest_sehzeit.py
 
 
 def _film_kern():
     q = _pc()
-    return [_js_zeile(q, "let tvpMedienGen"), _js_zeile(q, "let tvpGesehenGemeldet")] + [
+    return [_js_zeile(q, "let tvpMedienGen"), _js_zeile(q, "let tvpGesehenGemeldet"),
+            _js_zeile(q, "const SEHZEIT=")] + [
         _js_funktion(q, n) for n in (
             "tvpLandePos", "tvpZurueckZiel", "tvpWeiterZiel", "tvpBasis", "tvpFolgePosMerken",
             "tvpWechselStarten", "tvpZielAusfuehren", "tvpFolge", "tvpZurueck") + MELDESTELLE]
@@ -479,8 +480,9 @@ const zu=[], gemeldet=[], vlc=[]; let antwort=null, halte=null;
 function tvpBefehl(c){return new Promise(r=>{ if(halte){halte.push(()=>r(antwort));} else r(antwort); });}
 function tvpZu(){zu.push(tvpIdAkt);} function tvpIdleTick(){} function tvpMedienZustand(){}
 function ico(){return '';} function zeit(s){return String(s);} function tvInfoMalen(){}
-function filmFortschrittMelden(id,pos,dauer){gemeldet.push([id,Math.round(pos),dauer>0&&pos>=dauer*0.9]);}
+function filmFortschrittMelden(id,pos,dauer,darf){gemeldet.push([id,Math.round(pos),darf!==false&&dauer>0&&pos>=dauer*0.9]);}
 function vlcBefehl(c,d){vlc.push(c+(d&&d.nur_key?'@'+d.nur_key:''));} function nachFilmEnde(){return {art:'nichts'};}
+function tvpSehzeitZaehlen(){}                          // Mindest-Sehzeit: hier nicht gemessen (test_mindest_sehzeit.py)
 """
 
 
@@ -491,7 +493,8 @@ def test_takt_haelt_den_folgenwechsel_nicht_fuer_das_ende(tmp_path):
     Dazu: eine Antwort, die vor einem Wechsel abgeschickt wurde, überschrieb
     danach Schlüssel und Stelle der neuen Folge."""
     q = _pc()
-    (e,) = _lauf(tmp_path, TAKT_STUBS, *(_js_funktion(q, n) for n in ("tvpTick", "tvpFilmEnde", "tvpMeldeDauer")), r"""
+    (e,) = _lauf(tmp_path, TAKT_STUBS, _js_zeile(q, "const SEHZEIT="),
+                 *(_js_funktion(q, n) for n in ("tvpTick", "tvpFilmEnde", "tvpMeldeDauer")), r"""
 tvpWechsel={gen:2,id:'e4'}; antwort={zustand:'aus', key:'film:e4', pos:1, dauer:0};
 await tvpTick(); const a={zu:[...zu]};
 tvpWechsel=null; halte=[]; antwort={zustand:'spielt', key:'film:e3', pos:1500, dauer:2400};
@@ -582,7 +585,7 @@ globalThis.fetch=(u,o)=>{merk.push(JSON.parse(o.body)); return Promise.resolve({
 function tvpBefehl(){} function vlcBefehl(c){vlc.push(c);} function tvpZu(){zu.push(1); tvpOffen=false;}
 function toast(){} function zeit(s){return String(s);} function vlcPosGeschaetzt(){return 0;} function tvInfo(){}
 function tvInfoMalen(){}
-""", _js_zeile(q, "let tvpGesehenGemeldet"), *(_js_funktion(q, n) for n in (
+""", _js_zeile(q, "let tvpGesehenGemeldet"), _js_zeile(q, "const SEHZEIT="), *(_js_funktion(q, n) for n in (
         ("filmLaeuft", "filmStopp", "tvpFolgePosMerken") + MELDESTELLE)), r"""
 const laeuft=filmLaeuft(); await filmStopp();
 const film={merk:[...merk], zu:zu.length, laeuft};

@@ -52,9 +52,10 @@ ZEILEN = ("let tvpTimer=", "let tvpMeta=", "let tvpModus=", "let tvpTc=", "let t
           "let vlcPosLetzte=", "let plGeraet=")
 # In dieser Runde neu: fehlen sie (Rot-Lauf am alten Stand), bleiben sie weg —
 # dann läuft der alte Ende-Weg, und die Tests scheitern am VERHALTEN.
-NEU_ZEILEN = ("let tvpGesehenGemeldet",)
+NEU_ZEILEN = ("let tvpGesehenGemeldet", "const SEHZEIT=")
 NEU = ("tvpFilmEnde", "tvpMeldeDauer", "filmFortschrittMelden", "filmGemeldetAnwenden",
-       "filmLokalNachziehen", "nachFilmEnde", "sleepHaeltAn", "filmReihenAnwenden")
+       "filmLokalNachziehen", "nachFilmEnde", "sleepHaeltAn", "filmReihenAnwenden",
+       "sehzeitUrteil", "tvpSehzeitZaehlen")     # Mindest-Sehzeit (Runde 3): tests/test_mindest_sehzeit.py
 NAMEN = ("tvpTick", "tvpZu", "tvpFolgePosMerken", "medienNachFilm", "tvpLandePos", "tvSerienPlay",
          "filmLaeuft", "filmStopp", "tvpZielAusfuehren", "tvpWechselStarten", "tvpZurueckZiel",
          "tvpWeiterZiel", "tvpBasis", "tvpFolgenHolen", "tvpFolge", "tvpZurueck", "sleepSetzen",
@@ -104,6 +105,11 @@ function lage(o){
   tvpTicks=o.ticks??5; tvpPos=o.pos??0; tvpDauer=o.dauer??0; tvpTimer=1; tvpWechsel=o.wechsel??null;
   tvpMeta=o.meta??{typ:'folge', serie_id:'s9', laufzeit_min:40};
   if(typeof tvpGesehenGemeldet!=='undefined'){tvpGesehenGemeldet=''; filmGemeldet={};}
+  // Mindest-Sehzeit (Runde 3): die Lage beschreibt eine Wiedergabe, die von 0 bis
+  // zur Stelle durchgeschaut wurde — so, wie diese Tests sie meinen. Sprünge und
+  // Wiedereinstiege prüft tests/test_mindest_sehzeit.py am echten Messweg.
+  if(typeof tvpSeh!=='undefined'){const st={von:0, bis:tvpPos};
+    tvpSeh=o.seh??{start:0, w:tvpPos, letzte:tvpPos, stueck:st, stuecke:tvpPos>0?[st]:[]};}
   tvInfoOffen=o.info??true; tvInfoDaten=('daten' in o)?o.daten:{d:{id:'s9',typ:'serie'}, eps:folgen()};
   tvpFolgenCache={sid:'s9', eps:folgen()};
   tvFilmReihen=o.reihen??null; tvHeroDaten=o.hero??null;
@@ -114,6 +120,8 @@ function lage(o){
 const koerper=()=>netz.filter(n=>n[0]==='/api/filme/fortschritt').map(n=>n[1]);
 const folge=(l,id)=>{const e=(l||[]).find(x=>x.id===id); return e?[e.position_s, e.gesehen]:null;};
 async function takte(n){for(let i=0;i<n;i++)await tvpTick();}
+async function schauen(key,von,bis){for(let p=von;p<=bis;p++){antwort={zustand:'spielt', key, pos:p, dauer:2400};
+  await tvpTick();}}                                    // 1-s-Takt über eine durchgeschaute Strecke
 async function ruhe(){for(let i=0;i<50;i++)await null;}   // Mikro-Aufgaben abarbeiten (fetch-Attrappen)
 """
 
@@ -250,7 +258,10 @@ def test_kein_melden_ohne_eigenes_ende(tmp_path):
     (d) die Musik hat den EINEN VLC übernommen — der Status gehört ihr: die
         Film-Stelle zählt, die der Musik nicht (auch nicht, wenn sie größer ist),
         kein „gesehen" (auch nicht bei 95 %: das war kein Ende), und kein Stopp
-        (der träfe die Musik)."""
+        (der träfe die Musik).
+    Mindest-Sehzeit (Runde 3): ein verweigertes „gesehen" darf Jellyfin nicht
+    über die Stelle selbst zum Haken bringen (12.1: > 90 % der Laufzeit). Bei 95 %
+    geht darum die Grenze 0,9 × (2400 − 30) = 2133 s hinaus, nicht mehr 2300 s."""
     (e,) = _lauf(tmp_path, *_teile(), r"""
 const r={};
 lage({pos:2395, dauer:2400, wechsel:{gen:2, id:'e4'}});
@@ -276,7 +287,7 @@ aus(r);
     assert e["nieAn"] == {"offen": False, "koerper": []}, e["nieAn"]
     assert e["live"] == {"liveEnde": True, "offen": False, "koerper": [], "vlc": []}, e["live"]
     assert e["musik"] == {"offen": False, "koerper": [{"id": "e3", "position_s": 100}], "vlc": []}, e["musik"]
-    assert e["musikSpaet"] == {"offen": False, "koerper": [{"id": "e3", "position_s": 2300}], "vlc": []}, \
+    assert e["musikSpaet"] == {"offen": False, "koerper": [{"id": "e3", "position_s": 2133}], "vlc": []}, \
         e["musikSpaet"]
 
 
@@ -327,7 +338,9 @@ def test_kurzes_ende_beim_folgenwechsel_schliesst_nicht(tmp_path):
     """medien_smtc.py (gemessen): zwischen zwei Titeln meldet VLC kurz 'ende'.
     Weder während der Wechsel lädt (alte Folge am Ende, Server evtl. schon mit
     neuem Schlüssel) noch direkt nach der Ankunft der neuen Folge (Anlauf-Gnade)
-    darf das schließen oder etwas melden — erst das echte Ende danach."""
+    darf das schließen oder etwas melden — erst das echte Ende danach. Die neue
+    Folge wird dafür im 1-s-Takt durchgeschaut (Mindest-Sehzeit, Runde 3: ein
+    Sprung von 1 s auf 2398 s wäre kein „gesehen")."""
     (e,) = _lauf(tmp_path, *_teile(), r"""
 const r={};
 lage({modus:'vlc', pos:2395, dauer:2400, wechsel:{gen:2, id:'e4'}});
@@ -338,7 +351,7 @@ lage({id:'e4', modus:'vlc', lief:false, ticks:0, pos:0});   // angekommen: Anlau
 antwort={zustand:'ende', key:'film:e4', pos:2399, dauer:2400}; await tvpTick();
 const kurz={offen:tvpOffen, koerper:koerper()};
 antwort={zustand:'spielt', key:'film:e4', pos:1, dauer:2400}; await takte(2);
-antwort={zustand:'spielt', key:'film:e4', pos:2398, dauer:2400}; await tvpTick();
+await schauen('film:e4',2,2398);
 antwort={zustand:'ende', key:'film:e4', pos:0, dauer:0}; await tvpTick();
 r.neu={kurz, offen:tvpOffen, koerper:koerper()};
 lage({id:'e4', modus:'vlc', lief:false, ticks:0, pos:0});   // das kurze 'ende' bleibt stehen (VLC hängt)
