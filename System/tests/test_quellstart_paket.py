@@ -269,6 +269,24 @@ def test_pywinrt_lizenztext_liegt_versioniert_bei():
     assert ignoriert.returncode == 1, f"{rel} wird von .gitignore verschluckt"
 
 
+def test_jede_programm_datei_wird_versioniert():
+    # Whitelist-.gitignore: eine neue Programm-Datei direkt unter System\ ist ohne
+    # eigene !-Zeile für git unsichtbar. Sie fehlte dann im Repo, auf GitHub und im
+    # Quellstart-Paket (es kopiert nur `git ls-files`), und youtube_app bräche dort
+    # schon beim Import ab. Befund 24.09.2026: windows_kennung.py war zuerst verschluckt.
+    # Auto-Discovery: jede .py/.js direkt in System\ (dort liegt nur Programm-Code).
+    dateien = sorted(f"System/{d}" for d in os.listdir(MODUL_DIR)
+                     if d.endswith((".py", ".js")) and os.path.isfile(os.path.join(MODUL_DIR, d)))
+    assert "System/youtube_app.py" in dateien, "Auto-Discovery blind"
+    # Bytes, nicht text=True: Windows machte aus jedem \n ein \r\n, und git hielte
+    # das \r für einen Teil des Dateinamens.
+    lauf = subprocess.run(["git", "check-ignore", "--stdin"], cwd=WURZEL_ECHT,
+                          input="\n".join(dateien).encode("utf-8"), capture_output=True)
+    verschluckt = lauf.stdout.decode("utf-8", "replace").split()
+    assert lauf.returncode == 1 and not verschluckt, \
+        f"von .gitignore verschluckt: {verschluckt} {lauf.stderr.decode('utf-8', 'replace').strip()}"
+
+
 def test_frischer_bauordner_legt_alten_beiseite(qp, tmp_path):
     # pip --target in ein altes lib/ ließ doppelte dist-info liegen (08.09.: zwei
     # yt-dlp-Fassungen im ZIP). Frisch bauen — den alten Ordner UMBENENNEN, nie löschen.

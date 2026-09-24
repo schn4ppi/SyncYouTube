@@ -25,6 +25,8 @@ import threading
 import time
 import urllib.request
 
+import windows_kennung
+
 PORT = 8776
 ADRESSE = f"http://127.0.0.1:{PORT}"
 
@@ -273,6 +275,11 @@ class Bruecke:
 
 
 def main():
+    # Vor jedem Fenster (auch der Fehlermeldung unten): dieselbe Kennung wie der
+    # Server, damit Windows das Hüllen-Fenster als „SyncYouTube" führt (Taskleiste).
+    # Die Medien-Sitzung des WebView2 läuft in dessen eigenem Prozess und erbt
+    # sie nicht (JB 24.09.2026: „Kennung + Startmenü-Eintrag").
+    windows_kennung.setze_kennung()
     import webview
     if not server_starten():
         # Ehrlich scheitern statt leeres Fenster: der Nutzer sieht den Grund.

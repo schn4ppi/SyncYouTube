@@ -326,22 +326,36 @@ class HuellenFenster:
 def webview_attrappe(monkeypatch):
     """webview-Modul-Attrappe: start() spielt das Fensterleben, das der Test
     in `zustand.leben(fenster)` ablegt, und kehrt dann zurück wie pywebview,
-    wenn das Fenster zu ist. frueh() (1,5 s Schlaf) läuft hier nicht."""
+    wenn das Fenster zu ist. frueh() (1,5 s Schlaf) läuft hier nicht.
+    `zustand.reihe` hält die Reihenfolge fest; die Windows-Kennung wird dabei
+    nur verzeichnet, nie am Testprozess gesetzt."""
     modul = types.ModuleType("webview")
-    zustand = types.SimpleNamespace(fenster=None, leben=lambda f: None, start_kw=None)
+    zustand = types.SimpleNamespace(fenster=None, leben=lambda f: None, start_kw=None, reihe=[])
 
     def create_window(titel, url, js_api=None, **kw):
+        zustand.reihe.append("fenster")
         zustand.fenster = HuellenFenster(js_api)
         return zustand.fenster
 
     def start(func=None, **kw):
+        zustand.reihe.append("start")
         zustand.start_kw = kw
         zustand.leben(zustand.fenster)
 
     modul.create_window, modul.start = create_window, start
     monkeypatch.setitem(sys.modules, "webview", modul)
-    monkeypatch.setattr(huelle, "server_starten", lambda: True)
+    monkeypatch.setattr(huelle, "server_starten", lambda: zustand.reihe.append("server") or True)
+    monkeypatch.setattr(huelle.windows_kennung, "setze_kennung",
+                        lambda **kw: zustand.reihe.append("kennung") or True)
     return zustand
+
+
+def test_kennung_vor_jedem_fenster(dotnet, netz, webview_attrappe):
+    """JB 24.09.2026 „Kennung + Startmenü-Eintrag": die Hülle meldet sich als
+    JBK.SyncYouTube, BEVOR ein Fenster entsteht — auch vor server_starten(),
+    dessen Fehlermeldung schon ein Fenster ist (Microsoft: vor jeder Oberfläche)."""
+    assert huelle.main() == 0
+    assert webview_attrappe.reihe == ["kennung", "server", "fenster", "start"]
 
 
 def test_panel_verschwindet_vor_jedem_seitenaufbau(dotnet, netz, webview_attrappe):

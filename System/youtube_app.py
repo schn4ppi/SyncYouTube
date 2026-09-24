@@ -38,6 +38,7 @@ from urllib.parse import urlparse, parse_qs
 import geo
 import medien_smtc          # Windows-Medienanmeldung des VLC-Motors (pywinrt erst bei Bedarf)
 import update
+import windows_kennung      # App-Kennung JBK.SyncYouTube + Startmenü-Eintrag (JB 24.09.2026)
 
 __version__ = "1.2.6"
 
@@ -6971,7 +6972,18 @@ def _tray_icon(url):
     return icon
 
 
+def _kennung_log(text):
+    """Konsole + dauerhafter Fehlerkanal (yt_fehler.jsonl) — unter pythonw gibt
+    es keine Konsole. windows_kennung meldet nur Probleme."""
+    _sag(text)
+    fehler_merken("", text, "kennung")
+
+
 def main():
+    # Windows-Kennung ZUERST, vor jedem Fenster (Microsoft: „before the application
+    # presents any UI"). Ohne sie ordnet Windows den pythonw-Prozess der Verknüpfung
+    # „IDLE (Python 3.14)" zu (Befund 23.09.). JB 24.09.2026: „Kennung + Startmenü-Eintrag".
+    windows_kennung.setze_kennung(log=_kennung_log)
     sys.path.insert(0, SCRIPT_DIR)
     globals()["_START_SIGNATUR"] = _quell_signatur()  # Build 144m: Code-Stand beim Start merken
     n = wiedergabe_sub_altlast_raeumen()              # einmalig (JB 05.08., s. Docstring)
@@ -7018,6 +7030,11 @@ def main():
     for schluessel, alt, neu in vorgaben_umstellung_festschreiben():
         _sag(f"Neue Vorgabe übernommen: {schluessel} {alt} → {neu} "
              f"(alter Stand liegt als config_vor_stand{VORGABEN_STAND}.json daneben)")
+    if not TESTMODUS:
+        # Startmenü-Eintrag „SyncYouTube" mit derselben Kennung: darüber findet Windows
+        # Namen und Symbol. Im Hintergrund, idempotent; eine fremde Verknüpfung
+        # gleichen Namens bleibt unberührt. Eine Probe legt nie etwas an.
+        windows_kennung.startmenue_eintrag(faden=True, log=_kennung_log)
     try:
         # Windows-Medienanmeldung des VLC-Motors: hier nur die Brücke — Fenster
         # und Anmeldung entstehen erst beim ersten Abspielen im VLC (lazy).
