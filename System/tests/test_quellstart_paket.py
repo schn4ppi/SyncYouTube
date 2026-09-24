@@ -22,6 +22,7 @@ import importlib.metadata as md
 import importlib.util
 import os
 import re
+import subprocess
 import sys
 
 import pytest
@@ -155,3 +156,193 @@ def test_pins_wie_requirements_und_exe(qp):
         if fassung != soll:
             abweichend.append(f"{name}: Paket {fassung}, Soll {soll}")
     assert not abweichend, abweichend
+
+
+# ------------------------------------------ Befund 2/3: Inhalt und Bauordner
+
+# Ein Wegwerf-Repo mit derselben Form wie SyncYouTube: versionierte Laufzeit-Dateien,
+# Werkstatt-Dateien, gitignored bin/ und ein Nutzerdatum, das NIE mitdarf.
+_VERSIONIERT = {
+    "LICENSE": "GPL-3.0 Text\n",
+    "LIZENZEN.md": "# Lizenzen\n",
+    "README.md": "# SyncYouTube\n",
+    "_LIESMICH.txt": "Kurzanleitung\n",
+    "System/youtube_app.py": "print('app')\n",
+    "System/layout_kern.js": "// kern\n",
+    "System/lizenzen/pywinrt_LICENSE.txt": "MIT License\n",
+    "System/build_release.py": "# bau\n",
+    "System/SyncYouTube.spec": "# spec\n",
+    "System/MODULE.md": "# karte\n",
+    "System/tools/quellstart_paket.py": "# werkstatt\n",
+    "System/tools/medien_probe.py": "# drueckt Medientasten\n",
+    "System/browser-addon/build.py": "# addon-bau\n",
+    "System/browser-addon/shared/popup.js": "// addon\n",
+    "System/docs/NAECHSTER_PROMPT.md": "# uebergabe\n",
+    "System/tests/test_beispiel.py": "# test\n",
+}
+_LAUFZEIT = {"System/youtube_app.py", "System/layout_kern.js",
+             "System/lizenzen/pywinrt_LICENSE.txt"}
+_BIN = {"ffmpeg.exe": b"MZ-ffmpeg", "ffprobe.exe": b"MZ-ffprobe", "deno.exe": b"MZ-deno"}
+
+
+def _schreiben(pfad, inhalt):
+    os.makedirs(os.path.dirname(pfad), exist_ok=True)
+    with open(pfad, "wb") as f:
+        f.write(inhalt if isinstance(inhalt, bytes) else inhalt.encode("utf-8"))
+
+
+def _lesen(pfad):
+    with open(pfad, "rb") as f:
+        return f.read()
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch, qp):
+    wurzel = tmp_path / "repo"
+    for rel, inhalt in _VERSIONIERT.items():
+        _schreiben(str(wurzel / rel), inhalt)
+    for name, inhalt in _BIN.items():                     # wie echt: gitignored
+        _schreiben(str(wurzel / "System" / "bin" / name), inhalt)
+    _schreiben(str(wurzel / "System" / "config.json"), '{"geheim": 1}')   # Nutzerdatum
+    subprocess.run(["git", "init", "-q"], cwd=wurzel, check=True)
+    subprocess.run(["git", "add", "--", *_VERSIONIERT], cwd=wurzel, check=True)
+    system = str(wurzel / "System")
+    monkeypatch.setattr(qp, "WURZEL", str(wurzel))
+    monkeypatch.setattr(qp, "SYSTEM", system)
+    monkeypatch.setattr(qp, "BAU", os.path.join(system, "build_tmp", "quellstart"))
+    monkeypatch.setattr(qp, "DIST", os.path.join(system, "dist_exe"), raising=False)
+    return wurzel
+
+
+def _alle_dateien(basis):
+    gefunden = set()
+    for ordner, _, dateien in os.walk(basis):
+        for d in dateien:
+            gefunden.add(os.path.relpath(os.path.join(ordner, d), basis).replace("\\", "/"))
+    return gefunden
+
+
+def test_kopie_nur_laufzeit_ohne_werkstatt(qp, repo, tmp_path):
+    # Werkstatt ≠ Produkt: tools/ (medien_probe DRÜCKT Medientasten), build_release.py,
+    # browser-addon/ (ohne .xpi zur Laufzeit nutzlos), docs/, tests/, .spec, .md
+    # bleiben draußen. Nutzerdaten ohnehin (nur git ls-files).
+    paket = tmp_path / "paket"
+    qp._quellen_kopieren(str(paket / "System"))
+    assert _alle_dateien(str(paket)) == _LAUFZEIT
+
+
+def test_bin_wird_ausdruecklich_mitgeliefert(qp, repo, tmp_path):
+    # System/bin ist gitignored, git ls-files sieht es nie (08.09.: kein ffmpeg/deno
+    # im ZIP). Leitplanke P11: kein Selbst-Download — also ausdrücklich mitkopieren.
+    ziel_sys = tmp_path / "paket" / "System"
+    qp._bin_kopieren(str(ziel_sys))
+    for name, inhalt in _BIN.items():
+        assert _lesen(str(ziel_sys / "bin" / name)) == inhalt, name
+    os.rename(str(repo / "System" / "bin" / "deno.exe"), str(repo / "System" / "bin" / "deno.alt"))
+    with pytest.raises(qp.BauFehler, match="deno.exe"):
+        qp._bin_kopieren(str(tmp_path / "paket2" / "System"))
+
+
+def test_lizenz_und_readme_aus_der_wurzel(qp, repo, tmp_path):
+    # GPLv3 §4: der eigene Lizenztext gehört in jede Weitergabe (08.09.: fehlte).
+    paket = tmp_path / "paket"
+    qp._wurzel_dateien_kopieren(str(paket))
+    assert _alle_dateien(str(paket)) == {"LICENSE", "LIZENZEN.md", "README.md"}
+    for name in ("LICENSE", "LIZENZEN.md", "README.md"):
+        assert _lesen(str(paket / name)) == _lesen(str(repo / name))
+    os.rename(str(repo / "LICENSE"), str(repo / "LICENSE.alt"))
+    with pytest.raises(qp.BauFehler, match="LICENSE"):
+        qp._wurzel_dateien_kopieren(str(tmp_path / "paket2"))
+
+
+def test_pywinrt_lizenztext_liegt_versioniert_bei():
+    # pywinrts dist-info bringt KEINE Lizenzdatei mit (venv geprüft) — der MIT-Text
+    # (github.com/pywinrt/pywinrt, Marke v3.2.1) liegt darum selbst bei, und die
+    # Whitelist-.gitignore darf ihn nicht verschlucken.
+    rel = "System/lizenzen/pywinrt_LICENSE.txt"
+    text = open(os.path.join(WURZEL_ECHT, rel), encoding="utf-8").read()
+    for pflicht in ("MIT License", "Copyright (c) Microsoft Corporation",
+                    "Copyright (c) 2021-2025 David Lechner",
+                    "The above copyright notice and this permission notice"):
+        assert pflicht in text, pflicht
+    ignoriert = subprocess.run(["git", "check-ignore", "-q", rel], cwd=WURZEL_ECHT)
+    assert ignoriert.returncode == 1, f"{rel} wird von .gitignore verschluckt"
+
+
+def test_frischer_bauordner_legt_alten_beiseite(qp, tmp_path):
+    # pip --target in ein altes lib/ ließ doppelte dist-info liegen (08.09.: zwei
+    # yt-dlp-Fassungen im ZIP). Frisch bauen — den alten Ordner UMBENENNEN, nie löschen.
+    paket = tmp_path / "paket"
+    _schreiben(str(paket / "lib" / "yt_dlp-2026.7.4.dist-info" / "METADATA"), "alt")
+    qp._frischer_bauordner(str(paket))
+    assert paket.is_dir() and not os.listdir(str(paket))
+    beiseite = [p for p in tmp_path.iterdir() if p.name.startswith("paket_alt_")]
+    assert len(beiseite) == 1, list(tmp_path.iterdir())
+    assert _lesen(str(beiseite[0] / "lib" / "yt_dlp-2026.7.4.dist-info" / "METADATA")) == b"alt"
+
+
+def _netz_attrappen(qp, monkeypatch):
+    """Ersetzt nur die Netz-Schritte (python.org, PyPI) und den Rauchtest."""
+    def python_holen(ziel):
+        _schreiben(os.path.join(ziel, "python.exe"), b"MZ-python")
+        _schreiben(os.path.join(ziel, "python314._pth"), "python314.zip\n.\nimport site\n")
+
+    def pakete_holen(lib):
+        _schreiben(os.path.join(lib, "yt_dlp", "__init__.py"), "")
+        _schreiben(os.path.join(lib, "yt_dlp-2026.8.19.dist-info", "METADATA"), "x")
+        # pip-Starter tragen den Pfad des BAU-Pythons (JBs Benutzerordner) in sich
+        _schreiben(os.path.join(lib, "bin", "yt-dlp.exe"), b"#!C:\\Users\\bau\\python.exe")
+    monkeypatch.setattr(qp, "_python_holen", python_holen)
+    monkeypatch.setattr(qp, "_pakete_holen", pakete_holen)
+    monkeypatch.setattr(qp, "_rauchtest", lambda paket: [], raising=False)
+
+
+def _zip_namen(pfad):
+    import zipfile
+    with zipfile.ZipFile(pfad) as z:
+        return set(z.namelist())
+
+
+def test_ausgabe_ort_laesst_veroeffentlichte_zip_unberuehrt(qp, repo, monkeypatch, tmp_path):
+    _netz_attrappen(qp, monkeypatch)
+    veroeffentlicht = os.path.join(qp.DIST, "SyncYouTube-Quellstart.zip")
+    _schreiben(veroeffentlicht, b"VEROEFFENTLICHT")
+    _schreiben(veroeffentlicht + ".sha256", b"abc  SyncYouTube-Quellstart.zip\n")
+    aus = tmp_path / "probebau"
+    qp.main(["--ausgabe", str(aus)])
+    assert _lesen(veroeffentlicht) == b"VEROEFFENTLICHT", "dist_exe wurde angefasst"
+    assert _lesen(veroeffentlicht + ".sha256") == b"abc  SyncYouTube-Quellstart.zip\n"
+    ziel = aus / "SyncYouTube-Quellstart.zip"
+    namen = _zip_namen(str(ziel))
+    pflicht = {"SyncYouTube-Quellstart.bat", "LICENSE", "LIZENZEN.md", "README.md",
+               "python/python.exe", "lib/yt_dlp/__init__.py", "System/youtube_app.py",
+               "System/layout_kern.js", "System/lizenzen/pywinrt_LICENSE.txt",
+               "System/bin/ffmpeg.exe", "System/bin/ffprobe.exe", "System/bin/deno.exe"}
+    assert pflicht <= namen, sorted(pflicht - namen)
+    verboten = [n for n in namen if n.startswith(("System/tools/", "System/tests/",
+                                                  "System/docs/", "System/browser-addon/",
+                                                  "lib/bin/"))
+                or n in ("System/build_release.py", "System/config.json", "_LIESMICH.txt")]
+    assert not verboten, verboten
+    # Prüfsumme liegt daneben (Release-Asset „.sha256")
+    import hashlib
+    soll = hashlib.sha256(_lesen(str(ziel))).hexdigest() + "  SyncYouTube-Quellstart.zip\n"
+    assert _lesen(str(ziel) + ".sha256").decode("ascii") == soll
+
+
+def test_altes_ergebnis_wird_beiseitegelegt_nicht_geloescht(qp, repo, monkeypatch):
+    # Bricht ein Bau ab, darf am Ziel keine veraltete ZIP stehen, die jemand für
+    # frisch hält (Fund 07.08.) — aber sie wird beiseitegelegt, nicht gelöscht.
+    _netz_attrappen(qp, monkeypatch)
+    alt = os.path.join(qp.DIST, "SyncYouTube-Quellstart.zip")
+    _schreiben(alt, b"ALTE-ZIP")
+    _schreiben(alt + ".sha256", b"alte-summe")
+    qp.main([])
+    assert _lesen(alt) != b"ALTE-ZIP" and "System/youtube_app.py" in _zip_namen(alt)
+    gerettet = {}
+    for ordner, _, dateien in os.walk(qp.BAU):
+        for d in dateien:
+            if d.startswith("SyncYouTube-Quellstart.zip"):
+                gerettet[d] = _lesen(os.path.join(ordner, d))
+    assert gerettet == {"SyncYouTube-Quellstart.zip": b"ALTE-ZIP",
+                        "SyncYouTube-Quellstart.zip.sha256": b"alte-summe"}, gerettet

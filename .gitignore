@@ -44,6 +44,9 @@
 !System/vpn.py
 !System/tests/*.py
 !System/tools/quellstart_paket.py
+# 24.09.2026: Lizenztexte fremder Bestandteile, deren Paket keinen mitbringt
+# (pywinrt: dist-info ohne LICENSE) — gehen mit ins Quellstart-Paket.
+!System/lizenzen/*.txt
 !System/browser-addon/build.py
 !System/browser-addon/amo_sign.py
 !System/browser-addon/manifest.base.json
