@@ -261,7 +261,7 @@ def test_keydown_rueckfall_und_hotkeys_folgen_der_weiche(tmp_path):
     Windows gibt, die die Taste ohnehin bekommt. J/L/Ziffern/Pos1/K/N/P (keine
     Medientasten) gehören bei offenem Film dem Film."""
     q = _pc()
-    teile = [_js_zeile(q, "let _medienLetzte")] + [_js_funktion(q, n) for n in (
+    teile = [_js_zeile(q, "let _medienLetzte"), _js_zeile(q, "let tvpAbgeloest")] + [_js_funktion(q, n) for n in (
         "filmTasten", "medienEinmal", "medienWeiter", "medienZurueck", "medienTasteHatSitzung")] + [_keydown(q)]
     (e,) = _lauf(tmp_path, *teile, r"""
 var tvpOffen=false, tvpModus='browser', tvpDauer=3000, libPlaylistView=false, libAuswahl=new Set(), _hkFang=null;

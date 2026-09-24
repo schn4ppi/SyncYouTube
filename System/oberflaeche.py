@@ -4084,12 +4084,14 @@ function tvpDirektSrc(start){
    echte Film-Position dazu, Seek startet den Strom an neuer Stelle. */
 async function tvpBefehl(cmd,daten){
   if(tvpModus!=='browser')return vlcBefehl(cmd,daten);
-  const v=document.getElementById('tvp-video');
+  let v=document.getElementById('tvp-video');
   if(!v)return {zustand:'aus', key:'', verfuegbar:true};
   if(cmd==='toggle'){if(v.paused)v.play().catch(()=>{}); else v.pause();}
   else if(cmd==='seek'){
     const ziel=(daten&&daten.wert)||0;
-    if(tvpTc){tvpTcOffset=ziel; v.src=tvpDirektSrc(ziel); v.play().catch(()=>{});}
+    // Transcoder: neuer Strom ab ziel in einem NEUEN Element (tvpVideoTauschen);
+    // die Antwort unten gehört dann schon zum neuen.
+    if(tvpTc){tvpTcOffset=ziel; v=tvpVideoTauschen(tvpDirektSrc(ziel))||v;}
     else{try{v.currentTime=ziel;}catch(e){}}
   }
   else if(cmd==='vol')v.volume=Math.max(0,Math.min(1,((daten&&daten.wert)||0)/100));
@@ -4110,7 +4112,9 @@ async function tvpBefehl(cmd,daten){
    nächsten Pause die „aktuelle Sitzung" an eine andere pausierte App ab
    (Firefox, Spotify), und der nächste ⏯ startete DORT statt den Film.
    Geleert bei „playing" der neuen Folge blieb Edge in allen Läufen aktuell.
-   Bis dahin schweigt das alte (pause); tvpZu räumt Liegengebliebenes. */
+   Bis dahin schweigt das alte (pause); tvpZu räumt Liegengebliebenes.
+   Transcoder-Sprung und Selbstheilung gehen denselben Weg (tvpVideoTauschen):
+   eine neue Quelle im SELBEN Element verwürfe dessen Abspieler sofort. */
 let tvpAbgeloest=[];
 function tvpAbgeloestFreigeben(){
   const l=tvpAbgeloest; tvpAbgeloest=[];
@@ -4121,26 +4125,55 @@ function tvpAbgeloestFreigeben(){
    pos = die Stelle, mit der dieses Video startet. */
 function tvpVideoVerdrahten(v,id,pos){
   if(pos>0&&!tvpTc)v.addEventListener('loadedmetadata',()=>{try{v.currentTime=pos;}catch(e){}},{once:true});
+  // Hat wirklich gespielt (erst dann meldet Chromium die Sitzung bei Windows an):
+  // nur so ein Video muss tvpVideoTauschen bis zum Nachfolger halten.
+  v.addEventListener('playing',()=>{v._tvpSpielte=true;});
   v.addEventListener('error',()=>{                     // Selbstheilungs-Kette:
     // direkt → Transcoder → VLC. Nicht für ein abgelöstes Video und nicht,
     // während ein Folgenwechsel lädt (die neue Folge kommt ja).
-    if(!tvpOffen||tvpWechsel||tvpIdAkt!==id||!v.isConnected)return;
+    if(!tvpOffen||tvpWechsel||tvpIdAkt!==id||!v.isConnected||v!==document.getElementById('tvp-video'))return;
     if(!tvpTc){
       toast('🎬 Format sperrt sich — der Transcoder übernimmt.');
       tvpTc=true; tvpTcVcopy=false; tvpTcOffset=tvpPos||pos||0;
-      v.src=tvpDirektSrc(tvpTcOffset); v.play().catch(()=>{});
+      tvpVideoTauschen(tvpDirektSrc(tvpTcOffset));   // neues Element: ohne den loadedmetadata-Sprung oben
       return;
     }
     toast('🎬 Browser kann dieses Format nicht — VLC übernimmt.');
-    const mm=tvpMeta, modus=tvpZurueckModus;
+    // Die AKTUELLE Stelle, vor tvpZu gelesen: nach einem Sprung oder mitten im
+    // Film nicht der Einstieg dieses Videos (ein getauschtes startet mit pos=0).
+    const mm=tvpMeta, modus=tvpZurueckModus, posJetzt=tvpPos||pos||0;
     tvpZu();                                           // räumt den Modus …
     tvpModusNaechster={id, modus};                     // … darum danach: JBs Zurück-Regel überlebt den Rückfall
-    filmePlayVlc(id,pos,mm);
+    filmePlayVlc(id,posJetzt,mm);
   });
   v.addEventListener('click',ev=>{ev.stopPropagation(); tvpWach();
     tvpBefehl('toggle'); setTimeout(tvpTick,200);});   // Netflix: Klick = Pause
   // Windows-Overlay sofort nachziehen, nicht erst mit dem 1-s-Takt
   v.addEventListener('play',tvpMedienZustand); v.addEventListener('pause',tvpMedienZustand);
+}
+/* Neue Quelle = neues <video> an derselben Stelle im #tv-player (Ebenen und
+   Vollbild bleiben). Lautstärke, Stumm und Tempo gehen mit — das Tempo auch als
+   defaultPlaybackRate, weil das Laden der neuen Quelle playbackRate darauf
+   zurücksetzt. Das alte verstummt; hat es gespielt, hält es Windows' Sitzung,
+   bis das neue spielt. Hat es nie gespielt (schneller Doppelsprung, Fehler vor
+   dem ersten Bild), hält es keine Sitzung und wird sofort geleert — das
+   schließt auch seine Verbindung zum Server. */
+function tvpVideoTauschen(src){
+  const alt=document.getElementById('tvp-video'); if(!alt)return null;
+  const neu=document.createElement('video');
+  neu.id='tvp-video'; neu.className='tvp-video'; neu.autoplay=true; neu.setAttribute('playsinline','');
+  neu.volume=alt.volume; neu.muted=alt.muted;
+  neu.defaultPlaybackRate=neu.playbackRate=alt.playbackRate||1;
+  try{alt.pause();}catch(e){}
+  alt.replaceWith(neu);
+  if(alt._tvpSpielte)tvpAbgeloest.push(alt); else medienS.freigeben(alt);
+  // Anlauf-Gnade wie beim Start: bis zur Quellenwahl ist currentSrc des neuen
+  // leer, der Takt hielte das sonst für das Filmende.
+  tvpLief=false; tvpTicks=0;
+  tvpVideoVerdrahten(neu,tvpIdAkt,0);
+  neu.addEventListener('playing',tvpAbgeloestFreigeben,{once:true});
+  neu.src=src; neu.play().catch(()=>{});
+  return neu;
 }
 function tvFilmPlayer(id,titel,pos,meta){
   tvpOffen=true; tvpPos=pos||0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
@@ -9316,6 +9349,9 @@ function filmTasten(){return !!tvpOffen;}
 function medienTasteHatSitzung(){
   const sitzt=el=>!!(el&&el.src&&(!el.paused||(el.played&&el.played.length>0)));
   if(sitzt(document.getElementById('pl-el'))||sitzt(document.getElementById('tvp-video')))return true;
+  // Ein abgelöstes Film-Video, das gespielt hat, hält die Sitzung, bis sein
+  // Nachfolger spielt (tvpVideoTauschen) — auch wenn dessen play() scheiterte.
+  if(tvpAbgeloest.some(el=>!!(el&&el.src&&el._tvpSpielte)))return true;
   return (filmTasten()?tvpModus!=='browser':vlcAktiv())&&!!vlcSmtc;
 }
 /* Dieselbe Taste darf nicht doppelt wirken, falls ein Browser sie ZUSÄTZLICH
