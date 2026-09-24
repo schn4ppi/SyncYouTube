@@ -5699,7 +5699,8 @@ function queueIdxPassend(start,dir){
    Reihenfolge wie bisher: Sleep „nach diesem Titel" · Radio (schlägt
    Wiederholen-eins) · eins · Zufall · nächster passender (alle: von vorn) ·
    Einzeltitel -> Bibliothek. xf: darf ein Übergang in diesen Titel laufen?
-   bevorzugt: bei Zufall den schon gezogenen (vorbereiteten) Titel behalten. */
+   bevorzugt: bei Zufall den schon gezogenen (vorbereiteten) Titel behalten.
+   zufall: die Entscheidung kam aus einem Zufallszug (xfNaechsterIndex merkt ihn). */
 function nachEnde(bevorzugt){
   if(sleepTitelende)return {art:'schlaf'};             // Sleep-Timer „nach diesem Titel"
   if(radioAktiv){                                    // Radio läuft linear + füllt endlos nach
@@ -5714,7 +5715,7 @@ function nachEnde(bevorzugt){
       .filter(i=>i!==playerState.idx&&(x=>x&&x.vorhanden&&artPasst(x))(libFind(q[i])));
     if(!kand.length)return {art:'stopp'};
     const b=bevorzugt===undefined?-1:kand.findIndex(i=>q[i]===bevorzugt);
-    return {art:'titel', idx:b>=0?kand[b]:kand[Math.floor(Math.random()*kand.length)], xf:true};
+    return {art:'titel', idx:b>=0?kand[b]:kand[Math.floor(Math.random()*kand.length)], xf:true, zufall:true};
   }
   let n=queueIdxPassend(playerState.idx+1,1);             // nächster passender in der Reihe
   if(n<0&&playRepeat==='alle')n=queueIdxPassend(0,1);
@@ -7589,8 +7590,16 @@ function xfAbbrechen(){                                // laufenden Übergang ve
   if(xfNext){medienS.freigeben(xfNext); xfNext=null;}   // nur pausiert hielt es Windows' Eintrag fest
   if(vizGain){try{vizGain.gain.value=1;}catch(e){}}
 }
-function xfNaechsterIndex(){                           // dieselbe Entscheidung wie playerAdvance (-1: kein Übergang)
-  const d=nachEnde(); return (d.art==='titel'&&d.xf)?d.idx:-1;
+/* Dieselbe Entscheidung wie playerAdvance (-1: kein Übergang). el: das Element
+   des laufenden Titels — es merkt sich den Zufallszug (el._zug). Gapless fragt
+   bei jedem timeupdate im 12-s-Fenster, Crossfade beim Start und das Titelende
+   noch einmal: ohne Merken zog jede Frage neu, und nur ein Audio-Zug blieb
+   hängen (Prüfung Runde 1: Gapless 100 % Audio). EIN Zug je Titel, auch wenn
+   er ein Video trifft und darum kein Übergang startet (plTitelEnde nimmt ihn). */
+function xfNaechsterIndex(el){
+  const d=nachEnde(el?el._zug:undefined);
+  if(el&&d.zufall)el._zug=playerState.queue[d.idx];
+  return (d.art==='titel'&&d.xf)?d.idx:-1;
 }
 function xfNachfolgerGilt(d){                          // ist der vorbereitete Titel laut Entscheidung d noch dran?
   return !!(xfNext&&d.art==='titel'&&d.xf&&playerState.queue[d.idx]===xfNext._key);
@@ -7606,7 +7615,7 @@ function xfPruefen(){                                  // Regel umgestellt (Slee
    der Vorbereitung); sonst wird er freigegeben und es geht normal weiter. */
 function plTitelEnde(ev){
   const el=ev&&ev.target; if(!el||!el.isConnected)return;   // abgelöstes Element entscheidet nichts mehr
-  const d=nachEnde(xfNext?xfNext._key:undefined);
+  const d=nachEnde(xfNext?xfNext._key:el._zug);          // Zufall: der Zug dieses Titels gilt
   if(xfNext){
     if(xfNachfolgerGilt(d)){xfUebernehmen(d.idx); return;}
     xfZuruecknehmen(el);
@@ -7615,7 +7624,7 @@ function plTitelEnde(ev){
 }
 function xfIstAudio(key){const x=libFind(key); return !!(x&&x.vorhanden&&((x.kategorie==='MP3')||(!x.vcodec&&x.acodec)));}
 function starteCrossfade(cur, restSek){
-  const ni=xfNaechsterIndex(); if(ni<0)return;
+  const ni=xfNaechsterIndex(cur); if(ni<0)return;
   const key=playerState.queue[ni]; if(!xfIstAudio(key))return;    // nur Audio in Audio überblenden
   // Die Restzeit ist Medienzeit, die Blende läuft in Wanduhrzeit: bei Tempo 2×
   // endet der Titel nach der halben Zeit. Automix mit Dauer „aus" meint 6 s.
@@ -7654,8 +7663,8 @@ function xfUebernehmen(idx){                           // Titel-Ende: vorbereite
   playerState.idx=(idx===undefined)?adoptEl._ni:idx;
   renderPlayerMedia(); return true;
 }
-function gaplessPreload(){                             // nächsten Titel nur PUFFERN (nicht abspielen)
-  const ni=xfNaechsterIndex(); if(ni<0)return;
+function gaplessPreload(el){                           // nächsten Titel nur PUFFERN (nicht abspielen)
+  const ni=xfNaechsterIndex(el); if(ni<0)return;
   const key=playerState.queue[ni]; if(!xfIstAudio(key))return;
   xfNext=new Audio('/media?id='+encodeURIComponent(key));
   xfNext.preload='auto'; xfNext._ni=ni; xfNext._key=key;
@@ -7667,7 +7676,7 @@ function uebergangTick(el){                            // ein Ticker für alle �
   if(uebergang==='crossfade'&&crossfadeSek>0&&rest<=crossfadeSek){
     el._xf=true; starteCrossfade(el,rest);
   }else if(uebergang==='gapless'&&rest<=12&&!xfNext){
-    gaplessPreload();
+    gaplessPreload(el);
   }else if(uebergang==='automix'&&rest<=Math.max(16,(crossfadeSek||6)+4)){
     // Automix: wird das Outro leise (RMS fällt), JETZT weich überblenden — sonst spätestens kurz vor Ende
     let rms=1;

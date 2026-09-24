@@ -450,6 +450,33 @@ neu({_passt:x=>x.id!=='b'});
     assert art == {"key": "c", "uebernommen": True, "idx": 2}, art
 
 
+def test_zufall_zieht_je_titel_genau_einmal(tmp_path):
+    """Prüfung Runde 1 (mittel): Gapless fragte bei JEDEM timeupdate im
+    12-s-Fenster neu (neuer Zufallszug), bis ein Audio-Titel kam; Crossfade und
+    Automix zogen beim Start und am Titelende ein zweites Mal. Gemessen 200
+    Läufe, 1 Audio- und 8 Video-Kandidaten: Gapless 100 % Audio, Crossfade 19 %
+    statt 11 %. Jetzt gilt EIN Zug je Titel — auch wenn er ein Video trifft und
+    darum kein Übergang startet. Ein Zug, gleichverteilt über die zulässigen
+    Titel, ist die Gleichverteilung."""
+    q = _pc()
+    e = _lauf(tmp_path, *_kern(q), ENDE, r"""
+for(const art of ['gapless','crossfade','automix','normal']){
+  for(const [zug,soll] of [[0.3,'v2'],[0.99,'b']]){      // Zug trifft ein Video bzw. den Audio-Titel
+    neu({playShuffle:true, uebergang:art}); _videos.clear(); ['v1','v2','v3'].forEach(k=>_videos.add(k));
+    playerState.queue=['a','v1','v2','v3','b'];           // Kandidaten nach 'a': v1 v2 v3 b
+    let zuege=0; Math.random=()=>(zuege++===0?zug:0.99);
+    const el=starte(0);
+    for(const rest of [14,12,10,8,6,4,2,1]){el.currentTime=100-rest; feuer(el,'timeupdate'); bild(500);}
+    ende(el);
+    aus({art, soll, zuege, gespielt:playerState.queue[playerState.idx]});
+  }
+}
+_videos.clear(); Math.random=()=>0.5;
+""")
+    for x in e:
+        assert x["zuege"] == 1 and x["gespielt"] == x["soll"], x
+
+
 # ------------------------------- Befund 4: Warteschlangen-Umbau in der Blende
 # Vorher setzte die Übernahme blind den gemerkten Index; nach einem Umbau
 # zeigte er auf einen anderen Titel, renderPlayerMedia verwarf das schon
