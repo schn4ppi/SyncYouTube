@@ -399,7 +399,7 @@ def test_film_gibt_sein_video_frei(tmp_path):
     assert "tvpAbgeloestFreigeben()" in zu, "Film zu: auch noch wartende alte Folgen leeren"
     (e,) = _lauf(tmp_path, _modul_js(), "const medienS=medienSitzung(()=>null);",
                  _js_zeile(q, "let tvpAbgeloest"), _js_funktion(q, "tvpAbgeloestFreigeben"),
-                 _js_funktion(q, "tvFilmPlayer"), r"""
+                 _js_funktion(q, "tvpVideoVerdrahten"), _js_funktion(q, "tvFilmPlayer"), r"""
 var tvpOffen=false, tvpPos=0, tvpDauer=0, tvpLief=false, tvpTicks=0, tvpAktiv=0, tvpIdAkt='', tvpMeta={},
     tvInfoDaten=null, tvHeroDaten=null, tvpZurueckModus='normal', tvpModusNaechster=null, tvpWechsel=null,
     tvpModus='browser', vlcKeyLetzter='', tvpTc=false, tvpTcOffset=0, tvpTcVcopy=false, plVol=40, tvpTimer=1;
@@ -423,7 +423,7 @@ tvFilmPlayer('F1','Eins',0,{titel:'Eins'});
 const A=_els['tvp-video'];
 tvFilmPlayer('F2','Zwei',0,{titel:'Zwei'});
 const B=_els['tvp-video'];
-const wechsel={bNeu:!!B&&B!==A, aStumm:A.paused, aQuelle:A.src};
+const wechsel={bNeu:!!B&&B!==A, aStumm:A.paused, aQuelle:A.src, bHoert:Object.keys(B._h).sort()};
 B.feuer('playing');
 const spielt={aQuelle:A.src, bQuelle:B.src};
 tvFilmPlayer('F3','Drei',0,{titel:'Drei'}); const C=_els['tvp-video'];
@@ -431,6 +431,8 @@ tvpModus='vlc'; tvFilmPlayer('F4','Vier',0,{titel:'Vier'});           // Rückfa
 aus({wechsel, spielt, vlc:{b:B.src, c:C.src, video:!!_els['tvp-video']}});
 """)
     assert e["wechsel"]["bNeu"], "der Neuaufbau liefert ein neues Video"
+    assert {"error", "click", "play", "pause"} <= set(e["wechsel"]["bHoert"]), \
+        f"das neue Film-Video ist nicht verdrahtet: {e['wechsel']['bHoert']}"
     assert e["wechsel"]["aStumm"], "die alte Folge verstummt sofort"
     assert e["wechsel"]["aQuelle"] == "/media?id=F1", "… wird aber erst geleert, wenn die neue spielt"
     assert e["spielt"] == {"aQuelle": "", "bQuelle": "/media?id=F2"}, e["spielt"]

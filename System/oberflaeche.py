@@ -4116,6 +4116,32 @@ function tvpAbgeloestFreigeben(){
   const l=tvpAbgeloest; tvpAbgeloest=[];
   l.forEach(v=>medienS.freigeben(v));
 }
+/* Die Listener eines Film-<video> an EINER Stelle: Einstiegsstelle beim
+   direkten Abspielen, Selbstheilungs-Kette, Klick = Pause, Windows-Overlay.
+   pos = die Stelle, mit der dieses Video startet. */
+function tvpVideoVerdrahten(v,id,pos){
+  if(pos>0&&!tvpTc)v.addEventListener('loadedmetadata',()=>{try{v.currentTime=pos;}catch(e){}},{once:true});
+  v.addEventListener('error',()=>{                     // Selbstheilungs-Kette:
+    // direkt → Transcoder → VLC. Nicht für ein abgelöstes Video und nicht,
+    // während ein Folgenwechsel lädt (die neue Folge kommt ja).
+    if(!tvpOffen||tvpWechsel||tvpIdAkt!==id||!v.isConnected)return;
+    if(!tvpTc){
+      toast('🎬 Format sperrt sich — der Transcoder übernimmt.');
+      tvpTc=true; tvpTcVcopy=false; tvpTcOffset=tvpPos||pos||0;
+      v.src=tvpDirektSrc(tvpTcOffset); v.play().catch(()=>{});
+      return;
+    }
+    toast('🎬 Browser kann dieses Format nicht — VLC übernimmt.');
+    const mm=tvpMeta, modus=tvpZurueckModus;
+    tvpZu();                                           // räumt den Modus …
+    tvpModusNaechster={id, modus};                     // … darum danach: JBs Zurück-Regel überlebt den Rückfall
+    filmePlayVlc(id,pos,mm);
+  });
+  v.addEventListener('click',ev=>{ev.stopPropagation(); tvpWach();
+    tvpBefehl('toggle'); setTimeout(tvpTick,200);});   // Netflix: Klick = Pause
+  // Windows-Overlay sofort nachziehen, nicht erst mit dem 1-s-Takt
+  v.addEventListener('play',tvpMedienZustand); v.addEventListener('pause',tvpMedienZustand);
+}
 function tvFilmPlayer(id,titel,pos,meta){
   tvpOffen=true; tvpPos=pos||0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
   tvpIdAkt=id;
@@ -4191,27 +4217,7 @@ function tvFilmPlayer(id,titel,pos,meta){
     const v=document.getElementById('tvp-video');
     if(v){
       v.volume=Math.max(0,Math.min(1,plVol/100));
-      if(pos>0&&!tvpTc)v.addEventListener('loadedmetadata',()=>{try{v.currentTime=pos;}catch(e){}},{once:true});
-      v.addEventListener('error',()=>{                 // Selbstheilungs-Kette:
-        // direkt → Transcoder → VLC. Nicht für ein abgelöstes Video und nicht,
-        // während ein Folgenwechsel lädt (die neue Folge kommt ja).
-        if(!tvpOffen||tvpWechsel||tvpIdAkt!==id||!v.isConnected)return;
-        if(!tvpTc){
-          toast('🎬 Format sperrt sich — der Transcoder übernimmt.');
-          tvpTc=true; tvpTcVcopy=false; tvpTcOffset=tvpPos||pos||0;
-          v.src=tvpDirektSrc(tvpTcOffset); v.play().catch(()=>{});
-          return;
-        }
-        toast('🎬 Browser kann dieses Format nicht — VLC übernimmt.');
-        const mm=tvpMeta, modus=tvpZurueckModus;
-        tvpZu();                                       // räumt den Modus …
-        tvpModusNaechster={id, modus};                 // … darum danach: JBs Zurück-Regel überlebt den Rückfall
-        filmePlayVlc(id,pos,mm);
-      });
-      v.addEventListener('click',ev=>{ev.stopPropagation(); tvpWach();
-        tvpBefehl('toggle'); setTimeout(tvpTick,200);});   // Netflix: Klick = Pause
-      // Windows-Overlay sofort nachziehen, nicht erst mit dem 1-s-Takt
-      v.addEventListener('play',tvpMedienZustand); v.addEventListener('pause',tvpMedienZustand);
+      tvpVideoVerdrahten(v,id,pos);
     }
   }
   const neuV=document.getElementById('tvp-video');     // … und wird geleert, sobald die neue spielt

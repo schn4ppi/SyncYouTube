@@ -199,10 +199,13 @@ def test_film_merkt_seinen_schluessel_sofort_und_heilt_mit_regel():
     """Esc direkt nach einem Folgenwechsel nahm den alten Schlüssel (erst der
     Takt zog ihn nach) und überschrieb die Stelle der VORIGEN Folge. Die
     Selbstheilung Browser -> VLC setzte JBs Zurück-Modus zurück."""
-    fp = _js_funktion(_pc(), "tvFilmPlayer")
+    q = _pc()
+    fp = _js_funktion(q, "tvFilmPlayer")
     assert "vlcKeyLetzter=" in fp
-    i = fp.index("filmePlayVlc(id,pos")
-    assert "tvpModusNaechster={id" in fp[fp.rindex("\n", 0, i - 200):i], \
+    assert "tvpVideoVerdrahten(v,id,pos)" in fp, "das Film-Video braucht seine Listener"
+    vd = _js_funktion(q, "tvpVideoVerdrahten")
+    i = vd.index("filmePlayVlc(id,pos")
+    assert "tvpModusNaechster={id" in vd[vd.rindex("\n", 0, i - 200):i], \
         "vor dem VLC-Rückfall den Zurück-Modus weiterreichen"
 
 
@@ -529,9 +532,9 @@ def test_selbstheilung_und_esc_mit_der_offenen_folge():
     ihn räumt); Fehler des alten Videos während eines Wechsels werden
     ignoriert; der Ausgang räumt einen liegengebliebenen Modus."""
     q = _pc()
-    fp = _js_funktion(q, "tvFilmPlayer")
-    i = fp.index("filmePlayVlc(id,pos")
-    abschnitt = fp[fp.rindex("addEventListener('error'", 0, i):i]
+    vd = _js_funktion(q, "tvpVideoVerdrahten")          # die Listener des Film-Videos
+    i = vd.index("filmePlayVlc(id,pos")
+    abschnitt = vd[vd.rindex("addEventListener('error'", 0, i):i]
     assert abschnitt.index("tvpZu()") < abschnitt.index("tvpModusNaechster={id"), abschnitt
     assert "tvpWechsel" in abschnitt and "tvpIdAkt!==id" in abschnitt, \
         "Fehler des alten Videos während eines Wechsels dürfen nichts auslösen"

@@ -4549,9 +4549,14 @@ def test_browser_player_und_bild_kette():
         assert muss in b, f"tvpBefehl unvollstaendig: {muss}"
     i = quelle.index("function tvFilmPlayer")
     b = quelle[i:_funktionsende(quelle, i)]
-    # Rückfall auf VLC; seit 23.09.2026 reicht er die Meta mit (Folgen-Tasten)
-    assert "tvpDirektSrc" in b and "filmePlayVlc(id,pos" in b, \
-        "Browser-<video> + Codec-Fallback fehlen"
+    assert "tvpDirektSrc" in b and "tvpVideoVerdrahten(v,id,pos)" in b, \
+        "Browser-<video> + Verdrahtung (Codec-Fallback) fehlen"
+    # Rückfall auf VLC; seit 23.09.2026 reicht er die Meta mit (Folgen-Tasten).
+    # Die Listener des Film-Videos stehen seit 24.09.2026 in tvpVideoVerdrahten
+    # (auch ein getauschtes Video bekommt sie).
+    i = quelle.index("function tvpVideoVerdrahten")
+    b = quelle[i:_funktionsende(quelle, i)]
+    assert "filmePlayVlc(id,pos" in b, "Codec-Fallback auf VLC fehlt"
     # Transcoding (JB-Go 06.08.): ffmpeg-Strom + Seek-Offset + Heil-Kette.
     i = quelle.index("function tvpDirektSrc")
     assert "tc=1" in quelle[i:_funktionsende(quelle, i)]
