@@ -67,7 +67,7 @@ function radioNachfuellen(){calls.push('nachfuellen');}
 function naechstesAusBibliothek(){calls.push('bib');}
 function vlcAktiv(){return _vlc;}
 function vlcBefehl(c){calls.push('vlc:'+c); return Promise.resolve({});}
-function renderPlayerVlc(){calls.push('vlc-ansicht');}
+function renderPlayerVlc(media){calls.push('vlc-ansicht'); media.innerHTML='<div>vlc</div>';}   // wie echt: kein pl-el
 function filmTasten(){return false;}
 function esc(s){return String(s);} function plBarHTML(){return '';}
 function spulStopp(){} function cmdNowRender(){} function transportRender(){} function medienZustand(){}
@@ -480,13 +480,19 @@ def test_verworfenes_uebernahme_element_wird_freigegeben(tmp_path):
     """Verteidigung in renderPlayerMedia: passt das übernommene Element nicht
     zum Titel, wird es freigegeben statt nur vergessen."""
     q = _pc()
-    (e,) = _lauf(tmp_path, *_kern(q), r"""
+    e = _lauf(tmp_path, *_kern(q), r"""
 starte(0);
 const fremd=mediaEl({id:'fremd',src:'/media?id=x',paused:false}); fremd._key='x'; adoptEl=fremd;
 playerState.idx=1; renderPlayerMedia();
 aus({src:fremd.src, paused:fremd.paused, adoptEl, spielt:_els['pl-el']!==fremd});
+// Passender Schlüssel, aber der Titel landet nicht im Audio-Zweig (hier: Gerät
+// VLC) — das Element wird nicht eingehängt und darf nicht verwaist weiterspielen.
+const passt=mediaEl({id:'passt',src:'/media?id=c',paused:false,isConnected:false}); passt._key='c';
+adoptEl=passt; plGeraet='vlc'; playerState.idx=2; renderPlayerMedia();
+aus({src:passt.src, paused:passt.paused, vlc:calls.includes('vlc-ansicht')});
 """)
-    assert e == {"src": "", "paused": True, "adoptEl": None, "spielt": True}, e
+    assert e[0] == {"src": "", "paused": True, "adoptEl": None, "spielt": True}, e[0]
+    assert e[1] == {"src": "", "paused": True, "vlc": True}, e[1]
 
 
 # ------------------------------------------------ Befund 3 + Menü: Sleep-Timer

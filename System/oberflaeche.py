@@ -9500,6 +9500,8 @@ function renderPlayerMedia(){
   // Das abgelöste Element löst seine Quelle — sonst hält es Windows' Eintrag
   // (gemessen: „YouTube-Downloader (pausiert)" neben der VLC-Sitzung).
   if(altEl&&altEl!==el)medienS.freigeben(altEl);
+  // Übernahme nicht eingehängt (Titel spielt am Gerät VLC oder als Video): freigeben statt verwaist weiterlaufen lassen.
+  if(uebernahme&&uebernahme!==el)medienS.freigeben(uebernahme);
   if(el){
     // Ende: vorbereiteten Nachfolger übernehmen, wenn er noch dran ist, sonst normal weiter
     el.addEventListener('ended',plTitelEnde);
