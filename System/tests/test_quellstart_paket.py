@@ -294,7 +294,7 @@ def _netz_attrappen(qp, monkeypatch):
         _schreiben(os.path.join(lib, "bin", "yt-dlp.exe"), b"#!C:\\Users\\bau\\python.exe")
     monkeypatch.setattr(qp, "_python_holen", python_holen)
     monkeypatch.setattr(qp, "_pakete_holen", pakete_holen)
-    monkeypatch.setattr(qp, "_rauchtest", lambda paket: [], raising=False)
+    monkeypatch.setattr(qp, "_rauchtest", lambda *a, **k: [], raising=False)
 
 
 def _zip_namen(pfad):
@@ -346,3 +346,189 @@ def test_altes_ergebnis_wird_beiseitegelegt_nicht_geloescht(qp, repo, monkeypatc
                 gerettet[d] = _lesen(os.path.join(ordner, d))
     assert gerettet == {"SyncYouTube-Quellstart.zip": b"ALTE-ZIP",
                         "SyncYouTube-Quellstart.zip.sha256": b"alte-summe"}, gerettet
+
+
+# ------------------------------------------- Pflicht-Rauchtest vor dem Zippen
+# Der 08.09.-Bau prüfte nichts am Erzeugnis: das ZIP ging mit nicht ladbarem Pillow,
+# ohne yt-dlp-ejs und ohne ffmpeg/deno als Release-Anhang hinaus.
+
+def test_kein_zip_wenn_der_rauchtest_scheitert(qp, repo, monkeypatch, tmp_path):
+    _netz_attrappen(qp, monkeypatch)
+    gesehen = {}
+
+    def rauchtest(paket, *rest, **kw):
+        # Der Rauchtest sieht das FERTIGE Paket (bin, Lizenzen, Startdatei schon da).
+        gesehen["inhalt"] = _alle_dateien(paket)
+        return ["PIL.Image: ImportError: cannot import name '_imaging'"]
+    monkeypatch.setattr(qp, "_rauchtest", rauchtest)
+    aus = tmp_path / "probebau"
+    with pytest.raises(qp.BauFehler, match="Rauchtest"):
+        qp.main(["--ausgabe", str(aus)])
+    assert not (aus / "SyncYouTube-Quellstart.zip").exists(), "ZIP trotz rotem Rauchtest"
+    assert not (aus / "SyncYouTube-Quellstart.zip.sha256").exists()
+    assert {"System/bin/deno.exe", "LICENSE", "SyncYouTube-Quellstart.bat",
+            "System/youtube_app.py", "python/python.exe"} <= gesehen["inhalt"]
+
+
+def test_rauchtest_laedt_jedes_noetige_modul(qp):
+    laden, finden = qp._probe_module()
+    # Jedes winrt-Modul, das medien_smtc importiert (Auto-Discovery, auch künftige).
+    fehlend = sorted(_winrt_importe() - set(laden))
+    assert not fehlend, f"Rauchtest lädt nicht: {fehlend}"
+    # PIL.Image lädt die Binärteile (_imaging) — genau daran scheiterte v.1.2.6.
+    assert {"PIL.Image", "yt_dlp", "yt_dlp_ejs"} <= set(laden)
+    # vlc nur FINDEN: import vlc lädt die libvlc des installierten VLC, nicht aus dem Paket.
+    assert "vlc" in finden
+    # Jede Verteilung aus PAKETE ist mit mindestens einem ihrer Module vertreten
+    # (Zuordnung aus den Paket-Angaben der venv, nicht aus einer Handliste).
+    zu_verteilung = md.packages_distributions()
+    geprueft = [m.split(".")[0] for m in list(laden) + list(finden)]
+    ohne_probe = []
+    for eintrag in qp.PAKETE:
+        name = _normname(_zerlegen(eintrag)[0])
+        module = {m for m, v in zu_verteilung.items() if name in {_normname(x) for x in v}}
+        if not module & set(geprueft):
+            ohne_probe.append(name)
+    assert not ohne_probe, f"Rauchtest prüft diese Pakete nicht: {ohne_probe}"
+
+
+def test_rauchtest_ist_ohne_winrt_importe_blind_und_bricht_ab(qp, tmp_path, monkeypatch):
+    _schreiben(str(tmp_path / "medien_smtc.py"), "import os\n")
+    monkeypatch.setattr(qp, "SYSTEM", str(tmp_path))
+    with pytest.raises(qp.BauFehler, match="winrt"):
+        qp._probe_module()
+
+
+def test_abi_scan_gegen_die_paket_fassung(qp, tmp_path):
+    lib = tmp_path / "lib"
+    tag = qp.PY_TAG
+    for rel in (f"PIL/_imaging.{tag}-win_amd64.pyd",       # passt
+                "winrt/_winrt.pyd",                          # ohne Marke (stabile ABI)
+                "wrapt/_wrappers.cp312-win_amd64.pyd",       # falsche Fassung
+                f"x/_y.{tag}-win32.pyd",                     # falsche Plattform
+                "z/__pycache__/m.cpython-312.pyc"):          # Bytecode fremder Fassung
+        _schreiben(str(lib / rel), b"")
+    befunde = qp._abi_fehler(str(lib), tag)
+    text = "\n".join(befunde)
+    assert len(befunde) == 3, befunde
+    for teil in ("_wrappers.cp312-win_amd64.pyd", f"_y.{tag}-win32.pyd", "m.cpython-312.pyc"):
+        assert teil in text, teil
+
+
+def test_paket_fassung_aus_der_pth_datei(qp, tmp_path):
+    _schreiben(str(tmp_path / "python314._pth"), "python314.zip\n")
+    assert qp._paket_tag(str(tmp_path)) == "cp314"
+    assert qp._paket_tag(str(tmp_path / "leer")) is None
+
+
+def test_je_verteilung_genau_ein_dist_info(qp, tmp_path):
+    lib = tmp_path / "lib"
+    for d in ("yt_dlp-2026.7.4.dist-info", "yt_dlp-2026.8.19.dist-info",
+              "wrapt-2.2.2.dist-info", "winrt_runtime-3.2.1.dist-info"):
+        _schreiben(str(lib / d / "METADATA"), "x")
+    befunde = qp._verteilungs_dubletten(str(lib))
+    assert len(befunde) == 1 and "yt_dlp" in befunde[0], befunde
+
+
+def _fertiges_paket(basis):
+    """Ein Paket in der Form, die main() baut (für die Struktur-Prüfung)."""
+    kopiert = ["System/youtube_app.py", "System/lizenzen/pywinrt_LICENSE.txt"]
+    for rel in ["LICENSE", "LIZENZEN.md", "README.md", "SyncYouTube-Quellstart.bat",
+                "python/python.exe", "python/python314._pth", "lib/yt_dlp/__init__.py",
+                *kopiert, "System/bin/ffmpeg.exe", "System/bin/ffprobe.exe",
+                "System/bin/deno.exe"]:
+        _schreiben(os.path.join(basis, rel), b"x")
+    return kopiert
+
+
+def test_struktur_pruefung(qp, tmp_path):
+    paket = str(tmp_path / "paket")
+    kopiert = _fertiges_paket(paket)
+    assert qp._struktur_fehler(paket, kopiert) == []
+    # Werkstatt im Paket, fehlende Pflichtdateien, ein unerwartetes Datum in System/
+    _schreiben(os.path.join(paket, "System", "tools", "medien_probe.py"), b"x")
+    _schreiben(os.path.join(paket, "System", "config.json"), b"{}")
+    os.rename(os.path.join(paket, "LICENSE"), os.path.join(paket, "LICENSE.weg"))
+    os.rename(os.path.join(paket, "System", "bin", "deno.exe"),
+              os.path.join(paket, "deno.weg"))
+    os.rename(os.path.join(paket, "System", "lizenzen", "pywinrt_LICENSE.txt"),
+              os.path.join(paket, "lizenz.weg"))
+    text = "\n".join(qp._struktur_fehler(paket, kopiert))
+    for teil in ("System/tools/medien_probe.py", "System/config.json", "LICENSE",
+                 "deno.exe", "pywinrt_LICENSE.txt"):
+        assert teil in text, (teil, text)
+
+
+def test_import_probe_mit_echtem_interpreter(qp, tmp_path):
+    # Die Probe läuft wirklich (hier mit dem Test-Python statt des Paket-Pythons):
+    # fehlende Module, Module von außerhalb des Pakets und eine falsche Fassung fallen auf.
+    _schreiben(str(tmp_path / "im_paket_xyz.py"), "WERT = 1\n")
+    befunde = qp._import_probe(sys.executable, str(tmp_path),
+                               ["im_paket_xyz", "json", "gibt_es_nicht_xyz"],
+                               ["auch_nicht_da_xyz"], tuple(sys.version_info[:2]))
+    text = "\n".join(befunde)
+    assert "gibt_es_nicht_xyz" in text and "auch_nicht_da_xyz" in text
+    assert "json" in text, "json kommt aus dem Test-Python, nicht aus dem Paket"
+    assert "im_paket_xyz" not in text, text
+    falsch = qp._import_probe(sys.executable, str(tmp_path), ["im_paket_xyz"], [], (3, 99))
+    assert any("3.99" in b for b in falsch), falsch
+
+
+def test_programm_muss_antworten(qp, tmp_path):
+    assert qp._antwortet([sys.executable, "--version"], "Python") is None
+    assert qp._antwortet([sys.executable, "--version"], "deno ") is not None
+    assert qp._antwortet([str(tmp_path / "gibt_es_nicht.exe"), "--version"], "deno ") \
+        is not None
+
+
+def test_interpreter_muss_psf_signiert_sein(qp, tmp_path):
+    # Die Prämisse des Quellstart-Wegs: SAC lässt den PSF-signierten Interpreter durch.
+    unsigniert = tmp_path / "python.exe"
+    _schreiben(str(unsigniert), b"MZ-unsigniert")
+    assert qp._signatur_fehler(str(unsigniert)), "unsignierte Datei ging durch"
+    # Gültig signiert, aber nicht von der PSF (Microsoft) — auch das ist ein Befund.
+    fremd = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32",
+                         "WindowsPowerShell", "v1.0", "powershell.exe")
+    assert qp._signatur_fehler(fremd), "fremd signierte Datei galt als PSF-signiert"
+    basis = getattr(sys, "_base_executable", sys.executable)
+    assert qp._signatur_fehler(basis) == [], f"{basis} gilt nicht als PSF-signiert"
+
+
+def test_rauchtest_verdrahtet_alle_pruefungen(qp, monkeypatch, tmp_path):
+    # _rauchtest selbst: jede Prüfung läuft am PAKET (nicht am Bau-Python), und jeder
+    # Befund eines Bausteins kommt in der Gesamtliste an.
+    paket = str(tmp_path / "paket")
+    kopiert = _fertiges_paket(paket)
+    py = os.path.join(paket, "python", "python.exe")
+    aufrufe = {"antwortet": []}
+
+    def import_probe(p, basis, laden, finden, version):
+        aufrufe["probe"] = (p, basis, list(laden), list(finden), version)
+        return ["Probe-Befund"]
+
+    def signatur(p):
+        aufrufe["signatur"] = p
+        return ["Signatur-Befund"]
+
+    def antwortet(befehl, erwartet):
+        aufrufe["antwortet"].append(befehl)
+        return f"{os.path.basename(befehl[0])}-Befund"
+    monkeypatch.setattr(qp, "_import_probe", import_probe)
+    monkeypatch.setattr(qp, "_signatur_fehler", signatur)
+    monkeypatch.setattr(qp, "_antwortet", antwortet)
+    befunde = qp._rauchtest(paket, kopiert)
+    assert aufrufe["signatur"] == py
+    p, basis, laden, finden, version = aufrufe["probe"]
+    assert (p, basis, version) == (py, paket, tuple(sys.version_info[:2]))
+    assert (laden, finden) == tuple(map(list, qp._probe_module()))
+    gestartet = {os.path.relpath(b[0], paket).replace("\\", "/") for b in aufrufe["antwortet"]}
+    assert gestartet == {"System/bin/deno.exe", "System/bin/ffmpeg.exe",
+                         "System/bin/ffprobe.exe"}
+    for teil in ("Probe-Befund", "Signatur-Befund", "deno.exe-Befund",
+                 "ffmpeg.exe-Befund", "ffprobe.exe-Befund"):
+        assert teil in befunde, (teil, befunde)
+    # ABI-, Dubletten- und Struktur-Befunde kommen ebenso an
+    _schreiben(os.path.join(paket, "lib", "w", "_x.cp312-win_amd64.pyd"), b"")
+    _schreiben(os.path.join(paket, "System", "tools", "medien_probe.py"), b"")
+    text = "\n".join(qp._rauchtest(paket, kopiert))
+    assert "_x.cp312-win_amd64.pyd" in text and "System/tools/medien_probe.py" in text
