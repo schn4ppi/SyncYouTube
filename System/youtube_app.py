@@ -6128,7 +6128,22 @@ class Handler(BaseHTTPRequestHandler):
                 kopf["Range"] = self.headers["Range"]
             try:
                 req = urllib.request.Request(url, headers=kopf)
-                with urllib.request.urlopen(req, timeout=30) as r:
+                try:
+                    r = urllib.request.urlopen(req, timeout=30)
+                except urllib.request.HTTPError as e:
+                    # Ehrlich statt still (Gegenprüfung 24.09.): HTTPError ist ein
+                    # OSError und landete im stillen except unten — es ging GAR
+                    # KEINE Antwort raus, der Browser sah nur einen abgebrochenen
+                    # Strom. Jetzt Jellyfins Status und ein kurzer Text; nie die
+                    # Adresse (sie trägt das Token).
+                    e.close()
+                    return _antwort(self, e.code, {
+                        "fehler": f"Renés Server gibt den Film nicht heraus "
+                                  f"(Jellyfin HTTP {e.code}).",
+                        "jellyfin_status": e.code})
+                except OSError:                          # URLError, Zeitüberschreitung
+                    return _antwort(self, 502, {"fehler": "Renés Server nicht erreichbar."})
+                with r:
                     self.send_response(r.status)
                     for h in ("Content-Type", "Content-Length",
                               "Content-Range", "Accept-Ranges"):

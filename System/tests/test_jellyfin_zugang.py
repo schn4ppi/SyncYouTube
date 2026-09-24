@@ -585,3 +585,83 @@ def test_abgelehnte_anmeldeform_ist_kein_kaputter_eintrag(tmp_path, monkeypatch)
             ("/PlayedItems/", status, b"")]))
         assert filme.fortschritt_nachreichen() == 0
         assert _queue() == eintraege, status
+
+
+# ------------------------------------------------------ Strom-Adresse + Proxy
+
+MARKE = "https://marke.example/strom"
+
+
+def test_strom_adresse_entsteht_an_einer_stelle(tmp_path, monkeypatch):
+    """Befund 4 bleibt eine Messfrage (nimmt Jellyfin 12 `api_key=` in der Adresse
+    noch an?). Umgestellt wird erst nach der Live-Messung — aber dann an EINER
+    Stelle. Aufruf statt Erwähnung: VLC-Start, Browser-Proxy und Szenen-Vorschau
+    bekommen alle, was `_strom_adresse` baut."""
+    import subprocess
+
+    import youtube_app as app
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12"))
+    assert filme.katalog_abzug()["ok"]
+    # Form heute (unverändert): Token als api_key in der Adresse, Kennung kodiert
+    # — eine Kennung vom Client darf keine andere Jellyfin-Route ansteuern.
+    assert filme.stream_url("f1") == ("https://jelly.example/Videos/f1/stream"
+                                      "?static=true&api_key=TOKEN-1")
+    assert "/System/Info" not in filme.stream_url("../../System/Info?x=")
+    monkeypatch.setattr(filme, "_strom_adresse", lambda basis, iid, tok: f"{MARKE}/{iid}")
+    assert filme.stream_url("f1") == MARKE + "/f1"
+    # Szenen-Vorschau (ffmpeg)
+    befehle = []
+
+    def fake_run(cmd, **kw):
+        befehle.append(cmd)
+        return None
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    filme.snippet_backen("f1")
+    assert befehle and befehle[0][befehle[0].index("-i") + 1] == MARKE + "/f1"
+    # VLC-Start (POST /api/filme/play)
+    vlc = []
+    monkeypatch.setattr(app, "vlc_kommando", lambda d: vlc.append(d) or {"ok": True})
+    import email.message
+    import io
+    h = _handler("/api/filme/play")
+    h.command = "POST"
+    rumpf = json.dumps({"id": "f1"}).encode()
+    h.headers = email.message.Message()
+    h.headers["Content-Length"] = str(len(rumpf))
+    h.rfile = io.BytesIO(rumpf)
+    h.do_POST()
+    assert vlc and vlc[0]["url"] == MARKE + "/f1", vlc
+    # Browser-Proxy (GET /api/filme/direkt)
+    geoeffnet = []
+
+    def fake_urlopen(req, timeout=None):
+        geoeffnet.append(req.full_url)
+        raise urllib.error.URLError("Testende")
+    monkeypatch.setattr(app.urllib.request, "urlopen", fake_urlopen)
+    _route("/api/filme/direkt?id=f1")
+    assert geoeffnet == [MARKE + "/f1"], geoeffnet
+
+
+def test_browser_proxy_antwortet_bei_jellyfin_fehler_ehrlich(tmp_path, monkeypatch):
+    """Gegenprüfung 24.09. (Befund 4, Korrektur 3): HTTPError ist ein OSError, und
+    `except (OSError, ConnectionError): pass` schickte GAR KEINE Antwort — der
+    Browser sah einen abgebrochenen Strom ohne Meldung. Jetzt: Jellyfins Status
+    und ein kurzer Text; nie die Adresse (sie trägt das Token)."""
+    import io
+
+    import youtube_app as app
+    geheim = "https://jelly.example/Videos/f1/stream?static=true&api_key=GEHEIM-TOKEN"
+    monkeypatch.setattr(filme, "stream_url", lambda iid: geheim)
+    for fehler, status_soll, wort in (
+            (urllib.error.HTTPError(geheim, 401, "Unauthorized", {}, io.BytesIO(b"")), 401, "401"),
+            (urllib.error.HTTPError(geheim, 503, "Unavailable", {}, io.BytesIO(b"")), 503, "503"),
+            (urllib.error.URLError("getaddrinfo failed: jelly.example"), 502, "nicht erreichbar")):
+        def fake_urlopen(req, timeout=None, _f=fehler):
+            raise _f
+        monkeypatch.setattr(app.urllib.request, "urlopen", fake_urlopen)
+        status, antwort = _route("/api/filme/direkt?id=f1", lokal=False)
+        assert status == status_soll, (status, antwort)
+        assert wort in antwort["fehler"], antwort
+        blob = json.dumps(antwort)
+        assert "GEHEIM-TOKEN" not in blob and "jelly.example" not in blob, blob

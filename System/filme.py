@@ -1230,6 +1230,22 @@ def seerr_meine(n=20):
 
 # ---------------------------------------------------------------- Abspielen
 
+# Wie das Token in die Strom-Adresse kommt. Ob Jellyfin 12 `api_key=` noch
+# annimmt (oder `ApiKey=` bzw. den Authorization-Kopf will), ist ungemessen
+# (Befund 4 vom 24.09.: erst live messen, dann umstellen — und zwar HIER).
+STROM_TOKEN_PARAM = "api_key"
+
+
+def _strom_adresse(basis, item_id, token):
+    """DIE eine Stelle, an der eine Strom-Adresse entsteht: VLC-Start, Browser-
+    Proxy (/api/filme/direkt, samt ffmpeg-Umwandlung) und Szenen-Vorschau
+    bekommen alle, was hier gebaut wird. Die Kennung wird kodiert — sie kommt
+    vom Client, und mit `../` hätte sie sonst eine beliebige andere Jellyfin-
+    Route mit unserem Token angesteuert."""
+    return (f"{basis}/Videos/{urllib.parse.quote(str(item_id or ''), safe='')}/stream"
+            f"?static=true&{STROM_TOKEN_PARAM}={urllib.parse.quote(token or '', safe='')}")
+
+
 def stream_url(item_id):
     """Direct-Play-URL für den LOKALEN VLC (Token in der URL ist ok, weil sie
     diesen PC nie verlässt — Clients bekommen sie NICHT)."""
@@ -1237,7 +1253,7 @@ def stream_url(item_id):
     z = _zugang()
     if not (s and z):
         return None
-    return f"{z['url']}/Videos/{item_id}/stream?static=true&api_key={s['token']}"
+    return _strom_adresse(z["url"], item_id, s["token"])
 
 
 def _queue_lesen():
