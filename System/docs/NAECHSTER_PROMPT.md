@@ -1,5 +1,45 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
 
+> **NACHTRAG 25.09.2026 — Jellyfin 12: ApiKey und Nachfolge-Routen (Runde 3, yt:jellyfin12).**
+> Grundlage: Beleg mit Gegenprüfung am Quelltext v12.1 (nicht live gemessen, kein Netz zu
+> Renés Server). Jellyfin 12.1 liest das Token nur noch aus `Authorization: MediaBrowser …,
+> Token=…` oder `?ApiKey=`; `api_key`, `X-Emby-Token` und `X-Emby-Authorization` übergeht es
+> still, weil die Migration DisableLegacyAuthorization den Legacy-Schalter beim Update
+> abschaltet (`AuthorizationContext.cs:84-111`).
+> - **Strom-Adresse:** `filme.STROM_TOKEN_PARAM = "ApiKey"` (EINE Stelle). Mit `api_key` lief
+>   der Film trotzdem, weil `/Videos/{id}/stream` anonym ist — aber ohne Konto, durch eine
+>   Lücke, die Jellyfin schließen will (jellyfin#13984). Gilt für VLC-Start, Browser-Proxy
+>   `/api/filme/direkt` (ohne und mit `tc=1`: Vorprobe + ffmpeg) und Szenen-Vorschau.
+>   `ApiKey` lesen auch 10.10.7 und 10.11.11.
+> - **Routen:** Katalog `GET /Items?userId=`, Titel (`_folge_holen`, Technik in `detail`)
+>   über `filme._titel_pfad` → `GET /Items/{id}?userId=`, „gesehen" `POST
+>   /UserPlayedItems/{id}?userId=`. Die Alt-Routen beantwortet 12.1 noch, aber als
+>   [Obsolete] und ohne Vorwarnung entfernbar (Release-Notiz v12.0); die Alt-Route ruft in
+>   12.1 wörtlich die neue auf, gleiche Antwortform. DELETE PlayedItems und
+>   `/Users/{uid}/Items/{id}/UserData` nutzt SyncYouTube nicht.
+> - **Prüf-Fläche:** `JellyfinAttrappe` (tests/test_filme.py) modelliert 12.1: Token aus
+>   Kopf oder `ApiKey` (`api_key` ⇒ anonym, 10.11 liest beides), Alt-Routen antworten
+>   weiter und landen in `veraltet`, fremde `userId` ⇒ 403, Strom anonym mit Konto-Mitschnitt
+>   (`stroeme`). Neu: `test_jellyfin12_jeder_weg_ruft_die_nachfolge_route`,
+>   `test_jellyfin12_strom_adresse_gehoert_zu_jbs_konto` (beide auch gegen 10.11) und
+>   `test_jellyfin_zugang.test_jellyfin12_jeder_strom_verbraucher_holt_mit_jbs_konto`
+>   (fünf echte Abrufe der vier Verbraucher). Am alten Stand 5 rot; 14 Gegenproben in
+>   `%TEMP%\yt_r3_gp_jf12` (nur getrackte Dateien), alle rot.
+> - **Falle:** Eine `AssertionError` der Attrappe („unerwarteter Pfad") verschluckt
+>   `_jellyfin_ruf` als Netzfehler. Ein Schlüssel in `antworten`, der die Nachfolge-Form
+>   nicht trifft, testet darum still den Netz-Zweig — die Schlüssel sind jetzt
+>   `/Items?`, `/Items/<id>?`, `/UserPlayedItems/`.
+> - **Offen:** (1) Live nicht gemessen: ob Renés Vorschaltschutz `?ApiKey=` wie `?api_key=`
+>   durchlässt. Lesende Proben dafür (nur nach Rückfrage): `GET /Users/Me?ApiKey=<token>` ohne
+>   Kopf ⇒ 200, `GET /Users/Me?api_key=<token>` ⇒ 401. (2) Vorschlag (unbestätigt): nach der
+>   letzten Stellen-Meldung `POST /Sessions/Playing/Stopped {ItemId, PositionTicks}` senden
+>   (PlaystateController.cs:247-249). SyncYouTube schickt nie ein Stopped; Jellyfins
+>   Leerlauf-Wächter räumt die Wiedergabe erst nach 5 bis 10 Minuten ab (in 12.1 mit der
+>   zuletzt gemeldeten Stelle, PR #17631). So lange steht sie in Renés Dashboard, und ein
+>   „gesehen" mit Stelle unter 90 % bekäme dabei den Weiterschauen-Punkt zurück (seit der
+>   Mindest-Sehzeit selten). Nicht gebaut. (3) Vorschlag (unbestätigt): `X-Emby-Authorization`
+>   in `_kopf` weglassen (wirkt in 12 ohne Legacy-Schalter nicht mehr).
+
 > **NACHTRAG 25.09.2026 — Mindest-Sehzeit (Runde 3, yt:mindest_sehzeit, 39cdc63).** JB-Idee
 > 24.09.: „… sozusagen einen mindest timer um festzulegen - bedenken wenn ab einer bestimmten
 > stelle weiter, bzw angefangen wird". „gesehen" nur bei (a) Stelle ≥ 90 % UND (b) in DIESER
