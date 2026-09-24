@@ -4197,6 +4197,12 @@ function tvpVideoTauschen(src){
   return neu;
 }
 function tvFilmPlayer(id,titel,pos,meta){
+  // Nächste Folge derselben Film-Sitzung (⏭/⏮ über tvpWechselStarten): Tempo und
+  // Stumm bleiben (JB 24.09.2026: „Behalten"). Jeder andere Start (Bibliothek,
+  // Live, VLC-Rückfall) beginnt bei 1x mit Ton — und das Tempo-Menü (tvpRateWert)
+  // zeigt immer, was wirklich läuft.
+  const folgenwechsel=tvpOffen&&!!tvpWechsel&&tvpWechsel.id===id;
+  if(!folgenwechsel)tvpRateWert=1;
   tvpOffen=true; tvpPos=pos||0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
   tvpIdAkt=id;
   tvpGesehenGemeldet='';                               // neuer Start: sein Ende darf wieder melden
@@ -4232,6 +4238,7 @@ function tvFilmPlayer(id,titel,pos,meta){
      `src="${tvpDirektSrc(pos||0)}"></video>`
     :`<img class="tvp-bg" src="/api/filme/bild?id=${encodeURIComponent(id)}&art=Backdrop" onerror="this.style.visibility='hidden'">`;
   const altV=document.getElementById('tvp-video');     // Folgenwechsel: die alte Folge verstummt sofort …
+  const stumm=folgenwechsel&&!!altV&&!!altV.muted;     // Stumm gibt es nur im Browser-Video (Taste M)
   if(altV){try{altV.pause();}catch(e){} tvpAbgeloest.push(altV);}
   el.innerHTML=
     medien+
@@ -4272,8 +4279,14 @@ function tvFilmPlayer(id,titel,pos,meta){
     const v=document.getElementById('tvp-video');
     if(v){
       v.volume=Math.max(0,Math.min(1,plVol/100));
+      // Tempo auch als defaultPlaybackRate: jedes Laden setzt playbackRate darauf zurück.
+      v.defaultPlaybackRate=v.playbackRate=tvpRateWert; v.muted=stumm;
       tvpVideoVerdrahten(v,id,pos);
     }
+  }else{
+    // VLC: NACH dem Start setzen. Die Film-Route setzt kein Tempo, und der EINE
+    // VLC (Musik + Film) behielte sonst womöglich das seines Vorgängers.
+    tvpBefehl('rate',{wert:tvpRateWert});
   }
   const neuV=document.getElementById('tvp-video');     // … und wird geleert, sobald die neue spielt
   if(neuV&&neuV!==altV)neuV.addEventListener('playing',tvpAbgeloestFreigeben,{once:true});

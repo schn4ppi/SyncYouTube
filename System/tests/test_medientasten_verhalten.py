@@ -399,7 +399,7 @@ def test_film_gibt_sein_video_frei(tmp_path):
     assert "tvpAbgeloestFreigeben()" in zu, "Film zu: auch noch wartende alte Folgen leeren"
     (e,) = _lauf(tmp_path, _modul_js(), "const medienS=medienSitzung(()=>null);",
                  _js_zeile(q, "let tvpAbgeloest"), _js_zeile(q, "let tvpGesehenGemeldet"),
-                 _js_funktion(q, "tvpAbgeloestFreigeben"),
+                 _js_zeile(q, "let tvpRateWert"), _js_funktion(q, "tvpAbgeloestFreigeben"),
                  _js_funktion(q, "tvpVideoVerdrahten"), _js_funktion(q, "tvFilmPlayer"), r"""
 var tvpOffen=false, tvpPos=0, tvpDauer=0, tvpLief=false, tvpTicks=0, tvpAktiv=0, tvpIdAkt='', tvpMeta={},
     tvInfoDaten=null, tvHeroDaten=null, tvpZurueckModus='normal', tvpModusNaechster=null, tvpWechsel=null,
