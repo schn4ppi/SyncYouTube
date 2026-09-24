@@ -105,10 +105,16 @@ def _json_aendern(pfad, aenderung, standard=None):
 
     Ein Lock je Pfad ordnet die eigenen Fäden, bevor sie um die Datei ringen —
     danach ist immer höchstens einer im Rennen und die 5 s reichen sicher."""
-    with _datei_locks_lock:
-        lock = _datei_locks.setdefault(str(pfad), threading.Lock())
-    with lock:
+    with _pfad_lock(pfad):
         return fam.json_aendern(pfad, aenderung, standard=standard)
+
+
+def _pfad_lock(pfad):
+    """Der Lock je Pfad (s. _json_aendern) — auch für einen Schreiber, der die
+    ganze Datei ersetzt (Katalog-Abzug), damit er nicht zwischen Lesen und
+    Schreiben einer Änderung fällt."""
+    with _datei_locks_lock:
+        return _datei_locks.setdefault(str(pfad), threading.Lock())
 
 
 def einrichten(daten_dir):
@@ -614,9 +620,12 @@ def _katalog_abzug():
     # Die Version der Sitzung, die die letzte Seite geholt hat (nach einer
     # Neuanmeldung steht sie in _sitzung, nicht in der Kopie vom Anfang).
     version = _sitzung.get("version") or s.get("version") or "?"
-    fam.json_schreiben(_pfade["katalog"], {
-        "stand": time.time(), "server_version": version,
-        "eintraege": eintraege})
+    # Unter derselben Sperre wie _spiegel_nachziehen: sonst schriebe eine Meldung,
+    # die den ALTEN Spiegel las, ihn nach diesem Abzug zurück.
+    with _pfad_lock(_pfade["katalog"]):
+        fam.json_schreiben(_pfade["katalog"], {
+            "stand": time.time(), "server_version": version,
+            "eintraege": eintraege})
     _fehlversuch_ts = 0.0                  # Erfolg löst den Backoff
     try:
         fortschritt_nachreichen()          # liegengebliebene Meldungen mitnehmen
@@ -1363,6 +1372,10 @@ def fortschritt(item_id, position_s, gesehen=False):
     grund = _fortschritt_senden_mit_grund(item_id, position_s, gesehen)
     if grund == SENDE_OK:
         _aeltere_erledigt(item_id, position_s, gesehen, ts)
+        try:
+            _spiegel_nachziehen(item_id, position_s, gesehen)
+        except Exception:                  # noqa: BLE001 — die Meldung selbst ist angekommen
+            pass
         return True
     neu = {"item": item_id, "position_s": int(position_s),
            "gesehen": bool(gesehen), "ts": ts}
@@ -1370,6 +1383,38 @@ def fortschritt(item_id, position_s, gesehen=False):
         neu["abgewiesen"] = True
     _json_aendern(_pfade["queue"], lambda q: (q or []) + [neu], standard=[])
     return False
+
+
+class _SpiegelUnveraendert(Exception):
+    """Bricht json_aendern ab, ohne zu schreiben (nichts nachzuziehen)."""
+
+
+def _spiegel_nachziehen(item_id, position_s, gesehen):
+    """Nach einer ANGENOMMENEN Meldung den Eintrag im Katalog-Spiegel nachziehen
+    (folgenende.md, Gegenprüfung Punkt 6). reihen() und detail() lesen den
+    Spiegel, und der nächste Abzug kommt erst in 6 h — seit 23.09. scheitert er
+    ganz; „Weiterschauen" und die Film-Info blieben so lange falsch. Wie
+    Jellyfin: „gesehen" heißt Stelle 0; eine bloße Stelle ändert „gesehen" nicht.
+    Folgen stehen nicht im Spiegel (dort nur Filme und Serien): dann, wie bei
+    einem schon stimmenden Eintrag, bleibt die Datei unberührt. Rückgabe: ob
+    geschrieben wurde."""
+    if not any(isinstance(e, dict) and e.get("id") == item_id
+               for e in katalog_lesen().get("eintraege") or []):
+        return False
+    soll = {"position_s": 0, "gesehen": True} if gesehen else {"position_s": int(position_s)}
+
+    def _aendern(k):
+        treffer = [e for e in ((k or {}).get("eintraege") or [])
+                   if isinstance(e, dict) and e.get("id") == item_id]
+        if not treffer or all(all(e.get(f) == w for f, w in soll.items()) for e in treffer):
+            raise _SpiegelUnveraendert
+        for e in treffer:
+            e.update(soll)
+        return k
+    try:
+        return _json_aendern(_pfade["katalog"], _aendern) is not None
+    except _SpiegelUnveraendert:
+        return False
 
 
 def _aeltere_erledigt(item_id, position_s, gesehen, ts):

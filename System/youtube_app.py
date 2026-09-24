@@ -2988,8 +2988,12 @@ def _vlc_kommando_kern(daten):
                 if not nur or nur == _vlc.get("key"):
                     sp.set_pause(1)
             elif cmd == "stop":
-                sp.stop()
-                _vlc["key"] = ""
+                # nur_key (Filmende, folgenende.md): den Endzustand eines Films
+                # freigeben — aber nie die Musik, die den VLC inzwischen hat.
+                nur = daten.get("nur_key")
+                if not nur or nur == _vlc.get("key"):
+                    sp.stop()
+                    _vlc["key"] = ""
             elif cmd == "seek":
                 sp.set_time(int(float(daten.get("wert") or 0) * 1000))
             elif cmd == "vol":

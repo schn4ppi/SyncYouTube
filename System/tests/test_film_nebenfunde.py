@@ -35,8 +35,13 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 if HIER not in sys.path:
     sys.path.insert(0, HIER)
 
-from test_medientasten_randfaelle import _keydown  # noqa: E402
-from test_medientasten_verhalten import _js_funktion, _lauf, _pc  # noqa: E402
+from test_medientasten_randfaelle import MELDESTELLE, _keydown  # noqa: E402
+from test_medientasten_verhalten import (  # noqa: E402
+    _js_funktion,
+    _js_zeile,
+    _lauf,
+    _pc,
+)
 
 # ------------------------------------------------------------- Tasten F und I
 
@@ -115,7 +120,8 @@ aus({
 FILMSTOPP = r"""
 var tvpOffen=true, tvpIdAkt='', tvpPos=0, tvpMeta=null, vlcKeyLetzter='', vlcSpielt=false, tvFilmReihen=null,
     tvInfoDaten=null, tvInfoOffen=false, tvpWechselGen=1, tvpWechsel=null, tvpModusNaechster=null,
-    tvpFolgenCache=null, _tvpSprungTimer=null, tvpModus='browser', tvpTc=false, tvpTcOffset=0, tvpTimer=null;
+    tvpFolgenCache=null, _tvpSprungTimer=null, tvpModus='browser', tvpTc=false, tvpTcOffset=0, tvpTimer=null,
+    tvpDauer=0;
 const infos=[], bilder=[];
 globalThis.fetch=()=>Promise.resolve({});
 function tvpBefehl(){} function vlcBefehl(){} function toast(){} function zeit(s){return String(s);}
@@ -134,7 +140,8 @@ const E=(id,pos)=>({id, staffel:1, folge:+id.slice(1), laufzeit_min:40, position
 
 def _filmstopp_teile():
     q = _pc()
-    return [FILMSTOPP] + [_js_funktion(q, n) for n in ("tvpFolgePosMerken", "tvpZu", "filmLaeuft", "filmStopp")]
+    return [FILMSTOPP, _js_zeile(q, "let tvpGesehenGemeldet")] + [_js_funktion(q, n) for n in (
+        ("tvpFolgePosMerken", "tvpZu", "filmLaeuft", "filmStopp") + MELDESTELLE)]
 
 
 def test_esc_bei_folge_oeffnet_die_info_der_serie(tmp_path):

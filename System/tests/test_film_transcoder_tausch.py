@@ -49,7 +49,7 @@ ATTRAPPE = r"""
 var tvpOffen=false, tvpPos=0, tvpDauer=0, tvpLief=false, tvpTicks=0, tvpAktiv=0, tvpIdAkt='', tvpMeta={},
     tvInfoDaten=null, tvHeroDaten=null, tvpZurueckModus='normal', tvpModusNaechster=null, tvpWechsel=null,
     tvpModus='browser', vlcKeyLetzter='', tvpTc=false, tvpTcOffset=0, tvpTcVcopy=false, plVol=40, tvpTimer=1,
-    _tvpSprungTimer=null, tvInfoOffen=false, vlcSpielt=false;
+    _tvpSprungTimer=null, tvInfoOffen=false, vlcSpielt=false, tvFilmReihen=null;
 globalThis.screen={isExtended:false};
 document.body={appendChild(){}}; document.querySelector=()=>null;
 const toasts=[], vlcStarts=[], gemerkt=[];
@@ -59,6 +59,8 @@ function tvpIdleTick(){} function tvInfoMalen(){}
 function filmePlayVlc(id,pos,mm){vlcStarts.push([id,pos]);}
 function vlcBefehl(){return Promise.resolve({});}
 function tvpFolgePosMerken(id,p){gemerkt.push([id,p]);} function medienNachFilm(){}
+globalThis.fetch=()=>Promise.resolve({json:async()=>({})});   // Meldestelle am Filmende
+function nachFilmEnde(){return {art:'nichts'};}
 const _videos=[]; let _playScheitert=false;
 function filmVideo(){
   const v={id:'', className:'', autoplay:false, paused:true, currentTime:0, duration:NaN, ended:false,
@@ -107,10 +109,12 @@ def _teile(*extra, tick_echt=False):
     q = _pc()
     namen = ["tvpDirektSrc", "tvpBefehl", "tvpAbgeloestFreigeben", "tvpVideoVerdrahten",
              "tvpVideoTauschen", "tvFilmPlayer", "tvpZu"] + list(extra)
-    if tick_echt:
-        namen.append("tvpTick")
+    if tick_echt:                          # mit dem echten Ende-Weg samt Meldestelle
+        namen += ["tvpTick", "tvpFilmEnde", "tvpMeldeDauer", "filmFortschrittMelden",
+                  "filmGemeldetAnwenden", "filmLokalNachziehen"]
     return ([_modul_js(), "const medienS=medienSitzung(()=>null);", _js_zeile(q, "let tvpAbgeloest"),
-             ATTRAPPE] + ([] if tick_echt else [TICK_STUB]) + [_js_funktion(q, n) for n in namen])
+             _js_zeile(q, "let tvpGesehenGemeldet"), ATTRAPPE] + ([] if tick_echt else [TICK_STUB])
+            + [_js_funktion(q, n) for n in namen])
 
 
 def test_transcoder_sprung_tauscht_das_element(tmp_path):

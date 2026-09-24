@@ -4280,6 +4280,11 @@ def test_netflix_detailseite():
     assert "function filmStopp" in quelle and "filmLaeuft()" in quelle
     i = quelle.index("function filmStopp")
     block = quelle[i:_funktionsende(quelle, i)]
+    # Seit 24.09.2026 meldet filmStopp über die EINE Meldestelle (Stelle und
+    # „gesehen"); ihr Verhalten prüft tests/test_film_ende.py mit deno.
+    assert "filmFortschrittMelden(" in block
+    i = quelle.index("function filmFortschrittMelden")
+    block = quelle[i:_funktionsende(quelle, i)]
     assert "/api/filme/fortschritt" in block and "position_s" in block
     # Info-Seite funktioniert auch OHNE TV-Modus (Klick im 🎬-Fenster):
     i = quelle.index("function tvKey")
@@ -4354,8 +4359,10 @@ def test_film_player_screen():
     assert "function tvpIdleTick" in quelle, "Auto-Hide/Idle-Uhr fehlt"
     i = quelle.index("async function tvpTick")
     block = quelle[i:_funktionsende(quelle, i)]
-    assert "(film|live):" in block and "tvpZu()" in block, \
+    assert "(film|live):" in block and "tvpFilmEnde(" in block, \
         "Film-/Live-Ende muss die Fernbedienung selbst abraeumen"
+    i = quelle.index("function tvpFilmEnde")
+    assert "tvpZu()" in quelle[i:_funktionsende(quelle, i)], "der Ende-Weg raeumt ueber tvpZu ab"
     # Tasten: Space/Enter/Pfeile/Esc am Player, Esc holt das TV-Vollbild zurueck
     i = quelle.index("function tvKey")
     block = quelle[i:_funktionsende(quelle, i)]

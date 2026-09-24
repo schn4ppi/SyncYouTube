@@ -47,15 +47,22 @@ const eps=[
 """
 
 
+# Die Meldestelle für Stelle und „gesehen" (folgenende.md, 24.09.2026): der
+# Folgenwechsel meldet über sie; ihr Verhalten prüft tests/test_film_ende.py.
+MELDESTELLE = ("tvpMeldeDauer", "filmFortschrittMelden", "filmGemeldetAnwenden", "filmLokalNachziehen")
+
+
 def _film_kern():
     q = _pc()
-    return [_js_zeile(q, "let tvpMedienGen")] + [_js_funktion(q, n) for n in (
-        "tvpLandePos", "tvpZurueckZiel", "tvpWeiterZiel", "tvpBasis", "tvpFolgePosMerken",
-        "tvpWechselStarten", "tvpZielAusfuehren", "tvpFolge", "tvpZurueck")]
+    return [_js_zeile(q, "let tvpMedienGen"), _js_zeile(q, "let tvpGesehenGemeldet")] + [
+        _js_funktion(q, n) for n in (
+            "tvpLandePos", "tvpZurueckZiel", "tvpWeiterZiel", "tvpBasis", "tvpFolgePosMerken",
+            "tvpWechselStarten", "tvpZielAusfuehren", "tvpFolge", "tvpZurueck") + MELDESTELLE]
 
 
 FILM_STUBS = r"""
-var tvpOffen=true, tvpModus='browser', tvpIdAkt='e3', tvpPos=600, tvpDauer=2400, tvInfoDaten=null;
+var tvpOffen=true, tvpModus='browser', tvpIdAkt='e3', tvpPos=600, tvpDauer=2400, tvInfoDaten=null,
+    tvpMeta=null, tvFilmReihen=null, tvInfoOffen=false;
 const plays=[], seeks=[], merk=[];
 function filmePlay(id,pos,gen){plays.push([id,pos,gen]); return new Promise(()=>{});}   // lädt „ewig"
 async function tvpFolgenHolen(){return eps;}
@@ -466,11 +473,13 @@ aus({da:Object.keys(_FAKE.handler).sort()});
 
 TAKT_STUBS = r"""
 var tvpOffen=true, tvpIdAkt='e3', tvpModus='vlc', tvpLief=true, tvpTicks=3, tvpPos=0, tvpDauer=0,
-    tvpWechsel=null, tvInfoOffen=false, vlcKeyLetzter='k1', vlcSpielt=true;
-const zu=[]; let antwort=null, halte=null;
+    tvpWechsel=null, tvInfoOffen=false, vlcKeyLetzter='k1', vlcSpielt=true, tvpMeta={laufzeit_min:40};
+const zu=[], gemeldet=[], vlc=[]; let antwort=null, halte=null;
 function tvpBefehl(c){return new Promise(r=>{ if(halte){halte.push(()=>r(antwort));} else r(antwort); });}
 function tvpZu(){zu.push(tvpIdAkt);} function tvpIdleTick(){} function tvpMedienZustand(){}
 function ico(){return '';} function zeit(s){return String(s);} function tvInfoMalen(){}
+function filmFortschrittMelden(id,pos,dauer){gemeldet.push([id,Math.round(pos),dauer>0&&pos>=dauer*0.9]);}
+function vlcBefehl(c,d){vlc.push(c+(d&&d.nur_key?'@'+d.nur_key:''));} function nachFilmEnde(){return {art:'nichts'};}
 """
 
 
@@ -481,25 +490,41 @@ def test_takt_haelt_den_folgenwechsel_nicht_fuer_das_ende(tmp_path):
     Dazu: eine Antwort, die vor einem Wechsel abgeschickt wurde, überschrieb
     danach Schlüssel und Stelle der neuen Folge."""
     q = _pc()
-    (e,) = _lauf(tmp_path, TAKT_STUBS, _js_funktion(q, "tvpTick"), r"""
+    (e,) = _lauf(tmp_path, TAKT_STUBS, *(_js_funktion(q, n) for n in ("tvpTick", "tvpFilmEnde", "tvpMeldeDauer")), r"""
 tvpWechsel={gen:2,id:'e4'}; antwort={zustand:'aus', key:'film:e4', pos:1, dauer:0};
 await tvpTick(); const a={zu:[...zu]};
 tvpWechsel=null; halte=[]; antwort={zustand:'spielt', key:'film:e3', pos:1500, dauer:2400};
 const t=tvpTick(); tvpIdAkt='e4'; vlcKeyLetzter='film:e4'; halte.forEach(f=>f()); await t;
 const b={zu:[...zu], pos:tvpPos, key:vlcKeyLetzter};
 halte=null; tvpIdAkt='e3'; antwort={zustand:'aus', key:'film:e3', pos:2399, dauer:2400};
-await tvpTick(); const c={zu:[...zu]};
+await tvpTick(); const c={zu:[...zu], gemeldet:[...gemeldet]}; gemeldet.length=0; vlc.length=0;
 zu.length=0; tvpModus='browser'; vlcKeyLetzter='k1'; vlcSpielt=true;
 antwort={zustand:'pause', key:'film:e3', pos:10, dauer:2400};
 await tvpTick(); const d={key:vlcKeyLetzter, spielt:vlcSpielt, zu:[...zu]};
 tvpWechsel={gen:5,id:'e4'}; antwort={zustand:'aus', key:'', pos:0, dauer:0};   // Browser: alte Folge endet, neue lädt
 await tvpTick(); const f={zu:[...zu]};
-aus({a,b,c,d,f});
+// Das ECHTE VLC-Ende: libvlc meldet 'ende' (nicht 'aus'), Schlüssel und Stelle 0
+// bleiben stehen (youtube_app.vlc_status). Bis 24.09. bildete die Attrappe es als
+// 'aus' nach — der Wächter war grün, das echte Ende schloss nie (folgenende.md).
+zu.length=0; tvpModus='vlc'; tvpWechsel=null; tvpIdAkt='e3'; tvpPos=2395; tvpDauer=2400;
+antwort={zustand:'ende', key:'film:e3', pos:0, dauer:0};
+await tvpTick(); const g={zu:[...zu], gemeldet:[...gemeldet], vlc:[...vlc]};
+// Gegenfall: beim Folgenwechsel meldet VLC kurz 'ende' (medien_smtc.py) — mit dem
+// Schlüssel der alten ODER schon der neuen Folge. Das schließt nicht.
+zu.length=0; gemeldet.length=0; vlc.length=0; tvpWechsel={gen:6,id:'e4'};
+antwort={zustand:'ende', key:'film:e3', pos:0, dauer:0}; await tvpTick();
+antwort={zustand:'ende', key:'film:e4', pos:0, dauer:0}; await tvpTick();
+const h={zu:[...zu], gemeldet:[...gemeldet], vlc:[...vlc]};
+aus({a,b,c,d,f,g,h});
 """)
     assert e["f"]["zu"] == [], "Folgenende während eines ladenden Wechsels schließt nicht (der Druck bleibt gültig)"
     assert e["a"]["zu"] == [], "Anlauf der neuen Folge ist kein Ende"
     assert e["b"] == {"zu": [], "pos": 0, "key": "film:e4"}, "veraltete Antwort verworfen"
-    assert e["c"]["zu"] == ["e3"], "das echte Ende schließt weiterhin"
+    assert e["c"] == {"zu": ["e3"], "gemeldet": [["e3", 2399, True]]}, \
+        "'aus' mit dem Film-Schlüssel schließt weiterhin (und meldet das Ende)"
+    assert e["g"] == {"zu": ["e3"], "gemeldet": [["e3", 2395, True]], "vlc": ["stop@film:e3"]}, \
+        "das echte VLC-Ende ('ende') schließt, meldet gesehen und gibt den VLC frei"
+    assert e["h"] == {"zu": [], "gemeldet": [], "vlc": []}, "kurzes 'ende' beim Folgenwechsel schließt nicht"
     assert e["d"] == {"key": "k1", "spielt": True, "zu": []}, \
         "Browser-Film: der Geräte-VLC gehört der Musik, der Film-Takt schreibt ihn nicht"
 
@@ -549,13 +574,15 @@ def test_esc_speichert_die_offene_folge(tmp_path):
     q = _pc()
     (e,) = _lauf(tmp_path, r"""
 var tvpOffen=true, tvpIdAkt='F9', tvpPos=1234, vlcKeyLetzter='k1', vlcSpielt=true, tvFilmReihen=null,
-    tvInfoDaten=null, tvInfoOffen=true, tvpWechselGen=1, tvpWechsel=null, tvpModusNaechster=null, tvpMeta=null;
+    tvInfoDaten=null, tvInfoOffen=true, tvpWechselGen=1, tvpWechsel=null, tvpModusNaechster=null, tvpMeta=null,
+    tvpDauer=0, tvpFolgenCache=null;
 const merk=[], vlc=[], zu=[];
 globalThis.fetch=(u,o)=>{merk.push(JSON.parse(o.body)); return Promise.resolve({});};
 function tvpBefehl(){} function vlcBefehl(c){vlc.push(c);} function tvpZu(){zu.push(1); tvpOffen=false;}
 function toast(){} function zeit(s){return String(s);} function vlcPosGeschaetzt(){return 0;} function tvInfo(){}
 function tvInfoMalen(){}
-""", _js_funktion(q, "filmLaeuft"), _js_funktion(q, "filmStopp"), r"""
+""", _js_zeile(q, "let tvpGesehenGemeldet"), *(_js_funktion(q, n) for n in (
+        ("filmLaeuft", "filmStopp", "tvpFolgePosMerken") + MELDESTELLE)), r"""
 const laeuft=filmLaeuft(); await filmStopp();
 const film={merk:[...merk], zu:zu.length, laeuft};
 tvpOffen=true; tvpIdAkt=''; vlcKeyLetzter='k1'; zu.length=0; merk.length=0;

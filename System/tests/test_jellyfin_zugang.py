@@ -565,9 +565,10 @@ def _info_lauf(tmp_path, episoden_antwort, nachher=""):
     from test_medientasten_verhalten import _js_funktion, _js_zeile, _lauf, _pc
     q = _pc()
     teile = [_js_zeile(q, "let tvHeroId="), _js_zeile(q, "let tvInfoStapel="),
-             _js_zeile(q, "let tvInfoDaten=")] + [_js_funktion(q, n) for n in (
-                 "tvInfo", "tvInfoMalen", "tvQualitaet", "tvTon", "tvSerienPlay",
-                 "folgenFehlerText")]
+             _js_zeile(q, "let tvInfoDaten="), _js_zeile(q, "let tvpGesehenGemeldet")] + [
+                 _js_funktion(q, n) for n in (
+                     "tvInfo", "tvInfoMalen", "tvQualitaet", "tvTon", "tvSerienPlay",
+                     "folgenFehlerText", "filmGemeldetAnwenden")]
     (e,) = _lauf(tmp_path, *teile, r"""
 function esc(t){return String(t==null?'':t);} function tvInfoFokusMalen(){} function tvKey(){}
 function tvProfil(){return 'standard';} function tvpLandePos(){return 0;}

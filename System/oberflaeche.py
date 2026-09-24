@@ -4199,6 +4199,7 @@ function tvpVideoTauschen(src){
 function tvFilmPlayer(id,titel,pos,meta){
   tvpOffen=true; tvpPos=pos||0; tvpDauer=0; tvpLief=false; tvpTicks=0; tvpAktiv=Date.now();
   tvpIdAkt=id;
+  tvpGesehenGemeldet='';                               // neuer Start: sein Ende darf wieder melden
   // Die volle Meta aus filmePlay (Folgen stehen nie in tvInfoDaten/tvHeroDaten):
   // ohne sie fehlten bei Folgen typ/serie_id (Weiter/Zurück) und laufzeit_min —
   // im Transcode blieb die Zeitleiste dann tot (Dauer 0, Befund 23.09.).
@@ -4378,7 +4379,9 @@ function tvpZu(){
   // Folgenende, Rückfall — alles läuft hier durch). Einen ladenden Wechsel
   // bricht nur filmStopp ab.
   clearTimeout(_tvpSprungTimer); tvpModusNaechster=null;
-  if(tvpIdAkt)tvpFolgePosMerken(tvpIdAkt,Math.round(tvpPos||0));
+  // Schon als gesehen gemeldet: dort steht Stelle 0 (wie bei Jellyfin), nicht
+  // die Stelle kurz vor dem Ende.
+  if(tvpIdAkt&&tvpGesehenGemeldet!==tvpIdAkt)tvpFolgePosMerken(tvpIdAkt,Math.round(tvpPos||0));
   tvpOffen=false; tvpModus='vlc'; tvpTc=false; tvpTcOffset=0;   // nie hängen lassen
   medienNachFilm();                                    // Overlay + Tasten zurück an die Musik
   if(tvpTimer){clearInterval(tvpTimer); tvpTimer=null;}
@@ -4391,6 +4394,28 @@ function tvpZu(){
     el.style.display='none'; el.innerHTML='';
   }
   tvpAbgeloestFreigeben();                             // alte Folgen, deren Nachfolger nie spielte
+}
+/* Der Film ist zu Ende — oder der VLC gehört inzwischen jemand anderem (Musik,
+   Live). Reihenfolge: Werte festhalten → tvpZu (räumt Modus und Offen-Zustand,
+   merkt die Stelle in der Folgenliste) → melden (schreibt „gesehen" und Stelle 0
+   DANACH, sonst überschriebe tvpZu sie wieder). „Gesehen" gilt nur beim eigenen
+   Ende: Browser 'aus' bzw. VLC 'aus'/'ende' mit dem Schlüssel dieses Films;
+   sonst gehört der Status (Stelle!) der Musik. Rückgabe: was danach kommt. */
+function tvpFilmEnde(s,modusVor){
+  const id=tvpIdAkt, lief=tvpLief;
+  const eigen=modusVor==='browser'||(!!id&&s.key==='film:'+id);
+  const echtesEnde=eigen&&(s.zustand==='aus'||s.zustand==='ende');
+  const pos=Math.max(tvpPos||0,(lief&&eigen)?(s.pos||0):0);
+  const dauer=echtesEnde?tvpMeldeDauer(id):0;
+  tvpZu();
+  // libvlc hält den Endzustand samt Schlüssel, bis etwas Neues kommt: freigeben —
+  // nur, wenn der VLC noch DIESEN Film hat (nur_key: sonst träfe es die Musik).
+  if(modusVor!=='browser'&&id&&s.key==='film:'+id){vlcBefehl('stop',{nur_key:'film:'+id}); vlcKeyLetzter='';}
+  // Gemeldet wird, was lief — oder eine Folge, die nahe am Ende fortgesetzt
+  // wurde und endete, bevor sie je 'spielt' meldete (dann zählt die Einstiegsstelle).
+  if(id&&(lief||(dauer>0&&pos>=dauer*0.9)))filmFortschrittMelden(id,pos,dauer);
+  else if(tvInfoOffen)tvInfoMalen();
+  return nachFilmEnde();
 }
 async function tvpTick(){
   if(!tvpOffen)return;
@@ -4417,12 +4442,18 @@ async function tvpTick(){
   // schließen, wenn der Film nachweislich lief oder der Start nie kam.
   // Nicht, solange ein Folgenwechsel lädt: der VLC meldet den Anlauf der NEUEN
   // Folge als 'aus' — das ist kein Ende (Gegenprüfung 24.09.: sonst Film weg).
-  if(!tvpWechsel&&(!/^(film|live):/.test(s.key||'')||s.zustand==='aus')&&(tvpLief||tvpTicks>8)){
-    tvpZu();
-    if(tvInfoOffen)tvInfoMalen();
+  // libvlc meldet das Ende als 'ende' (nicht 'aus') und bleibt dort stehen —
+  // bis 24.09. blieb die Fernbedienung darum mit Spinner offen (folgenende.md).
+  // Nur mit dem Schlüssel DIESES Films (Live bleibt, wie es war: unbestätigt).
+  const eigenesEnde=s.zustand==='ende'&&!!tvpIdAkt&&s.key==='film:'+tvpIdAkt;
+  if(!tvpWechsel&&(!/^(film|live):/.test(s.key||'')||s.zustand==='aus'||eigenesEnde)&&(tvpLief||tvpTicks>8)){
+    tvpFilmEnde(s,modusVor);
     return;
   }
-  tvpPos=s.pos||tvpPos; tvpDauer=s.dauer||tvpDauer;
+  // Ein kurzes 'ende' im Anlauf (VLC zwischen zwei Titeln) trägt die Stelle des
+  // VORIGEN Mediums — sie gehört nicht zu dieser Folge.
+  if(!(s.zustand==='ende'&&!tvpLief))tvpPos=s.pos||tvpPos;
+  tvpDauer=s.dauer||tvpDauer;
   tvpMedienZustand();                                  // Windows-Zeitleiste (Transcode: Offset + Meta-Dauer)
   // Lade-Spinner (JB-Go): sichtbar, bis der Film WIRKLICH spielt — deckt den
   // langsamen Index-/Seek-Anlauf mancher Container über die Leitung ehrlich ab.
@@ -4547,8 +4578,8 @@ async function tvpZurueck(){
   const b=tvpBasis();
   tvpZielAusfuehren(tvpZurueckZiel(eps,b.id,b.pos,b.modus),eps);
 }
-function tvpFolgePosMerken(id,pos){                    // Folgenliste (Info-Seite + Zwischenspeicher) nachziehen
-  const setze=l=>(l||[]).forEach(e=>{if(e.id===id)e.position_s=pos;});
+function tvpFolgePosMerken(id,pos,gesehen){            // Folgenliste (Info-Seite + Zwischenspeicher) nachziehen
+  const setze=l=>(l||[]).forEach(e=>{if(e.id===id){e.position_s=pos; if(gesehen)e.gesehen=true;}});
   if(tvInfoDaten)setze(tvInfoDaten.eps);
   if(tvpFolgenCache)setze(tvpFolgenCache.eps);
 }
@@ -4567,15 +4598,13 @@ function tvpZielAusfuehren(z,eps){
     tvpBefehl('seek',{wert:0}); setTimeout(tvpTick,300);
     return;
   }
-  // Die laufende Folge merkt sich ihre Stelle (wie filmStopp) — ein späteres
-  // „Weiter" führt genau dorthin zurück.
+  // Die laufende Folge meldet ihre Stelle (wie filmStopp) — ein späteres
+  // „Weiter" führt genau dorthin zurück; im Abspann (ab 90 %) ist sie gesehen (JB).
   // Nur beim ERSTEN Druck: danach läuft die alte Folge bloß weiter, bis das Ziel lädt.
   const id=tvpIdAkt, pos=Math.round(tvpPos||0);
   if(id&&!tvpWechsel){
-    try{fetch('/api/filme/fortschritt',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id, position_s:pos})}).catch(()=>{});}catch(e){}
-    (eps||[]).forEach(e=>{if(e.id===id)e.position_s=pos;});
-    tvpFolgePosMerken(id,pos);
+    const gesehen=filmFortschrittMelden(id,pos,tvpMeldeDauer(id));
+    (eps||[]).forEach(e=>{if(e.id===id){e.position_s=gesehen?0:pos; if(gesehen)e.gesehen=true;}});
   }
   tvpWechselStarten(z.e.id,z.pos,z.modus);
 }
@@ -4634,6 +4663,71 @@ function tvpMedienZustand(){                           // Browser-Film: Zustand 
   const v=document.getElementById('tvp-video');
   medienS.zustand(v&&!v.paused?'playing':'paused',{dauer:tvpDauer, pos:tvpPos, rate:v?v.playbackRate:1});
 }
+/* ---- Stelle und „gesehen" melden (folgenende.md, JB 24.09.2026) ----------
+   EINE Meldestelle für Takt-Ende, Esc/←/✕ (filmStopp) und den Folgenwechsel
+   per ⏭/⏮. Bis 24.09. sandte die Seite „gesehen" nie: Jellyfin und die lokalen
+   Listen erfuhren kein Ende, die Kachel zeigte ⏸ statt ✓, „▶ Weiterschauen"
+   wählte die fertige Folge. „Gesehen" ab 90 % der Dauer — dieselbe Grenze wie
+   Jellyfin und tvpLandePos; JB: auch Esc oder ⏭ im Abspann zählen. Einmalig:
+   ist „gesehen" für eine Kennung hinausgegangen, meldet sie bis zu ihrem
+   nächsten Start nichts mehr (sonst schriebe eine späte Stelle darüber). */
+let tvpGesehenGemeldet='', filmGemeldet={};            // Kennung mit „gesehen" · id → {position_s, gesehen} dieser Seite
+function tvpMeldeDauer(id){
+  // Nur die OFFENE Folge hat eine gültige Dauer — ohne offenen Player (VLC,
+  // Esc aus der Musik-Leiste) sind tvpDauer/tvpMeta vom vorigen Film übrig.
+  if(!tvpOffen||!id||id!==tvpIdAkt)return 0;
+  return tvpDauer||(((tvpMeta&&tvpMeta.laufzeit_min)||0)*60);
+}
+function filmFortschrittMelden(id,pos,dauer){           // Rückgabe: als gesehen gemeldet?
+  if(!id)return false;                                 // Live: nichts zu melden
+  if(tvpGesehenGemeldet===id)return true;
+  pos=Math.round(pos||0);
+  const gesehen=dauer>0&&pos>=dauer*0.9;
+  const koerper={id, position_s:pos}; if(gesehen)koerper.gesehen=true;
+  try{
+    fetch('/api/filme/fortschritt',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(koerper)}).catch(()=>{});
+    if(gesehen)tvpGesehenGemeldet=id;                   // erst, wenn der Ruf wirklich hinausging
+  }catch(e){}
+  filmLokalNachziehen(id,gesehen?0:pos,gesehen);       // wie Jellyfin: gesehen heißt Stelle 0
+  return gesehen;
+}
+function filmGemeldetAnwenden(e){                      // was diese Seite gemeldet hat, gilt auch für frisch Geladenes
+  const m=e&&filmGemeldet[e.id];
+  if(m){e.position_s=m.position_s; if(m.gesehen)e.gesehen=true;}
+  return e;
+}
+/* Alle lokalen Kopien an EINER Stelle: Folgenliste der Info + Zwischenspeicher,
+   Film-Info, Hero, alle Reihen — dann neu zeichnen. Die Merk-Tabelle gilt auch
+   für Daten, die später frisch vom Server kommen (tvInfo): der Katalog-Spiegel
+   zieht erst nach, wenn Jellyfin die Meldung angenommen hat, und Esc öffnet
+   die Info sofort. */
+function filmLokalNachziehen(id,pos,gesehen){
+  const alt=filmGemeldet[id];
+  filmGemeldet[id]={position_s:pos, gesehen:!!(gesehen||(alt&&alt.gesehen))};
+  tvpFolgePosMerken(id,pos,gesehen);
+  if(tvInfoDaten)filmGemeldetAnwenden(tvInfoDaten.d);
+  if(typeof tvHeroDaten!=='undefined')filmGemeldetAnwenden(tvHeroDaten);
+  const f=tvFilmReihen;
+  if(f){
+    Object.values(f).forEach(v=>{
+      if(Array.isArray(v))v.forEach(filmGemeldetAnwenden);
+      else if(v&&typeof v==='object')Object.values(v).forEach(a=>Array.isArray(a)&&a.forEach(filmGemeldetAnwenden));});
+    // wie reihen() am Server: „Weiterschauen" = Stelle > 0 und nicht gesehen
+    if(gesehen&&Array.isArray(f.weiterschauen))f.weiterschauen=f.weiterschauen.filter(e=>e.id!==id);
+  }
+  if(tvInfoOffen)tvInfoMalen();
+  else if(!tvpOffen){const tv=document.getElementById('tv'); if(tv&&tv.style.display!=='none')tvMalen();}
+}
+/* Was kommt nach einem Filmende? Heute: nichts — keine nächste Folge, keine
+   Musik (eine Automatik „nächste Folge" ist nicht bestätigt). JB 24.09.2026 zum
+   Sleep-Timer: „nein, nur musik, aber wenn der film zu ende ist, keinen
+   weiteren starten" — ist der Timer aktiv oder abgelaufen, bleibt es dabei,
+   auch für jede künftige Automatik: die fragt hier (Wächter:
+   tests/test_film_ende.py). */
+function nachFilmEnde(){
+  return sleepHaeltAn()?{art:'schlaf'}:{art:'nichts'};
+}
 /* Film beenden (JB 05.08.: „auch beendet werden können mit escape") — meldet
    den Spot an Jellyfin UND lokal, damit „Weiterschauen ab …" SOFORT stimmt,
    ohne auf den nächsten Katalog-Abzug zu warten. */
@@ -4663,26 +4757,20 @@ async function filmStopp(){
   // offenen Player ist sie sonst vom vorigen Film übrig.
   const meta=(tvpIdAkt===id&&tvpMeta)||{};
   const infoId=(meta.typ==='folge'&&meta.serie_id)||id;
+  const dauer=tvpMeldeDauer(id);                       // VOR tvpZu: danach ist der Player zu
   tvpBefehl('stop'); vlcKeyLetzter=''; vlcSpielt=false;
-  try{fetch('/api/filme/fortschritt',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id, position_s:pos})}).catch(()=>{});}catch(e){}
-  const merk=e=>{if(e&&e.id===id)e.position_s=pos;};
-  if(tvFilmReihen){Object.values(tvFilmReihen).forEach(v=>{
-    if(Array.isArray(v))v.forEach(merk);
-    else if(v&&typeof v==='object')Object.values(v).forEach(a=>Array.isArray(a)&&a.forEach(merk));});}
-  if(tvInfoDaten&&tvInfoDaten.d&&tvInfoDaten.d.id===id)tvInfoDaten.d.position_s=pos;
   if(typeof tvpZu==='function')tvpZu();               // Fernbedienung mit abräumen
-  // Offene Info neu zeichnen, NACH tvpZu: erst dann steht die Stelle einer
-  // Folge in der Folgenliste — die Info zeigt die Serie, nicht die Folge
-  // (Nebenbefund 24.09.: die Kachel blieb auf dem alten Stand).
-  if(tvInfoOffen)tvInfoMalen();
+  // Melden NACH tvpZu: das merkt die Stelle in der Folgenliste, die Meldestelle
+  // schreibt „gesehen" samt Stelle 0 darüber und zeichnet die offene Info neu
+  // (die Info zeigt bei Folgen die Serie — Nebenbefund 24.09.).
+  const gesehen=filmFortschrittMelden(id,pos,dauer);
   // Zurück ins TV-Vollbild, wenn der Fernsehmodus offen ist (die Esc-Taste
   // ist die nötige Nutzer-Geste).
   const tv=document.getElementById('tv');
   if(tv&&tv.style.display!=='none'&&!document.fullscreenElement){
     try{tv.requestFullscreen&&tv.requestFullscreen().catch(()=>{});}catch(e){}
   }
-  toast('🎬 Film beendet — gemerkt bei '+zeit(pos)+'.');
+  toast(gesehen?'🎬 Film beendet — als gesehen markiert.':'🎬 Film beendet — gemerkt bei '+zeit(pos)+'.');
   // ← bringt IMMER zur Detailansicht zurück (JB) — auch wenn sie zu war.
   if(!tvInfoOffen&&id)tvInfo(infoId);
 }
@@ -5806,9 +5894,10 @@ function radioNachfuellen(){                          // hält den Stream unendl
 }
 
 /* ---- Sleep-Timer (Nutzer schaltet ein/aus) ---- */
-let sleepTimer=null, sleepTitelende=false, sleepEndeZeit=0, sleepStufe='0';   // sleepStufe: gewählte Minuten fürs Menü
+let sleepTimer=null, sleepTitelende=false, sleepEndeZeit=0, sleepStufe='0', sleepAbgelaufen=false;   // sleepStufe: gewählte Minuten fürs Menü
 function sleepSetzen(v){
   clearTimeout(sleepTimer); sleepTimer=null; sleepTitelende=false; sleepEndeZeit=0; sleepStufe='0';
+  sleepAbgelaufen=false;                               // neu gestellt (auch „aus"): „abgelaufen" ist vorbei
   if(v==='titel'){sleepTitelende=true;}
   else{const min=parseInt(v,10)||0; if(min>0){sleepStufe=String(min); sleepEndeZeit=Date.now()+min*60000; sleepTimer=setTimeout(sleepAusloesen,min*60000);}}
   sleepLabel();
@@ -5819,7 +5908,11 @@ function sleepAusloesen(){
   // Nur die MUSIK (JB 24.09.: „nein, nur musik"): Film und Musik teilen EINEN
   // VLC — nur_key lässt den Server nur pausieren, wenn er diesen Titel spielt.
   if(vlcAktiv())vlcBefehl('pause',{nur_key:aktKey()}); else{const el=document.getElementById('pl-el'); if(el)el.pause();}
-  sleepTimer=null; sleepEndeZeit=0; sleepTitelende=false; sleepStufe='0'; sleepLabel();}
+  sleepTimer=null; sleepEndeZeit=0; sleepTitelende=false; sleepStufe='0'; sleepLabel();
+  sleepAbgelaufen=true;}                               // … und nach einem Filmende startet nichts mehr (nachFilmEnde)
+/* Sleep-Timer aktiv (Minuten oder „nach diesem Titel") oder abgelaufen, bis er
+   neu gestellt wird — JB 24.09.2026: nach einem Filmende startet dann nichts. */
+function sleepHaeltAn(){return !!(sleepTimer||sleepTitelende||sleepAbgelaufen);}
 function sleepLabel(){const l=document.getElementById('sleepval'); if(!l)return;
   l.textContent=sleepTitelende?'· nach diesem Titel':(sleepEndeZeit?('· noch '+Math.max(1,Math.round((sleepEndeZeit-Date.now())/60000))+' min'):'');}
 
@@ -8667,6 +8760,9 @@ async function tvInfo(id){
   }
   if(!tvInfoOffen||tvInfoId!==id)return;               // inzwischen geschlossen/weiter
   if(!d||d.fehler){el.innerHTML='<div class="info-body" style="padding:60px">Film nicht gefunden. (Esc = zurück)</div>'; return;}
+  // Was diese Seite gerade gemeldet hat (Esc öffnet die Info sofort — Spiegel
+  // bzw. Jellyfin haben die Meldung da oft noch nicht verarbeitet).
+  filmGemeldetAnwenden(d); eps.forEach(filmGemeldetAnwenden);
   tvInfoDaten={d,mw,eps,epsFehler}; tvInfoMehr=mw;
   const st=[...new Set(eps.map(e=>e.staffel))];
   tvInfoStaffel=st.includes(1)?1:(st[0]||0);
