@@ -41,6 +41,7 @@ def _einrichten(pfad, monkeypatch):
     filme._sitzung.clear()
     filme._fehlversuch_ts = 0.0
     filme._anmelde_sperre_ts = 0.0
+    filme._merkmal_ruhe_ts = 0.0
     filme._anmelde_art = ""
     monkeypatch.setattr(filme, "_zugang", lambda: {
         "url": "https://jelly.example", "benutzer": "JBK", "passwort": PASSWORT})
@@ -51,6 +52,7 @@ def _neustart():
     filme._sitzung.clear()
     filme._fehlversuch_ts = 0.0
     filme._anmelde_sperre_ts = 0.0
+    filme._merkmal_ruhe_ts = 0.0
     filme._anmelde_art = ""
 
 
@@ -81,12 +83,14 @@ def test_merkmal_abgelehnt_wird_benannt_und_zeigt_die_echte_version(tmp_path, mo
     assert filme.katalog_abzug()["ok"] is False
     z = filme.zustand()
     assert z["fehler_art"] == "merkmal_abgelehnt", z
-    assert jf.anmeldungen() == 2, "genau eine Neuanmeldung, dann aufhören"
+    # Eine Neuanmeldung plus EINE Gegenprobe (ein zweiter Prozess mit derselben
+    # DeviceId könnte das erste frische Token entwertet haben), dann aufhören.
+    assert jf.anmeldungen() == 3, "Neuanmeldung und Gegenprobe, dann aufhören"
     assert z["server_version"] == "12.1.0", z
     assert z["anzahl"] == 2, "der alte Spiegel bleibt stehen"
     # Eine weitere Anmeldung hilft nicht: 10 Minuten Ruhe, auch für den Abzug.
     filme.katalog_abzug()
-    assert jf.anmeldungen() == 2, "trotz abgelehnter Anmeldeform weiter angemeldet"
+    assert jf.anmeldungen() == 3, "trotz abgelehnter Anmeldeform weiter angemeldet"
     assert filme.zustand()["fehler_art"] == "merkmal_abgelehnt"
 
 
@@ -237,6 +241,152 @@ def test_knopf_abgleichen_bleibt_trotz_backoff_frei(tmp_path, monkeypatch):
     monkeypatch.setattr(filme, "katalog_abzug", gerufen.set)
     assert app._filme_abzug_anstossen() is True
     assert gerufen.wait(5), "der Knopf-Weg wurde vom Backoff blockiert"
+
+
+
+# ----------------------------- Merkmal-Ruhe: nur für die Automatik (Prüfung Runde 1)
+# Die 10-Minuten-Ruhe nach merkmal_abgelehnt kam in Runde 1 neu dazu. Sie soll den
+# Anmelde-Sturm der Kacheln und Folgenlisten verhindern — sie sperrte aber auch
+# JBs ausdrückliche Drücke (⟳ Abgleichen, Film starten), und ein zweiter Prozess
+# mit derselben DeviceId konnte sie fälschlich auslösen.
+
+def _post(pfad, daten=None):
+    import email.message
+    import io
+    h = _handler(pfad)
+    h.command = "POST"
+    rumpf = json.dumps(daten or {}).encode()
+    h.headers = email.message.Message()
+    h.headers["Content-Length"] = str(len(rumpf))
+    h.rfile = io.BytesIO(rumpf)
+    h.do_POST()
+    status, roh = _antwort_von(h)
+    return status, (json.loads(roh) if roh.startswith(b"{") else roh)
+
+
+def _abzug_abwarten(app):
+    assert app._filme_sync_laeuft.acquire(timeout=10), "Abzug-Faden endet nicht"
+    app._filme_sync_laeuft.release()
+
+
+def test_knopf_abgleichen_hebt_die_merkmal_ruhe_auf(tmp_path, monkeypatch):
+    """Der Knopf-Faden lief, erreichte Jellyfin in der Ruhe aber nie (0 neue
+    Anmeldungen, „lehnt die Anmeldeform ab"). Der alte Test ersetzte
+    katalog_abzug durch eine Attrappe und sah das nicht — dieser geht über die
+    ECHTE Route bis zur Jellyfin-Attrappe. Die 403-Drossel hebt der Knopf NICHT
+    auf (Renés Sperre, vorübergehend)."""
+    import youtube_app as app
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("12", lehnt_ab=True)
+    monkeypatch.setattr(filme, "_http", jf)
+    filme.katalog_abzug()
+    assert filme.zustand()["fehler_art"] == "merkmal_abgelehnt"
+    jf.lehnt_ab = False                          # Renés Server nimmt die Anmeldeform wieder
+    vorher = jf.anmeldungen()
+    filme.katalog_abzug()                        # die Automatik (6-h-Ticker) bleibt in der Ruhe
+    assert jf.anmeldungen() == vorher, "die Automatik hat sich in der Ruhe angemeldet"
+    status, antwort = _post("/api/filme/sync")
+    assert status == 200 and antwort["gestartet"] is True, antwort
+    _abzug_abwarten(app)
+    assert jf.anmeldungen() == vorher + 1, "⟳ Abgleichen hat Jellyfin nicht erreicht"
+    z = filme.zustand()
+    assert z["fehler_art"] == "" and z["fehler"] == "", z
+    # 403-Drossel: bleibt.
+    _einrichten(tmp_path / "drossel", monkeypatch)
+    jf = JellyfinAttrappe("12", anmeldung=403)
+    monkeypatch.setattr(filme, "_http", jf)
+    filme.katalog_abzug()
+    assert jf.anmeldungen() == 1
+    _post("/api/filme/sync")
+    _abzug_abwarten(app)
+    assert jf.anmeldungen() == 1, "der Knopf hat die 403-Drossel übergangen"
+
+
+def test_film_start_versucht_es_trotz_merkmal_ruhe(tmp_path, monkeypatch):
+    """stream_url lieferte in der Ruhe None: VLC-Start und Browser-Proxy (beide
+    holen die Adresse dort, s. test_strom_adresse_entsteht_an_einer_stelle)
+    antworteten 503, obwohl JB ausdrücklich einen Film startet. Ein Film-Start
+    ist EIN Druck, kein Sturm — er darf sich anmelden. Die 403-Drossel gilt."""
+    import youtube_app as app
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("12", lehnt_ab=True)
+    monkeypatch.setattr(filme, "_http", jf)
+    filme.katalog_abzug()
+    assert filme.zustand()["fehler_art"] == "merkmal_abgelehnt"
+    jf.lehnt_ab = False
+    vlc = []
+    monkeypatch.setattr(app, "vlc_kommando", lambda d: vlc.append(d) or {"ok": True})
+    status, antwort = _post("/api/filme/play", {"id": "f1"})
+    assert status == 200 and vlc and "/Videos/f1/stream" in vlc[0]["url"], (status, antwort)
+    # Drossel (403): kein weiterer Anmeldeversuch, ehrlich None (Route: 503).
+    _einrichten(tmp_path / "drossel", monkeypatch)
+    jf = JellyfinAttrappe("12", anmeldung=403)
+    monkeypatch.setattr(filme, "_http", jf)
+    assert filme.stream_url("f1") is None and jf.anmeldungen() == 1
+    assert filme.stream_url("f1") is None and jf.anmeldungen() == 1, "Drossel übergangen"
+
+
+def test_zweiter_prozess_loest_die_merkmal_ruhe_nicht_aus(tmp_path, monkeypatch):
+    """Ein fremder Prozess mit derselben DeviceId (etwa die Quellstart-Kopie)
+    meldet sich zwischen unserer Neuanmeldung und der Wiederholung an — sein
+    Token entwertet unseres (die Attrappe lässt je DeviceId nur das jüngste
+    gelten). Das wurde als merkmal_abgelehnt eingeordnet und sperrte den
+    Film-Teil 10 Minuten. Jetzt gilt „Anmeldeform abgelehnt" erst, wenn auch
+    eine ZWEITE eigene Anmeldung im selben Ruf scheitert."""
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("12")
+    monkeypatch.setattr(filme, "_http", jf)
+    assert filme.katalog_abzug()["ok"] is True   # Sitzung mit TOKEN-1
+    jf.entwertet.add("TOKEN-1")                  # z. B. Renés Server neu gestartet
+    fremd = {"offen": True}
+
+    def http(url, daten=None, kopf=None, timeout=15):
+        if fremd["offen"] and jf.anmeldungen() == 2 and "/Users/u1/Items?" in url:
+            fremd["offen"] = False
+            jf.tokens.append("TOKEN-FREMD")      # der andere Prozess meldet sich an
+        return jf(url, daten, kopf, timeout)
+    monkeypatch.setattr(filme, "_http", http)
+    r = filme.katalog_abzug()
+    assert r["ok"] is True, r
+    assert filme.zustand()["fehler_art"] == "", filme.zustand()
+    assert jf.anmeldungen() == 3, "genau eine Gegenprobe-Anmeldung"
+
+
+def test_token_eines_anderen_fadens_loest_keine_ruhe_aus(tmp_path, monkeypatch):
+    """_neu_anmelden gibt das Token zurück, das ein ANDERER Faden inzwischen
+    geholt hat. Wird es abgelehnt, ist das kein Beleg für „Anmeldeform
+    abgelehnt" (der andere Faden prüft sein Token selbst): nur dieser Ruf
+    scheitert — als Zugangsproblem (eine leere Folgenliste darf nicht wie eine
+    Serie ohne Folgen aussehen), aber ohne Ruhe und ohne eigene Anmeldung."""
+    _einrichten(tmp_path, monkeypatch)
+    jf = JellyfinAttrappe("12")
+    monkeypatch.setattr(filme, "_http", jf)
+    assert filme.katalog_abzug()["ok"] is True   # Sitzung mit TOKEN-1
+    jf.entwertet.add("TOKEN-1")
+    schritt = {"n": 0}
+
+    def http(url, daten=None, kopf=None, timeout=15):
+        if "/Shows/s1/Episodes" in url:
+            schritt["n"] += 1
+            if schritt["n"] == 1:
+                # Während unser Ruf mit TOKEN-1 unterwegs ist, meldet sich ein
+                # anderer Faden neu an; dessen Token wird danach ebenfalls entwertet.
+                _st, roh = jf("https://jelly.example/Users/AuthenticateByName",
+                              {"Username": "JBK", "Pw": PASSWORT})
+                filme._sitzung.update(token=json.loads(roh)["AccessToken"], user_id="u1")
+                jf.entwertet.add(jf.tokens[-1])
+        return jf(url, daten, kopf, timeout)
+    monkeypatch.setattr(filme, "_http", http)
+    vorher = jf.anmeldungen()
+    st, _roh, art, _a = filme._jellyfin_ruf("/Shows/s1/Episodes?UserId={uid}")
+    assert st == 401 and art in filme.ZUGANG_ARTEN, (st, art)
+    assert jf.anmeldungen() == vorher + 1, "nur die des anderen Fadens"
+    assert filme._anmelde_art == "", "keine gescheiterte Anmeldung notiert"
+    assert filme._sitzung.get("token") == jf.tokens[-1], "das Token des anderen Fadens verworfen"
+    jf.entwertet.clear()
+    monkeypatch.setattr(filme, "_http", jf)
+    filme._sitzung.clear()
+    assert filme._jellyfin_ruf("/Shows/s1/Episodes?UserId={uid}")[0] == 200, "Ruhe ausgelöst"
 
 
 def test_kein_token_und_kein_passwort_in_dateien(tmp_path, monkeypatch):

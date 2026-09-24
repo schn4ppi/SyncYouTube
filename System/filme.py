@@ -27,6 +27,7 @@ _pfade = {}                                # gesetzt von einrichten()
 _sitzung = {}                              # {"token","user_id","version"}
 _fehlversuch_ts = 0.0                      # letzter GESCHEITERTER Abzug (Backoff)
 _anmelde_sperre_ts = 0.0                   # Anmelde-Backoff (403 ⇒ 10 min Ruhe)
+_merkmal_ruhe_ts = 0.0                     # Ruhe nach abgelehnter Anmeldeform (nur die Automatik)
 _anmelde_lock = threading.Lock()           # EINE Anmeldung zur Zeit (s. _anmelden)
 _datei_locks = {}                          # je Pfad ein Lock (s. _json_aendern)
 _datei_locks_lock = threading.Lock()
@@ -57,7 +58,7 @@ FEHLER_ART_TEXT = {
     ART_SERVER: "Renés Server antwortet fehlerhaft",
     ART_KEIN_ZUGANG: "Kein Jellyfin-Zugang im Keyring (Sync-Jellyfin)",
 }
-MERKMAL_RUHE_S = 600                       # frisches Token abgelehnt ⇒ 10 min keine Anmeldung
+MERKMAL_RUHE_S = 600                       # frisches Token abgelehnt ⇒ 10 min keine AUTOMATISCHE Anmeldung
 _anmelde_art = ""                          # Grund der letzten gescheiterten Anmeldung
 GENRE_JE_TYP = 100                         # Filme UND Serien je bis hierhin (s. reihen())
 # Renés Bibliothek ist ZWEISPRACHIG getaggt (gemessen 13.08.2026 an 4885 Titeln):
@@ -195,12 +196,14 @@ def _server_version_public(url):
     return "?"
 
 
-def _anmelden():
+def _anmelden(merkmal_ruhe=True):
     """Die aktuelle Sitzung als KOPIE (Token, Benutzer-Id, Version) oder None.
 
     Eine Kopie, kein Verweis auf `_sitzung`: ein anderer Faden kann die Sitzung
     jederzeit erneuern — wer mitten im Ruf ist, soll sein Token behalten und bei
-    einem 401 genau dieses als abgelehnt melden (s. `_neu_anmelden`)."""
+    einem 401 genau dieses als abgelehnt melden (s. `_neu_anmelden`).
+    `merkmal_ruhe=False`: ein ausdrücklicher Druck (Film starten) meldet sich
+    auch in der Merkmal-Ruhe an — nie in der 403-Drossel (s. _anmelden_ungesperrt)."""
     kopie = dict(_sitzung)
     if kopie.get("token"):
         return kopie
@@ -217,11 +220,11 @@ def _anmelden():
     with _anmelde_lock:
         if _sitzung.get("token"):
             return dict(_sitzung)
-        s = _anmelden_ungesperrt()
+        s = _anmelden_ungesperrt(merkmal_ruhe)
         return dict(s) if s else None
 
 
-def _anmelden_ungesperrt():
+def _anmelden_ungesperrt(merkmal_ruhe=True):
     """Anmelden — NUR unter `_anmelde_lock` rufen. Merkt bei einem Fehlschlag in
     `_anmelde_art`, warum (für die ehrliche Anzeige)."""
     global _anmelde_sperre_ts, _anmelde_art
@@ -229,6 +232,11 @@ def _anmelden_ungesperrt():
     # 403 = 10 Minuten (Anmeldesperre ausklingen lassen), sonst 60 s.
     # Der Grund bleibt der, der die Ruhe ausgelöst hat.
     if time.time() < _anmelde_sperre_ts:
+        return None
+    # Merkmal-Ruhe (Prüfung Runde 1): hält nur die AUTOMATIK zurück (Kacheln,
+    # Bilder, Folgenlisten, 6-h-Abzug) — JBs ausdrückliche Drücke nicht.
+    if merkmal_ruhe and time.time() < _merkmal_ruhe_ts:
+        _anmelde_art = ART_MERKMAL
         return None
     z = _zugang()
     if not z:
@@ -280,14 +288,18 @@ def _neu_anmelden(abgelehnt):
     Faden mit veraltetem Token warf das frische Token eines anderen Fadens weg
     und meldete sich erneut an. Wegen derselben DeviceId entwertete das den
     anderen — die Kaskade vom 13.08. Vergleich, Verwerfen und Neuanmeldung
-    stehen deshalb in EINER Sperre."""
+    stehen deshalb in EINER Sperre.
+
+    Rückgabe `(sitzung|None, eigen)`: `eigen` = hier frisch angemeldet. Nur ein
+    eigenes Token taugt als Beleg für „Anmeldeform abgelehnt" (s. _jellyfin_ruf);
+    das eines anderen Fadens prüft dieser selbst (Prüfung Runde 1)."""
     with _anmelde_lock:
         aktuell = _sitzung.get("token")
         if aktuell and aktuell != abgelehnt:
-            return dict(_sitzung)
+            return dict(_sitzung), False
         _sitzung.clear()
         s = _anmelden_ungesperrt()
-        return dict(s) if s else None
+        return (dict(s) if s else None), True
 
 
 def _merkmal_abgelehnt(token):
@@ -295,13 +307,23 @@ def _merkmal_abgelehnt(token):
     hilft nicht (so sah der Ausfall ab dem 23.09. aus). Das Token verwerfen — nur
     wenn es noch das aktuelle ist — und 10 Minuten keine Anmeldung, statt dass
     jede Kachel und jede Folgenliste Renés Server mit neuen Anmeldungen bedrängt
-    (dasselbe Konto nutzt SyncFindus: dessen Drossel wäre mitbetroffen)."""
-    global _anmelde_sperre_ts, _anmelde_art
+    (dasselbe Konto nutzt SyncFindus: dessen Drossel wäre mitbetroffen).
+    Die Ruhe gilt nur der Automatik: ⟳ Abgleichen hebt sie auf
+    (merkmal_ruhe_aufheben), ein Film-Start meldet sich trotzdem an (stream_url)."""
+    global _merkmal_ruhe_ts, _anmelde_art
     with _anmelde_lock:
         if _sitzung.get("token") == token:
             _sitzung.clear()
-        _anmelde_sperre_ts = max(_anmelde_sperre_ts, time.time() + MERKMAL_RUHE_S)
+        _merkmal_ruhe_ts = max(_merkmal_ruhe_ts, time.time() + MERKMAL_RUHE_S)
         _anmelde_art = ART_MERKMAL
+
+
+def merkmal_ruhe_aufheben():
+    """⟳ Abgleichen (JBs Druck) darf es jederzeit versuchen: die Merkmal-Ruhe
+    endet. Die 403-Drossel bleibt — sie ist Renés Sperre, nicht unsere."""
+    global _merkmal_ruhe_ts
+    with _anmelde_lock:
+        _merkmal_ruhe_ts = 0.0
 
 
 def _jellyfin_ruf(pfad, daten=None, timeout=15):
@@ -312,7 +334,15 @@ def _jellyfin_ruf(pfad, daten=None, timeout=15):
     ersetzt (die kann sich bei der Neuanmeldung nicht ändern, wird aber trotzdem
     je Versuch neu eingesetzt). Rückgabe `(status, roh, art, ausnahme)`:
     `art` ist '' wenn der Server geantwortet hat (der Aufrufer wertet den Status),
-    sonst eine ART_*-Fehlerart; `ausnahme` trägt nur bei Netzfehlern den Text."""
+    sonst eine ART_*-Fehlerart; `ausnahme` trägt nur bei Netzfehlern den Text.
+
+    „Anmeldeform abgelehnt" (samt Ruhe) erst nach ZWEI eigenen, frisch geholten
+    und abgelehnten Tokens in DIESEM Ruf (Prüfung Runde 1): Ein zweiter Prozess
+    mit derselben DeviceId (etwa die Quellstart-Kopie) kann sich zwischen
+    Neuanmeldung und Wiederholung anmelden und unser frisches Token entwerten —
+    einmal ist Zufall, die Gegenprobe-Anmeldung klärt es. Ein Token, das ein
+    ANDERER Faden geholt hat, ist gar kein Beleg: dann scheitert nur dieser Ruf
+    (Art merkmal_abgelehnt für die Anzeige, aber ohne Ruhe)."""
     z = _zugang()
     if not z:
         return 0, b"", ART_KEIN_ZUGANG, ""
@@ -320,6 +350,8 @@ def _jellyfin_ruf(pfad, daten=None, timeout=15):
     if not s:
         return 0, b"", _anmelde_art or ART_NETZ, ""
     wiederholt = False
+    eigen = False                          # Token aus UNSERER Neuanmeldung in diesem Ruf?
+    eigene_abgelehnt = 0
     while True:
         token = s.get("token") or ""
         try:
@@ -329,13 +361,21 @@ def _jellyfin_ruf(pfad, daten=None, timeout=15):
             return 0, b"", ART_NETZ, str(e) or type(e).__name__
         if st != 401:
             return st, roh, "", ""
-        if wiederholt:
-            _merkmal_abgelehnt(token)
+        if eigen:
+            eigene_abgelehnt += 1
+            if eigene_abgelehnt >= 2:
+                _merkmal_abgelehnt(token)
+                return st, roh, ART_MERKMAL, ""
+        elif wiederholt:
+            # Das frische Token eines ANDEREN Fadens wurde abgelehnt: für die
+            # Anzeige ein Zugangsproblem (sonst hieße eine leere Folgenliste
+            # „Serie ohne Folgen"), aber kein Beleg — keine Ruhe, kein Verwerfen;
+            # der andere Faden prüft sein Token selbst.
             return st, roh, ART_MERKMAL, ""
         # Token von einer zweiten Sitzung entwertet (gleiche DeviceId, live
-        # gefunden 05.08.) ⇒ EINMAL frisch anmelden und wiederholen.
+        # gefunden 05.08.) ⇒ frisch anmelden und wiederholen.
         wiederholt = True
-        s = _neu_anmelden(token)
+        s, eigen = _neu_anmelden(token)
         if not s:
             return st, roh, _anmelde_art or ART_NETZ, ""
 
@@ -1250,8 +1290,10 @@ def _strom_adresse(basis, item_id, token):
 
 def stream_url(item_id):
     """Direct-Play-URL für den LOKALEN VLC (Token in der URL ist ok, weil sie
-    diesen PC nie verlässt — Clients bekommen sie NICHT)."""
-    s = _anmelden()
+    diesen PC nie verlässt — Clients bekommen sie NICHT). VLC-Start und Browser-
+    Proxy holen sie auf JBs Druck: die Merkmal-Ruhe hält sie nicht auf (Prüfung
+    Runde 1: vorher 503 für 10 Minuten), die 403-Drossel schon."""
+    s = _anmelden(merkmal_ruhe=False)
     z = _zugang()
     if not (s and z):
         return None

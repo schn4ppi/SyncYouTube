@@ -5762,16 +5762,20 @@ def _neustart_pruefen():
 _filme_sync_laeuft = threading.Lock()
 
 
-def _filme_abzug_anstossen():
+def _filme_abzug_anstossen(von_hand=False):
     """Startet EINEN Abzug im Hintergrund — oder gar keinen, wenn schon einer läuft.
 
     Die EINE Stelle für beide Auslöser (6-h-Ticker und Sync-Knopf). Vorher hatte
-    nur der Ticker eine Sperre; der Knopf startete blind einen zweiten Thread."""
+    nur der Ticker eine Sperre; der Knopf startete blind einen zweiten Thread.
+    `von_hand` (⟳ Abgleichen): die Merkmal-Ruhe gilt nur der Automatik — der
+    Knopf hebt sie auf (Prüfung Runde 1), die 403-Drossel nicht."""
     if not _filme_sync_laeuft.acquire(blocking=False):
         return False
 
     def lauf():
         try:
+            if von_hand:
+                filme.merkmal_ruhe_aufheben()
             filme.katalog_abzug()          # hält seinen Ausgang selbst fest
         finally:
             _filme_sync_laeuft.release()
@@ -6413,7 +6417,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Voll-Abzüge parallel gegen Renés Server — bei 4885 Titeln zehn
                 # 1000er-Seiten gleichzeitig — und beide endeten mit
                 # `fortschritt_nachreichen()`, das jede Meldung doppelt schickte.
-                if not _filme_abzug_anstossen():
+                if not _filme_abzug_anstossen(von_hand=True):
                     return _antwort(self, 200, {"gestartet": False,
                                                 "hinweis": "Ein Abzug läuft bereits."})
                 return _antwort(self, 200, {"gestartet": True})

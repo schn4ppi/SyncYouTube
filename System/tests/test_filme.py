@@ -141,6 +141,7 @@ def _einrichten(tmp_path, monkeypatch):
     filme._sitzung.clear()
     filme._fehlversuch_ts = 0.0
     filme._anmelde_sperre_ts = 0.0         # Anmelde-Backoff nie zwischen Tests
+    filme._merkmal_ruhe_ts = 0.0
     monkeypatch.setattr(filme, "_zugang", lambda: {
         "url": "https://jelly.example", "benutzer": "JBK", "passwort": "pw"})
 
@@ -824,7 +825,7 @@ def test_nur_ein_abzug_gleichzeitig():
     assert "def _filme_abzug_anstossen" in quelle
     i = quelle.index('elif self.path == "/api/filme/sync"')
     block = quelle[i:i + 600]
-    assert "_filme_abzug_anstossen()" in block, "der Sync-Knopf umgeht die Sperre"
+    assert "_filme_abzug_anstossen(" in block, "der Sync-Knopf umgeht die Sperre"
     assert "threading.Thread(target=filme.katalog_abzug" not in quelle, \
         "es gibt noch einen ungesperrten Abzug-Start"
     # Ergebnis statt Schreibweise: der zweite Anstoß muss abgelehnt werden
