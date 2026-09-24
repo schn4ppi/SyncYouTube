@@ -8633,7 +8633,9 @@ function tvSerienPlay(){
   // ungesehene, sonst die allererste.
   const eps=(tvInfoDaten&&tvInfoDaten.eps)||[];
   const e=eps.find(x=>x.position_s>0&&!x.gesehen)||eps.find(x=>!x.gesehen)||eps[0];
-  if(e)filmePlay(e.id); else toast('🎬 Keine Folgen gefunden.');
+  // …an ihrer gemerkten Stelle, nach derselben Regel wie ⏮/⏭ (gesehen, ab 90 %
+  // oder bis 30 s = Anfang). Vorher startete der Knopf immer bei 0 (Nebenbefund 24.09.).
+  if(e)filmePlay(e.id,tvpLandePos(e)); else toast('🎬 Keine Folgen gefunden.');
 }
 async function tvMerk(id){
   try{
