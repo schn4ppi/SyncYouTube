@@ -7510,21 +7510,39 @@ function xfIstAudio(key){const x=libFind(key); return !!(x&&x.vorhanden&&((x.kat
 function starteCrossfade(cur, restSek){
   const ni=xfNaechsterIndex(); if(ni<0)return;
   const key=playerState.queue[ni]; if(!xfIstAudio(key))return;    // nur Audio in Audio überblenden
-  const dauer=Math.max(0.3, Math.min(crossfadeSek, restSek));
-  xfNext=new Audio('/media?id='+encodeURIComponent(key)); xfNext.volume=0; xfNext._ni=ni; xfNext._key=key;
-  xfNext.play().catch(()=>{});
-  const t0=performance.now();
+  // Die Restzeit ist Medienzeit, die Blende läuft in Wanduhrzeit: bei Tempo 2×
+  // endet der Titel nach der halben Zeit. Automix mit Dauer „aus" meint 6 s.
+  const rate=cur.playbackRate>0?cur.playbackRate:1;
+  const dauer=Math.max(0.3, Math.min(crossfadeSek||6, restSek)/rate);
+  const nx=new Audio('/media?id='+encodeURIComponent(key)); nx.volume=0; nx._ni=ni; nx._key=key;
+  nx.defaultPlaybackRate=rate; nx.playbackRate=rate;   // Nachfolger im selben Tempo (sonst Tempo-Sprung bei der Übernahme)
+  nx._xfAlt=cur; nx._xfT0=performance.now(); nx._xfDauer=dauer; nx._xfRate=rate; nx._xfP=0;
+  nx._xfRest0=(cur.duration-cur.currentTime)||restSek; // wirkliche Restzeit (Automix startet vor dem Fenster)
+  xfNext=nx;
+  nx.play().catch(()=>{});
   (function ramp(){                                    // aktuellen Titel aus-, nächsten einblenden
-    if(!xfNext)return;
-    const p=Math.min(1,(performance.now()-t0)/(dauer*1000));
-    if(vizGain){try{vizGain.gain.value=1-p;}catch(e){}} else {try{cur.volume=1-p;}catch(e){}}
-    try{xfNext.volume=p;}catch(e){}
-    if(p<1)requestAnimationFrame(ramp);
+    if(xfNext!==nx)return;                             // übernommen oder zurückgenommen
+    xfLautstaerke();
+    requestAnimationFrame(ramp);                       // weiter, solange der Nachfolger lebt: der Regler wirkt bis zur Übernahme
   })();
+}
+/* Lautstärke der laufenden Blende: Ziel ist IMMER die eingestellte Lautstärke
+   (plVol, jedes Mal frisch gelesen), nie 1,0. Läuft im Bildtakt UND im
+   timeupdate-Takt (uebergangTick) — im verdeckten Tab ruht requestAnimationFrame,
+   dann führt die Restzeit des alten Titels die Blende weiter. */
+function xfLautstaerke(){
+  const nx=xfNext; if(!nx||!nx._xfAlt)return;          // Gapless: nichts zu blenden
+  const cur=nx._xfAlt;
+  const pZeit=(performance.now()-nx._xfT0)/(nx._xfDauer*1000);
+  const pRest=cur.duration?((nx._xfRest0-(cur.duration-cur.currentTime))/nx._xfRate)/nx._xfDauer:0;
+  const p=nx._xfP=Math.min(1,Math.max(nx._xfP,pZeit,pRest||0));
+  const v=plVol/100;
+  if(vizGain){try{vizGain.gain.value=1-p;}catch(e){}} else {try{cur.volume=v*(1-p);}catch(e){}}
+  try{nx.volume=v*p;}catch(e){}
 }
 function xfUebernehmen(){                              // Titel-Ende: vorbereitetes Element übernehmen
   if(!xfNext)return false;
-  adoptEl=xfNext; xfNext=null; adoptEl.volume=1;
+  adoptEl=xfNext; xfNext=null; adoptEl.volume=plVol/100; adoptEl._xfAlt=null;
   if(adoptEl.paused)adoptEl.play().catch(()=>{});      // Gapless: gepuffertes Element startet SOFORT
   playerState.idx=adoptEl._ni;
   renderPlayerMedia(); return true;
@@ -7536,7 +7554,8 @@ function gaplessPreload(){                             // nächsten Titel nur PU
   xfNext.preload='auto'; xfNext._ni=ni; xfNext._key=key;
 }
 function uebergangTick(el){                            // ein Ticker für alle Übergangs-Arten
-  if(!el.duration||el._xf)return;
+  if(!el.duration)return;
+  if(el._xf){if(xfNext&&xfNext._xfAlt===el)xfLautstaerke(); return;}   // Blende läuft: auch ohne Bildtakt nachführen
   const rest=el.duration-el.currentTime;
   if(uebergang==='crossfade'&&crossfadeSek>0&&rest<=crossfadeSek){
     el._xf=true; starteCrossfade(el,rest);

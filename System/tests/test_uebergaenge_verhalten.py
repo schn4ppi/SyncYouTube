@@ -35,8 +35,9 @@ from test_medientasten_verhalten import (  # noqa: E402
 
 # Der Player-Kern, den diese Tests mit ausführen (echter Seiten-Code).
 KERN = ("aktKey", "queueIdxPassend", "playerAdvance", "xfAbbrechen", "xfNaechsterIndex",
-        "xfIstAudio", "starteCrossfade", "xfUebernehmen", "gaplessPreload", "uebergangTick",
-        "renderPlayerMedia", "sleepSetzen", "sleepAusloesen", "sleepLabel", "repeatCycle")
+        "xfIstAudio", "starteCrossfade", "xfLautstaerke", "xfUebernehmen", "gaplessPreload",
+        "uebergangTick", "renderPlayerMedia", "sleepSetzen", "sleepAusloesen", "sleepLabel",
+        "repeatCycle")
 
 UMGEBUNG = r"""
 let _T=0; const performance={now:()=>_T};                 // steuerbare Uhr
@@ -143,3 +144,113 @@ aus({bleibt, xfNext, nxSrc:nx.src, nxPaused:nx.paused, xf:el._xf, vol:r3(el.volu
     assert e["bleibt"] is True, "ein kleiner Sprung im Fenster bricht die Blende nicht ab"
     assert e["xfNext"] is None and e["nxSrc"] == "" and e["nxPaused"] is True
     assert e["xf"] is False and e["vol"] == 0.4
+
+
+# ------------------------------------------- Befund 1: Lautstärke der Blende
+# Vorher rampte der neue Titel absolut von 0 auf 1,0 (plVol nie gelesen) und
+# sprang bei der Übernahme auf plVol; ohne Web Audio sprang der ALTE Titel im
+# ersten Bild von plVol auf 1,0. Ziel jeder Rampe: die eingestellte Lautstärke.
+
+def test_crossfade_haelt_die_eingestellte_lautstaerke(tmp_path):
+    q = _pc()
+    ohne, mit = _lauf(tmp_path, *_kern(q), r"""
+for(const mitGain of [false,true]){
+  xfNext=null; vizGain=mitGain?{gain:{value:1}}:null;
+  const el=starte(0); el.currentTime=96;               // Rest 4 s = crossfadeSek
+  feuer(el,'timeupdate');
+  const nx=xfNext; let maxNeu=nx.volume, maxAlt=el.volume, mitte=null;
+  for(let i=1;i<=8;i++){bild(500); maxNeu=Math.max(maxNeu,nx.volume); maxAlt=Math.max(maxAlt,el.volume);
+    if(i===4)mitte={neu:r3(nx.volume),alt:r3(el.volume),gain:vizGain&&r3(vizGain.gain.value)};}
+  const ende={neu:r3(nx.volume),alt:r3(el.volume),gain:vizGain&&r3(vizGain.gain.value)};
+  el.ended=true; feuer(el,'ended');
+  aus({mitGain, maxNeu:r3(maxNeu), maxAlt:r3(maxAlt), mitte, ende,
+       uebernommen:_els['pl-el']===nx, vol:r3(nx.volume)});
+}
+""")
+    assert ohne["maxNeu"] <= 0.4 and ohne["ende"]["neu"] == 0.4, ohne
+    assert ohne["maxAlt"] <= 0.4, "ohne Web Audio darf der alte Titel nicht erst auf 100 % springen"
+    assert ohne["mitte"] == {"neu": 0.2, "alt": 0.2, "gain": None}, ohne
+    assert ohne["ende"]["alt"] == 0 and ohne["uebernommen"] and ohne["vol"] == 0.4, ohne
+    assert mit["maxAlt"] == 0.4 and mit["mitte"] == {"neu": 0.2, "alt": 0.4, "gain": 0.5}, mit
+    assert mit["ende"] == {"neu": 0.4, "alt": 0.4, "gain": 0} and mit["maxNeu"] <= 0.4, mit
+
+
+def test_crossfade_folgt_der_lautstaerke_bis_zur_uebernahme(tmp_path):
+    """Regler/Pfeiltaste während der Blende UND nach ihrem Ende (Automix
+    blendet bis zu 16 s vor dem Titelende): plbVol erreicht nur pl-el, also
+    den alten, stummen Titel — die Rampe muss plVol weiter nachführen."""
+    q = _pc()
+    (e,) = _lauf(tmp_path, *_kern(q), r"""
+const el=starte(0); el.currentTime=96; feuer(el,'timeupdate'); const nx=xfNext;
+for(let i=0;i<4;i++)bild(500);                          // p = 0,5
+plVol=80; bild(500);                                   // p = 0,625
+const waehrend=r3(nx.volume);
+bild(500); bild(500); bild(500);                       // p = 1: Blende fertig, Titel läuft noch
+plVol=20; bild(16);
+aus({waehrend, danach:r3(nx.volume), alt:r3(el.volume)});
+""")
+    assert e == {"waehrend": 0.5, "danach": 0.2, "alt": 0}, e
+
+
+def test_crossfade_mit_tempo_endet_mit_dem_titel(tmp_path):
+    """Die Restzeit ist Medienzeit, die Rampe läuft in Wanduhrzeit: bei 2×
+    endet der Titel nach der halben Zeit. Der Nachfolger läuft im selben
+    Tempo ein (sonst springt das Tempo bei der Übernahme)."""
+    q = _pc()
+    zwei, halb = _lauf(tmp_path, *_kern(q), r"""
+for(const rate of [2,0.5]){
+  xfNext=null;
+  const el=starte(0); el.playbackRate=rate; el.currentTime=96; feuer(el,'timeupdate');
+  const nx=xfNext;
+  for(let i=0;i<4;i++)bild(500);                        // 2 s Wanduhr
+  aus({rate, neu:r3(nx.volume), alt:r3(el.volume), tempo:nx.playbackRate, grund:nx.defaultPlaybackRate});
+}
+""")
+    assert zwei == {"rate": 2, "neu": 0.4, "alt": 0, "tempo": 2, "grund": 2}, zwei
+    assert halb == {"rate": 0.5, "neu": 0.1, "alt": 0.3, "tempo": 0.5, "grund": 0.5}, halb
+
+
+def test_crossfade_im_hintergrund_folgt_der_restzeit(tmp_path):
+    """Verdeckter Tab: requestAnimationFrame ruht, timeupdate läuft weiter.
+    Ohne Nachführung im timeupdate-Takt spielte der neue Titel stumm und
+    setzte erst bei der Übernahme mitten im Lied ein."""
+    q = _pc()
+    eins, zwei = _lauf(tmp_path, *_kern(q), r"""
+for(const rate of [1,2]){
+  xfNext=null;
+  const el=starte(0); el.playbackRate=rate; el.currentTime=96; feuer(el,'timeupdate');
+  const nx=xfNext, stufen=[];                           // KEIN bild(): das Bild ruht
+  for(const t of [97,98,99]){el.currentTime=t; feuer(el,'timeupdate'); stufen.push(r3(nx.volume));}
+  aus({rate, stufen, alt:r3(el.volume)});
+}
+""")
+    assert eins == {"rate": 1, "stufen": [0.1, 0.2, 0.3], "alt": 0.1}, eins
+    # Bei 2× dauert die Blende 2 s Wanduhr für 4 s Medienzeit: nach 1 s
+    # Medienzeit (0,5 s Wanduhr) ist sie zu einem Viertel durch — wie bei 1×.
+    assert zwei == {"rate": 2, "stufen": [0.1, 0.2, 0.3], "alt": 0.1}, zwei
+
+
+def test_gapless_startet_mit_der_eingestellten_lautstaerke(tmp_path):
+    q = _pc()
+    (e,) = _lauf(tmp_path, *_kern(q), r"""
+uebergang='gapless';
+const el=starte(0); el.currentTime=90; feuer(el,'timeupdate');
+const nx=xfNext; let beimStart=null; const p0=nx.play;
+nx.play=function(){beimStart=r3(this.volume); return p0.call(this);};
+el.ended=true; feuer(el,'ended');
+aus({beimStart, uebernommen:_els['pl-el']===nx});
+""")
+    assert e == {"beimStart": 0.4, "uebernommen": True}, e
+
+
+def test_automix_ohne_ueberblenddauer_blendet_sechs_sekunden(tmp_path):
+    """Überblend-Dauer „aus" (0): Automix meint 6 s (crossfadeSek||6), die
+    Rampe rechnete aber mit 0 und blendete in 0,3 s."""
+    q = _pc()
+    (e,) = _lauf(tmp_path, *_kern(q), r"""
+uebergang='automix'; crossfadeSek=0; vizGain={gain:{value:1}};
+const el=starte(0); el.currentTime=95; feuer(el,'timeupdate');   // Rest 5 s
+bild(1000);
+aus({gain:r3(vizGain.gain.value), laeuft:!!xfNext});
+""")
+    assert e == {"gain": 0.8, "laeuft": True}, e
