@@ -46,7 +46,7 @@ def test_gedaempfte_farbe_ist_eine_variable_mit_tag_fassung():
     assert "--gedaempft:#8a7d74" in root.replace(" ", "")
     hell = re.findall(r"html\.light\{([^}]*)\}", stil)
     assert any("--gedaempft:#7a6e64" in h.replace(" ", "") for h in hell), \
-        "der Tag-Modus braucht seine eigene gedämpfte Farbe (wie .info im Tag-Modus)"
+        "der Tag-Modus braucht seine eigene gedämpfte Farbe (wie #layoutbar im Tag-Modus)"
 
 
 # ------------------------------------------------------------ Untermenüs

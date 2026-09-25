@@ -96,7 +96,7 @@ _HTML_ROH = """<!doctype html>
 :root{--pille-h:24px;--feld-h:32px;--akz:#c9952b;--akz2:#e0b878;--akzbg:#2a2016;--head:#d67756;--bg:#141110;--panel:#1c1814;--panelln:#2a2522;--gedaempft:#8a7d74}
 /* Gedämpfte Textfarbe für Inline-Stile im Markup und in erzeugtem HTML (JB-Entscheid 7a
    Punkt 8): Inline erreicht keine Regel des Tag-Modus, die Variable schon. Im Tag-Modus
-   derselbe Ton wie .info und #layoutbar dort. */
+   derselbe Ton wie #layoutbar dort. */
 html.light{--gedaempft:#7a6e64}
 html.theme-hacker{--akz:#37f000;--akz2:#8dff6a;--akzbg:#0f2410;--head:#37f000;--bg:#060a06;--panel:#0b140b;--panelln:#18391b}
 html.theme-neon{--akz:#ff3ad6;--akz2:#79f5ff;--akzbg:#251236;--head:#ff3ad6;--bg:#0a0812;--panel:#140f22;--panelln:#2c2047}
@@ -173,7 +173,6 @@ body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
    hängt und nicht am Bildschirm (die Bibliothek ist ein andockbares Panel). */
 .libbar{container-type:inline-size}
 @container (max-width: 560px){
-  .plbar .btn .btxt,.libbar .btn .btxt{display:none}      /* nur noch Symbole */
   .plbar span:first-child{display:none}                    /* das Wort „Playlist:" */
 }
 @container (max-width: 430px){
@@ -668,7 +667,6 @@ html.light .legrow{color:#4a3f38}
   font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap;touch-action:none}
 .ptab.an{background:var(--akzbg);border-color:#6b4a2a;color:var(--akz2);font-weight:600}
 .ptab:hover{color:var(--akz)}
-.panel-grip{color:#6a5c52;font-size:13px;padding:0 5px;cursor:grab;letter-spacing:-2px}
 .panel-menu{flex:none;width:26px;height:22px;border-radius:6px;border:1px solid #3a332e;background:var(--panel);
   color:#a99a90;cursor:pointer;font-size:14px;line-height:1;padding:0}
 .panel-menu:hover{border-color:var(--akz);color:var(--akz2)}
@@ -805,23 +803,8 @@ select,input[type=text]{background:#171310;border:1px solid #3a332e;border-radiu
 .chip{padding:3px 11px;border-radius:999px;font-size:12px;border:1px solid #3a332e;background:#171310;color:#d7c7bd}
 .chip b{font-weight:600}
 .chip.laeuft b{color:#e6c34a}.chip.fertig b{color:#6fcf7f}.chip.fehler b{color:#e08a6a}
-.eintrag{padding:10px 0;border-bottom:1px solid #241f1b}
-.eintrag:last-child{border-bottom:0}
-.kopf{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
 .titel{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.pill{flex:none;padding:1px 9px;border-radius:999px;font-size:11px;border:1px solid #3a332e;color:#9aa}
-.pill.laeuft{color:#e6c34a;border-color:#5a4a2f}
-.pill.fertig{color:#6fcf7f;border-color:#2f5a34}
-.pill.fehler{color:#e08a6a;border-color:#6b3a2f}
-.pill.pausiert{color:#f0a35e;border-color:#6b4a2a}
-.pill.uebersprungen{color:#9ec49a;border-color:#3f5a44}
-.balken{height:7px;background:#241f1b;border-radius:99px;margin:8px 0 6px;overflow:hidden}
-.balken i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--head),var(--akz));transition:width .6s}
-.balken.fertig i{background:#3f7a48}
-.info{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;color:#8a7d74}
-.info .fehltext{color:#e08a6a;white-space:normal}
 .aktionen{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
-.qtag{font-size:11px;color:var(--akz);border:1px solid #4a3f2a;border-radius:6px;padding:0 6px;flex:none}
 
 /* ---- Warteschlange: eine Zeile pro Download, ausklappbar (Terminal-Look) ---- */
 .qline{display:flex;align-items:center;gap:8px;font-family:Consolas,"Courier New",monospace;font-size:12.5px;
@@ -840,9 +823,6 @@ select,input[type=text]{background:#171310;border:1px solid #3a332e;border-radiu
 .qdinfo{margin-bottom:5px;white-space:normal;word-break:break-word}
 .qdinfo .fehltext{color:#e08a6a}
 .leer{color:#6a5c52;font-size:13px;text-align:center;padding:12px 0}
-details.einst{margin-bottom:14px}
-details.einst summary{cursor:pointer;color:#8a7d74;font-size:13px;user-select:none}
-details.einst summary:hover{color:var(--akz)}
 .einstgrid{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;margin-top:10px;font-size:13px}
 .hinweis{font-size:11.5px;color:#6a5c52;line-height:1.5;margin-top:10px}
 .kopfzeile{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
@@ -1353,7 +1333,7 @@ body.embed.plq-extern #view-player>.card{flex:1 1 auto;min-height:0}
 body.embed.plq-extern #view-player .card:not(.pl-horizontal) .pl-media{flex:1 1 auto;max-height:none;min-height:0}
 /* Zu-klein-Verhalten (JB 14.07., Muster Video.js/Media Chrome/VLC): Knöpfe haben
    Vorrang — die Videofläche gibt zuerst nach, dann fallen Playlist/Titel weg,
-   und in der Video-Leiste verschwinden Sekundär-Knöpfe GESTUFT (bo3→bo2→bo1);
+   und in der Video-Leiste verschwinden Sekundär-Knöpfe GESTUFT (bo3→bo2);
    alles Ausgeblendete bleibt übers Rechtsklick-Menü erreichbar. */
 @container plcard (max-height:330px){
   /* #view-player erhöht die Spezifität — die Basisregel .pl-queue{display:flex}
@@ -1369,11 +1349,11 @@ body.embed.plq-extern #view-player .card:not(.pl-horizontal) .pl-media{flex:1 1 
 }
 /* Stufen pixel-genau vermessen (14.07.): volle Leiste braucht 537px, ohne
    YouTube-TEXT 486, ohne Stufe 3 343, ohne Stufe 2 151 — Schwellen knapp
-   darüber, damit so viel wie möglich sichtbar bleibt (JB: „Auge isst mit"). */
-@container plmedia (max-width:548px){ .pl-bar .bo-yttxt{display:none} }
+   darüber, damit so viel wie möglich sichtbar bleibt (JB: „Auge isst mit");
+   den YouTube-Text in der Leiste gibt es nicht mehr. */
 @container plmedia (max-width:496px){ .pl-bar .bo3{display:none} }
 @container plmedia (max-width:353px){ .pl-bar .bo2{display:none} }
-@container plmedia (max-width:161px){ .pl-bar .bo1,.pl-bar .pl-btime{display:none} }
+@container plmedia (max-width:161px){ .pl-bar .pl-btime{display:none} }
 .pl-leer{color:#6a5c52;font-size:13px;text-align:center;padding:24px}
 .pl-titel{font-weight:600;font-size:14px;margin:10px 0 6px;flex:none}
 .pl-ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;flex:none}
@@ -1467,8 +1447,6 @@ html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 .mp-vol{margin-left:auto;color:#8a7d74}
 .mp-vol .pl-bvol{accent-color:var(--akz)}
 .mp-yt svg{width:20px;height:20px}
-.pl-byt{display:inline-flex;align-items:center;gap:5px}
-.pl-byt svg{width:15px;height:15px;fill:currentColor;display:block}
 .muted2{font-size:12px;color:#8a7d74}
 .pl-queue{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;flex:0 1 auto;min-height:0}
 /* flex:none ist PFLICHT: sonst schrumpfen viele Einträge (z.B. 40 vom Radio)
@@ -1485,13 +1463,11 @@ html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 /* ---- Tag-Modus (hell) ---- */
 html.light body{background:#f4efe9;color:#2a2320}
 html.light h1,html.light .card h2{color:#b5502a}
-html.light .info,html.light details.einst summary,
 html.light #layoutbar{color:#7a6e64}
 html.light .card,html.light .panel{background:#fff;border-color:#e6ddd3}
 html.light .panel-head{background:#f3ede7;border-color:#e6ddd3}
 html.light .ptab{color:#8a7d74}
 html.light .ptab.an{background:#f3e7d6;border-color:#d8b98a;color:#8a5a1e}
-html.light .panel-grip{border-color:#b8ab9f;color:#b8ab9f}
 html.light .panel-body .card{background:transparent}
 html.light textarea,html.light select,html.light input[type=text],
 html.light .btn,html.light .iconbtn,html.light .chip,
@@ -1503,15 +1479,6 @@ html.light .cmd-count .tip{background:#fff;border-color:#e6ddd3;box-shadow:0 8px
 html.light .tiprow{color:#5a4f47}html.light .tiprow b{color:#2a2320}
 html.light .tiptitel,html.light .chk{color:#8a7d74}html.light .tipsep{background:#e6ddd3}
 html.light .chip{color:#5a4f47}
-html.light .eintrag{border-color:#ece3d9}
-html.light .balken{background:#eadfd4}
-html.light .pill{color:#6f635b;border-color:#d9cfc4}
-html.light .pill.fertig{color:#2e8b47;border-color:#a9d8b4}
-html.light .pill.laeuft{color:#a8841a;border-color:#e0cf8a}
-html.light .pill.fehler{color:#c0492a;border-color:#e6b3a3}
-html.light .pill.pausiert{color:#b96a1e;border-color:#e6c69a}
-html.light .pill.uebersprungen{color:#3f7a44;border-color:#a9d8b4}
-html.light .qtag{color:#9a6a12;border-color:#d8b98a}
 html.light .kachel{background:#fdfaf6;border-color:#e6ddd3}
 html.light .thumbwrap,html.light .lthumb{background:#efe7de}
 html.light .thumbwrap.platzhalter::after{color:#c9bcae}
@@ -1530,8 +1497,6 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
 @container (max-width:270px){
   .card h2{font-size:12px}
   .qline{font-size:11.5px;gap:6px}
-  .balken{height:4px;margin:6px 0 5px}
-  .info{font-size:11px}
   .aktionen .btn.mini{padding:2px 6px;font-size:11px}
   .kacheln{grid-template-columns:1fr}
   .einstgrid{grid-template-columns:1fr;gap:3px 0}
@@ -1541,8 +1506,6 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
 @container (max-width:200px){
   .qbar{display:none}
   .qrechts{font-size:10px}
-  .info{display:none}
-  .kopf .qtag{display:none}
   .chip{padding:2px 8px;font-size:11px}
   .card h2{font-size:11px}
 }
