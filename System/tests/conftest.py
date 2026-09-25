@@ -65,9 +65,12 @@ System-Ordner, acht Tests legten Downloads\\ an. Jetzt:
     lesend), auch im Ziel der Junction System\\bin. `shutil.copy2` meldet
     unter Windows nur `_winapi.CopyFile2` und SQLite nur `sqlite3.connect`
     (Nacharbeit 25.09.: beide schrieben vorher still).
-    Frei bleiben `__pycache__`, `.pytest_cache` sowie basetemp und %TEMP%,
-    falls sie im Programmordner liegen. Den Papierkorb (ctypes, ohne
-    Audit-Ereignis) sperrt eine Hülle um `youtube_app._in_papierkorb`.
+    Frei bleiben `__pycache__`, `.pytest_cache` und %TEMP%, falls es im
+    Programmordner liegt. Ein `--basetemp` im Programmordner lehnt die
+    conftest vor dem Lauf ab (pytest räumt basetemp komplett ab; die Wache sah
+    das nicht, weil pytest dafür das Langpfad-Präfix `\\\\?\\` nimmt). Den
+    Papierkorb (ctypes, ohne Audit-Ereignis) sperrt eine Hülle um
+    `youtube_app._in_papierkorb`.
 Grenzen: Der Import der App LIEST die echten Dateien weiterhin einmal (nur
 lesend; schreiben würde er nur eine defekte Datei beiseite, und das scheitert
 jetzt laut). Kindprozesse sieht der Hook nicht, ebenso wenig direkte
@@ -109,11 +112,19 @@ PROGRAMM_DIR = os.path.dirname(MODUL_DIR)      # System\ + Downloads\: im Betrie
 # Vor dem Import der App eingehängt: auch ein Schreiben beim Import scheitert laut.
 
 def _norm(pfad):
+    """normcase + abspath, ohne das Langpfad-Präfix `\\\\?\\`: pytest räumt
+    basetemp damit ab (rm_rf), und vorher lief jeder so geschriebene Pfad an
+    der Wache vorbei (Nacharbeit 25.09.)."""
     try:
         pfad = os.fsdecode(os.fspath(pfad))
     except TypeError:
         return None
-    return os.path.normcase(os.path.abspath(pfad))
+    pfad = os.path.normcase(os.path.abspath(pfad))
+    if pfad.startswith("\\\\?\\unc\\"):
+        return "\\\\" + pfad[8:]
+    if pfad.startswith(("\\\\?\\", "\\\\.\\")):
+        return pfad[4:]
+    return pfad
 
 
 def _unter(pfad, wurzel):
@@ -128,8 +139,8 @@ GESCHUETZT = list(dict.fromkeys(
     _norm(p) for p in [PROGRAMM_DIR, os.path.realpath(PROGRAMM_DIR),
                        os.path.realpath(os.path.join(MODUL_DIR, "bin"))]
     + [z for z in os.environ.get("SYNCYT_WACHE_ZUSATZ", "").split(os.pathsep) if z]))
-# Ausnahmen gelten nur, wenn sie IM geschützten Ort liegen; basetemp kommt zu
-# Sitzungsbeginn dazu.
+# Ausnahmen gelten nur, wenn sie IM geschützten Ort liegen. basetemp gehört
+# bewusst nicht dazu (pytest_configure lehnt ihn dort ab).
 _ERLAUBT = [_norm(tempfile.gettempdir())]
 _FREIE_ORDNER = {"__pycache__", ".pytest_cache"}
 
@@ -249,6 +260,20 @@ def _wache(ereignis, args):
 
 
 sys.addaudithook(_wache)
+
+
+def pytest_configure(config):
+    """basetemp im Programmordner wird VOR dem Lauf abgelehnt: pytest räumt
+    einen vorhandenen basetemp-Ordner komplett ab (rm_rf), aus System\\ wäre
+    `--basetemp=..\\Downloads` sonst JBs Download-Ordner. Freigeben lässt er
+    sich darum nicht; die Wache finge es sonst erst beim ersten Test ab, mit
+    der irreführenden Meldung „Test schrieb in den echten Programmordner“."""
+    basetemp = config.option.basetemp
+    if basetemp and geschuetzt(os.path.abspath(basetemp)):
+        raise pytest.UsageError(
+            f"--basetemp={basetemp} liegt im Programmordner ({os.path.abspath(basetemp)}). "
+            "pytest räumt diesen Ordner vor dem Lauf komplett ab; basetemp muss außerhalb "
+            "des Programmordners liegen, etwa unter %TEMP%.")
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -471,7 +496,6 @@ def _daten_der_sitzung(tmp_path_factory):
     """Zwischen den Tests zeigt alles in einen Sitzungs-Ordner: ein Faden, der
     seinen Test überlebt, erbt nach dem Zurücksetzen nie die echten Pfade.
     Bewusst ohne Rückweg am Sitzungsende, aus demselben Grund."""
-    _ERLAUBT.append(_norm(tmp_path_factory.getbasetemp()))
     ziel = str(tmp_path_factory.mktemp("daten_sitzung"))
     _daten_umlegen(setattr, ziel)
     for modul in (filme,) + _NEBEN_MODULE:

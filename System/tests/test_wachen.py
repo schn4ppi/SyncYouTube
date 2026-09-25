@@ -200,10 +200,10 @@ PROGRAMM = os.path.dirname(MODUL_DIR)       # System\ und Downloads\: im Betrieb
 PROBE = os.path.join(MODUL_DIR, "__wache_probe__")
 
 
-def _kindlauf(probe, tmp_path, **env):
+def _kindlauf(probe, tmp_path, basetemp=None, **env):
     return subprocess.run(
         [sys.executable, "-m", "pytest", str(probe), "-q", "-p", "no:cacheprovider", "-p", "conftest",
-         "--rootdir", str(tmp_path), "--basetemp", str(tmp_path / "kind")],
+         "--rootdir", str(tmp_path), "--basetemp", str(basetemp or tmp_path / "kind")],
         cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=180, env=dict(os.environ, PYTHONPATH=HIER, PYTHONIOENCODING="utf-8", **env))
 
@@ -279,7 +279,10 @@ def test_schreiben_in_den_programmordner_scheitert_laut(request, tmp_path):
                 lambda: os.makedirs(MODUL_DIR, exist_ok=True),
                 lambda: shutil.copy2(str(quelle), os.path.join(PROBE, "titel.mp3")),
                 lambda: sqlite3.connect(os.path.join(PROBE, "neu.db")),
-                lambda: _winapi.CreateJunction(str(tmp_path), os.path.join(PROBE, "verweis"))):
+                lambda: _winapi.CreateJunction(str(tmp_path), os.path.join(PROBE, "verweis")),
+                # Langpfad-Präfix: so räumt pytest basetemp ab (rm_rf)
+                lambda: shutil.rmtree("\\\\?\\" + PROBE),
+                lambda: open("\\\\?\\" + os.path.join(PROBE, "config.json"), "w", encoding="utf-8")):
         with pytest.raises(pytest.fail.Exception):
             weg()
     assert quelle.exists(), "die Quelle ist trotz Sperre weg"
@@ -308,7 +311,7 @@ def test_schreiben_in_den_programmordner_scheitert_laut(request, tmp_path):
                            (os.path.join(MODUL_DIR, ".pytest_cache", "v", "x"), False)):
         assert conftest.geschuetzt(pfad) is gesperrt, pfad
     zugriffe = request.getfixturevalue("_daten_wache")
-    assert len(zugriffe) == 8 and all("Programmordner" in z for z in zugriffe), zugriffe
+    assert len(zugriffe) == 10 and all("Programmordner" in z for z in zugriffe), zugriffe
     zugriffe.clear()                                       # der Alarm war hier gewollt
 
 
@@ -336,6 +339,26 @@ def test_schreiben_im_faden_macht_den_test_rot(tmp_path):
     assert not (echt / "config.json").exists(), "trotz Wache geschrieben"
     assert lauf.returncode != 0 and "echten Programmordner" in aus, aus[-2000:]
     assert "1 passed, 1 error" in aus, aus[-2000:]
+
+
+def test_basetemp_im_programmordner_wird_vor_dem_lauf_abgelehnt(tmp_path):
+    """pytest räumt einen vorhandenen --basetemp-Ordner vor dem Lauf komplett
+    ab (rm_rf). Läge er im Programmordner (etwa `--basetemp=..\\Downloads` aus
+    System\\), wären das JBs Daten; freigeben lässt er sich darum nicht.
+    Vorher fing die Wache das Abräumen zwar ab, aber erst beim ersten Test und
+    mit der irreführenden Meldung „Test schrieb in den echten Programmordner“.
+    Jetzt lehnt die conftest den Lauf vorher mit einer klaren Meldung ab.
+    Geprüft an einem Ordner in tmp_path, der den Programmordner spielt."""
+    echt = tmp_path / "echt"
+    (echt / "bt").mkdir(parents=True)
+    (echt / "bt" / "daten.json").write_text("{}", encoding="utf-8")
+    probe = tmp_path / "test_probe_basetemp.py"
+    probe.write_text("def test_nichts(tmp_path):\n    pass\n", encoding="utf-8")
+    lauf = _kindlauf(probe, tmp_path, basetemp=echt / "bt", SYNCYT_WACHE_ZUSATZ=str(echt))
+    aus = lauf.stdout + lauf.stderr
+    assert (echt / "bt" / "daten.json").exists(), "pytest hat den basetemp-Ordner abgeräumt"
+    assert lauf.returncode == 4, aus[-2000:]                       # ExitCode.USAGE_ERROR
+    assert "basetemp" in aus and "außerhalb des Programmordners" in aus, aus[-2000:]
 
 
 def test_netz_ist_fuer_live_tv_geo_vpn_und_update_gesperrt(request):
