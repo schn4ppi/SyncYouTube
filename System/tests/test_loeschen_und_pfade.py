@@ -178,7 +178,7 @@ def test_abo_delete_abo_mit_fremder_id_form_wird_entfernt_ohne_datei(tmp_path, m
 
 def _dl(tmp_path, monkeypatch):
     dl = tmp_path / "dl"
-    (dl / "Cover").mkdir(parents=True)
+    (dl / "Cover").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(app, "ziel_ordner", lambda: str(dl))
     return dl
 
@@ -313,3 +313,141 @@ def test_untertitel_nachladen_gueltige_id_bleibt(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_ydl", Ydl)
     app.untertitel_nachladen("abcdef12345|beste")
     assert ziele == [os.path.join(str(dl / "Untertitel"), "abcdef12345") + ".%(ext)s"]
+
+
+# ---------------------------------------------------------------- S6: kein harter Lösch-Rückfall
+
+def _bibliothek(tmp_path, monkeypatch, name="Titel [abcdef12345].mp3", ort=None):
+    dl = _dl(tmp_path, monkeypatch)
+    ordner = ort or (dl / "MP3")
+    ordner.mkdir(parents=True, exist_ok=True)
+    datei = ordner / name
+    datei.write_bytes(b"MUSIK")
+    key = "abcdef12345|audio"
+    app._geladen[key] = {"name": name, "pfad": str(datei)}
+    app._playlists.append({"id": "pl1", "name": "P", "items": [key]})
+    return dl, datei, key
+
+
+def _meldungen():
+    try:
+        with open(app.FEHLER_LOG, encoding="utf-8") as f:
+            return [z for z in f.read().splitlines() if '"papierkorb"' in z]
+    except OSError:
+        return []
+
+
+def test_papierkorb_klappt_nichts_weiter(tmp_path, monkeypatch, korb, entfernt):
+    dl, datei, key = _bibliothek(tmp_path, monkeypatch)
+    app._datei_loeschen(key)
+    assert korb == [str(datei)] and not entfernt
+    assert not (dl / "_Papierkorb").exists()
+    assert app._playlists[-1]["items"] == []
+    assert not _meldungen()
+
+
+def test_papierkorb_scheitert_rueckholbar_verschoben_nie_geloescht(tmp_path, monkeypatch,
+                                                                    korb, entfernt):
+    """Vorher: scheiterte der Papierkorb, löschte `_datei_loeschen` endgültig
+    (os.remove). Jetzt wandert die Datei in `_Papierkorb` im Download-Ordner
+    (derselbe Datenträger), und das wird gemeldet."""
+    korb.klappt = False
+    dl, datei, key = _bibliothek(tmp_path, monkeypatch)
+    app._datei_loeschen(key)
+    assert not entfernt, f"endgültig gelöscht per os.remove: {entfernt}"
+    gerettet = dl / "_Papierkorb" / datei.name
+    assert gerettet.read_bytes() == b"MUSIK", "Datei nicht rückholbar im _Papierkorb"
+    assert not datei.exists()
+    assert app._playlists[-1]["items"] == []
+    assert len(_meldungen()) == 1 and datei.name in _meldungen()[0]
+
+
+def test_papierkorb_meldet_erfolg_datei_liegt_noch(tmp_path, monkeypatch, entfernt):
+    """Meldet der Papierkorb Erfolg, liegt die Datei aber noch da (abgebrochen),
+    greift derselbe Rückfall."""
+    monkeypatch.setattr(app, "_in_papierkorb", lambda p: True)
+    dl, datei, key = _bibliothek(tmp_path, monkeypatch)
+    app._datei_loeschen(key)
+    assert (dl / "_Papierkorb" / datei.name).is_file() and not datei.exists()
+    assert not entfernt
+
+
+def test_rueckfall_ueberschreibt_nie(tmp_path, monkeypatch, korb, entfernt):
+    korb.klappt = False
+    dl, datei, key = _bibliothek(tmp_path, monkeypatch)
+    (dl / "_Papierkorb").mkdir()
+    alt = dl / "_Papierkorb" / datei.name
+    alt.write_bytes(b"ALT")
+    app._datei_loeschen(key)
+    assert alt.read_bytes() == b"ALT"
+    assert (dl / "_Papierkorb" / "Titel [abcdef12345] (2).mp3").read_bytes() == b"MUSIK"
+
+
+def test_rueckfall_ausserhalb_des_download_ordners_neben_der_datei(tmp_path, monkeypatch,
+                                                                   korb, entfernt):
+    korb.klappt = False
+    _dl(tmp_path, monkeypatch)
+    dl, datei, key = _bibliothek(tmp_path, monkeypatch, ort=tmp_path / "anderswo")
+    app._datei_loeschen(key)
+    assert (tmp_path / "anderswo" / "_Papierkorb" / datei.name).is_file()
+    assert not entfernt
+
+
+def test_rueckfall_scheitert_datei_bleibt_und_wird_gemeldet(tmp_path, monkeypatch, korb, entfernt):
+    korb.klappt = False
+    dl, datei, key = _bibliothek(tmp_path, monkeypatch)
+
+    def kein_rename(*a, **k):
+        raise OSError("gesperrt")
+    monkeypatch.setattr(os, "rename", kein_rename)
+    monkeypatch.setattr(os, "replace", kein_rename)
+    app._datei_loeschen(key)
+    assert datei.read_bytes() == b"MUSIK" and not entfernt
+    assert len(_meldungen()) == 1
+
+
+def _rueckhol_welt(tmp_path, monkeypatch):
+    """Je eine Mediendatei in `_Papierkorb` und in einem `_entfernt` darunter,
+    alt genug für das Einsortieren (60-s-Regel)."""
+    dl = _dl(tmp_path, monkeypatch)
+    dateien = []
+    for ordner in (dl / "_Papierkorb", dl / "Stick" / "_entfernt"):
+        ordner.mkdir(parents=True)
+        d = ordner / "Weg [zzzzzz12345].mp3"
+        d.write_bytes(b"WEG")
+        os.utime(d, (1_000_000, 1_000_000))
+        dateien.append(d)
+    return dl, dateien
+
+
+def test_rueckhol_ordner_sind_vom_index_ausgenommen(tmp_path, monkeypatch):
+    _rueckhol_welt(tmp_path, monkeypatch)
+    assert "zzzzzz12345" not in app._datei_index()
+    assert app._finde_datei("https://www.youtube.com/watch?v=zzzzzz12345", {}) is None
+
+
+def test_rueckhol_ordner_sind_vom_import_ausgenommen(tmp_path, monkeypatch):
+    _rueckhol_welt(tmp_path, monkeypatch)
+    monkeypatch.setattr(app, "_sag", lambda *a, **k: None)
+    assert app.ordner_importieren() == 0
+    assert not any(k.startswith("zzzzzz12345") for k in app._geladen)
+
+
+def test_rueckhol_ordner_sind_vom_einsortieren_ausgenommen(tmp_path, monkeypatch):
+    dl, dateien = _rueckhol_welt(tmp_path, monkeypatch)
+    monkeypatch.setattr(app, "_sag", lambda *a, **k: None)
+    monkeypatch.setitem(app.CFG, "unterordner", True)
+    assert app.downloads_einsortieren() == 0
+    assert all(d.is_file() for d in dateien)
+
+
+def test_download_ordner_darf_selbst_so_heissen(tmp_path, monkeypatch):
+    """Nur Ordner UNTER dem Download-Ordner sind ausgenommen: liegt er selbst
+    in einem Ordner namens `_Papierkorb`, bleibt alles sichtbar."""
+    dl = tmp_path / "_Papierkorb" / "dl"
+    dl.mkdir(parents=True)
+    monkeypatch.setattr(app, "ziel_ordner", lambda: str(dl))
+    (dl / "Da [yyyyyy12345].mp3").write_bytes(b"DA")
+    assert "yyyyyy12345" in app._datei_index()
+    assert app._finde_datei("https://www.youtube.com/watch?v=yyyyyy12345", {}) == \
+        str(dl / "Da [yyyyyy12345].mp3")

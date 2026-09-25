@@ -1030,7 +1030,7 @@ def _datei_index():
     entstehen erst, wenn wirklich eine solche Datei auftaucht (Alltagskosten 0)."""
     idx = {}
     karten = None
-    for root, _, files in os.walk(ziel_ordner()):
+    for root, _, files in _walk_ohne_rueckhol(ziel_ordner()):
         for f in files:
             # NUR Mediendateien: die .vtt-Untertitel/.jpg-Cover NEBEN dem Video
             # dürfen den Index nie vergiften — sonst spielt /media eine
@@ -2298,7 +2298,7 @@ def untertitel_einsortieren():
     liegt am Ziel schon dieselbe Sprache, wandert die Kopie in den Papierkorb."""
     ziel = untertitel_ordner()
     n = 0
-    for wurzel, _, dateien in os.walk(ziel_ordner()):
+    for wurzel, _, dateien in _walk_ohne_rueckhol(ziel_ordner()):
         if os.path.normcase(wurzel) == os.path.normcase(ziel):
             continue                                  # den Zielordner selbst überspringen
         for d in dateien:
@@ -3503,16 +3503,89 @@ def _in_papierkorb(pfad):
         return False
 
 
+# Rückhol-Ordner (Gesamtprüfung S5/S6): was hier liegt, hat die App entfernt,
+# aber nicht gelöscht. Einsortieren, Import, Datei-Index und die Suche nach
+# schon Geladenem steigen nie hinein, sonst käme es als Bibliothek zurück.
+PAPIERKORB_ORDNER = "_Papierkorb"                     # Rückfall, wenn der Windows-Papierkorb scheitert
+ENTFERNT_ORDNER = "_entfernt"                         # im Sync-Ziel: aus der Playlist genommene Titel
+_RUECKHOL_ORDNER = {PAPIERKORB_ORDNER.lower(), ENTFERNT_ORDNER.lower()}
+
+
+def _walk_ohne_rueckhol(basis):
+    """os.walk ohne die Rückhol-Ordner (auch tiefer liegende)."""
+    for wurzel, dirs, dateien in os.walk(basis):
+        dirs[:] = [d for d in dirs if d.lower() not in _RUECKHOL_ORDNER]
+        yield wurzel, dirs, dateien
+
+
+def _im_rueckhol_ordner(pfad, basis):
+    """Liegt `pfad` unterhalb von `basis` in einem Rückhol-Ordner? Nur die
+    Teile unter `basis` zählen (der Download-Ordner selbst darf so heißen)."""
+    try:
+        rest = os.path.relpath(pfad, basis)
+    except ValueError:                                # anderes Laufwerk
+        return False
+    return any(t.lower() in _RUECKHOL_ORDNER for t in rest.split(os.sep)[:-1])
+
+
+def _rueckholbar_verschieben(pfad, ordner):
+    """Datei nach `ordner` verschieben, nie überschreiben (nummerierter Name;
+    os.rename scheitert unter Windows an einem vorhandenen Ziel). Gibt den
+    neuen Pfad zurück, OSError geht an den Aufrufer."""
+    os.makedirs(ordner, exist_ok=True)
+    stamm, ext = os.path.splitext(os.path.basename(pfad))
+    for n in range(1, 10_000):
+        neu = os.path.join(ordner, stamm + ext if n == 1 else f"{stamm} ({n}){ext}")
+        if os.path.lexists(neu):
+            continue
+        try:
+            os.rename(pfad, neu)
+            return neu
+        except FileExistsError:                       # im selben Augenblick entstanden
+            continue
+    raise OSError(f"kein freier Name in {ordner}")
+
+
+def _papierkorb_ordner(pfad):
+    """`_Papierkorb` im Download-Ordner, wenn die Datei darunter liegt, sonst
+    neben der Datei: beides derselbe Datenträger, also ein Umbenennen."""
+    basis = os.path.abspath(ziel_ordner())
+    p = os.path.abspath(pfad)
+    try:
+        drinnen = os.path.commonpath([basis, p]) == basis
+    except ValueError:                                # anderes Laufwerk
+        drinnen = False
+    return os.path.join(basis if drinnen else os.path.dirname(p), PAPIERKORB_ORDNER)
+
+
+def _rueckholbar_entfernen(pfad):
+    """Datei in den Windows-Papierkorb; scheitert der oder liegt die Datei
+    danach noch da, rückholbar in den Ordner `_Papierkorb` (S6). Nie
+    endgültig löschen (harte Regel 2), keinen Dialog öffnen (läuft auch in
+    Hintergrundfäden). Jeder Rückfall wird gemeldet (Konsole und
+    yt_fehler.jsonl). Rückgabe: "papierkorb", der neue Pfad oder "" (die
+    Datei bleibt, wo sie war)."""
+    if _in_papierkorb(pfad) and not os.path.lexists(pfad):
+        return "papierkorb"
+    try:
+        neu = _rueckholbar_verschieben(pfad, _papierkorb_ordner(pfad))
+    except OSError as e:
+        text = f"Papierkorb gescheitert, Datei bleibt liegen: {pfad} ({e})"
+        neu = ""
+    else:
+        text = f"Papierkorb gescheitert, rückholbar verschoben: {pfad} -> {neu}"
+    _sag(text)
+    fehler_merken("", text, "papierkorb", os.path.basename(pfad))
+    return neu
+
+
 def _datei_loeschen(key):
-    """Datei zu einem Key in den Papierkorb (Fallback: hart löschen) + aus allen
-    Playlists nehmen. Der Aufrufer entfernt den DB-Eintrag selbst."""
+    """Datei zu einem Key rückholbar entfernen (Papierkorb, Rückfall
+    `_Papierkorb`, s. _rueckholbar_entfernen) + aus allen Playlists nehmen.
+    Der Aufrufer entfernt den DB-Eintrag selbst."""
     pfad = _pfad_zu_key(key)
     if pfad and os.path.isfile(pfad):
-        if not _in_papierkorb(pfad):
-            try:
-                os.remove(pfad)
-            except OSError:
-                pass
+        _rueckholbar_entfernen(pfad)
     for pl in _playlists:
         pl["items"] = [x for x in pl.get("items", []) if x != key]
 
@@ -5013,7 +5086,7 @@ def downloads_einsortieren():
         basis = os.path.abspath(ziel_ordner())
         tabu = [os.path.abspath(p["sync_ordner"]) for p in _playlists if p.get("sync_ordner")]
         karten = _id_karten()                        # einmal bauen, je Datei nachschlagen
-        for wurzel, dirs, dateien in os.walk(basis):
+        for wurzel, dirs, dateien in _walk_ohne_rueckhol(basis):
             w = os.path.abspath(wurzel)
             if any(w == t or w.startswith(t + os.sep) for t in tabu):
                 dirs[:] = []
@@ -5068,7 +5141,7 @@ def ordner_importieren():
     neu = 0
     frisch = []                                      # Keys dieses Laufs (Auto-Umbenennen)
     karten = _id_karten()
-    for wurzel, _, dateien in os.walk(ziel_ordner()):
+    for wurzel, _, dateien in _walk_ohne_rueckhol(ziel_ordner()):
         for fn in dateien:
             if not fn.lower().endswith(AUDIO_EXT + VIDEO_EXT):
                 continue
@@ -5214,7 +5287,7 @@ def untertitel_aufraeumen():
     ziel = untertitel_ordner()
     vids, stems, legacy = set(), set(), []
     karten = _id_karten()
-    for wurzel, _, dateien in os.walk(ziel_ordner()):
+    for wurzel, _, dateien in _walk_ohne_rueckhol(ziel_ordner()):
         istziel = os.path.normcase(wurzel) == os.path.normcase(ziel)
         for d in dateien:
             p = os.path.join(wurzel, d)
@@ -5295,9 +5368,11 @@ def _finde_datei(url, e):
         if k and os.path.isfile(k):
             return k
     vid = _video_id(url)
-    muster = os.path.join(ziel_ordner(), "**", f"*[[]{glob.escape(vid)}[]]*")
+    basis = ziel_ordner()
+    muster = os.path.join(basis, "**", f"*[[]{glob.escape(vid)}[]]*")
     treffer = [p for p in glob.glob(muster, recursive=True)
-               if os.path.isfile(p) and p.lower().endswith(AUDIO_EXT + VIDEO_EXT)]
+               if os.path.isfile(p) and p.lower().endswith(AUDIO_EXT + VIDEO_EXT)
+               and not _im_rueckhol_ordner(p, basis)]
     return _datei_aus(treffer, e.get("qualitaet") or "")
 
 
