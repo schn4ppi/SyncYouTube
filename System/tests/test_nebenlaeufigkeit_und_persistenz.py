@@ -476,6 +476,29 @@ def test_aufloesen_laesst_einen_schon_uebernommenen_eintrag_in_ruhe(monkeypatch,
     assert app.Q.items == [platzhalter], "das späte Auflösen hat die Liste umgebaut"
 
 
+def test_spaete_sperre_beim_aufloesen_wird_auch_nach_der_uebernahme_vermerkt(monkeypatch):
+    """F3 lässt einen übernommenen Eintrag in Ruhe. Der Fehlerzweig kehrte dabei
+    aber schon vor dem Vermerk zurück: eine Sperre aus einem späten Auflösen
+    schaltete den Schutzschalter nicht ein und fehlte im Fehlerkanal."""
+    def antwort(url):
+        raise Exception(BOT)
+    attrappe = _aufloesen_vorbereiten(monkeypatch, antwort)
+    gemeldet = []
+    monkeypatch.setattr(app, "fehler_merken", lambda url, text, art="", *a, **k: gemeldet.append(art))
+    faden = _im_faden(app.aufloesen, _url(1), "beste")
+    try:
+        assert _warten(lambda: attrappe.laufend == 1)
+        platzhalter = app.Q.items[0]
+        _sechs_minuten_spaeter_heilen(monkeypatch)
+        assert app.Q.naechster() is platzhalter
+    finally:
+        attrappe.frei.set()
+        faden.join(20)
+    assert platzhalter["status"] == "laeuft", "der übernommene Eintrag bleibt in Ruhe (F3)"
+    assert app.youtube_gesperrt() > 0, "die späte Sperre schaltete den Schutzschalter nicht ein"
+    assert any("sperre" in a for a in gemeldet), f"keine Spur im Fehlerkanal: {gemeldet}"
+
+
 def test_aufloesen_fragt_youtube_nicht_mehr_wenn_der_platzhalter_weg_ist(monkeypatch):
     attrappe = _aufloesen_vorbereiten(monkeypatch)
     faeden = [threading.Thread(target=app.aufloesen, args=(_url(i), "beste"), daemon=True)

@@ -1166,6 +1166,9 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
         return
     if fehler is not None:
         voll = str(fehler)
+        # Sperre und Fehlerkanal immer, auch wenn der Eintrag derweil übernommen
+        # ist: eine späte Sperre muss die Nebenwege genauso pausieren.
+        fehler_merken(url, voll, "aufloesen" + (" / sperre" if youtube_sperre_vermerken(fehler) else ""))
         with Q.lock:
             if platzhalter.get("status") != "prueft":    # F3: derweil übernommen
                 return
@@ -1175,7 +1178,6 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
                 platzhalter["status"] = "wartend"    # Worker übernimmt die Geo-Kette
             else:
                 platzhalter["status"] = "fehler"
-        fehler_merken(url, voll, "aufloesen" + (" / sperre" if youtube_sperre_vermerken(fehler) else ""))
         Q.speichern()
         return
     _aufloesen_einreihen(platzhalter, info, url, qualitaet, ganze_liste, abo, ziel_playlist,
