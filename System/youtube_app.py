@@ -1178,6 +1178,44 @@ def _video_id(url):
 
 _geladen = _json_laden(GELADEN_PFAD, {})    # "videoid|qualitaet" -> {name, groesse, pfad, ts}
 
+# Die Bibliotheks-DB unter EINER Sperre (Gesamtprüfung F6). Einträge kommen und
+# gehen nur unter _io_lock, jeder Durchlauf geht über einen Schnappschuss, der
+# unter derselben Sperre entsteht. Gespeichert wird über _geladen_speichern: der
+# Text entsteht unter der Sperre, geschrieben wird außerhalb, und ein älterer
+# Stand überschreibt nie einen neueren. Vorher trug geladen_merken ohne Sperre
+# ein, während ein anderer Faden json.dump über das lebende Dict laufen ließ:
+# „dictionary changed size during iteration“, und ein fertiger Download galt
+# als Fehlschlag (gemessen: 13 bis 16 von 30 Speichervorgängen).
+_geladen_schreib_lock = threading.Lock()
+_geladen_stand = {"erzeugt": 0, "geschrieben": 0}
+
+
+def _geladen_schnappschuss():
+    """(Schlüssel, Eintrag)-Paare der Bibliothek, unter der Sperre gezogen. Die
+    Einträge sind die lebenden Dicts: Felder ändern wirkt, Einfügen/Entfernen
+    im Schnappschuss nicht."""
+    with _io_lock:
+        return list(_geladen.items())
+
+
+def _geladen_schluessel():
+    with _io_lock:
+        return list(_geladen)
+
+
+def _geladen_speichern():
+    """Die Bibliothek schreiben. OSError wie `_json_speichern`."""
+    with _io_lock:
+        text = json.dumps(_geladen, ensure_ascii=False)
+        _geladen_stand["erzeugt"] += 1
+        nr = _geladen_stand["erzeugt"]
+    daten = json.loads(text)
+    with _geladen_schreib_lock:
+        if nr < _geladen_stand["geschrieben"]:
+            return                                    # ein neuerer Stand liegt schon auf der Platte
+        _json_speichern(GELADEN_PFAD, daten)
+        _geladen_stand["geschrieben"] = nr
+
 
 def _geladen_key(url, qualitaet):
     return f"{_video_id(url)}|{qualitaet}"
@@ -1201,7 +1239,6 @@ def geladen_merken(item):
     except OSError:
         return
     key = _geladen_key(item["url"], item["qualitaet"])
-    alt = _geladen.get(key, {})
     # Id-Tag VOR dem Fingerabdruck (Tag verschiebt den Dateianfang — sonst
     # stimmt das gespeicherte fp nicht mehr mit der Datei überein).
     idtag = _id_tag_schreiben(datei, key.split("|")[0])
@@ -1209,20 +1246,22 @@ def geladen_merken(item):
         groesse = os.path.getsize(datei)             # Tag hat die Datei vergrößert
     except OSError:
         pass
-    _geladen[key] = {
-        "name": os.path.basename(datei), "groesse": groesse, "pfad": datei,
-        "kategorie": item.get("kategorie", ""), "titel": item.get("titel", ""),
-        "uploader": item.get("uploader", ""), "dauer": item.get("dauer"),
-        "upload_date": item.get("upload_date", ""), "url": item.get("url", ""),
-        "qualitaet": item.get("qualitaet", ""),
-        "vcodec": item.get("vcodec", ""), "acodec": item.get("acodec", ""),
-        "abr": item.get("abr", 0), "asr": item.get("asr", 0), "hoehe": item.get("hoehe", 0),
-        "kapitel": item.get("kapitel") or alt.get("kapitel") or [],
-        "archiviert": alt.get("archiviert", False), "ts": time.time(),
-        "idtag": idtag,
-        "fp": _datei_fp(datei)}                      # Content-Ausweis (Bibliothek 2.0)
-    with _io_lock:
-        _json_speichern(GELADEN_PFAD, _geladen)
+    fp = _datei_fp(datei)                            # Content-Ausweis (Bibliothek 2.0)
+    with _io_lock:                                   # F6: Eintragen nur unter der Sperre
+        alt = _geladen.get(key, {})
+        _geladen[key] = {
+            "name": os.path.basename(datei), "groesse": groesse, "pfad": datei,
+            "kategorie": item.get("kategorie", ""), "titel": item.get("titel", ""),
+            "uploader": item.get("uploader", ""), "dauer": item.get("dauer"),
+            "upload_date": item.get("upload_date", ""), "url": item.get("url", ""),
+            "qualitaet": item.get("qualitaet", ""),
+            "vcodec": item.get("vcodec", ""), "acodec": item.get("acodec", ""),
+            "abr": item.get("abr", 0), "asr": item.get("asr", 0), "hoehe": item.get("hoehe", 0),
+            "kapitel": item.get("kapitel") or alt.get("kapitel") or [],
+            "archiviert": alt.get("archiviert", False), "ts": time.time(),
+            "idtag": idtag,
+            "fp": fp}
+    _geladen_speichern()
     if item.get("abo"):                              # Abo-Download -> in die Abo-Playlist
         _abo_playlist_zuordnen(item["abo"], key)
     if item.get("ziel_pl"):                          # Entdecker-Download -> „✨ Entdeckt …" (Build 100)
@@ -1232,7 +1271,7 @@ def geladen_merken(item):
             with _io_lock:
                 _datei_loeschen(altkey)
                 _geladen.pop(altkey, None)
-                _json_speichern(GELADEN_PFAD, _geladen)
+                _geladen_speichern()
             _playlists_speichern()
 
 
@@ -1302,7 +1341,7 @@ def _datei_aus(liste, qualitaet=""):
 def bibliothek_liste():
     idx = _datei_index()
     out = []
-    for key, e in list(_geladen.items()):
+    for key, e in _geladen_schnappschuss():
         vid, _, qual = key.partition("|")
         gespeichert = e.get("pfad")
         pfad = gespeichert if (gespeichert and os.path.isfile(gespeichert)) else _datei_aus(idx.get(vid), qual)
@@ -1554,7 +1593,7 @@ def _favorit_je_gruppe():
     gibt (reine Clip-Gruppe), der neuste. Reine Auslese, kein Seiteneffekt.
     """
     gruppen = {}
-    for k, e in _geladen.items():
+    for k, e in _geladen_schnappschuss():
         gruppen.setdefault(_clip_gruppe(k), []).append((k, e))
     fav = {}
     for vid, liste in gruppen.items():
@@ -1575,20 +1614,20 @@ def _clip_favorit_setzen(key):
         return {"fehler": "unbekannt"}
     vid = _clip_gruppe(key)
     with _io_lock:
-        for k, e in _geladen.items():
+        for k, e in _geladen_schnappschuss():
             if _ist_clip(k) and _clip_gruppe(k) == vid:
                 if k == key:
                     e["favorit"] = True
                 else:
                     e.pop("favorit", None)
-        _json_speichern(GELADEN_PFAD, _geladen)
+        _geladen_speichern()
     return {"ok": True}
 
 
 def _clip_favorit_zuruecksetzen(vid):
     """Alle Favoriten-Wahlen einer Gruppe löschen — damit nach einem NEUEN
     Ausschnitt wieder der neuste (also der neue) Favorit ist (JB-Wunsch)."""
-    for k, e in _geladen.items():
+    for k, e in _geladen_schnappschuss():
         if _ist_clip(k) and _clip_gruppe(k) == vid:
             e.pop("favorit", None)
 
@@ -1650,7 +1689,7 @@ def clip_erstellen(daten):
         _clip_favorit_zuruecksetzen(vid)
         eintrag["favorit"] = True
         _geladen[neu_key] = eintrag
-        _json_speichern(GELADEN_PFAD, _geladen)
+        _geladen_speichern()
     return {"ok": True, "name": os.path.basename(ziel)}
 
 
@@ -1697,7 +1736,7 @@ def titel_abgleich():
     """
     geaendert = 0
     with _io_lock:
-        for e in _geladen.values():
+        for _k, e in _geladen_schnappschuss():
             name = e.get("name") or ""
             if not name:
                 continue
@@ -1709,7 +1748,7 @@ def titel_abgleich():
             e["titel"] = aus_name
             geaendert += 1
         if geaendert:
-            _json_speichern(GELADEN_PFAD, _geladen)
+            _geladen_speichern()
     if geaendert:
         _sag(f"Bibliothek: {geaendert} Titel an die Dateinamen angeglichen.")
     return geaendert
@@ -2198,7 +2237,7 @@ def _tags_in_datei(key, e):
                 e["groesse"] = os.path.getsize(pfad)  # Größe in der DB nachziehen (Dubletten-Check!)
                 if e.get("fp"):
                     e["fp"] = _fp_von(pfad)
-                _json_speichern(GELADEN_PFAD, _geladen)
+                _geladen_speichern()
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
@@ -2263,7 +2302,7 @@ def _cover_in_datei(key, e, bild):
                 f.write(bild)
             with _io_lock:
                 e["cover_album"] = True              # echtes Album-Cover liegt bereit
-                _json_speichern(GELADEN_PFAD, _geladen)
+                _geladen_speichern()
         except OSError:
             pass
         return
@@ -2292,7 +2331,7 @@ def _cover_in_datei(key, e, bild):
                 if e.get("fp"):
                     e["fp"] = _fp_von(pfad)
                 e["cover_album"] = True               # echtes Album-Cover eingebettet
-                _json_speichern(GELADEN_PFAD, _geladen)
+                _geladen_speichern()
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
@@ -2374,11 +2413,11 @@ def autotag_lauf(keys=None):
         # fehlt -> NUR Cover nachziehen, ohne neue MB-Suche und ohne die
         # Tags anzufassen (CAA drosselt Serien — live gemessen 0/35; so
         # heilt sich der Rückstand bei jedem späteren Lauf von selbst).
-        alle = list(keys) if keys else [k for k, e in list(_geladen.items())
+        alle = list(keys) if keys else [k for k, e in _geladen_schnappschuss()
                                         if _ist_musik(e) and not e.get("album")]
         # Auch Videos (JB 05.08.: „Videos können Lieder sein") — ihr Cover
         # landet als Sidecar; cover_album=True stoppt Wiederholungen.
-        nur_cover = [] if keys else [k for k, e in list(_geladen.items())
+        nur_cover = [] if keys else [k for k, e in _geladen_schnappschuss()
                                      if e.get("album") and not e.get("cover_album")
                                      and (e.get("mb_release") or e.get("mb_rg")
                                           or e.get("cover_url"))
@@ -2456,7 +2495,7 @@ def autotag_lauf(keys=None):
                     e["mb_rg"] = fund["rg_id"]
                 if fund.get("cover_url"):             # iTunes-Artwork für den Nachzug
                     e["cover_url"] = fund["cover_url"]
-                _json_speichern(GELADEN_PFAD, _geladen)
+                _geladen_speichern()
             _autotag["getaggt"] += 1
             _tags_in_datei(k, e)
             # Etappe A: echtes Album-Cover (MP3: eingebettet, Video: Sidecar —
@@ -2668,7 +2707,7 @@ def transkript_suche(q, limit=40):
     if len(q) < 2:
         return []
     meta_liste, cue_liste = [], []
-    for key, e in list(_geladen.items()):
+    for key, e in _geladen_schnappschuss():
         # Build 107 (JB-Fund „nvidia"): TITEL/Künstler/Kanal zählen MIT — im
         # NVIDIA-Video wird „nvidia" nie GESAGT; Meta-Treffer stehen vorn.
         meta_hit = q in " ".join(str(e.get(f) or "") for f in
@@ -3603,7 +3642,7 @@ def _id_karten():
     _plausible_id-Filter: auch 'lokal-…'-Import-Ids gehören hinein, damit
     verschobene Importe wiedererkannt werden statt Duplikat-Zeilen zu erzeugen."""
     pfade, fps = {}, {}
-    for k, e in list(_geladen.items()):
+    for k, e in _geladen_schnappschuss():
         vid = k.split("|")[0]
         p = e.get("pfad")
         if p:
@@ -3742,7 +3781,7 @@ def auffaellige_schluessel():
     Schlüssel inzwischen nur noch als Daten, und ein Schlüssel ist die
     Identität eines Downloads — umschreiben oder löschen hieße Bestand
     verlieren."""
-    return [k for k in list(_geladen) if _AUFFAELLIG.search(k)]
+    return [k for k in _geladen_schluessel() if _AUFFAELLIG.search(k)]
 
 
 def _in_papierkorb(pfad):
@@ -4090,7 +4129,7 @@ def wiedergabe_setzen(daten):
             else:
                 e.pop("wiedergabe", None)
         if keys:
-            _json_speichern(GELADEN_PFAD, _geladen)
+            _geladen_speichern()
         return {"ok": True, "anzahl": len(keys)}
 
 
@@ -4105,7 +4144,7 @@ def herz_umschalten(key):
             e.pop("herz", None)
         else:
             e["herz"] = True
-        _json_speichern(GELADEN_PFAD, _geladen)
+        _geladen_speichern()
 
 
 def wiedergabe_sub_altlast_raeumen():
@@ -4120,14 +4159,14 @@ def wiedergabe_sub_altlast_raeumen():
         return 0
     gesichert = {}
     with _io_lock:
-        for k, e in _geladen.items():
+        for k, e in _geladen_schnappschuss():
             w = e.get("wiedergabe") or {}
             if "sub" in w:
                 gesichert[k] = w.pop("sub")
                 if not w:
                     e.pop("wiedergabe", None)
         if gesichert:
-            _json_speichern(GELADEN_PFAD, _geladen)
+            _geladen_speichern()
     if gesichert:
         _json_speichern(os.path.join(DATEN_DIR, "wiedergabe_sub_altlast.json"),
                         gesichert)
@@ -4289,7 +4328,7 @@ def playlist_m3u(pl):
 def playlist_import_m3u(name, text):
     """Aus einer .m3u eine Playlist bauen: Dateinamen gegen die Bibliothek matchen."""
     nach_name = {}
-    for k, e in _geladen.items():
+    for k, e in _geladen_schnappschuss():
         if e.get("name"):
             nach_name.setdefault(e["name"], k)
     keys = []
@@ -4432,7 +4471,7 @@ def entdecken(playlist_id, seeds=3, je_seed=25):
         return {"fehler": "Playlist leer oder nicht gefunden."}
     else:
         quelle, name = "bibliothek", "deine Bibliothek"
-        kand = [(k.split("|", 1)[0], e) for k, e in _geladen.items()
+        kand = [(k.split("|", 1)[0], e) for k, e in _geladen_schnappschuss()
                 if _plausible_id(k.split("|", 1)[0]) and not e.get("importiert")]
         if not kand:
             return {"fehler": "Keine YouTube-Titel in der Bibliothek gefunden."}
@@ -4455,7 +4494,7 @@ def entdecken(playlist_id, seeds=3, je_seed=25):
                 break
         if not seed_ids:
             return {"fehler": "Keine YouTube-Titel in der Bibliothek gefunden."}
-    bekannt = {k.split("|", 1)[0] for k in _geladen}
+    bekannt = {k.split("|", 1)[0] for k in _geladen_schluessel()}
 
     def _ein_seed(sid):
         return _abo_flach(f"https://www.youtube.com/watch?v={sid}&list=RD{sid}",
@@ -4533,7 +4572,7 @@ def _mb_pro_min(qualitaet):
     # Groessen-Schaetzung verfaelscht.
     werte = sorted(
         (e["groesse"] / 1e6) / (e["dauer"] / 60)
-        for k, e in _geladen.items()
+        for k, e in _geladen_schnappschuss()
         if not _ist_clip(k)
         and e.get("qualitaet") == qualitaet and e.get("groesse") and e.get("dauer")
         and e["dauer"] >= 30 and not e.get("importiert"))
@@ -4602,7 +4641,7 @@ def addon_hab(vid):
     vid = str(vid or "").strip()
     if not vid:
         return {"da": False, "formate": []}
-    formate = sorted({k.split("|", 1)[1] for k in _geladen if k.split("|", 1)[0] == vid})
+    formate = sorted({k.split("|", 1)[1] for k in _geladen_schluessel() if k.split("|", 1)[0] == vid})
     return {"da": bool(formate), "formate": formate}
 
 
@@ -4691,7 +4730,7 @@ def _abo_playlist_zuordnen(abo_id, key):
             nr = _abo_nr(abo_id, key.split("|")[0])
             if nr:
                 e["abo_nr"] = nr
-            _json_speichern(GELADEN_PFAD, _geladen)
+            _geladen_speichern()
     _playlists_speichern()
 
 
@@ -4730,7 +4769,7 @@ def abo_aktion(daten):
             with _io_lock:
                 if pl is not None:
                     _playlists[:] = [p for p in _playlists if p.get("id") != pl.get("id")]
-                _json_speichern(GELADEN_PFAD, _geladen)
+                _geladen_speichern()
             _playlists_speichern()
         if abo:                                       # Folgen-Cache des Abos ist jetzt Waise
             _abo_index_entfernen(abo.get("id"))
@@ -4898,7 +4937,7 @@ def abo_folgen(abo_id, aktualisieren=False):
         elif not cache.get("folgen"):
             return {"fehler": "Kanal nicht erreichbar — später erneut versuchen."}
     nach_vid = {}
-    for k in _geladen:
+    for k in _geladen_schluessel():
         vid, _, q = k.partition("|")
         nach_vid.setdefault(vid, []).append(q)
     out = []
@@ -4996,8 +5035,7 @@ def abo_aufraeumen():
                 _geladen.pop(key, None)
             n += 1
     if n:
-        with _io_lock:
-            _json_speichern(GELADEN_PFAD, _geladen)
+        _geladen_speichern()
         _playlists_speichern()
         _sag(f"Abo-Aufräumen: {n} alte Folge(n) in den Papierkorb")
     return n
@@ -5072,7 +5110,7 @@ def metadaten_backfill():
     geheilt = 0
     try:
         idx = _datei_index()
-        for key, e in list(_geladen.items()):
+        for key, e in _geladen_schnappschuss():
             titel = (e.get("titel") or "").strip()
             if not titel:
                 continue
@@ -5128,7 +5166,7 @@ def technik_backfill():
     try:
         idx = _datei_index()
         geaendert = False
-        for k, e in list(_geladen.items()):
+        for k, e in _geladen_schnappschuss():
             if e.get("acodec") and e.get("fp") and e.get("idtag") is not None:
                 continue
             vid = k.split("|")[0]
@@ -5162,8 +5200,7 @@ def technik_backfill():
                     e["fp"] = fp
                     geaendert = True
         if geaendert:
-            with _io_lock:
-                _json_speichern(GELADEN_PFAD, _geladen)
+            _geladen_speichern()
     finally:
         _technik_laeuft = False
 
@@ -5291,7 +5328,7 @@ def migration_probelauf(schema=None, keys=None):
     Sicherheits-Status. Umbenannt wird ausschließlich in migration_anwenden —
     und das erst nach JBs Blick auf diese Liste (Probelauf-Default)."""
     plan, ziele = [], set()
-    for k, e in list(_geladen.items()):
+    for k, e in _geladen_schnappschuss():
         if keys and k not in keys:
             continue
         p = e.get("pfad")
@@ -5377,8 +5414,7 @@ def migration_anwenden(go=False, schema=None, keys=None):
             _json_speichern(PROTOKOLL_PFAD, laeufe)
         except OSError:
             pass
-        with _io_lock:
-            _json_speichern(GELADEN_PFAD, _geladen)
+        _geladen_speichern()
         _sag(f"Umbenennen: {umbenannt} Datei(en) neu benannt, {uebersprungen} übersprungen")
     return {"ok": True, "umbenannt": umbenannt, "uebersprungen": uebersprungen}
 
@@ -5400,7 +5436,7 @@ def migration_rueckgaengig():
     lauf = laeufe[-1]
     zurueck, blockiert = 0, 0
     pfad_zu_key = {os.path.normcase(os.path.abspath(e["pfad"])): k
-                   for k, e in _geladen.items() if e.get("pfad")}
+                   for k, e in _geladen_schnappschuss() if e.get("pfad")}
     for alt, neu in reversed(lauf.get("umbenannt") or []):
         try:
             if not os.path.isfile(neu) or os.path.exists(alt):
@@ -5416,8 +5452,7 @@ def migration_rueckgaengig():
         except OSError:
             blockiert += 1
     if zurueck:
-        with _io_lock:
-            _json_speichern(GELADEN_PFAD, _geladen)
+        _geladen_speichern()
     if not blockiert:                                # Lauf ist sauber zurückgenommen
         laeufe.pop()
     else:                                            # Rest vermerken statt Protokoll verlieren
@@ -5456,7 +5491,7 @@ def _soll_kategorie(pfad, karten=None):
         return ""
     vid = _datei_videoid(pfad, karten)
     if vid:
-        for k, e in _geladen.items():
+        for k, e in _geladen_schnappschuss():
             if k.split("|")[0] == vid and e.get("hoehe"):
                 return _kategorie("", e.get("hoehe"))
     h = _hoehe_ffprobe(pfad)
@@ -5502,7 +5537,7 @@ def downloads_einsortieren():
                     os.replace(pfad, neu)
                     _sidecars_mit(pfad, neu)
                     bewegt += 1
-                    for e in _geladen.values():       # Bibliothek kennt sofort den neuen Ort
+                    for _k, e in _geladen_schnappschuss():   # Bibliothek kennt sofort den neuen Ort
                         if e.get("pfad") == pfad:
                             e["pfad"] = neu
                             e["name"] = os.path.basename(neu)
@@ -5511,8 +5546,7 @@ def downloads_einsortieren():
                 except OSError:
                     continue
         if bewegt:
-            with _io_lock:
-                _json_speichern(GELADEN_PFAD, _geladen)
+            _geladen_speichern()
             _sag(f"Downloads einsortiert: {bewegt} Datei(en) an den richtigen Platz bewegt")
     finally:
         _einsortier_laeuft = False
@@ -5525,7 +5559,7 @@ def ordner_importieren():
     Video-ID aus dem Namen ([id]) wird als Schlüssel genutzt, sonst ein
     stabiler Pfad-Hash; Titel = Dateiname ohne [id]. Löscht/ändert nie etwas."""
     bekannt = set()
-    for k, e in _geladen.items():
+    for k, e in _geladen_schnappschuss():
         p = e.get("pfad")
         if p:
             bekannt.add(os.path.normcase(os.path.abspath(p)))
@@ -5551,13 +5585,13 @@ def ordner_importieren():
             # Dubletten-Wurzel (JB 14.07.): gibt es die Video-ID schon unter einem
             # ANDEREN Qualitäts-Schlüssel (z.B. mit totem Pfad), gehört die Datei
             # dem Heiler (pfade_heilen) — sonst entstehen zwei Zeilen je Datei.
-            if _plausible_id(vid) and any(k.split("|")[0] == vid for k in _geladen):
+            if _plausible_id(vid) and any(k.split("|")[0] == vid for k in _geladen_schluessel()):
                 continue
             try:
                 groesse = os.path.getsize(pfad)
             except OSError:
                 continue
-            _geladen[key] = {
+            eintrag = {
                 "name": fn, "groesse": groesse, "pfad": pfad,
                 "kategorie": "MP3" if audio else _kat_aus_name(fn),
                 "titel": _titel_aus_name(fn),
@@ -5565,11 +5599,14 @@ def ordner_importieren():
                 "qualitaet": "audio" if audio else "lokal",
                 "importiert": True, "ts": time.time(),
                 "fp": _datei_fp(pfad)}               # Content-Ausweis (Bibliothek 2.0)
+            with _io_lock:                           # F6: prüfen und eintragen in einem Schritt
+                if key in _geladen:
+                    continue
+                _geladen[key] = eintrag
             frisch.append(key)
             neu += 1
     if neu:
-        with _io_lock:
-            _json_speichern(GELADEN_PFAD, _geladen)
+        _geladen_speichern()
         _sag(f"Ordner-Import: {neu} neue Datei(en) in die Bibliothek aufgenommen")
         if CFG.get("auto_umbenennen"):               # optional (Build 113, Standard AUS)
             r = migration_anwenden(go=True, keys=set(frisch))
@@ -5601,7 +5638,7 @@ def pfade_heilen():
     auf den echten Ort umgeschrieben. Rein additiv, löscht nie etwas."""
     idx = _datei_index()
     geheilt = 0
-    for k, e in _geladen.items():
+    for k, e in _geladen_schnappschuss():
         p = e.get("pfad")
         if p and not os.path.isfile(p):
             neu = _datei_aus(idx.get(k.split("|")[0]), k.partition("|")[2])
@@ -5610,8 +5647,7 @@ def pfade_heilen():
                 e["name"] = os.path.basename(neu)
                 geheilt += 1
     if geheilt:
-        with _io_lock:
-            _json_speichern(GELADEN_PFAD, _geladen)
+        _geladen_speichern()
         _sag(f"Pfade geheilt: {geheilt} Bibliotheks-Einträge zeigen wieder auf echte Dateien")
     return geheilt
 
@@ -5630,7 +5666,7 @@ def dubletten_heilen():
     hatte sie schon aufgenommen), bleibt der beste Eintrag; die überzähligen
     Zeilen werden vergessen (Play-Zähler wandert mit, Dateien bleiben unberührt)."""
     gruppen = {}
-    for k, e in _geladen.items():
+    for k, e in _geladen_schnappschuss():
         p = e.get("pfad")
         if p and os.path.isfile(p):
             gruppen.setdefault(os.path.normcase(os.path.abspath(p)), []).append(k)
@@ -5652,7 +5688,7 @@ def dubletten_heilen():
                     pl["items"] = [keys[0] if x == k else x for x in pl.get("items", [])]
                 raus += 1
         if raus:
-            _json_speichern(GELADEN_PFAD, _geladen)
+            _geladen_speichern()
     if raus:
         _playlists_speichern()
         _sag(f"Dubletten geheilt: {raus} doppelte Bibliothekszeilen zusammengelegt")
@@ -5689,7 +5725,7 @@ def untertitel_aufraeumen():
                     vids.add(vid)
             elif d.lower().endswith(".vtt") and not istziel:
                 legacy.append(p)                      # noch nicht einsortiert
-    vids |= {k.split("|")[0] for k in _geladen}       # auch verschobene, aber bekannte Videos
+    vids |= {k.split("|")[0] for k in _geladen_schluessel()}   # auch verschobene, aber bekannte Videos
     n = 0
     for f in glob.glob(os.path.join(glob.escape(ziel), "*.vtt")):
         vid = os.path.basename(f).split(".")[0]
@@ -5731,13 +5767,12 @@ def biblio_enrich_alle():
         return
     _enrich_laeuft = True
     try:
-        for k in [k for k, e in list(_geladen.items()) if not e.get("uploader")]:
+        for k in [k for k, e in _geladen_schnappschuss() if not e.get("uploader")]:
             if youtube_gesperrt():                    # F4: Sperre -> Pause, der nächste Lauf holt nach
                 break
             e = _geladen.get(k)
             if e and _enrich_eintrag(k, e):
-                with _io_lock:
-                    _json_speichern(GELADEN_PFAD, _geladen)
+                _geladen_speichern()
             time.sleep(0.4)
     finally:
         _enrich_laeuft = False
@@ -5750,8 +5785,7 @@ def _enrich_keys(keys):
             break
         e = _geladen.get(k)
         if e and _enrich_eintrag(k, e):
-            with _io_lock:
-                _json_speichern(GELADEN_PFAD, _geladen)
+            _geladen_speichern()
         time.sleep(0.4)
 
 
@@ -5791,15 +5825,14 @@ def schon_geladen(url, qualitaet):
         return None
     if groesse != e.get("groesse") or pfad != e.get("pfad"):
         e.update({"groesse": groesse, "pfad": pfad, "name": os.path.basename(pfad)})
-        with _io_lock:
-            _json_speichern(GELADEN_PFAD, _geladen)
+        _geladen_speichern()
     return pfad
 
 
 def db_statistik():
     """Alle je geladenen Downloads für den Gesamt-Counter: Summe + je Kategorie."""
     kat = {}
-    for e in _geladen.values():
+    for _k, e in _geladen_schnappschuss():
         k = e.get("kategorie")
         if not k:                     # Altbestand ohne Kategorie -> aus Endung raten
             name = (e.get("name") or "").lower()
@@ -7265,7 +7298,7 @@ class Handler(BaseHTTPRequestHandler):
                     if e:
                         e["plays"] = int(e.get("plays", 0)) + 1
                         e["last_play"] = time.time()  # für „Zuletzt gespielt"
-                        _json_speichern(GELADEN_PFAD, _geladen)
+                        _geladen_speichern()
             elif self.path == "/api/biblio":
                 self._biblio(daten)
             elif self.path == "/api/biblio_enrich":
@@ -7605,7 +7638,7 @@ class Handler(BaseHTTPRequestHandler):
                         if isinstance(such, str) and such:
                             ers = str(felder.get("titel_ersetzen") or "")
                             e["titel"] = ((e.get("titel") or "").replace(such, ers)).strip()[:300]
-                _json_speichern(GELADEN_PFAD, _geladen)
+                _geladen_speichern()
                 _json_speichern(PLAYLIST_PFAD, _playlists)
             return
         with _io_lock:
@@ -7615,7 +7648,7 @@ class Handler(BaseHTTPRequestHandler):
             if art == "loeschen":                    # Datei in den Papierkorb + aus Liste
                 _datei_loeschen(key)
                 _geladen.pop(key, None)
-                _json_speichern(GELADEN_PFAD, _geladen)
+                _geladen_speichern()
                 _json_speichern(PLAYLIST_PFAD, _playlists)
                 return
             if art == "ordner":                      # Datei im Explorer zeigen (markiert)
@@ -7648,7 +7681,7 @@ class Handler(BaseHTTPRequestHandler):
                 e["blacklist"] = False
             elif art == "vergessen":                 # nur aus der Bibliothek, Datei bleibt
                 _geladen.pop(key, None)
-            _json_speichern(GELADEN_PFAD, _geladen)
+            _geladen_speichern()
 
 
 _worker_faeden = []

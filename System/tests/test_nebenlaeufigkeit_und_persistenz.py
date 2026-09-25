@@ -519,5 +519,67 @@ def test_eine_sperre_beim_aufloesen_pausiert_die_nebenwege(youtube, tmp_path):
     assert len(attrappe.abrufe) == 1, "der Abo-Blick fragte gleich nach der Sperre wieder"
 
 
+# ---------------------------------------------------------------- F6: Bibliotheks-DB
+
+def _grosse_bibliothek(n=3000):
+    for i in range(n):
+        app._geladen[f"alt{i:08d}|beste"] = {"name": f"Titel {i} [alt{i:08d}].mp4", "titel": "T" * 40,
+                                             "groesse": 1000 + i, "ts": 1_700_000_000 + i,
+                                             "kategorie": "Video", "uploader": "Kanal"}
+
+
+def _download_fertig(tmp_path, i):
+    """Wie der Worker nach einem fertigen Download: die Datei ist da, der
+    Eintrag kommt in die Bibliothek (geladen_merken)."""
+    vid = f"neu{i:08d}"
+    datei = tmp_path / f"Neu {i} [{vid}].bin"
+    datei.write_bytes(b"x" * 10)
+    app.geladen_merken({"datei": str(datei), "url": f"https://www.youtube.com/watch?v={vid}",
+                        "qualitaet": "beste", "titel": f"Neu {i}"})
+
+
+def test_bibliothek_speichern_waehrend_downloads_eintragen(tmp_path):
+    """Vorher trug geladen_merken ohne Sperre ein, während ein anderer Faden
+    die Bibliothek schrieb (json.dump läuft dabei über das lebende Dict):
+    „dictionary changed size during iteration“, und ein fertiger Download
+    galt als Fehlschlag."""
+    _grosse_bibliothek()
+    herz_key = "alt00000000|beste"
+    start = threading.Barrier(3)
+    fehler = []
+
+    def herz():
+        start.wait()
+        for _ in range(30):
+            try:
+                app.herz_umschalten(herz_key)
+            except Exception as e:                   # noqa: BLE001
+                fehler.append("herz: " + repr(e))
+
+    def downloads():
+        start.wait()
+        for i in range(150):
+            try:
+                _download_fertig(tmp_path, i)
+            except Exception as e:                   # noqa: BLE001
+                fehler.append("download: " + repr(e))
+
+    def statistik():
+        start.wait()
+        for _ in range(300):
+            try:
+                app.db_statistik()
+                app.addon_hab("neu00000001")
+            except Exception as e:                   # noqa: BLE001
+                fehler.append("lesen: " + repr(e))
+
+    _faeden([herz, downloads, statistik])
+    assert not fehler, f"{len(fehler)} Fehler, etwa {fehler[0]}"
+    assert sum(1 for k in app._geladen if k.startswith("neu")) == 150
+    with open(app.GELADEN_PFAD, encoding="utf-8") as f:
+        auf_platte = json.load(f)
+    assert auf_platte == json.loads(json.dumps(app._geladen)), "die Platte trägt einen älteren Stand"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
