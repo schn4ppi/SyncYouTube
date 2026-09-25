@@ -1,10 +1,10 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 25.09.2026, nach der Gesamtprüfung)
 
-> **NACHTRAG 25.09.2026 (Abend) — Gesamtprüfung und drei Reparatur-Runden (Zweig `gesamtpruefung`, in main seit `9f876e1`).**
+> **NACHTRAG 25.09.2026 (Abend) — Gesamtprüfung und drei Reparatur-Runden (Zweig `gesamtpruefung`, in main bis `785dd04`).**
 > JB-Wunsch: „den Spaghetticode bzw. das Programm prüfen und verbessern“. Erst eine lesende Prüfung (vier
 > Bereiche, je ein Gegenprüfer), dann drei Runden im eigenen Worktree, jede Gruppe mit Test zuerst,
 > skeptischer Abnahme samt roten Gegenproben in einer Wegwerf-Kopie und Nacharbeit. 119 Commits, Suite
-> 615 → **1334 bestanden, 2 übersprungen**; live geprüft nach jedem Einspielen (Oberfläche ohne
+> 615 → **1347 bestanden, 2 übersprungen**; live geprüft nach jedem Einspielen (Oberfläche ohne
 > Skriptfehler, 966 Bibliothekseinträge, Kopf-Prüfungen antworten 403, Untermenü, Fernbedienung, Protokoll).
 > - **Sicherheit:** Host- und Origin-Prüfung vor jedem Riegel (fremde Webseiten und DNS-Rebinding
 >   prallen ab), Einbetten nur durch App und Dashboard, `Referrer-Policy: no-referrer`; Pfade für Abo-Index,
@@ -14,7 +14,8 @@
 >   zeitkonstante Vergleiche; Körpergrenze 2 MB, Lese-Zeitlimit (Ströme ohne Schreib-Zeitlimit);
 >   Selbst-Update nur mit gültiger Authenticode-Signatur desselben Herausgebers und vorhandener `.sha256`,
 >   `build_release.py` baut nicht ohne Signatur-Token.
-> - **JB-Entscheide (25.09.):** WLAN-Geräte dürfen abspielen, suchen, fernsteuern und YouTube-Links laden,
+> - **JB-Entscheide (25.09.):** Sync-Ziel in der Bibliothek oder als Netzwerkpfad wird beim
+>   Einrichten abgelehnt (`sync_ziel_fehler`, nachgeholt in `785dd04`); WLAN-Geräte dürfen abspielen, suchen, fernsteuern und YouTube-Links laden,
 >   alles andere nur am PC (`LAN_ERLAUBT`/`NUR_PC`, alles nicht Erlaubte ist gesperrt); gekoppelte Geräte
 >   bekommen die volle Oberfläche per HttpOnly-Cookie (Einstellungen dort ausgeblendet), Token nicht mehr in
 >   Adresse und `localStorage`; neue Codes 10 Zeichen, Knopf „🔄 Code erneuern“ im ⚙-Menü, alter Code gilt
