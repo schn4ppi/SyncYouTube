@@ -406,6 +406,61 @@ def test_rueckfall_scheitert_datei_bleibt_und_wird_gemeldet(tmp_path, monkeypatc
     assert len(_meldungen()) == 1
 
 
+@pytest.fixture
+def laufwerk(monkeypatch):
+    """Attrappe der Laufwerksart (GetDriveTypeW): `laufwerk.art` gilt für jedes
+    Laufwerk, `laufwerk.gefragt` sammelt die gefragten Wurzeln."""
+    class Laufwerk:
+        art = 3                                       # DRIVE_FIXED
+        gefragt = []
+
+    lw = Laufwerk()
+    lw.gefragt = []
+
+    def art(wurzel):
+        lw.gefragt.append(wurzel)
+        return lw.art
+    monkeypatch.setattr(app, "_laufwerk_art", art, raising=False)
+    return lw
+
+
+@pytest.mark.parametrize("art", [2, 4], ids=["wechseldatentraeger", "netzlaufwerk"])
+def test_laufwerk_ohne_papierkorb_geht_direkt_in_den_papierkorb_ordner(tmp_path, monkeypatch, korb,
+                                                                       entfernt, laufwerk, art):
+    """Auf Wechseldatenträgern und Netzlaufwerken gibt es keinen Windows-
+    Papierkorb; dort löscht der Papierkorb-Aufruf mit FOF_ALLOWUNDO laut
+    Microsoft endgültig und meldet trotzdem Erfolg. Vorher lief er auch dort
+    (hier: die Attrappe nahm die Datei). Jetzt wandert die Datei gleich nach
+    `_Papierkorb` auf demselben Laufwerk, und das wird gemeldet."""
+    laufwerk.art = art
+    dl, datei, key = _bibliothek(tmp_path, monkeypatch)
+    app._datei_loeschen(key)
+    assert korb == [], "Papierkorb-Aufruf auf einem Laufwerk ohne Papierkorb"
+    assert (dl / "_Papierkorb" / datei.name).read_bytes() == b"MUSIK"
+    assert not datei.exists() and not entfernt
+    wurzel = os.path.splitdrive(str(datei))[0] + "\\"
+    assert laufwerk.gefragt == [wurzel]
+    assert len(_meldungen()) == 1 and "ohne Papierkorb" in _meldungen()[0]
+
+
+@pytest.mark.parametrize("art", [3, 0, 1], ids=["festplatte", "unbekannt", "keine_wurzel"])
+def test_laufwerk_mit_papierkorb_nimmt_weiter_den_papierkorb(tmp_path, monkeypatch, korb,
+                                                           entfernt, laufwerk, art):
+    """Festplatte oder unbekannte Art: wie bisher der Windows-Papierkorb."""
+    laufwerk.art = art
+    dl, datei, key = _bibliothek(tmp_path, monkeypatch)
+    app._datei_loeschen(key)
+    assert korb == [str(datei)] and not (dl / "_Papierkorb").exists()
+    assert not _meldungen() and not entfernt
+
+
+def test_freigabe_gilt_ohne_nachfrage_als_laufwerk_ohne_papierkorb(korb, laufwerk):
+    """Ein UNC-Pfad ist eine Netzfreigabe: kein Papierkorb-Aufruf und keine
+    Frage nach der Laufwerksart (die ginge ans Netz)."""
+    assert app._rueckholbar_entfernen(UNC + ".mp3") == ""
+    assert korb == [] and laufwerk.gefragt == []
+
+
 def _rueckhol_welt(tmp_path, monkeypatch):
     """Je eine Mediendatei in `_Papierkorb` und in einem `_entfernt` darunter,
     alt genug für das Einsortieren (60-s-Regel)."""

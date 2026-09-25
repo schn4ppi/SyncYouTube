@@ -3582,22 +3582,49 @@ def _papierkorb_ordner(pfad):
     return os.path.join(basis if drinnen else os.path.dirname(p), PAPIERKORB_ORDNER)
 
 
+_OHNE_PAPIERKORB = {2, 4}                             # DRIVE_REMOVABLE, DRIVE_REMOTE
+
+
+def _laufwerk_art(wurzel):
+    """GetDriveTypeW für eine Laufwerkswurzel wie "C:\\" (0 = unbekannt)."""
+    try:
+        import ctypes
+        return int(ctypes.windll.kernel32.GetDriveTypeW(wurzel))
+    except Exception:                                # noqa: BLE001 — kein Windows: unbekannt
+        return 0
+
+
+def _ohne_papierkorb(pfad):
+    """Liegt `pfad` auf einem Laufwerk ohne Windows-Papierkorb (Wechseldatenträger,
+    Netzlaufwerk, Freigabe)? Dort löscht SHFileOperationW auch mit
+    FOF_ALLOWUNDO endgültig und meldet trotzdem Erfolg (Gesamtprüfung S6).
+    Eine Freigabe erkennt schon der Pfad, ohne Frage ans Netz."""
+    wurzel = os.path.splitdrive(os.path.abspath(pfad))[0]
+    if wurzel.endswith(":"):                          # "C:" oder "\\?\C:"
+        return _laufwerk_art(wurzel[-2:] + "\\") in _OHNE_PAPIERKORB
+    return wurzel.startswith(("\\\\", "//"))
+
+
 def _rueckholbar_entfernen(pfad):
-    """Datei in den Windows-Papierkorb; scheitert der oder liegt die Datei
-    danach noch da, rückholbar in den Ordner `_Papierkorb` (S6). Nie
-    endgültig löschen (harte Regel 2), keinen Dialog öffnen (läuft auch in
-    Hintergrundfäden). Jeder Rückfall wird gemeldet (Konsole und
-    yt_fehler.jsonl). Rückgabe: "papierkorb", der neue Pfad oder "" (die
-    Datei bleibt, wo sie war)."""
-    if _in_papierkorb(pfad) and not os.path.lexists(pfad):
+    """Datei in den Windows-Papierkorb; gibt es auf dem Laufwerk keinen,
+    scheitert er oder liegt die Datei danach noch da, rückholbar in den
+    Ordner `_Papierkorb` (S6). Nie endgültig löschen (harte Regel 2), keinen
+    Dialog öffnen (läuft auch in Hintergrundfäden). Jeder Rückfall wird
+    gemeldet (Konsole und yt_fehler.jsonl). Rückgabe: "papierkorb", der neue
+    Pfad oder "" (die Datei bleibt, wo sie war)."""
+    if _ohne_papierkorb(pfad):
+        grund = "Laufwerk ohne Papierkorb"
+    elif _in_papierkorb(pfad) and not os.path.lexists(pfad):
         return "papierkorb"
+    else:
+        grund = "Papierkorb gescheitert"
     try:
         neu = _rueckholbar_verschieben(pfad, _papierkorb_ordner(pfad))
     except OSError as e:
-        text = f"Papierkorb gescheitert, Datei bleibt liegen: {pfad} ({e})"
+        text = f"{grund}, Datei bleibt liegen: {pfad} ({e})"
         neu = ""
     else:
-        text = f"Papierkorb gescheitert, rückholbar verschoben: {pfad} -> {neu}"
+        text = f"{grund}, rückholbar verschoben: {pfad} -> {neu}"
     _sag(text)
     fehler_merken("", text, "papierkorb", os.path.basename(pfad))
     return neu
