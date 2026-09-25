@@ -3,6 +3,7 @@
 JBs PFLICHT-Waechter: Externe kommen NUR mit Zugangsdaten an die Bibliothek."""
 import os
 import sys
+import threading
 import time
 
 MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,7 +58,7 @@ def test_pairing_codes_altern(tmp_path, monkeypatch):
     a = pg.geraet_anmelden("Alt-Handy")
     d = pg._lesen()
     d["geraete"][0]["ts"] = time.time() - pg.CODE_ALTER_S - 1
-    pg._schreiben(d)
+    pg.fam.json_schreiben(pg._pfade["profile"], d)
     assert all(g["id"] != a["geraet_id"] for g in pg.geraete_liste()), \
         "abgelaufene Pairing-Anfragen muessen verschwinden"
 
@@ -78,6 +79,125 @@ def test_riegel_verkabelt():
         j = quelle.index(f'"{geschuetzt}"')
         assert "_ist_lokal" in quelle[j:j + 300], geschuetzt + " muss nur-PC sein"
     assert "PAIRING_HTML" in quelle, "unbekanntes LAN-Geraet muss die Koppel-Seite sehen"
+
+
+# ---------------------------------------------------------------- S8: Sperre (Gesamtpruefung 25.09.)
+# profile.json wurde ohne Sperre gelesen und zurueckgeschrieben, auch beim blossen
+# Pruefen eines Tokens. Ein paralleler Faden schrieb dann den alten Stand zurueck,
+# und ein gerade getrenntes Geraet war wieder gekoppelt.
+
+class _Uhr:
+    """Jede Abfrage eine Stunde spaeter: so stempelte der alte Riegel bei JEDER
+    Pruefung `zuletzt` und schrieb die Datei."""
+
+    def __init__(self):
+        self._t = time.time()
+        self._lock = threading.Lock()
+
+    def time(self):
+        with self._lock:
+            self._t += 3700
+            return self._t
+
+
+def _gekoppelt(name):
+    a = pg.geraet_anmelden(name)
+    assert pg.geraet_bestaetigen(a["geraet_id"], "standard") is True
+    t = pg.geraet_token_abholen(a["geraet_id"], a["code"])
+    return a["geraet_id"], t["token"]
+
+
+def test_widerruf_haelt_gegen_parallele_pruefungen(tmp_path, monkeypatch):
+    _einrichten(tmp_path)
+    bleiben = [_gekoppelt(f"Bleibt {i}") for i in range(7)]
+    weg = [_gekoppelt(f"Weg {i}") for i in range(12)]
+    monkeypatch.setattr(pg, "time", _Uhr())
+    start = threading.Barrier(8)
+    fertig = threading.Event()
+    fehler = []
+
+    def pruefer(tok):
+        start.wait()
+        while not fertig.is_set():
+            try:
+                if pg.geraet_ok(tok) != "standard":
+                    fehler.append("gekoppeltes Geraet abgewiesen")
+            except Exception as e:                   # noqa: BLE001 — sammeln, unten melden
+                fehler.append(repr(e))
+            time.sleep(0.0005)
+
+    def widerrufer():
+        start.wait()
+        try:
+            for gid, _tok in weg:
+                if pg.geraet_entfernen(gid) is not True:
+                    fehler.append("Widerruf meldete keinen Erfolg")
+                time.sleep(0.002)
+        finally:
+            fertig.set()
+
+    faeden = [threading.Thread(target=pruefer, args=(tok,)) for _gid, tok in bleiben]
+    faeden.append(threading.Thread(target=widerrufer))
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join(60)
+    assert not any(f.is_alive() for f in faeden), "Faeden haengen"
+    assert not fehler, fehler[:5]
+    zurueck = [gid for gid, tok in weg if pg.geraet_ok(tok)]
+    assert not zurueck, f"{len(zurueck)} getrennte Geraete kamen durch parallele Pruefungen zurueck"
+    assert {g["id"] for g in pg.geraete_liste()} == {gid for gid, _tok in bleiben}
+
+
+def test_pruefen_schreibt_nie(tmp_path, monkeypatch):
+    _einrichten(tmp_path)
+    _gid, tok = _gekoppelt("TV")
+    pfad = tmp_path / "profile.json"
+    vorher = pfad.read_bytes()
+    monkeypatch.setattr(pg, "time", _Uhr())
+    for _ in range(3):
+        assert pg.geraet_ok(tok) == "standard"
+    assert pg.geraet_ok("falsch") is None
+    pg.geraete_liste()
+    assert pfad.read_bytes() == vorher, "Pruefen und Auflisten duerfen profile.json nicht schreiben"
+
+
+def test_nach_lesefehler_wird_nie_geschrieben(tmp_path):
+    _einrichten(tmp_path)
+    gid, tok = _gekoppelt("TV")
+    pfad = tmp_path / "profile.json"
+    kaputt = pfad.read_bytes()[:-7]                  # abgeschnitten: kein gueltiges JSON mehr
+    pfad.write_bytes(kaputt)
+    assert pg.geraet_anmelden("Neu") is None
+    assert pg.profil_anlegen("Anna") is None
+    assert pg.geraet_bestaetigen(gid, "standard") is False
+    assert pg.geraet_token_abholen(gid, "ABCDEF") is None
+    assert pg.geraet_entfernen(gid) is False
+    assert pg.geraet_ok(tok) is None                 # fail-closed
+    assert pg.geraete_liste() == []
+    assert pfad.read_bytes() == kaputt, "eine unlesbare profile.json wurde ueberschrieben"
+
+
+def test_parallele_aenderungen_gehen_nicht_verloren(tmp_path):
+    _einrichten(tmp_path)
+    start = threading.Barrier(8)
+    fehler = []
+
+    def anleger(n):
+        start.wait()
+        for i in range(5):
+            if not pg.profil_anlegen(f"P{n}-{i}"):
+                fehler.append(f"P{n}-{i}")
+
+    faeden = [threading.Thread(target=anleger, args=(n,)) for n in range(8)]
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join(60)
+    assert not fehler, fehler
+    namen = {p["name"] for p in pg.profil_liste()}
+    fehlt = {f"P{n}-{i}" for n in range(8) for i in range(5)} - namen
+    assert not fehlt, f"{len(fehlt)} von 40 Profilen gingen verloren"
 
 
 if __name__ == "__main__":

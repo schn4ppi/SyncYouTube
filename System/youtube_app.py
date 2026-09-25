@@ -7186,7 +7186,7 @@ class Handler(BaseHTTPRequestHandler):
             # ---- Teilprojekt 3: Profile + Geräte ---------------------------
             elif self.path == "/api/geraet_anmelden":  # Pairing Schritt 1 (frei)
                 return _antwort(self, 200, profil_geraete.geraet_anmelden(
-                    daten.get("name") or ""))
+                    daten.get("name") or "") or {"fehler": "Anmeldung gerade nicht möglich"})
             elif self.path == "/api/geraet_bestaetigen":   # NUR PC (Freigabe)
                 if not self._ist_lokal():
                     return _antwort(self, 403, {"fehler": "nur am PC"})

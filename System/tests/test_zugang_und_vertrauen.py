@@ -705,3 +705,21 @@ def test_koerper_eines_abgewiesenen_posts_wird_nie_zur_zweiten_anfrage(monkeypat
     assert antwort.startswith(b"HTTP/1.1 403"), antwort[:200]
     assert antwort.count(b"HTTP/1.1 ") == 1, antwort
     assert app._remote["n"] == 0, "der eingeschmuggelte Befehl darf nicht laufen"
+
+
+# ------------------------------------------------------------ S8: profile.json unlesbar
+
+def test_geraet_anmelden_bei_unlesbarer_profildatei_meldet_fehler_und_schreibt_nicht(monkeypatch):
+    """Vorher ersetzte eine Anmeldung eine unlesbare profile.json durch eine
+    Datei mit nur dem neuen Gerät: alle gekoppelten Geräte und Profile weg."""
+    _fernsteuerung(monkeypatch)
+    pfad = app.profil_geraete._pfade["profile"]
+    with open(pfad, "wb") as f:
+        f.write(b'{"profile": [{"id": "standard"')           # abgeschnitten
+    st, _, koerper = _anfrage("/api/geraet_anmelden", methode="POST", ip=LAN,
+                              kopf={"Host": PC_IM_LAN}, rumpf={"name": "Handy"})
+    assert st == 200
+    antwort = json.loads(koerper)
+    assert isinstance(antwort, dict) and antwort.get("fehler") and "code" not in antwort, antwort
+    with open(pfad, "rb") as f:
+        assert f.read() == b'{"profile": [{"id": "standard"', "unlesbare profile.json wurde ersetzt"
