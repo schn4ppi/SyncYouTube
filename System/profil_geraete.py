@@ -276,7 +276,7 @@ body{margin:0;background:#0c0a09;color:#f2ece5;font-family:system-ui,sans-serif;
   font-weight:800;color:#e8b04b;margin:20px 0}p{color:#b9aea4;font-size:17px;max-width:420px}
 </style></head><body><div class="box"><h1>📺 Dieses Gerät koppeln</h1>
 <div id="code">……</div>
-<p>Gib dieses Gerät am PC frei: <b>Optionen → 📱 Geräte</b> — dort erscheint
+<p id="hinweis">Gib dieses Gerät am PC frei: <b>Optionen → 📱 Geräte</b> — dort erscheint
 der Code. Diese Seite macht danach von selbst weiter.</p></div>
 <script>
 /* Der Token lebt nur noch als HttpOnly-Cookie (JB-Entscheid 7a Punkt 1,
@@ -307,8 +307,16 @@ async function koppeln(){
   }
   const name=(navigator.userAgent.match(/Android TV|SmartTV|Silk|Android|iPhone|iPad/)||['Browser'])[0]+' '+
     new Date().toLocaleDateString('de-DE');
-  const r=await (await fetch('/api/geraet_anmelden',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({name})})).json();
+  let r=null;
+  try{r=await (await fetch('/api/geraet_anmelden',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({name})})).json();}catch(e){}
+  if(!r||!r.code){                                     // gescheitert: Meldung statt „undefined“
+    document.getElementById('code').textContent='—';
+    const h=document.getElementById('hinweis');
+    if(h)h.textContent='Anmelden gerade nicht möglich'+(r&&r.fehler?' ('+r.fehler+')':'')+
+      '. Bitte die Seite in einer Minute neu laden.';
+    return;
+  }
   document.getElementById('code').textContent=r.code;
   const takt=setInterval(async()=>{
     const s=await (await fetch('/api/geraet_status?id='+r.geraet_id+'&code='+r.code)).json();

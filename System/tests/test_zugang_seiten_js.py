@@ -523,3 +523,30 @@ def test_wiedergabe_wahlen_am_pc_wie_bisher(tmp_path):
     assert e["fetch"].count("POST /api/wiedergabe") == 3 and "POST /api/config" in e["fetch"], e["fetch"]
     assert e["naechster"] == "zeilen" and e["groesse"] == 2, "am PC gilt der Stand des Servers"
     assert "ytdl_fern_wahl" not in e["speicher"]
+
+
+def test_koppelseite_zeigt_bei_gescheitertem_anmelden_eine_meldung(tmp_path):
+    """Gesamtprüfung Gruppe 6 (Entscheid des Orchestrators): scheiterte
+    /api/geraet_anmelden (Versuchsbremse, Abweisung, Netz), stand auf dem
+    Fernseher groß „undefined“, und die Seite fragte im Takt nach einem Gerät
+    „undefined“. Jetzt: eine Meldung, kein Takt."""
+    q = _koppel_skript()
+    for antwort, grund in (
+            ("return {ok:false,status:429,json:async()=>({fehler:'Zu viele Versuche, bitte kurz warten.'})};",
+             "Zu viele Versuche"),
+            ("throw new TypeError('Netz weg');", "")):
+        (e,) = _lauf(
+            tmp_path, SPEICHER,
+            "_els.code={textContent:''}; _els.hinweis={textContent:''}; const _takte=[];",
+            "globalThis.setInterval=(f)=>{_takte.push(f); return 1;};",
+            "globalThis.fetch=async(u)=>{_spur.push('fetch:'+u);"
+            " if(u.startsWith('/api/geraet_anmelden')){" + antwort + "}"
+            " return {ok:false,status:403,json:async()=>({})};};",
+            _js_funktion(q, "koppeln"),
+            "await koppeln(); aus({code:String(_els.code.textContent), hinweis:_els.hinweis.textContent,"
+            " takte:_takte.length});")
+        assert "undefined" not in e["code"] and "undefined" not in e["hinweis"], e
+        assert "nicht möglich" in e["hinweis"] and grund in e["hinweis"], e
+        assert e["takte"] == 0, "ohne Code fragt die Seite nicht im Takt nach"
+    import profil_geraete
+    assert 'id="hinweis"' in profil_geraete.PAIRING_HTML, "die Meldung braucht ihren Platz auf der Seite"
