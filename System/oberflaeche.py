@@ -4110,7 +4110,7 @@ async function filmeLaden(){
       .concat(Object.entries(d.genres||{}));
     const html=reihen.filter(([,liste])=>liste&&liste.length).map(([name,liste])=>
       `<div class="f-reihe"><div class="f-rtitel">${esc(name)}</div><div class="f-band">`+
-      liste.map(e=>`<div class="f-kachel" onclick="tvInfo('${esc(e.id)}')" title="${esc(e.titel)}${e.jahr?' ('+e.jahr+')':''}${e.rating?' · ★'+e.rating.toFixed(1):''}${e.fsk?' · '+esc(e.fsk):''}">`+
+      liste.map(e=>`<div class="f-kachel" data-arg="${esc(e.id)}" onclick="tvInfo(this.dataset.arg)" title="${esc(e.titel)}${e.jahr?' ('+e.jahr+')':''}${e.rating?' · ★'+e.rating.toFixed(1):''}${e.fsk?' · '+esc(e.fsk):''}">`+
         `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
         `<div class="f-ktitel">${esc(e.titel)}</div></div>`).join('')+
       `</div></div>`).join('');
@@ -8396,15 +8396,16 @@ function snippetAn(kachel){
     const fi=encodeURIComponent(fid);
     kt.innerHTML=
       `<div class="hk-bild"><img src="/api/filme/bild?id=${fi}&art=Thumb" `+
-        `onerror="if(!this.dataset.s){this.dataset.s=1;this.src='/api/filme/bild?id=${fi}&art=Backdrop'}`+
-        `else{this.onerror=null;this.src='/api/filme/bild?id=${fi}'}">`+
+        `data-fb1="${esc('/api/filme/bild?id='+fi+'&art=Backdrop')}" data-fb2="${esc('/api/filme/bild?id='+fi)}" `+
+        `onerror="if(!this.dataset.s){this.dataset.s=1;this.src=this.dataset.fb1}`+
+        `else{this.onerror=null;this.src=this.dataset.fb2}">`+
       `<video class="tv-snip" muted loop playsinline data-snip="${fi}" `+
         `onerror="this.remove()"></video>`+
       `<div class="hk-titel">${esc(e.name||'')}</div></div>`+
       `<div class="hk-zeile">`+
-      `<button class="hk-ib hk-play" onclick="event.stopPropagation();snippetAus();filmePlay('${esc(fid)}',${e.pos||0})" title="Abspielen">${ico('play')}</button>`+
-      `<button class="hk-ib" onclick="event.stopPropagation();tvMerk('${esc(fid)}')" title="Zur Liste">${ico('plus')}</button>`+
-      `<button class="hk-ib hk-rechts" onclick="event.stopPropagation();snippetAus();tvInfo('${esc(fid)}')" title="Mehr Infos">${ico('chevron')}</button></div>`+
+      `<button class="hk-ib hk-play" data-arg="${esc(fid)}" onclick="event.stopPropagation();snippetAus();filmePlay(this.dataset.arg,${+e.pos||0})" title="Abspielen">${ico('play')}</button>`+
+      `<button class="hk-ib" data-arg="${esc(fid)}" onclick="event.stopPropagation();tvMerk(this.dataset.arg)" title="Zur Liste">${ico('plus')}</button>`+
+      `<button class="hk-ib hk-rechts" data-arg="${esc(fid)}" onclick="event.stopPropagation();snippetAus();tvInfo(this.dataset.arg)" title="Mehr Infos">${ico('chevron')}</button></div>`+
       (proz?`<div class="hk-balken"><div class="hk-spur"><div style="width:${proz}%"></div></div>`+
             `<span>${Math.round(e.pos/60)} von ${e.dauer} Min.</span></div>`
            :`<div class="hk-meta">${(e.fsk?`<span class="hk-fsk">${esc(e.fsk)}</span>`:'')}`+
@@ -8553,11 +8554,11 @@ async function geraeteMalen(){
     (wartend.length?'<div class="sm-titel" style="margin-top:8px">Wartet auf Freigabe</div>'+wartend.map(g=>
       `<div class="optrow"><span>${esc(g.name)} — Code <b style="color:var(--akz2)">${esc(g.code)}</b></span>`+
       `<span><select id="gpr-${esc(g.id)}" class="btn mini">${optionen}</select> `+
-      `<button class="btn mini" onclick="geraetFreigeben('${esc(g.id)}')">✓ Freigeben</button></span></div>`).join(''):'')+
+      `<button class="btn mini" data-arg="${esc(g.id)}" onclick="geraetFreigeben(this.dataset.arg)">✓ Freigeben</button></span></div>`).join(''):'')+
     (fest.length?'<div class="sm-titel" style="margin-top:8px">Gekoppelt</div>'+fest.map(g=>{
       const p=profile.find(x=>x.id===g.profil)||{emoji:'👤',name:g.profil};
       return `<div class="optrow"><span>${esc(g.name)} · ${p.emoji} ${esc(p.name)}</span>`+
-      `<button class="btn mini" onclick="geraetTrennen('${esc(g.id)}')">🗑 Trennen</button></div>`;}).join(''):'')+
+      `<button class="btn mini" data-arg="${esc(g.id)}" onclick="geraetTrennen(this.dataset.arg)">🗑 Trennen</button></div>`;}).join(''):'')+
     (!wartend.length&&!fest.length&&d.wlan?'<div style="font-size:13px;color:#8a7d74;padding:6px 2px">Noch kein Gerät angemeldet — sobald eines die Adresse öffnet, erscheint es hier mit seinem Code.</div>':'');
   if(wartend.length)setTimeout(geraeteMalen,4000);     // frisch halten, solange gewartet wird
 }
@@ -8589,7 +8590,7 @@ function tvProfilWahl(){
   document.getElementById('tv-kopf').innerHTML='';
   inhalt.innerHTML=`<div class="tv-werschaut"><div class="tv-rtitel" style="font-size:34px;text-align:center;margin-top:8vh">Wer schaut?</div>`+
     `<div class="tv-band" style="justify-content:center;margin-top:30px">`+
-    (tvProfile||[]).map((p,i)=>`<div class="tv-kachel tv-profil" data-pr="${i}" onclick="tvProfilSetzen('${esc(p.id)}')">`+
+    (tvProfile||[]).map((p,i)=>`<div class="tv-kachel tv-profil" data-pr="${i}" data-arg="${esc(p.id)}" onclick="tvProfilSetzen(this.dataset.arg)">`+
       `<div class="tv-pemoji">${p.emoji}</div><div class="tv-ktitel" style="font-size:18px">${esc(p.name)}</div></div>`).join('')+
     `<div class="tv-kachel tv-profil" data-pr="${(tvProfile||[]).length}" onclick="tvProfilNeu()">`+
       `<div class="tv-pemoji">＋</div><div class="tv-ktitel" style="font-size:18px">Neues Profil</div></div>`+
@@ -8986,15 +8987,15 @@ async function tvHeroMalen(){
   if(!document.getElementById('tv-hero'))return;       // Tab inzwischen gewechselt
   box.innerHTML=
     `<img class="hero-bg" src="/api/filme/bild?id=${encodeURIComponent(kand.id)}&art=Backdrop" `+
-      `onerror="this.onerror=null;this.src='/api/filme/bild?id=${encodeURIComponent(kand.id)}'">`+
+      `data-fb="${esc('/api/filme/bild?id='+encodeURIComponent(kand.id))}" onerror="this.onerror=null;this.src=this.dataset.fb">`+
     `<div class="hero-text"><div class="hero-titel">${esc(d.titel||'')}</div>`+
     `<div class="hero-meta">${tvMetaZeile(d)}</div>`+
     `<div class="hero-besch">${esc(d.beschreibung||'')}</div>`+
     `<div class="hero-btns">`+
       (kand.typ==='serie'
-        ?`<button class="tv-btn" data-hero="0" onclick="tvInfo('${esc(kand.id)}')">▶ Weiterschauen</button>`
-        :`<button class="tv-btn" data-hero="0" onclick="filmePlay('${esc(kand.id)}')">▶ Abspielen</button>`)+
-      `<button class="tv-btn zart" data-hero="1" onclick="tvInfo('${esc(kand.id)}')">ℹ Mehr Infos</button>`+
+        ?`<button class="tv-btn" data-hero="0" data-arg="${esc(kand.id)}" onclick="tvInfo(this.dataset.arg)">▶ Weiterschauen</button>`
+        :`<button class="tv-btn" data-hero="0" data-arg="${esc(kand.id)}" onclick="filmePlay(this.dataset.arg)">▶ Abspielen</button>`)+
+      `<button class="tv-btn zart" data-hero="1" data-arg="${esc(kand.id)}" onclick="tvInfo(this.dataset.arg)">ℹ Mehr Infos</button>`+
     `</div></div>`;
 }
 let tvInfoDaten=null, tvInfoStaffel=0;                 // {d, mw, eps} der offenen Info
@@ -9097,13 +9098,13 @@ function tvInfoMalen(){
   const knoepfe=(d.typ==='serie'
     ?`<button class="tv-btn" data-info="0" onclick="tvSerienPlay()">▶ Weiterschauen</button>`
     :(d.position_s>30
-      ?`<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}',${d.position_s})">▶ Weiterschauen</button>`+
-       `<button class="tv-btn zart" data-info="1" onclick="filmePlay('${esc(id)}',0)">↻ Von vorne</button>`
-      :`<button class="tv-btn" data-info="0" onclick="filmePlay('${esc(id)}')">▶ Abspielen</button>`))+
-    `<button class="tv-btn zart" data-info="2" onclick="tvMerk('${esc(id)}')">${d.gemerkt?'✓ Gemerkt':'＋ Meine Liste'}</button>`;
+      ?`<button class="tv-btn" data-info="0" data-arg="${esc(id)}" onclick="filmePlay(this.dataset.arg,${+d.position_s||0})">▶ Weiterschauen</button>`+
+       `<button class="tv-btn zart" data-info="1" data-arg="${esc(id)}" onclick="filmePlay(this.dataset.arg,0)">↻ Von vorne</button>`
+      :`<button class="tv-btn" data-info="0" data-arg="${esc(id)}" onclick="filmePlay(this.dataset.arg)">▶ Abspielen</button>`))+
+    `<button class="tv-btn zart" data-info="2" data-arg="${esc(id)}" onclick="tvMerk(this.dataset.arg)">${d.gemerkt?'✓ Gemerkt':'＋ Meine Liste'}</button>`;
   const dieserFilm=d.tagline||((d.genres||[]).slice(0,3).join(' · '));
   const querBild=(eid)=>`<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(eid)}&art=Backdrop" `+
-    `onerror="this.onerror=null;this.src='/api/filme/bild?id=${encodeURIComponent(eid)}'">`;
+    `data-fb="${esc('/api/filme/bild?id='+encodeURIComponent(eid))}" onerror="this.onerror=null;this.src=this.dataset.fb">`;
   el.innerHTML=`<div class="info-karte">`+
     `<div class="info-kopf">${querBild(id)}`+
       `<button class="info-x" data-info="9" onclick="tvInfoZu()" title="Schließen (Esc)">✕</button>`+
@@ -9126,19 +9127,19 @@ function tvInfoMalen(){
         (subs?`<div class="info-neben"><b>Untertitel:</b> ${esc(subs)}</div>`:'')+
       `</div></div>`+
       (staffeln.length?`<div class="tv-rtitel" style="margin-top:14px">Staffeln</div><div class="tv-band">`+
-        staffeln.map(n=>`<button class="tv-btn zart${n===tvInfoStaffel?' akt':''}" data-st="${n}" onclick="tvStaffel(${n})">Staffel ${n||'?'}</button>`).join('')+`</div>`+
+        staffeln.map(n=>`<button class="tv-btn zart${n===tvInfoStaffel?' akt':''}" data-st="${+n||0}" onclick="tvStaffel(${+n||0})">Staffel ${esc(n||'?')}</button>`).join('')+`</div>`+
         `<div class="tv-band">`+folgen.map((e,i)=>
-          `<div class="tv-kachel quer" data-ep="${i}" onclick="filmePlay('${esc(e.id)}',${e.position_s>30&&!e.gesehen?e.position_s:0})" title="${esc(e.titel)}">`+
+          `<div class="tv-kachel quer" data-ep="${i}" data-arg="${esc(e.id)}" onclick="filmePlay(this.dataset.arg,${e.position_s>30&&!e.gesehen?(+e.position_s||0):0})" title="${esc(e.titel)}">`+
           `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
           `<div class="tv-ktitel">${e.gesehen?'✓ ':''}F${e.folge} · ${esc(e.titel)}${e.position_s>0&&!e.gesehen?' ⏸':''}</div></div>`).join('')+`</div>`
         :(epsFehler?`<div class="tv-rtitel" style="margin-top:14px">Staffeln</div>`+
           `<div class="info-neben">⚠ ${esc(folgenFehlerText(epsFehler))}</div>`:''))+
       (mw.length?`<div class="tv-rtitel" style="margin-top:16px">Mehr wie das</div><div class="info-grid">`+
-        mw.slice(0,9).map((e,i)=>`<div class="tv-kachel" data-mw="${i}" onclick="tvInfo('${esc(e.id)}')">`+
+        mw.slice(0,9).map((e,i)=>`<div class="tv-kachel" data-mw="${i}" data-arg="${esc(e.id)}" onclick="tvInfo(this.dataset.arg)">`+
           querBild(e.id)+(e.laufzeit_min?`<span class="tv-dauer">${Math.floor(e.laufzeit_min/60)}h ${e.laufzeit_min%60}m</span>`:'')+
           `<div class="tv-ktitel">${esc(e.titel)}</div></div>`).join('')+`</div>`:'')+
       (d.trailer&&d.trailer.length?`<div class="tv-rtitel" style="margin-top:16px">Trailer & mehr</div><div class="info-grid">`+
-        d.trailer.map((t,i)=>`<div class="tv-kachel" data-trl="${i}" onclick="window.open('https://www.youtube.com/watch?v=${esc(t.key)}','_blank')" title="${esc(t.name)}">`+
+        d.trailer.map((t,i)=>`<div class="tv-kachel" data-trl="${i}" data-arg="${esc(t.key)}" onclick="window.open('https://www.youtube.com/watch?v='+encodeURIComponent(this.dataset.arg),'_blank')" title="${esc(t.name)}">`+
           `<img loading="lazy" src="https://i.ytimg.com/vi/${esc(t.key)}/mqdefault.jpg" onerror="this.style.visibility='hidden'">`+
           `<div class="tv-ktitel">▶ ${esc(t.name)}</div></div>`).join('')+`</div>`:'')+
       `<div class="info-ueber"><div class="tv-rtitel">Über ${esc(d.titel||'')}</div>`+

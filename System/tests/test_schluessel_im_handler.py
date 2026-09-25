@@ -184,3 +184,106 @@ def test_auffaellige_schluessel_werden_nur_gemeldet(monkeypatch):
     monkeypatch.setattr(app, "_geladen", json.loads(json.dumps(bestand)))
     assert sorted(app.auffaellige_schluessel()) == sorted([SCHLUESSEL, "zeile\numbruch|audio"])
     assert app._geladen == bestand, "der Bestand bleibt unverändert"
+
+
+
+# --------------------------------------------- Gruppe 6d: Film-, Geräte- und Profil-Werte
+
+# Jellyfin-Ids, Geräte- und Profil-Ids und Trailer-Schlüssel standen nach
+# esc() (oder encodeURIComponent, das ' nicht maskiert) in onclick/onerror.
+# Der Browser dekodiert den Attributwert vor dem Ausführen: ein ' darin war
+# Skript. Jetzt: data-arg (bzw. data-fb für Ersatzbilder) und this.dataset.
+FREMD = "Fm1'\"<b>x"
+
+
+def _pruefen_arg(html, mindestens):
+    p = _Tags()
+    p.feed(html)
+    p.close()
+    assert p.tags, "nichts gerendert"
+    mit_arg = 0
+    for tag, attrs in p.tags:
+        werte = dict(attrs)
+        for name, wert in attrs:
+            wert = wert or ""
+            assert re.fullmatch(r"[a-z][a-z0-9-]*", name), f"Ausbruch: Attribut {name!r} in <{tag}>"
+            if name.startswith("on"):
+                assert "Fm1" not in wert, f"Wert im Handler <{tag} {name}={wert!r}>"
+                if "dataset.arg" in wert:
+                    assert werte.get("data-arg") == FREMD, f"<{tag} {name}> ohne data-arg"
+                    mit_arg += 1
+            if name == "data-arg":
+                assert wert == FREMD, f"<{tag} data-arg={wert!r}> verfälscht"
+    assert mit_arg >= mindestens, f"nur {mit_arg} Handler lesen data-arg: {html[:300]}"
+
+
+FILM_DOM = r"""
+document.getElementById=id=>(_els[id]=_els[id]||_el());
+document.querySelector=()=>null; document.querySelectorAll=()=>[];
+globalThis.CSS={escape:s=>String(s)};
+"""
+
+
+def _film_teile(*namen):
+    q = _pc()
+    return [_esc_funktion(q)] + [_js_funktion(q, n) for n in namen]
+
+
+def test_film_reihen_und_hero_nur_als_daten(tmp_path):
+    film = {"id": FREMD, "titel": "T", "typ": "film", "jahr": 2000, "genres": ["Drama"]}
+    lauf = [
+        "function filmReihenAnwenden(d){return d;} function filmWarnung(){return '';}",
+        "function tvMetaZeile(){return '';} let tvHeroId='', tvHeroDaten=null;",
+        f"let tvFilmReihen={{top:[{json.dumps(film)}]}};",
+        "globalThis.fetch=async(u)=>({ok:true,json:async()=>(u.startsWith('/api/filme/reihen')?"
+        f"{{weiterschauen:[],top:[{json.dumps(film)}],neu:[],genres:{{}}}}:"
+        "u.startsWith('/api/filme/zustand')?{stand:0}:{})});",
+        "await filmeLaden(); await tvHeroMalen();",
+        "aus({reihen:_els['filme-reihen'].innerHTML, hero:_els['tv-hero'].innerHTML});"]
+    (e,) = _lauf(tmp_path, DOM, FILM_DOM, *_film_teile("filmeLaden", "tvHeroMalen"), *lauf)
+    _pruefen_arg(e["reihen"], mindestens=1)
+    _pruefen_arg(e["hero"], mindestens=2)
+
+
+def test_film_info_seite_nur_als_daten(tmp_path):
+    d = {"id": FREMD, "titel": "T", "typ": "film", "position_s": 120, "laufzeit_min": 90,
+         "genres": ["Drama"], "trailer": [{"key": FREMD, "name": "Trailer"}], "gemerkt": False}
+    daten = {"d": d, "mw": [{"id": FREMD, "titel": "M", "laufzeit_min": 90}],
+             "eps": [{"id": FREMD, "staffel": 1, "folge": 1, "titel": "E", "position_s": 40}]}
+    lauf = [
+        "function tvTon(){return '';} function tvInfoFokusMalen(){} function folgenFehlerText(){return '';}",
+        f"let tvInfoDaten={json.dumps(daten)}, tvInfoId={json.dumps(FREMD)}, tvInfoStaffel=1;",
+        "tvInfoMalen(); aus({info:_els['tv-info'].innerHTML});"]
+    (e,) = _lauf(tmp_path, DOM, FILM_DOM, *_film_teile("tvQualitaet", "tvInfoMalen"), *lauf)
+    _pruefen_arg(e["info"], mindestens=6)
+
+
+def test_geraete_und_profile_nur_als_daten(tmp_path):
+    geraete = {"items": [{"id": FREMD, "name": "TV", "code": "C", "verifiziert": False},
+                         {"id": FREMD, "name": "Handy", "verifiziert": True, "profil": "standard"}],
+               "url": "", "wlan": True}
+    profile = {"items": [{"id": FREMD, "name": "JB", "emoji": "x"}]}
+    lauf = [
+        "globalThis.setTimeout=()=>0; function tvProfilFokusMalen(){} let tvFokus=null, tvProfilModus=false;",
+        f"let tvProfile={json.dumps(profile['items'])};",
+        "globalThis.fetch=async(u)=>({ok:true,json:async()=>(u==='/api/geraete'?"
+        f"{json.dumps(geraete)}:{json.dumps(profile)})}});",
+        "await geraeteMalen(); tvProfilWahl();",
+        "aus({geraete:_els['gerdlg-body'].innerHTML, profile:_els['tv-inhalt'].innerHTML});"]
+    (e,) = _lauf(tmp_path, DOM, FILM_DOM, *_film_teile("geraeteMalen", "tvProfilWahl"), *lauf)
+    _pruefen_arg(e["geraete"], mindestens=2)
+    _pruefen_arg(e["profile"], mindestens=1)
+
+
+def test_film_hoverkarte_nur_als_daten(tmp_path):
+    lauf = [
+        "globalThis.setTimeout=(f)=>{try{f();}catch(e){} return 0;}; globalThis.setInterval=()=>0;",
+        "globalThis.clearTimeout=()=>{}; let snipTimer=0, tvInfoOffen=false;",
+        "function snippetAus(){} function ico(){return '';}",
+        "let tvReihenListe=[['R',[{id:" + json.dumps(FREMD) + ",name:'N',pos:40,dauer:90}]]];",
+        "const kachel={dataset:{fid:" + json.dumps(FREMD) + ",r:'0',i:'0'}, isConnected:true,"
+        " classList:{add(){},remove(){}}, getBoundingClientRect:()=>({width:200,height:100,left:0,top:0})};",
+        "document.fullscreenElement=null;",
+        "snippetAn(kachel); aus({karte:(_angehaengt[0]||{}).innerHTML||''});"]
+    (e,) = _lauf(tmp_path, DOM, FILM_DOM, *_film_teile("snippetAn"), *lauf)
+    _pruefen_arg(e["karte"], mindestens=3)
