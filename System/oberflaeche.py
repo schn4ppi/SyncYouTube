@@ -6677,7 +6677,8 @@ function mixeMenu(ev){
 }
 
 /* „Zu Playlist" — Auswahl-Liste direkt am Titel (kein Dropdown-Vorwählen nötig) */
-function plAddListe(m,key){
+function plAddListe(m,key,fertig){
+  fertig=fertig||(()=>m.remove());                   // im Flyout: schließt Flyout und Menü
   // JB 07.08.: „Bei mehreren markierten dateien wird nur die erste zur
   // Playlist hinzugefügt" — ist der geklickte Titel Teil der Auswahl,
   // wandert die GANZE Auswahl mit; die Zahl steht in der Überschrift.
@@ -6696,7 +6697,7 @@ function plAddListe(m,key){
     e2.stopPropagation();
     let id=b.dataset.pl;
     if(id==='__neu'){
-      const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim()){m.remove();return;}
+      const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim()){fertig();return;}
       id=await plAnlegen(n.trim());
     }
     if(id){
@@ -6705,7 +6706,7 @@ function plAddListe(m,key){
       if(p)plInfo(keys.length>1
         ? keys.length+' Titel → '+p.name+' ✓'
         : '„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓'); }
-    m.remove();
+    fertig();
   });
 }
 function plAddMenu(ev,key){
@@ -6718,7 +6719,7 @@ function plAddMenu(ev,key){
   menuSchliesser(m);
 }
 
-// Kontext-/⋯-Menü am Titel (Explorer-Stil; Einträge mit 'bleib' tauschen nur den Inhalt).
+// Kontext-/⋯-Menü am Titel (Explorer-Stil; Untermenüs klappen wie überall rechts aus).
 function libItemMenu(ev,id){
   ev.stopPropagation();
   if(ev.currentTarget&&menuGeradeZu(ev.currentTarget))return;   // 2. Klick = zu
@@ -6730,7 +6731,7 @@ function libItemMenu(ev,id){
   if(x.vorhanden)eintraege.push(['⏭ Als Nächstes abspielen', ()=>queueAlsNaechstes(id)]);
   if(x.vorhanden)eintraege.push(['➕ Ans Ende der Warteschlange', ()=>queueAnsEnde(id)]);
   const nAus=(libAuswahl&&libAuswahl.has&&libAuswahl.has(id))?libAuswahl.size:0;
-  eintraege.push(nurPc([`＋ Zu Playlist…${nAus>1?' ('+nAus+')':''}`, (m)=>plAddListe(m,id), 'bleib']));
+  eintraege.push(nurPc([`＋ Zu Playlist${nAus>1?' ('+nAus+')':''}`, (f,fertig)=>plAddListe(f,id,fertig), 'sub']));
   // JB 07.08.: „Eventuell auch einen knopf im rechtsklick menü für alles
   // anwählen?" — wählt die GEFILTERTE Sicht (wie Strg+A).
   eintraege.push(['☑ Alles auswählen (Strg+A)', ()=>libAllesWaehlen()]);
@@ -6744,7 +6745,7 @@ function libItemMenu(ev,id){
   // wählen, welcher der Favorit ist — Hauptsong oder Ausschnitt.
   if(x.hat_geschwister){
     const clips=gruppeVon(id).filter(c=>c.clip).length;
-    eintraege.push(nurPc(['✂ Ausschnitte ('+clips+')', (m)=>gruppeListe(m,id), 'bleib']));
+    eintraege.push(nurPc(['✂ Ausschnitte ('+clips+')', (f,fertig)=>gruppeListe(f,id,fertig), 'sub']));
   }
   eintraege.push(nurPc([x.archiviert?'↩ Aus dem Archiv holen':'🗄 Ins Archiv legen', ()=>biblio(id, x.archiviert?'entarchiv':'archiv')]));
   eintraege.push(nurPc([x.blacklist?'✓ Für Meistgespielt zulassen':'🚫 Von Meistgespielt ausschließen', ()=>biblio(id, x.blacklist?'unblacklist':'blacklist')]));
@@ -6757,17 +6758,9 @@ function libItemMenu(ev,id){
     ()=>wiedergabeDialog({keys:wgKeys}, wgKeys.length>1?wgKeys.length+' Titel':(x.titel||'Titel'))]));
   eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(id)]);
   eintraege.push(nurPc(['🗑 In den Papierkorb', ()=>delEinzeln(id)]));
-  const sicht=menuFuerGeraet(eintraege);               // Gerät im WLAN: ohne nur-PC-Einträge
-  const m=document.createElement('div'); m.className='itemmenu';
-  m.innerHTML=sicht.map((e,i)=>`<button data-i="${i}">${e[0]}</button>`).join('');
-  document.body.appendChild(m);
-  popoverBei(m, ev.currentTarget.getBoundingClientRect());
-  m.querySelectorAll('button').forEach(b=>b.onclick=(e2)=>{
-    e2.stopPropagation(); const ent=sicht[+b.dataset.i];
-    if(ent[2]==='bleib'){ent[1](m); return;}          // Untermenü: Inhalt tauschen, offen bleiben
-    ent[1](); m.remove();
-  });
-  menuSchliesser(m);
+  // Derselbe Motor wie jeder Rechtsklick (JB-Entscheid 7a Punkt 8): am Knopf
+  // bzw. an der Mausposition, die kachelKontext als currentTarget mitgibt.
+  kontextMenuBauen({currentTarget:ev.currentTarget}, eintraege);
 }
 /* Build 144n (JB 25.07.): app-eigener Ja/Nein-Dialog. Das native confirm()
    lässt sich im Browser abschalten („diese Handlung unterbinden") — dann kam
@@ -6795,7 +6788,8 @@ function gruppeVon(id){                                 // alle Eintraege der Gr
   const x=libFind(id); const g=(x&&x.gruppe)||(id||'').split('|')[0];
   return libdaten.filter(c=>((c.gruppe)||(c.id||'').split('|')[0])===g);
 }
-function gruppeListe(m,id){
+function gruppeListe(m,id,fertig){
+  fertig=fertig||(()=>m.remove());                   // im Flyout: schließt Flyout und Menü
   // Hauptsong zuerst, dann Clips (neuste oben). Der ⭐ markiert den Favoriten —
   // die sichtbare, abgespielte Kachel. Der Hauptsong ist NICHT löschbar
   // (JB: „das hauptvideo bleibt jedoch immer erhalten").
@@ -6815,16 +6809,16 @@ function gruppeListe(m,id){
   m.querySelectorAll('.clip-row button[data-act]').forEach(b=>b.onclick=async(e2)=>{
     e2.stopPropagation();
     const row=b.closest('.clip-row'), k=row.dataset.k, act=b.dataset.act;
-    if(act==='play'){playerPlay([k]); m.remove(); return;}
+    if(act==='play'){playerPlay([k]); fertig(); return;}
     if(act==='fav'){
       await fetch('/api/clip_favorit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});
-      await libLaden(); if(document.body.contains(m))gruppeListe(m,id); return;   // frisch neu malen
+      await libLaden(); if(document.body.contains(m))gruppeListe(m,id,fertig); return;   // frisch neu malen
     }
     if(act==='del'){
       frageModal('Diesen Ausschnitt in den Papierkorb verschieben?\\nAus dem Windows-Papierkorb wiederherstellbar.', '🗑 In den Papierkorb', async()=>{
         await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k,art:'loeschen'})});
         await libLaden();
-        if(document.body.contains(m)&&gruppeVon(id).length>1)gruppeListe(m,id); else m.remove();
+        if(document.body.contains(m)&&gruppeVon(id).length>1)gruppeListe(m,id,fertig); else fertig();
         toast('🗑 Ausschnitt in den Papierkorb.');
       });
       return;
@@ -6880,10 +6874,14 @@ function ziehTooltip(ev,id){
 }
 
 /* Generischer Menü-Bauer: an Mausposition (clientX) oder an einem Knopf (currentTarget).
-   Einträge mit drittem Element 'bleib' tauschen nur den Inhalt (Untermenü). */
-/* Kontextmenü mit Windows-Ausklapp-Untermenüs (JB 13.07.): Einträge der Form
+   Kontextmenü mit Windows-Ausklapp-Untermenüs (JB 13.07.): Einträge der Form
    [Label, fn] klicken normal; [Label, optionenOderFunktion, 'sub'] zeigen ▸
-   und klappen bei Hover/Klick RECHTS DANEBEN ein Flyout aus (Haken = aktiv). */
+   und klappen bei Hover/Klick RECHTS DANEBEN ein Flyout aus (Haken = aktiv).
+   Die Funktion bekommt das Flyout und `fertig` (schließt alles): liefert sie
+   Optionen [Label, aktiv?, fn], baut kmFuellen die Liste; sonst füllt sie das
+   Flyout selbst (Playlists mit „Neue Playlist“, Ausschnitte mit ⭐/▶/🗑).
+   Seit JB-Entscheid 7a Punkt 8 das EINE Untermenü-Verhalten: das frühere
+   'bleib' (Inhalt des Menüs tauschen) im Bibliotheks-Menü ist entfallen. */
 function kontextMenuBauen(pos, eintraege){
   // ⋯-Knöpfe (kein Rechtsklick): 2. Klick schließt statt neu zu öffnen.
   if(pos.clientX===undefined&&pos.currentTarget&&menuGeradeZu(pos.currentTarget))return;
@@ -6903,8 +6901,9 @@ function kontextMenuBauen(pos, eintraege){
   const flyAuf=(b,ent)=>{
     flyZu();
     const f=document.createElement('div'); f.className='itemmenu km-flyout';
-    const opt=(typeof ent[1]==='function')?ent[1]():ent[1];   // Optionen erst beim Öffnen holen (frischer Zustand)
-    kmFuellen(f, ent[0].replace(' ▸',''), opt, ()=>{flyZu(); m.remove();});
+    const fertig=()=>{flyZu(); m.remove();};
+    const opt=(typeof ent[1]==='function')?ent[1](f,fertig):ent[1];   // erst beim Öffnen (frischer Zustand)
+    if(Array.isArray(opt))kmFuellen(f, ent[0].replace(' ▸',''), opt, fertig);
     document.body.appendChild(f);
     const br=b.getBoundingClientRect(), mr=m.getBoundingClientRect();
     let left=mr.right+2;                                      // rechts daneben; kein Platz -> links
@@ -6923,7 +6922,6 @@ function kontextMenuBauen(pos, eintraege){
       b.onmouseleave=()=>clearTimeout(flyTimer);
       b.onclick=(e2)=>{
         e2.stopPropagation();
-        if(ent[2]==='bleib'){ent[1](m); return;}
         ent[1](); flyZu(); m.remove();
       };
     }
