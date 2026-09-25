@@ -1,0 +1,90 @@
+# -*- coding: utf-8 -*-
+"""Doppelungen zusammengelegt (Gesamtprüfung Gruppe 7, Abschnitt 5, 25.09.2026).
+
+Heiß nachladbare Seiten: Welche Seiten pro Anfrage frisch geladen werden,
+stand an drei Stellen (Router, Selbst-Neustart, `ui_stand`). In der Liste des
+Selbst-Neustarts fehlte `fernbedienung.py`: Der Router lud sie pro Anfrage neu,
+und trotzdem startete jede Änderung daran den ganzen Server neu. Jetzt steht
+es an EINER Stelle (`HEISSE_SEITEN`); geprüft wird am Verhalten: was der
+echte Router neu lädt, was den Selbst-Neustart auslöst, was `ui_stand` zählt.
+"""
+import importlib
+import json
+import os
+import sys
+
+MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+for _pfad in (MODUL_DIR, TEST_DIR):
+    if _pfad not in sys.path:
+        sys.path.insert(0, _pfad)
+
+import youtube_app as app  # noqa: E402
+from test_zugang_und_vertrauen import _anfrage, rechner  # noqa: E402,F401  (rechner: autouse)
+
+PC = {"Host": "127.0.0.1:8776"}
+SEITEN = ("/", "/m", "/fernbedienung")          # die Seiten-Routen des GET-Routers
+
+
+# ------------------------------------------------------------ heiß nachladbare Seiten
+
+def _neu_geladen(monkeypatch):
+    """importlib.reload durch einen Zeugen ersetzen: merkt sich die Namen in
+    Aufruf-Reihenfolge und lädt nichts wirklich neu."""
+    geladen = []
+    monkeypatch.setattr(importlib, "reload", lambda m: geladen.append(m.__name__) or m)
+    return geladen
+
+
+def test_der_router_laedt_genau_die_heissen_seiten_neu(monkeypatch):
+    """Jede Seiten-Route lädt ihre Seite (und den Baustein davor) pro Anfrage
+    neu, und genau diese Dateien löst der Selbst-Neustart NICHT aus. Vorher
+    lud der Router fernbedienung.py neu, die Neustart-Liste kannte sie nicht."""
+    alle = set()
+    for route in SEITEN:
+        geladen = _neu_geladen(monkeypatch)
+        st, _, koerper = _anfrage(route, kopf=PC)
+        assert st == 200 and koerper.lstrip().lower().startswith(b"<!doctype html"), (route, koerper[:80])
+        assert geladen, f"{route}: die Seite lädt nicht pro Anfrage neu"
+        if "medien_session" in geladen:
+            assert geladen.index("medien_session") < len(geladen) - 1, \
+                f"{route}: der Baustein muss VOR der Seite nachladen: {geladen}"
+        alle |= set(geladen)
+    assert {m + ".py" for m in alle} == app._HEISS_NACHLADBAR, (sorted(alle), sorted(app._HEISS_NACHLADBAR))
+
+
+def _code_ordner(monkeypatch, tmp_path):
+    for name in ("youtube_app.py", "filme.py", "oberflaeche.py", "handy.py",
+                 "medien_session.py", "fernbedienung.py"):
+        (tmp_path / name).write_text("# Attrappe\n", encoding="utf-8")
+        os.utime(tmp_path / name, (1_700_000_000, 1_700_000_000))
+    monkeypatch.setattr(app, "SCRIPT_DIR", str(tmp_path))
+
+
+def test_aenderung_an_einer_heissen_seite_startet_den_server_nicht_neu(monkeypatch, tmp_path):
+    _code_ordner(monkeypatch, tmp_path)
+    vorher = app._quell_signatur()
+    for name in ("oberflaeche.py", "handy.py", "medien_session.py", "fernbedienung.py"):
+        os.utime(tmp_path / name, (1_700_000_500, 1_700_000_500))
+        assert app._quell_signatur() == vorher, f"{name}: löst einen unnötigen Selbst-Neustart aus"
+    os.utime(tmp_path / "filme.py", (1_700_000_500, 1_700_000_500))
+    assert app._quell_signatur() != vorher, "Gegenprobe: Backend-Code muss den Neustart auslösen"
+
+
+def test_ui_stand_zaehlt_die_oberflaeche_und_ihren_baustein(monkeypatch, tmp_path):
+    """Alte Tabs erneuern sich, wenn die Oberfläche ODER der Baustein neuer
+    ist; die Handy-Seite und die Fernbedienung zählen hier nicht mit."""
+    _code_ordner(monkeypatch, tmp_path)
+
+    def stand():
+        st, _, koerper = _anfrage("/api/status", kopf=PC)
+        assert st == 200, koerper[:120]
+        return json.loads(koerper)["ui_stand"]
+    assert stand() == 1_700_000_000
+    os.utime(tmp_path / "handy.py", (1_700_000_900, 1_700_000_900))
+    os.utime(tmp_path / "fernbedienung.py", (1_700_000_900, 1_700_000_900))
+    assert stand() == 1_700_000_000
+    os.utime(tmp_path / "medien_session.py", (1_700_000_100, 1_700_000_100))
+    assert stand() == 1_700_000_100
+    os.utime(tmp_path / "oberflaeche.py", (1_700_000_200, 1_700_000_200))
+    assert stand() == 1_700_000_200

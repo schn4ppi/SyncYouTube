@@ -35,7 +35,7 @@ if HIER not in sys.path:
     sys.path.insert(0, HIER)
 
 from test_medientasten_verhalten import (  # noqa: E402
-    MODUL_DIR, _block_ende, _handy, _js_funktion, _js_zeile, _lauf, _modul_js, _pc)
+    _block_ende, _handy, _js_funktion, _js_zeile, _lauf, _modul_js, _pc)
 
 FOLGEN = r"""
 const eps=[
@@ -387,18 +387,10 @@ def test_nachladen_mit_kaputtem_platzhalter_behaelt_die_alte_seite(monkeypatch):
     assert "function medienSitzung(" in oberflaeche.HTML
 
 
-def test_baustein_wird_heiss_nachgeladen():
-    """Eine Änderung am Baustein muss offene Tabs erreichen: er wird mit der
-    Oberfläche nachgeladen, und der Stand der Oberfläche zählt ihn mit."""
-    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
-    m = re.search(r"_HEISS_NACHLADBAR = \{([^}]*)\}", quelle)
-    assert m and "medien_session.py" in m.group(1)
-    for seite in ("handy", "oberflaeche"):
-        i = quelle.index(f"importlib.reload({seite})")
-        vorher = quelle[quelle.rindex("try:", 0, i) - 200:i]
-        assert "importlib.reload(medien_session)" in vorher, f"{seite}: Baustein nicht vorher nachgeladen"
-    j = quelle.index("ui_stand = ")
-    assert "medien_session.py" in quelle[j:j + 400]
+# Dass der Baustein mit beiden Seiten VOR ihnen nachlädt, keinen Selbst-Neustart
+# auslöst und im ui_stand mitzählt, prüft seit der Gesamtprüfung Gruppe 7
+# tests/test_doppelungen.py am Verhalten (echter Router, echte Signatur),
+# statt wie hier bisher am Quelltext.
 
 
 # ------------------------------------------------------------- Handy

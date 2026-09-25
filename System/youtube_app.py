@@ -6658,7 +6658,16 @@ def _fehler_aufraeumen():
 # (kein Download/Stream) und erst, wenn der Code ein paar Sekunden stabil ist.
 # medien_session.py (23.09.2026): der gemeinsame Media-Session-Baustein beider
 # Seiten lädt MIT ihnen neu — sonst erreichte eine Änderung daran offene Tabs nie.
-_HEISS_NACHLADBAR = {"oberflaeche.py", "handy.py", "medien_session.py"}   # laden pro Anfrage neu -> kein Neustart nötig
+# EINE Tabelle für Router, Selbst-Neustart und ui_stand (Gesamtprüfung Gruppe 7):
+# vorher stand die Liste dreifach, und fernbedienung.py fehlte in der Liste des
+# Selbst-Neustarts, obwohl der Router sie pro Anfrage neu lud.
+HEISSE_SEITEN = {                                     # Seite -> Bausteine, die VOR ihr nachladen
+    "oberflaeche": ("medien_session",),
+    "handy": ("medien_session",),
+    "fernbedienung": (),
+}
+_HEISS_NACHLADBAR = {f"{m}.py" for seite, bausteine in HEISSE_SEITEN.items()
+                     for m in (seite, *bausteine)}    # laden pro Anfrage neu -> kein Neustart nötig
 NEUSTART_BERUHIGUNG = 3.0                             # s stabil, bevor neu gestartet wird
 STREAM_RUHE = 15.0                                   # s ohne Abspielen = sicher
 # Ein Transcode zur Zeit (JB zappt): der nächste Wunsch löst den alten ab.
@@ -6736,6 +6745,31 @@ _neu_sig = None
 _neu_sig_seit = 0.0
 _neustart_geplant = False
 _neustart_lock = threading.Lock()
+
+
+def _seite_frisch(name):
+    """Eine Seite aus HEISSE_SEITEN frisch laden (Bausteine zuerst) und ihr HTML
+    liefern — Änderungen erscheinen mit einem Browser-Neuladen, ohne Neustart.
+    Scheitert das Neuladen, bleibt die alte, heile Fassung stehen."""
+    import importlib
+    seite = importlib.import_module(name)
+    try:
+        for baustein in HEISSE_SEITEN[name]:
+            importlib.reload(importlib.import_module(baustein))
+        importlib.reload(seite)
+    except Exception:                                # noqa: BLE001 — im Zweifel alte Version
+        pass
+    return seite.HTML
+
+
+def _ui_stand():
+    """mtime der PC-Oberfläche samt ihrer Bausteine: alte Browser-Tabs erneuern
+    sich selbst, wenn hier neuer Code liegt (Wurzel-Fix 07.08.)."""
+    try:
+        return round(max(os.path.getmtime(os.path.join(SCRIPT_DIR, m + ".py"))
+                         for m in ("oberflaeche", *HEISSE_SEITEN["oberflaeche"])), 2)
+    except OSError:
+        return 0
 
 
 def _quell_signatur():
@@ -7535,54 +7569,26 @@ class Handler(BaseHTTPRequestHandler):
         route = urlparse(self.path).path
         if route == "/koppeln":       # Pairing-Seite direkt
             return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
-        if route == "/fernbedienung":  # Fake-Fernbedienung (JB 07.08.)
-            import importlib
-            import fernbedienung
-            try:
-                importlib.reload(fernbedienung)          # heiß wie die Oberfläche
-            except Exception:                            # noqa: BLE001
-                pass
-            return _antwort(self, 200, fernbedienung.HTML.encode("utf-8"), "text/html")
+        if route == "/fernbedienung":  # Fake-Fernbedienung (JB 07.08.), heiß wie die Oberfläche
+            return _antwort(self, 200, _seite_frisch("fernbedienung").encode("utf-8"), "text/html")
         # Der Alias /handy ist entfallen (JB-Entscheid 7a Punkt 8, 25.09.2026): kein
         # Verweis, das README nennt nur /m.
         if route == "/m":                 # schlanke Handy-Oberfläche
-            import importlib
-            import handy
-            import medien_session
-            try:
-                importlib.reload(medien_session)     # Baustein zuerst, dann die Seite, die ihn einsetzt
-                importlib.reload(handy)
-            except Exception:                        # noqa: BLE001
-                pass
-            return _antwort(self, 200, handy.HTML.encode("utf-8"), "text/html")
+            return _antwort(self, 200, _seite_frisch("handy").encode("utf-8"), "text/html")
         if route in ("/", "/index.html"):
             # Query ignorieren (JB 21.07.: Dashboard lädt „/?embed=1" -> Einbettungs-Modus).
             # Oberfläche bei jedem Aufruf FRISCH laden (sonst cacht Python das Modul
             # und Änderungen an oberflaeche.py erscheinen erst nach App-Neustart —
             # ein Browser-Refresh reicht jetzt).
-            import importlib
-            import medien_session
-            import oberflaeche
-            try:
-                importlib.reload(medien_session)     # Baustein zuerst, dann die Seite, die ihn einsetzt
-                importlib.reload(oberflaeche)
-            except Exception:                        # noqa: BLE001 — im Zweifel alte Version
-                pass
-            _antwort(self, 200, oberflaeche.HTML.encode("utf-8"), "text/html")
+            _antwort(self, 200, _seite_frisch("oberflaeche").encode("utf-8"), "text/html")
         elif route == "/api/status":
             lokal = self._ist_lokal()
             # Nachtprüfung 06.08. (Riegel-Regel „Externe nur mit Zugangsdaten"):
             # der volle Status verriet aus dem LAN den Fernsteuerungs-Code
             # (Widerruf damit wirkungslos) und die ganze Config (Pfade,
             # Proxys). Nicht-lokal bekommt nur, was die Handy-UI braucht.
-            # ui_stand: mtime der Oberfläche — alte Browser-Tabs erneuern
-            # sich selbst, wenn hier neuer Code liegt (Wurzel-Fix 07.08.).
-            # Der Baustein zählt mit (medien_session.py steckt in beiden Seiten).
-            try:
-                ui_stand = round(max(os.path.getmtime(os.path.join(SCRIPT_DIR, f))
-                                     for f in ("oberflaeche.py", "medien_session.py")), 2)
-            except OSError:
-                ui_stand = 0
+            # ui_stand: mtime der Oberfläche samt Baustein (_ui_stand).
+            ui_stand = _ui_stand()
             # F7: unter Q.lock nur der Schnappschuss der Liste; Platte, Statistik
             # und das Senden (ein langsamer Client im WLAN) laufen ohne Sperre.
             with Q.lock:

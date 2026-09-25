@@ -1315,8 +1315,9 @@ def test_fake_fernbedienung():
     i = quelle.index("function snippetAus")
     assert "_clip" in quelle[i:_funktionsende(quelle, i)], \
         "Clip-Timer muss beim Schliessen aufgeraeumt werden"
-    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
-    assert '"/fernbedienung"' in src and "fernbedienung.HTML" in src
+    # Ausgeliefert unter /fernbedienung, pro Anfrage frisch geladen (die Route
+    # selbst prüft tests/test_doppelungen.py am echten Router).
+    assert app._seite_frisch("fernbedienung") == fernbedienung.HTML
 
 
 def test_auslieferung_ohne_nutzerdaten():
