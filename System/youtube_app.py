@@ -7517,10 +7517,13 @@ class Handler(BaseHTTPRequestHandler):
         self._get_routen()
 
     def _get_routen(self):
-        """Der GET-Router; Riegel und WLAN-Tor liegen davor in do_GET."""
-        if urlparse(self.path).path == "/koppeln":       # Pairing-Seite direkt
+        """Der GET-Router; Riegel und WLAN-Tor liegen davor in do_GET. Verglichen
+        wird wie im Tor und im POST-Router der Pfad ohne Anfrageteil, genau
+        (Gruppe 6: vorher teils self.path samt Anfrageteil, teils nur der Anfang)."""
+        route = urlparse(self.path).path
+        if route == "/koppeln":       # Pairing-Seite direkt
             return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
-        if urlparse(self.path).path == "/fernbedienung":  # Fake-Fernbedienung (JB 07.08.)
+        if route == "/fernbedienung":  # Fake-Fernbedienung (JB 07.08.)
             import importlib
             import fernbedienung
             try:
@@ -7530,7 +7533,7 @@ class Handler(BaseHTTPRequestHandler):
             return _antwort(self, 200, fernbedienung.HTML.encode("utf-8"), "text/html")
         # Der Alias /handy ist entfallen (JB-Entscheid 7a Punkt 8, 25.09.2026): kein
         # Verweis, das README nennt nur /m.
-        if urlparse(self.path).path == "/m":                 # schlanke Handy-Oberfläche
+        if route == "/m":                 # schlanke Handy-Oberfläche
             import importlib
             import handy
             import medien_session
@@ -7540,7 +7543,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:                        # noqa: BLE001
                 pass
             return _antwort(self, 200, handy.HTML.encode("utf-8"), "text/html")
-        if urlparse(self.path).path in ("/", "/index.html"):
+        if route in ("/", "/index.html"):
             # Query ignorieren (JB 21.07.: Dashboard lädt „/?embed=1" -> Einbettungs-Modus).
             # Oberfläche bei jedem Aufruf FRISCH laden (sonst cacht Python das Modul
             # und Änderungen an oberflaeche.py erscheinen erst nach App-Neustart —
@@ -7554,7 +7557,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:                        # noqa: BLE001 — im Zweifel alte Version
                 pass
             _antwort(self, 200, oberflaeche.HTML.encode("utf-8"), "text/html")
-        elif self.path == "/api/status":
+        elif route == "/api/status":
             lokal = self._ist_lokal()
             # Nachtprüfung 06.08. (Riegel-Regel „Externe nur mit Zugangsdaten"):
             # der volle Status verriet aus dem LAN den Fernsteuerungs-Code
@@ -7592,7 +7595,7 @@ class Handler(BaseHTTPRequestHandler):
                                      "ffmpeg": bool(_ffmpeg_exe()),
                                      "db": db_statistik(),
                                      "ui_stand": ui_stand, "jetzt": time.time()})
-        elif self.path == "/addon.xpi":
+        elif route == "/addon.xpi":
             # Signierte Firefox-Erweiterung direkt aus der App installieren —
             # richtiger MIME-Typ, damit Firefox den Installations-Dialog zeigt.
             p = _addon_xpi_pfad()
@@ -7607,7 +7610,7 @@ class Handler(BaseHTTPRequestHandler):
             _cors(self)
             self.end_headers()
             self.wfile.write(body)
-        elif self.path == "/api/bibliothek":
+        elif route == "/api/bibliothek":
             # Build 122 (JB: „Dateien aus dem Ordner aufnehmen sollte
             # selbstständig passieren — merkt man das nicht?"): Wer die
             # Bibliothek ansieht, bekommt sie frisch. Der Ordner-Blick läuft
@@ -7618,19 +7621,19 @@ class Handler(BaseHTTPRequestHandler):
             # F7: bibliothek_liste arbeitet auf einem Schnappschuss (F6); der
             # Ordnerlauf (_datei_index) und das Senden halten keine Sperre.
             _antwort(self, 200, {"items": bibliothek_liste()})
-        elif self.path == "/api/playlists":
+        elif route == "/api/playlists":
             with _io_lock:                            # F7: Text unter der Sperre, Senden danach
                 body = json.dumps({"items": _playlists}, ensure_ascii=False).encode("utf-8")
             _antwort(self, 200, body)
-        elif self.path == "/api/abos":
+        elif route == "/api/abos":
             with _io_lock:
                 body = json.dumps({"items": _abos}, ensure_ascii=False).encode("utf-8")
             _antwort(self, 200, body)
-        elif self.path.startswith("/api/kanal_info"):   # ganzen Kanal aufloesen (Name + Videozahl)
+        elif route == "/api/kanal_info":   # ganzen Kanal aufloesen (Name + Videozahl)
             q = parse_qs(urlparse(self.path).query)
             url = (q.get("url") or [""])[0]
             _antwort(self, 200, kanal_info(url, limit=(q.get("limit") or [None])[0]))
-        elif self.path.startswith("/api/cover"):       # eingebettetes Album-Cover (Etappe A)
+        elif route == "/api/cover":       # eingebettetes Album-Cover (Etappe A)
             key = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             bild = cover_aus_datei(key)
             if bild:
@@ -7643,9 +7646,9 @@ class Handler(BaseHTTPRequestHandler):
                 _antwort(self, 404, {"fehler": "kein eingebettetes Cover"})
         # ---- Film-Fundament (Doku/SYNC_FILME_SPEC.md): nur gemappte Felder
         # und lokal gecachte Bilder gehen raus — nie Token/Server-Adresse.
-        elif self.path.startswith("/api/filme/katalog"):
+        elif route == "/api/filme/katalog":
             _antwort(self, 200, filme.katalog_lesen())
-        elif self.path.startswith("/api/filme/zustand"):
+        elif route == "/api/filme/zustand":
             # Damit ein Ausfall SICHTBAR wird: der 403 vom 06.08. lief sieben
             # Tage, ohne dass irgendetwas davon erzählt hat — auch vom Sofa aus
             # muss man das sehen, die Route ist deshalb nicht lokal-only.
@@ -7660,9 +7663,9 @@ class Handler(BaseHTTPRequestHandler):
                 z["fehler"] = filme.FEHLER_ART_TEXT.get(z.get("fehler_art"),
                                                         "Server nicht erreichbar")
             _antwort(self, 200, z)
-        elif self.path.startswith("/api/filme/reihen"):
+        elif route == "/api/filme/reihen":
             _antwort(self, 200, filme.reihen(self._geraet_profil()))
-        elif self.path.startswith("/api/filme/detail"):
+        elif route == "/api/filme/detail":
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             d = filme.detail(fid, self._geraet_profil())
             if d:
@@ -7670,19 +7673,19 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 _antwort(self, 404, {"fehler": "unbekannter Film"})
         # ---- Teilprojekt 3: Profile + Geräte -------------------------------
-        elif self.path.startswith("/api/profile"):
+        elif route == "/api/profile":
             _antwort(self, 200, {"items": profil_geraete.profil_liste(),
                                  "aktiv": self._geraet_profil()})
-        elif self.path.startswith("/api/geraet_status"):   # Pairing-Poll (frei)
+        elif route == "/api/geraet_status":   # Pairing-Poll (frei)
             q = parse_qs(urlparse(self.path).query)
             t = profil_geraete.geraet_token_abholen(
                 (q.get("id") or [""])[0], (q.get("code") or [""])[0])
             _antwort(self, 200, t or {"wartet": True})
-        elif self.path.startswith("/api/geraete"):         # NUR PC: Geräte-Übersicht (NUR_PC)
+        elif route == "/api/geraete":         # NUR PC: Geräte-Übersicht (NUR_PC)
             _antwort(self, 200, {"items": profil_geraete.geraete_liste(),
                                  "url": f"http://{_lan_ip()}:{int(CFG.get('port', 8776))}/koppeln",
                                  "wlan": bool(CFG.get("fernsteuerung"))})
-        elif self.path.startswith("/api/geraet_qr"):       # NUR PC: QR zum Abfotografieren (NUR_PC)
+        elif route == "/api/geraet_qr":       # NUR PC: QR zum Abfotografieren (NUR_PC)
             try:
                 import io
                 import qrcode
@@ -7692,7 +7695,7 @@ class Handler(BaseHTTPRequestHandler):
                 _antwort(self, 200, b.getvalue(), "image/png")
             except Exception as e:                   # noqa: BLE001 — Link steht daneben
                 _antwort(self, 500, {"fehler": f"QR: {e}"})
-        elif self.path.startswith("/api/filme/snippet"):   # Hover-Szene (6 s, stumm)
+        elif route == "/api/filme/snippet":   # Hover-Szene (6 s, stumm)
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             clip = filme.snippet_lesen(fid)
             if clip:
@@ -7701,30 +7704,30 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=filme.snippet_backen, args=(fid,),
                                  daemon=True).start()
                 _antwort(self, 404, {"wartet": True})
-        elif self.path.startswith("/api/live"):           # 📡 Live-Kanäle (kodinerds)
+        elif route == "/api/live":           # 📡 Live-Kanäle (kodinerds)
             _antwort(self, 200, {"items": live_tv.kanaele(), "status": live_tv.status()})
-        elif self.path.startswith("/api/filme/wuenschen"):  # Seerr-Suche (Teilprojekt 4)
+        elif route == "/api/filme/wuenschen":  # Seerr-Suche (Teilprojekt 4)
             q = (parse_qs(urlparse(self.path).query).get("q") or [""])[0]
             _antwort(self, 200, {"items": filme.seerr_suche(q)})
-        elif self.path.startswith("/api/filme/anfragen"):   # meine Wünsche + Stand
+        elif route == "/api/filme/anfragen":   # meine Wünsche + Stand
             _antwort(self, 200, {"items": filme.seerr_meine()})
-        elif self.path.startswith("/api/filme/episoden"):  # Serien: Staffeln + Folgen
+        elif route == "/api/filme/episoden":  # Serien: Staffeln + Folgen
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             # Additiv (24.09.): bei gestörtem Zugang zusätzlich fehler 'zugang'|
             # 'netz' — sonst sah ein 401 aus wie eine Serie ohne Folgen.
             items, fehler = filme.episoden_mit_grund(fid)
             _antwort(self, 200, {"items": items, "fehler": fehler} if fehler
                      else {"items": items})
-        elif self.path.startswith("/api/filme/mehrwie"):   # TMDB-Empfehlungen ∩ Katalog
+        elif route == "/api/filme/mehrwie":   # TMDB-Empfehlungen ∩ Katalog
             fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, {"items": filme.mehr_wie(fid)})
-        elif self.path.startswith("/api/vlc_standbild"):
+        elif route == "/api/vlc_standbild":
             try:
                 with open(os.path.join(DATEN_DIR, "vlc_standbild.png"), "rb") as f:
                     _antwort(self, 200, f.read(), "image/png")
             except OSError:
                 _antwort(self, 404, {"fehler": "kein Standbild"})
-        elif self.path.startswith("/api/filme/direkt"):
+        elif route == "/api/filme/direkt":
             # Browser-Player (JB 06.08.: „Ich will wie bei netflix das im
             # Browser öffnen"): der Server PROXYT den Jellyfin-Strom mit
             # Range-Durchreichung — der Token bleibt auf diesem PC, der
@@ -7808,7 +7811,7 @@ class Handler(BaseHTTPRequestHandler):
                         globals()["_letzter_stream"] = time.time()
             except (OSError, ConnectionError):
                 pass                                     # Client weg / Netz — still
-        elif self.path.startswith("/api/filme/bild"):
+        elif route == "/api/filme/bild":
             q = parse_qs(urlparse(self.path).query)
             bild = filme.bild_holen((q.get("id") or [""])[0],
                                     (q.get("art") or ["Primary"])[0])
@@ -7816,22 +7819,22 @@ class Handler(BaseHTTPRequestHandler):
                 _antwort(self, 200, bild, "image/jpeg", cache=86400)
             else:
                 _antwort(self, 404, {"fehler": "kein Bild"})
-        elif self.path.startswith("/api/addon_hab_liste"):  # Erweiterung: Playlist schon eingereiht? (v1.1.2)
+        elif route == "/api/addon_hab_liste":  # Erweiterung: Playlist schon eingereiht? (v1.1.2)
             lid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, addon_hab_liste(lid))
-        elif self.path.startswith("/api/addon_hab"):    # Erweiterung: Video schon in der Bibliothek? (Build 98)
+        elif route == "/api/addon_hab":    # Erweiterung: Video schon in der Bibliothek? (Build 98)
             vid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             _antwort(self, 200, addon_hab(vid))
-        elif self.path.startswith("/api/addon_update"):  # Erweiterung: neueste Kanal-Version (v1.1.1)
+        elif route == "/api/addon_update":  # Erweiterung: neueste Kanal-Version (v1.1.1)
             _antwort(self, 200, addon_update_info())
-        elif self.path.startswith("/api/schaetzfaktoren"):   # MB/min je Qualitaet (Build 105)
+        elif route == "/api/schaetzfaktoren":   # MB/min je Qualitaet (Build 105)
             _antwort(self, 200, {q: _mb_pro_min(q) for q in QUALITAETEN})
-        elif self.path.startswith("/api/ordner_waehlen"):    # nativer Ordnerdialog (Build 108), NUR_PC
+        elif route == "/api/ordner_waehlen":    # nativer Ordnerdialog (Build 108), NUR_PC
             start = (parse_qs(urlparse(self.path).query).get("start") or [""])[0]
             _antwort(self, 200, ordner_waehlen(start))
-        elif self.path.startswith("/api/pfad_da"):      # Sync-Fenster-Failsafe (Build 109), NUR_PC
+        elif route == "/api/pfad_da":      # Sync-Fenster-Failsafe (Build 109), NUR_PC
             _antwort(self, 200, pfad_da((parse_qs(urlparse(self.path).query).get("pfad") or [""])[0]))
-        elif self.path.startswith("/api/migration_probelauf"):   # Umbenennen, NUR Auslese (Build 112/113), NUR_PC
+        elif route == "/api/migration_probelauf":   # Umbenennen, NUR Auslese (Build 112/113), NUR_PC
             q = parse_qs(urlparse(self.path).query)
             roh = (q.get("schema") or [""])[0]
             schema = [b for b in roh.split(",") if b in NAME_BAUSTEINE] or None
@@ -7841,12 +7844,12 @@ class Handler(BaseHTTPRequestHandler):
                                  "bereit": sum(1 for x in plan if not x["konflikt"]),
                                  "konflikte": sum(1 for x in plan if x["konflikt"]),
                                  "laeufe": migration_laeufe()[-5:]})
-        elif self.path.startswith("/api/entdecken"):    # 📻 Neues entdecken (Build 99)
+        elif route == "/api/entdecken":    # 📻 Neues entdecken (Build 99)
             q = parse_qs(urlparse(self.path).query)
             _antwort(self, 200, entdecken((q.get("pl") or [""])[0],
                                           seeds=(q.get("seeds") or [3])[0],
                                           je_seed=(q.get("je") or [25])[0]))
-        elif self.path.startswith("/api/playlist_export"):
+        elif route == "/api/playlist_export":
             pid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             pl = next((p for p in _playlists if p.get("id") == pid), None)
             if not pl:
@@ -7860,21 +7863,21 @@ class Handler(BaseHTTPRequestHandler):
             _cors(self)
             self.end_headers()
             self.wfile.write(body)
-        elif self.path == "/api/geo_status":
+        elif route == "/api/geo_status":
             st = geo.status(CFG)
             st["config"] = {k: CFG.get(k) for k in ("geo_vpn", "geo_gratis_proxy")}
             st["proxy_anzahl"] = len(CFG.get("geo_proxies") or [])
             st["test"] = _geo_test
             _antwort(self, 200, st)
-        elif self.path.startswith("/api/lyrics"):
+        elif route == "/api/lyrics":
             q = parse_qs(urlparse(self.path).query)
             key = (q.get("id") or [""])[0]
             lrc = lyrics_holen(key)
             _antwort(self, 200, {"lrc": lrc, "quelle": "lrclib" if lrc else ""})
-        elif self.path.startswith("/api/transkript_suche"):
+        elif route == "/api/transkript_suche":
             q = parse_qs(urlparse(self.path).query)
             _antwort(self, 200, {"treffer": transkript_suche((q.get("q") or [""])[0])})
-        elif self.path.startswith("/api/untertitel"):
+        elif route == "/api/untertitel":
             q = parse_qs(urlparse(self.path).query)
             key = (q.get("id") or [""])[0]
             wunsch = (q.get("lang") or [""])[0]
@@ -7894,7 +7897,7 @@ class Handler(BaseHTTPRequestHandler):
                                      "sprachen": [s for _, s in untertitel_liste(key)]})
             except OSError:
                 _antwort(self, 404, {"fehler": "Untertitel-Datei nicht lesbar"})
-        elif self.path.startswith("/media"):
+        elif route == "/media":
             key = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
             pfad = _pfad_zu_key(key)
             if pfad and os.path.isfile(pfad):

@@ -743,3 +743,21 @@ def test_geraet_anmelden_bei_unlesbarer_profildatei_meldet_fehler_und_schreibt_n
     assert isinstance(antwort, dict) and antwort.get("fehler") and "code" not in antwort, antwort
     with open(pfad, "rb") as f:
         assert f.read() == b'{"profile": [{"id": "standard"', "unlesbare profile.json wurde ersetzt"
+
+
+# ------------------------------------------------------------ GET-Router wie Tor und POST-Router
+
+def test_get_router_vergleicht_den_pfad_ohne_anfrageteil():
+    """Gruppe 6: Tor und POST-Router vergleichen urlparse(self.path).path, der
+    GET-Router teils self.path mit Anfrageteil (== "/api/status"), teils nur
+    den Anfang (startswith). Folge: /api/status?x=1 lief ins 404, obwohl das
+    Tor die Route kannte, und /api/profileX oder /media-irgendwas liefen in
+    eine Route, die das Tor unter einem anderen Namen einordnet. Jetzt gilt
+    überall der Pfad ohne Anfrageteil, genau verglichen."""
+    kopf = {"Host": "127.0.0.1:8776"}
+    for pfad in ("/api/status?frisch=1", "/api/playlists?x=1", "/api/abos?x=1"):
+        st, _, koerper = _anfrage(pfad, kopf=kopf)
+        assert st == 200, (pfad, st, koerper[:120])
+    for pfad in ("/api/profileX", "/api/filme/reihenX", "/mediaX?id=a"):
+        st, _, koerper = _anfrage(pfad, kopf=kopf)
+        assert st == 404, (pfad, st, koerper[:120])
