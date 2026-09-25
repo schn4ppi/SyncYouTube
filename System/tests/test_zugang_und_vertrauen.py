@@ -162,13 +162,33 @@ def test_ohne_origin_bleibt_erlaubt():
     assert app._remote["n"] == 1
 
 
-@pytest.mark.parametrize("origin", ["moz-extension://0a1b2c3d-4e5f-6789-abcd-ef0123456789",
-                                    "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
-                                    "ms-browser-extension://Addon_1.0.0.0_abc"])
+ADDON_URSPRUENGE = ["moz-extension://0a1b2c3d-4e5f-6789-abcd-ef0123456789",
+                    "chrome-extension://abcdefghijklmnopabcdefghijklmnop"]
+
+
+@pytest.mark.parametrize("origin", ADDON_URSPRUENGE)
 def test_addon_ursprung_kommt_durch_auch_ohne_content_type(origin):
     """Das Addon sendet BEWUSST ohne Content-Type (browser-addon/shared/background.js)."""
     st, _, _ = _fern(Host="127.0.0.1:8776", Origin=origin)
     assert st == 200, origin
+
+
+@pytest.mark.parametrize("origin", ADDON_URSPRUENGE)
+def test_addon_ursprung_und_cors_sagen_dasselbe(origin):
+    """Gruppe 6: Origin-Prüfung und CORS kennen dieselben Erweiterungs-Schemata
+    (vorher ließ die Prüfung auch ms-browser-extension durch, CORS nicht)."""
+    st, koepfe, _ = _anfrage("/api/add", methode="OPTIONS", kopf={"Host": "127.0.0.1:8776", "Origin": origin})
+    assert st == 204 and koepfe.get("access-control-allow-origin") == [origin]
+
+
+def test_alt_edge_erweiterung_wird_abgewiesen():
+    """Das Schema ms-browser-extension gab es nur im alten Edge (EdgeHTML), den
+    es nicht mehr gibt; das Addon läuft im heutigen Edge als chrome-extension.
+    Die Origin-Prüfung ließ es trotzdem durch, CORS nicht: jetzt beide nicht."""
+    alt = "ms-browser-extension://Addon_1.0.0.0_abc"
+    assert _fern(Host="127.0.0.1:8776", Origin=alt)[0] == 403
+    st, koepfe, _ = _anfrage("/api/add", methode="OPTIONS", kopf={"Host": "127.0.0.1:8776", "Origin": alt})
+    assert st == 403 and "access-control-allow-origin" not in koepfe
 
 
 def test_preflight_nur_fuer_das_addon():

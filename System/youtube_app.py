@@ -6916,7 +6916,9 @@ def ticker_schleife():
 #    Browser-Querzugriff. Sonst nur der eigene Ursprung (Host:Port wie im
 #    Host-Kopf) oder eine Browser-Erweiterung (das Addon).
 # Bewusst KEINE Content-Type-Pflicht: das Addon sendet ohne (background.js).
-ERWEITERUNGS_SCHEMATA = ("moz-extension", "chrome-extension", "ms-browser-extension")
+# Dieselben Schemata gelten für CORS (_cors). ms-browser-extension gab es nur im
+# alten Edge (EdgeHTML); der heutige Edge meldet chrome-extension (Gruppe 6).
+ERWEITERUNGS_SCHEMATA = ("moz-extension", "chrome-extension")
 # Das Dashboard (Tray-Server, SyncDashTray settings_server.PORT) bettet
 # /?embed=1 im Rahmen ein; sonst darf nur die App selbst sich einbetten. Das
 # Dashboard ist unter beiden Namen des PCs erreichbar (Nachschärfung 25.09.2026).
@@ -7308,7 +7310,7 @@ def _cors(handler):
     der Server lauscht ohnehin nur auf 127.0.0.1). Erlaubt das Firefox-Addon,
     Links direkt an die Warteschlange zu schicken."""
     origin = handler.headers.get("Origin", "")
-    if origin.startswith(("moz-extension://", "chrome-extension://")):
+    if origin.startswith(tuple(s + "://" for s in ERWEITERUNGS_SCHEMATA)):
         handler.send_header("Access-Control-Allow-Origin", origin)
         handler.send_header("Access-Control-Allow-Headers", "Content-Type")
         handler.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
