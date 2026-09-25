@@ -3818,11 +3818,31 @@ def wiedergabe_sub_altlast_raeumen():
     return len(gesichert)
 
 
+def _dieselbe_datei(a, b):
+    """Zeigen beide Pfade auf dieselbe Datei (Sync-Ordner = Ort der Originale)?"""
+    try:
+        return os.path.exists(a) and os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def playlist_sync(pl):
     """Playlist-Dateien in den Zielordner (Gerät/USB/Handy) kopieren.
-    Modus 'spiegeln': aus der Playlist entfernte Titel werden im Ziel GELÖSCHT —
-    aber NUR Dateien, die wir selbst dorthin kopiert haben (sync_manifest),
-    nie fremde Dateien im Ordner (nicht-destruktiv gegenüber JBs Daten)."""
+    Modus 'spiegeln': aus der Playlist entfernte Titel verlassen das Ziel —
+    rückholbar in den Unterordner `_entfernt` (auf Sticks und Handys gibt es
+    keinen Papierkorb) und NUR Dateien, die wir selbst dorthin kopiert haben,
+    nie fremde Dateien im Ordner (nicht-destruktiv gegenüber JBs Daten).
+
+    Das Merkblatt `sync_kopien` (Gesamtprüfung S5) = {"ordner", "dateien":
+    {Schlüssel: Dateiname}} gilt nur für den Zielordner, für den es entstand,
+    und nennt nur wirklich kopierte Dateien; eine schon vorhandene gleich
+    große Datei im Ziel ist nicht unsere, das Original selbst (Sync-Ordner in
+    der Bibliothek) nie. Entfernt wird nur für Schlüssel, die nicht mehr in
+    der Playlist stehen, und gar nicht, solange eine Quelle fehlt (`fehlend`
+    im Ergebnis; der nächste vollständige Lauf holt es nach). Eine alte
+    Namensliste `sync_manifest` wird einmal übernommen: ein dort genannter
+    Name gilt als unsere Kopie, wenn der Titel in der Playlist steht und die
+    Datei im Ziel gleich groß ist."""
     if not pl:
         return {"fehler": "Playlist unbekannt"}
     ordner = (pl.get("sync_ordner") or "").strip()
@@ -3832,43 +3852,79 @@ def playlist_sync(pl):
         os.makedirs(ordner, exist_ok=True)
     except OSError as e:
         return {"fehler": f"Zielordner nicht erreichbar: {e}"}
+    ordner_norm = os.path.normcase(os.path.abspath(ordner))
+    kopien = pl.get("sync_kopien") if isinstance(pl.get("sync_kopien"), dict) else {}
+    bisher = dict(kopien.get("dateien") or {}) if kopien.get("ordner") == ordner_norm else {}
+    alte_liste = pl.get("sync_manifest") if "sync_kopien" not in pl else None
+    alte_namen = set(alte_liste) if isinstance(alte_liste, list) else set()
+    items = list(pl.get("items", []))
+    in_playlist = set(items)
     idx = _datei_index()
-    gewollt = {}                                      # basename -> Quellpfad
-    for key in pl.get("items", []):
+    gewollt = {}                                      # basename -> (Schlüssel, Quellpfad)
+    fehlend = 0
+    for key in items:
         e = _geladen.get(key)
         if not e:
             continue
         src = (e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad"))
                else _datei_aus(idx.get(key.split("|")[0]), key.partition("|")[2]))
         if src and os.path.isfile(src):
-            gewollt[os.path.basename(src)] = src
+            gewollt[os.path.basename(src)] = (key, src)
+        else:
+            fehlend += 1                              # Platte ab, Datei verschoben: kein „entfernt"
+    neu = {k: n for k, n in bisher.items() if k in in_playlist}   # fehlende/alte bleiben gemerkt
     kopiert = uebersprungen = geloescht = fehler = 0
-    for name, src in gewollt.items():
+    for name, (key, src) in gewollt.items():
         ziel = os.path.join(ordner, name)
+        eigen = bisher.get(key) == name or name in alte_namen
+        neu.pop(key, None)
         try:
-            if os.path.exists(ziel) and os.path.getsize(ziel) == os.path.getsize(src):
+            if _dieselbe_datei(ziel, src):
+                uebersprungen += 1                    # Ziel IST das Original: nie unsere Kopie
+            elif os.path.exists(ziel) and os.path.getsize(ziel) == os.path.getsize(src):
                 uebersprungen += 1
+                if eigen:
+                    neu[key] = name
             else:
                 shutil.copy2(src, ziel)
                 kopiert += 1
+                neu[key] = name
         except OSError:
             fehler += 1
+            if eigen:
+                neu[key] = name
     if pl.get("sync_modus") == "spiegeln":
-        for name in list(pl.get("sync_manifest") or []):
-            if name not in gewollt:                   # aus Playlist entfernt -> im Ziel weg
-                ziel = os.path.join(ordner, name)
-                try:
-                    if os.path.isfile(ziel):
-                        os.remove(ziel)
-                        geloescht += 1
-                except OSError:
-                    fehler += 1
+        geschuetzt = set(gewollt) | set(neu.values())  # Namen, die einem Titel gehören
+        aktuell = {k: n for n, (k, _s) in gewollt.items()}
+        for key, name in bisher.items():
+            entfernt = key not in in_playlist
+            umbenannt = key in aktuell and aktuell[key] != name   # alte Kopie unter altem Namen
+            if not (entfernt or umbenannt) or name in geschuetzt:
+                continue
+            if fehlend:                               # erst der nächste vollständige Lauf
+                if entfernt:
+                    neu[key] = name
+                continue
+            ziel = os.path.join(ordner, name)
+            if not os.path.isfile(ziel):
+                continue                              # schon weg
+            try:
+                _rueckholbar_verschieben(ziel, os.path.join(ordner, ENTFERNT_ORDNER))
+                geloescht += 1
+            except OSError:
+                fehler += 1
+                if entfernt:
+                    neu[key] = name                   # nächster Lauf versucht es wieder
     with _io_lock:
-        pl["sync_manifest"] = sorted(gewollt.keys())
+        pl["sync_kopien"] = {"ordner": ordner_norm, "dateien": neu}
+        pl.pop("sync_manifest", None)
         pl["sync_ts"] = time.time()
         _json_speichern(PLAYLIST_PFAD, _playlists)
-    return {"ok": True, "kopiert": kopiert, "uebersprungen": uebersprungen,
-            "geloescht": geloescht, "fehler": fehler, "im_ziel": len(gewollt)}
+    ergebnis = {"ok": True, "kopiert": kopiert, "uebersprungen": uebersprungen,
+                "geloescht": geloescht, "fehler": fehler, "im_ziel": len(gewollt)}
+    if fehlend:
+        ergebnis["fehlend"] = fehlend
+    return ergebnis
 
 
 def playlist_m3u(pl):
@@ -6119,6 +6175,8 @@ def filme_sync_pruefen():
 
 
 _auto_sync_stand = {}                                 # playlist-id -> zuletzt gesyncte Signatur
+_auto_sync_nachholen = {}                             # playlist-id -> (Signatur, frühester nächster Versuch)
+AUTO_SYNC_NACHHOL_S = 300
 
 
 def auto_sync_pruefen():
@@ -6128,6 +6186,11 @@ def auto_sync_pruefen():
     5-s-Ticker und tut nur etwas, wenn sich die Playlist wirklich geändert
     hat UND der Zielordner gerade erreichbar ist (Stick/Platte ab = still
     warten, kein Fehler-Sturm).
+
+    Fehlte beim Lauf eine Quelle (Gesamtprüfung S5), wird die Signatur NICHT
+    gemerkt: sonst kopierte der Auto-Sync die Datei nie nach, bis sich die
+    Playlist änderte. Der nächste Versuch kommt frühestens nach
+    AUTO_SYNC_NACHHOL_S (jeder Lauf durchsucht den ganzen Download-Ordner).
     """
     # _playlists ist eine LISTE (Fund 07.08.: .values() warf AttributeError —
     # und riss, weil ungefangen, den ganzen Ticker mit; JBs Spiegel-Sync lief
@@ -6139,11 +6202,18 @@ def auto_sync_pruefen():
                pl.get("sync_modus"))
         if _auto_sync_stand.get(pl.get("id")) == sig:
             continue
+        warte = _auto_sync_nachholen.get(pl.get("id"))
+        if warte and warte[0] == sig and time.time() < warte[1]:
+            continue
         if not os.path.isdir(pl["sync_ordner"]):      # Ziel weg ⇒ später erneut
             continue
         try:
-            playlist_sync(pl)
-            _auto_sync_stand[pl.get("id")] = sig
+            r = playlist_sync(pl)
+            if isinstance(r, dict) and r.get("fehlend"):
+                _auto_sync_nachholen[pl.get("id")] = (sig, time.time() + AUTO_SYNC_NACHHOL_S)
+            else:
+                _auto_sync_stand[pl.get("id")] = sig
+                _auto_sync_nachholen.pop(pl.get("id"), None)
         except Exception:                             # noqa: BLE001 — nächster Takt
             pass
 

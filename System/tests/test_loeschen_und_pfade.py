@@ -451,3 +451,208 @@ def test_download_ordner_darf_selbst_so_heissen(tmp_path, monkeypatch):
     assert "yyyyyy12345" in app._datei_index()
     assert app._finde_datei("https://www.youtube.com/watch?v=yyyyyy12345", {}) == \
         str(dl / "Da [yyyyyy12345].mp3")
+
+
+# ---------------------------------------------------------------- S5: Playlist-Spiegeln (unsichtbarer Teil)
+
+A, B = "A [aaaaaa11111].mp3", "B [bbbbbb22222].mp3"
+KA, KB = "aaaaaa11111|audio", "bbbbbb22222|audio"
+
+
+def _sync_welt(tmp_path, monkeypatch, modus="spiegeln"):
+    """Bibliothek mit zwei Titeln im Download-Ordner, Playlist mit beiden,
+    Sync-Ziel `stick` außerhalb der Bibliothek."""
+    dl = _dl(tmp_path, monkeypatch)
+    (dl / "MP3").mkdir()
+    for name, key, inhalt in ((A, KA, b"AAAA"), (B, KB, b"BBBBBB")):
+        (dl / "MP3" / name).write_bytes(inhalt)
+        app._geladen[key] = {"name": name, "pfad": str(dl / "MP3" / name)}
+    stick = tmp_path / "stick"
+    pl = {"id": "p1", "name": "P", "items": [KA, KB], "sync_ordner": str(stick),
+          "sync_modus": modus}
+    app._playlists.append(pl)
+    return dl, stick, pl
+
+
+def test_playlist_sync_kopiert(tmp_path, monkeypatch, entfernt):
+    """Aufruf-Test (vorher rief kein Test playlist_sync)."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    r = app.playlist_sync(pl)
+    assert r == {"ok": True, "kopiert": 2, "uebersprungen": 0, "geloescht": 0,
+                 "fehler": 0, "im_ziel": 2}, r
+    assert (stick / A).read_bytes() == b"AAAA" and (stick / B).read_bytes() == b"BBBBBB"
+    r = app.playlist_sync(pl)
+    assert r["kopiert"] == 0 and r["uebersprungen"] == 2
+    assert not entfernt
+
+
+def test_playlist_sync_entfernt_rueckholbar_nach_entfernt(tmp_path, monkeypatch, entfernt):
+    """Spiegeln: ein aus der Playlist genommener Titel verlässt das Ziel in den
+    Unterordner `_entfernt` statt per os.remove."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    app.playlist_sync(pl)
+    pl["items"] = [KB]
+    r = app.playlist_sync(pl)
+    assert r["geloescht"] == 1 and not entfernt, entfernt
+    assert not (stick / A).exists()
+    assert (stick / "_entfernt" / A).read_bytes() == b"AAAA"
+    assert (stick / B).is_file()
+    assert (dl / "MP3" / A).is_file(), "das Original in der Bibliothek bleibt"
+
+
+def test_playlist_sync_fremde_gleich_grosse_datei_bleibt(tmp_path, monkeypatch, entfernt):
+    """Wurzel 1: eine schon vorhandene, gleich große Datei im Ziel ist nicht
+    unsere Kopie. Vorher kam sie ins Merkblatt und wurde später gelöscht."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    stick.mkdir()
+    (stick / A).write_bytes(b"XXXX")                  # fremd, gleiche Größe wie A
+    app.playlist_sync(pl)
+    pl["items"] = [KB]
+    app.playlist_sync(pl)
+    assert (stick / A).read_bytes() == b"XXXX", "fremde Datei im Ziel angefasst"
+    assert not entfernt
+
+
+def test_playlist_sync_neuer_zielordner_erbt_kein_merkblatt(tmp_path, monkeypatch, entfernt):
+    """Wurzel 2: nach einem Wechsel des Zielordners galt das alte Merkblatt im
+    neuen Ordner und traf dort gleichnamige fremde Dateien."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    app.playlist_sync(pl)
+    neu = tmp_path / "handy"
+    neu.mkdir()
+    (neu / B).write_bytes(b"MEINE EIGENE KOPIE")
+    pl["sync_ordner"] = str(neu)
+    pl["items"] = [KA]
+    app.playlist_sync(pl)
+    assert (neu / B).read_bytes() == b"MEINE EIGENE KOPIE"
+    assert not (neu / "_entfernt").exists() and not entfernt
+
+
+def test_playlist_sync_fehlende_quelle_entfernt_nichts(tmp_path, monkeypatch, entfernt):
+    """Wurzel 3: fehlt eine Quelle kurz (Platte ab, Datei umbenannt), galt der
+    Titel als entfernt und wurde im Ziel gelöscht. Jetzt bleibt alles, und das
+    Ergebnis nennt die fehlenden Quellen."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    app.playlist_sync(pl)
+    (dl / "MP3" / A).rename(tmp_path / "weg.mp3")
+    r = app.playlist_sync(pl)
+    assert (stick / A).read_bytes() == b"AAAA"
+    assert r.get("fehlend") == 1 and r["geloescht"] == 0
+    assert not entfernt
+
+
+def test_playlist_sync_fehlende_quelle_blockiert_auch_das_entfernen(tmp_path, monkeypatch,
+                                                                    entfernt):
+    """Fehlt irgendeine Quelle, wird in diesem Lauf nichts entfernt; der
+    nächste vollständige Lauf holt es nach."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    app.playlist_sync(pl)
+    (dl / "MP3" / A).rename(tmp_path / "weg.mp3")
+    pl["items"] = [KA]                                # B wirklich entfernt, A fehlt kurz
+    app.playlist_sync(pl)
+    assert (stick / B).is_file()
+    (tmp_path / "weg.mp3").rename(dl / "MP3" / A)
+    r = app.playlist_sync(pl)
+    assert r["geloescht"] == 1 and (stick / "_entfernt" / B).is_file()
+    assert not entfernt
+
+
+def test_playlist_sync_ordner_in_der_bibliothek_trifft_nie_das_original(tmp_path, monkeypatch,
+                                                                        entfernt):
+    """Liegt der Sync-Ordner dort, wo die Originale liegen, ist das Ziel die
+    Quelle selbst: nie ins Merkblatt, nie entfernen."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    pl["sync_ordner"] = str(dl / "MP3")
+    r = app.playlist_sync(pl)
+    assert r["kopiert"] == 0 and r["uebersprungen"] == 2
+    pl["items"] = [KB]
+    app.playlist_sync(pl)
+    assert (dl / "MP3" / A).read_bytes() == b"AAAA", "Original aus der Bibliothek entfernt"
+    assert not (dl / "MP3" / "_entfernt").exists() and not entfernt
+
+
+def test_playlist_sync_altes_merkblatt_wird_uebernommen(tmp_path, monkeypatch, entfernt):
+    """Bestand vor der Umstellung: `sync_manifest` (Namensliste). Eine dort
+    genannte, gleich große Kopie eines Titels der Playlist gilt weiter als
+    unsere; entfernt JB den Titel, verlässt sie das Ziel wie bisher (jetzt
+    rückholbar). Die alte Liste verschwindet aus der Playlist."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    stick.mkdir()
+    (stick / A).write_bytes(b"AAAA")
+    (stick / B).write_bytes(b"BBBBBB")
+    pl["sync_manifest"] = [A, B]
+    app.playlist_sync(pl)
+    assert "sync_manifest" not in pl
+    pl["items"] = [KB]
+    r = app.playlist_sync(pl)
+    assert r["geloescht"] == 1 and (stick / "_entfernt" / A).read_bytes() == b"AAAA"
+    assert not entfernt
+
+
+def test_playlist_sync_kopieren_entfernt_nie(tmp_path, monkeypatch, entfernt):
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch, modus="kopieren")
+    app.playlist_sync(pl)
+    pl["items"] = [KB]
+    r = app.playlist_sync(pl)
+    assert r["geloescht"] == 0 and (stick / A).is_file() and not entfernt
+
+
+def test_auto_sync_merkt_unvollstaendigen_lauf_nicht(tmp_path, monkeypatch, entfernt):
+    """Auto-Sync merkte sich die Signatur auch nach einem Lauf mit fehlender
+    Quelle; danach kopierte er nie wieder, bis sich die Playlist änderte."""
+    monkeypatch.setattr(app, "_auto_sync_stand", {})
+    if hasattr(app, "_auto_sync_nachholen"):
+        monkeypatch.setattr(app, "_auto_sync_nachholen", {})
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    pl["sync_auto"] = True
+    stick.mkdir()
+    (dl / "MP3" / A).rename(tmp_path / "weg.mp3")
+    uhr = [1_000_000.0]
+    monkeypatch.setattr(app.time, "time", lambda: uhr[0])
+    app.auto_sync_pruefen()
+    assert (stick / B).is_file() and not (stick / A).exists()
+    (tmp_path / "weg.mp3").rename(dl / "MP3" / A)     # Platte wieder da
+    uhr[0] += 3600
+    app.auto_sync_pruefen()
+    assert (stick / A).read_bytes() == b"AAAA", "fehlende Quelle wurde nie nachkopiert"
+
+
+def test_playlist_sync_umbenannter_titel_alte_kopie_geht(tmp_path, monkeypatch, entfernt):
+    """Wie bisher beim Spiegeln: heißt ein Titel in der Bibliothek neu, geht
+    die Kopie unter dem alten Namen aus dem Ziel (jetzt rückholbar)."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    app.playlist_sync(pl)
+    neu_name = "A neu [aaaaaa11111].mp3"
+    (dl / "MP3" / A).rename(dl / "MP3" / neu_name)
+    app._geladen[KA]["pfad"] = str(dl / "MP3" / neu_name)
+    r = app.playlist_sync(pl)
+    assert (stick / neu_name).is_file() and not (stick / A).exists()
+    assert (stick / "_entfernt" / A).is_file() and r["geloescht"] == 1
+    assert not entfernt
+
+
+def test_auto_sync_versucht_unvollstaendig_erst_nach_pause(tmp_path, monkeypatch):
+    """Solange eine Quelle fehlt, läuft der Auto-Sync nicht in jedem 5-s-Takt
+    (jeder Lauf durchsucht den Download-Ordner), sondern frühestens nach
+    AUTO_SYNC_NACHHOL_S; eine geänderte Playlist läuft sofort."""
+    monkeypatch.setattr(app, "_auto_sync_stand", {})
+    monkeypatch.setattr(app, "_auto_sync_nachholen", {})
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    pl["sync_auto"] = True
+    stick.mkdir()
+    (dl / "MP3" / A).rename(tmp_path / "weg.mp3")
+    laeufe = []
+    echt = app.playlist_sync
+    monkeypatch.setattr(app, "playlist_sync", lambda p: laeufe.append(1) or echt(p))
+    uhr = [1_000_000.0]
+    monkeypatch.setattr(app.time, "time", lambda: uhr[0])
+    app.auto_sync_pruefen()
+    uhr[0] += 5
+    app.auto_sync_pruefen()
+    assert len(laeufe) == 1, "unvollständiger Lauf wiederholt sich in jedem Takt"
+    pl["items"] = [KA]                                # Playlist geändert: sofort
+    app.auto_sync_pruefen()
+    assert len(laeufe) == 2
+    uhr[0] += app.AUTO_SYNC_NACHHOL_S + 1
+    app.auto_sync_pruefen()
+    assert len(laeufe) == 3
