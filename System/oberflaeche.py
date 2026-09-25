@@ -51,7 +51,11 @@ _HTML_ROH = """<!doctype html>
 *{box-sizing:border-box}
 /* Farbwelt als Variablen — ein „Look" setzt nur diese um (Standard = Terracotta).
    So bleibt das Standard-Aussehen exakt gleich, neue Looks tönen alles konsistent. */
-:root{--pille-h:24px;--feld-h:32px;--akz:#c9952b;--akz2:#e0b878;--akzbg:#2a2016;--head:#d67756;--bg:#141110;--panel:#1c1814;--panelln:#2a2522}
+:root{--pille-h:24px;--feld-h:32px;--akz:#c9952b;--akz2:#e0b878;--akzbg:#2a2016;--head:#d67756;--bg:#141110;--panel:#1c1814;--panelln:#2a2522;--gedaempft:#8a7d74}
+/* Gedämpfte Textfarbe für Inline-Stile im Markup und in erzeugtem HTML (JB-Entscheid 7a
+   Punkt 8): Inline erreicht keine Regel des Tag-Modus, die Variable schon. Im Tag-Modus
+   derselbe Ton wie .info und #layoutbar dort. */
+html.light{--gedaempft:#7a6e64}
 html.theme-hacker{--akz:#37f000;--akz2:#8dff6a;--akzbg:#0f2410;--head:#37f000;--bg:#060a06;--panel:#0b140b;--panelln:#18391b}
 html.theme-neon{--akz:#ff3ad6;--akz2:#79f5ff;--akzbg:#251236;--head:#ff3ad6;--bg:#0a0812;--panel:#140f22;--panelln:#2c2047}
 html.theme-ozean{--akz:#2ba6ff;--akz2:#7ad4ff;--akzbg:#0e2740;--head:#3ec2ff;--bg:#060e18;--panel:#0b1a2b;--panelln:#153450}
@@ -1600,7 +1604,7 @@ if(location.search.indexOf('embed=1')>=0 && window.top!==window.self)document.bo
 <!-- Layout-Werkzeuge: NUR im ✏-Modus sichtbar (✏ Layout / 🔳 Mini / Build sind
      jetzt oben in der Command-Bar — JB 21.07., mehr Platz unten). -->
 <div id="layoutbar">
-  <label style="font-size:12px;color:#8a7d74">Layout:</label>
+  <label style="font-size:12px;color:var(--gedaempft)">Layout:</label>
   <select id="layoutsel" onchange="layoutWaehlen(this.value)" title="Vorlagen &amp; deine gespeicherten Layouts"></select>
   <button class="btn mini" onclick="layoutSpeichern()" title="Aktuelle Fenster-Anordnung unter einem Namen speichern">💾 Speichern</button>
   <button class="btn mini" onclick="layoutLoeschen()" title="Das gewählte gespeicherte Layout löschen">🗑</button>
@@ -1667,7 +1671,7 @@ if(location.search.indexOf('embed=1')>=0 && window.top!==window.self)document.bo
       <textarea id="urls" placeholder="YouTube-Links hier einfügen — einer pro Zeile.
 Playlist-Link (…/playlist?list=…) übernimmt die ganze Liste."></textarea>
       <div class="zeile">
-        <label for="qual" style="font-size:13px;color:#8a7d74">Qualität</label>
+        <label for="qual" style="font-size:13px;color:var(--gedaempft)">Qualität</label>
         <select id="qual">
           <option value="beste">Beste verfügbare</option>
           <option value="2160p">4K (2160p)</option>
@@ -1816,7 +1820,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
         <!-- Build 118 (JB): „Neue Playlist" steckt jetzt IM Auswahlfeld,
              Öffnen/Schließen ist ein Pfeil, Abspielen ein reiner Play-Knopf —
              aus vier Textknöpfen werden drei Symbole. -->
-        <span style="font-size:12px;color:#8a7d74">Playlist:</span>
+        <span style="font-size:12px;color:var(--gedaempft)">Playlist:</span>
         <!-- Build 135 (JB Punkt 4): Titel lassen sich hierher ZIEHEN. Ist eine
              Playlist gewählt, landen sie darin; steht „— keine —", entsteht
              eine neue. Mehrfachauswahl reist mit, und ein Rückgängig gibt es
@@ -2262,7 +2266,7 @@ function optionenToggle(ev){
   const m=document.createElement('div'); m.className='panelmenu'; m.id='optionen'; m.style.minWidth='250px';
   const fmin=(daten&&daten.config)?String(daten.config.fehler_ausblenden_min||0):'5';
   m.innerHTML=
-    '<div style="font-size:11px;color:#8a7d74;padding:2px 6px 6px">Optionen</div>'+
+    '<div style="font-size:11px;color:var(--gedaempft);padding:2px 6px 6px">Optionen</div>'+
     '<div class="optrow"><span>Look</span><select id="opt_skin" onchange="setSkin(this.value)">'+
       SKINS.map(s=>'<option value="'+s[0]+'">'+s[1]+'</option>').join('')+'</select></div>'+
     '<div class="optrow" style="display:block"><div style="display:flex;justify-content:space-between">'+
@@ -2316,7 +2320,7 @@ function optionenToggle(ev){
     '<div class="optrow"><span>Sleep-Timer</span><span><select id="opt_sleep" onchange="sleepSetzen(this.value)">'+
       '<option value="0">aus</option><option value="15">15 min</option><option value="30">30 min</option>'+
       '<option value="60">60 min</option><option value="titel">nach diesem Titel</option></select>'+
-      '<span id="sleepval" style="color:#8a7d74;font-size:11px;margin-left:6px"></span></span></div>'+
+      '<span id="sleepval" style="color:var(--gedaempft);font-size:11px;margin-left:6px"></span></span></div>'+
     '<div class="optrow nur-pc"><span>Dateinamen</span><button class="btn mini" onclick="namenFenster()" title="Bausteine wählen und schieben, Probelauf ansehen, anwenden oder zurücknehmen">🏷 Namens-Baukasten</button></div>'+
     // Etappe C (Spec Punkt 5): globale Grundeinstellungen — unterste geteilte
     // Ebene; Playlist- und Titel-Regeln gehen vor (drei Ebenen, JB 23.07.).
@@ -2339,7 +2343,7 @@ function optionenToggle(ev){
     '<div class="optrow nur-pc"><span>📱 Fernsteuerung</span><button class="btn mini" id="fernbtn" onclick="fernToggle()">…</button></div>'+
     // Teilprojekt 3: Geräte koppeln (QR/Code) + freigeben/trennen — nur am PC.
     '<div class="optrow nur-pc"><span>📺 Geräte (TV/Handy)</span><button class="btn mini" onclick="geraeteDialog()">Koppeln…</button></div>'+
-    '<div id="ferninfo" class="nur-pc" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
+    '<div id="ferninfo" class="nur-pc" style="font-size:11px;color:var(--gedaempft);padding:0 8px 6px"></div>';
   document.body.appendChild(m);
   const sel=m.querySelector('#opt_fehler'); if(sel)sel.value=fmin;
   const ar=m.querySelector('#opt_ar');
@@ -3537,7 +3541,7 @@ function fernFenster(ev){
   document.querySelectorAll('#fernfly').forEach(x=>x.remove());
   const m=document.createElement('div'); m.className='panelmenu'; m.id='fernfly';
   m.style.minWidth='280px';
-  m.innerHTML='<div style="font-size:11.5px;color:#8a7d74;padding:2px 6px 7px">📱 Fernsteuerung läuft</div>'+
+  m.innerHTML='<div style="font-size:11.5px;color:var(--gedaempft);padding:2px 6px 7px">📱 Fernsteuerung läuft</div>'+
     '<div class="mzeile"><span>Code</span><b style="color:var(--akz2);letter-spacing:.08em">'+esc(f.code||'')+'</b></div>'+
     (f.url?'<div class="mzeile"><span>Am Handy öffnen</span><b style="font-size:11.5px">'+esc(f.url)+'</b></div>'
           :'<div class="mzeile"><span style="font-size:11.5px">Handy-Link erscheint nach einem App-Neustart</span></div>')+
@@ -3705,7 +3709,7 @@ function linkFrage(d,url){
   // Meinung nach immer relevant" — bei einem Kanal will man mal abonnieren
   // und mal laden, das hängt am Kanal und nicht an einer Voreinstellung.
   // Eine gemerkte Antwort wäre hier kein Komfort, sondern eine Falle.
-  m.innerHTML='<div style="font-size:11.5px;color:#8a7d74;padding:2px 6px 7px">'+esc(d.frage)+'</div>'+
+  m.innerHTML='<div style="font-size:11.5px;color:var(--gedaempft);padding:2px 6px 7px">'+esc(d.frage)+'</div>'+
     d.optionen.map(o=>'<button class="mbtn" data-id="'+o.id+'">'+esc(o.text)+'</button>').join('');
   document.body.appendChild(m);
   const feld=document.getElementById('cmd-url');
@@ -3784,11 +3788,11 @@ function mengenRegler(d,q){
   m.style.minWidth='330px';
   m.innerHTML=
     '<div style="font-size:12.5px;color:#e7dccf;padding:2px 6px 1px;font-weight:600">'+esc(d.name)+'</div>'+
-    '<div style="font-size:11.5px;color:#8a7d74;padding:0 6px 8px">'+gesamt+(d.gedeckelt?'+':'')+' Videos gefunden'+
+    '<div style="font-size:11.5px;color:var(--gedaempft);padding:0 6px 8px">'+gesamt+(d.gedeckelt?'+':'')+' Videos gefunden'+
       (d.gedeckelt?' (Obergrenze erreicht)':'')+'</div>'+
     '<div style="padding:0 6px"><input type="range" id="mr-range" min="1" max="'+gesamt+'" value="'+gesamt+'" style="width:100%"></div>'+
     '<div class="mzeile"><span id="mr-zahl" style="color:var(--akz2);font-weight:700"></span>'+
-      '<span id="mr-groesse" style="font-size:11px;color:#8a7d74"></span></div>'+
+      '<span id="mr-groesse" style="font-size:11px;color:var(--gedaempft)"></span></div>'+
     '<div class="msep"></div>'+
     '<div class="mzeile"><span>Reihenfolge</span><span style="display:flex;gap:3px">'+
       '<button class="btn mini" id="mr-alt" title="Vom Anfang des Kanals — für Serien, die man der Reihe nach sieht">⏮ älteste</button>'+
@@ -5480,7 +5484,7 @@ function gsec(titel,ok,inner){
 }
 function geoWgForm(){
   return `<div class="gwg"><textarea id="geowg-content" placeholder="[Interface]\\nPrivateKey = …\\n[Peer]\\nEndpoint = …"></textarea>
-    <div class="gzeile"><label style="font-size:12px;color:#8a7d74">Land der Config</label>
+    <div class="gzeile"><label style="font-size:12px;color:var(--gedaempft)">Land der Config</label>
     <select id="geowg-land">${GEOLANDER.map(([c,n])=>`<option value="${c}">${n} (${c})</option>`).join('')}</select>
     <button class="btn mini" onclick="geoWgImport()">importieren</button>
     <span id="geowg-msg" style="font-size:12px;color:#9ec49a"></span></div></div>`;
@@ -5490,13 +5494,13 @@ function geoTestHtml(t){
   if((!t.ergebnisse||!t.ergebnisse.length)&&!t.info)return '<div style="font-size:12px;color:#6a5c52;margin-top:6px">Noch nicht getestet.</div>';
   const rows=(t.ergebnisse||[]).map(e=>`<div class="gtestrow"><span>${esc(e.name)}</span><span>${e.ok===null?'… prüft':(e.ok?'<b style="color:#6fcf7f">✓ Zugang</b>':'<span style="color:#e08a6a">✗</span>')}</span></div>`).join('');
   const info=t.info?`<div style="margin-top:6px;font-size:12px;color:${/Zugang über/.test(t.info)?'#6fcf7f':'#e6c34a'}">${esc(t.info)}</div>`:'';
-  return (t.titel?`<div style="font-size:11px;color:#8a7d74;margin-top:6px">Testvideo: ${esc(t.titel)}</div>`:'')+rows+info;
+  return (t.titel?`<div style="font-size:11px;color:var(--gedaempft);margin-top:6px">Testvideo: ${esc(t.titel)}</div>`:'')+rows+info;
 }
 function geoWizMalen(){
   const s=geoStatus||{}, cfg=s.config||{}, t=s.test||{};
   const vgl=`<div class="libwrap"><table class="gcmp"><thead><tr><th>Weg</th><th>Kosten</th><th>Datenlimit</th><th>Länder</th><th>UK gratis?</th><th>Aufwand</th></tr></thead><tbody>`+
     GEOVERGLEICH.map(r=>`<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${ukfarbe(r[4])}</td><td>${r[5]}</td></tr>`).join('')+`</tbody></table></div>`;
-  const erkannt=`<div style="font-size:12px;color:#8a7d74;margin:4px 0 10px">Auf diesem PC erkannt: `+
+  const erkannt=`<div style="font-size:12px;color:var(--gedaempft);margin:4px 0 10px">Auf diesem PC erkannt: `+
     `NordVPN ${s.nordvpn?'✓':'✗'} · Windscribe ${s.windscribe?'✓':'✗'} · WireGuard-Programm ${s.wireguard_exe?'✓':'✗'}`+
     (s.aktiver_adapter?` · <b style="color:#6fcf7f">aktiv: ${esc(s.aktiver_adapter)}</b>`:'')+
     ((s.wireguard_laender||[]).length?` · WireGuard-Länder: ${s.wireguard_laender.join(', ')}`:'')+`</div>`;
@@ -6392,7 +6396,7 @@ function libMalen(){
             ?'<div class="libleer">Im Titel nichts — aber '+tr.length+' Titel sagen/singen „'+esc(q)+'":</div>'+
              '<div style="padding:0 10px 10px">'+tr.slice(0,25).map(x=>
                '<div class="mbtn" style="text-align:left" onclick="transkriptSuche()">🔎 '+esc(x.titel||'')+
-               ' <span style="color:#8a7d74">('+((x.treffer||[]).length)+'×'+
+               ' <span style="color:var(--gedaempft)">('+((x.treffer||[]).length)+'×'+
                (x.quelle?' · '+esc(x.quelle):'')+')</span></div>').join('')+'</div>'
             :'<div class="libleer">Nichts gefunden — weder im Titel noch im gesprochenen Text.</div>';
         }catch(e){}
@@ -6438,7 +6442,7 @@ function albenHTML(arr){
       `<span class="albn">${g.length} Titel${g[0].jahr?' · '+esc(g[0].jahr):''}</span></div>`+kacheln(g)+`</div>`;
   });
   if(rest.length)
-    h+=`<div class="albgrp"><div class="albkopf"><span class="albtitel" style="color:#8a7d74">Ohne Album-Info</span>`+
+    h+=`<div class="albgrp"><div class="albkopf"><span class="albtitel" style="color:var(--gedaempft)">Ohne Album-Info</span>`+
       `<span class="albn">${rest.length} Titel — Tags holen: ⚙ Ansicht → 🏷 Auto-Tagging</span></div>`+kacheln(rest)+`</div>`;
   return h||'<div class="libleer">Nichts gefunden.</div>';
 }
@@ -6686,7 +6690,7 @@ function plAddListe(m,key){
      'oninput="const q=this.value.toLowerCase();this.parentNode.querySelectorAll(\\'button[data-pl]\\').forEach(b=>{if(b.dataset.pl!==\\'__neu\\')b.style.display=b.textContent.toLowerCase().includes(q)?\\'\\':\\'none\\'})">'
     :'';
   m.innerHTML=`<div class="sm-titel">＋ Zu Playlist hinzufügen${wieViele}</div>`+suche+'<div class="km-sub">'+
-    plState.map(p=>`<button data-pl="${p.id}">${esc(p.name)} <span style="color:#8a7d74">(${p.items.length})</span></button>`).join('')+
+    plState.map(p=>`<button data-pl="${p.id}">${esc(p.name)} <span style="color:var(--gedaempft)">(${p.items.length})</span></button>`).join('')+
     '<button data-pl="__neu">＋ Neue Playlist…</button></div>';
   m.querySelectorAll('button').forEach(b=>b.onclick=async(e2)=>{
     e2.stopPropagation();
@@ -8430,7 +8434,7 @@ async function geraeteMalen(){
   body.innerHTML=
     (d.wlan
       ?`<div style="text-align:center"><img src="/api/geraet_qr" style="width:170px;height:170px;border-radius:8px;background:#fff;padding:6px"><br>`+
-       `<span style="font-size:12px;color:#8a7d74">Mit dem Gerät abfotografieren oder öffnen:<br><b>${esc(d.url)}</b></span></div>`
+       `<span style="font-size:12px;color:var(--gedaempft)">Mit dem Gerät abfotografieren oder öffnen:<br><b>${esc(d.url)}</b></span></div>`
       :`<div style="font-size:13px;color:#c9803f;padding:4px 2px">⚠ Die Fernsteuerung ist AUS — kein Gerät erreicht den Server. `+
        `Erst oben unter „📱 Fernsteuerung" einschalten, dann koppeln.</div>`)+
     (wartend.length?'<div class="sm-titel" style="margin-top:8px">Wartet auf Freigabe</div>'+wartend.map(g=>
@@ -8441,7 +8445,7 @@ async function geraeteMalen(){
       const p=profile.find(x=>x.id===g.profil)||{emoji:'👤',name:g.profil};
       return `<div class="optrow"><span>${esc(g.name)} · ${p.emoji} ${esc(p.name)}</span>`+
       `<button class="btn mini" data-arg="${esc(g.id)}" onclick="geraetTrennen(this.dataset.arg)">🗑 Trennen</button></div>`;}).join(''):'')+
-    (!wartend.length&&!fest.length&&d.wlan?'<div style="font-size:13px;color:#8a7d74;padding:6px 2px">Noch kein Gerät angemeldet — sobald eines die Adresse öffnet, erscheint es hier mit seinem Code.</div>':'');
+    (!wartend.length&&!fest.length&&d.wlan?'<div style="font-size:13px;color:var(--gedaempft);padding:6px 2px">Noch kein Gerät angemeldet — sobald eines die Adresse öffnet, erscheint es hier mit seinem Code.</div>':'');
   if(wartend.length)setTimeout(geraeteMalen,4000);     // frisch halten, solange gewartet wird
 }
 async function geraetFreigeben(id){
@@ -10787,7 +10791,7 @@ async function namenFenster(){
     '<span class="spacer"></span><button class="ib" onclick="document.getElementById(\\'name-fly\\').remove()" title="Schließen (Esc)">✕</button></div>'+
     '<div id="name-liste" style="margin:8px 4px"></div>'+
     '<div style="margin:8px 4px;padding:8px;border:1px solid #2c2621;border-radius:8px;background:#141110">'+
-      '<div style="font-size:11px;color:#8a7d74;margin-bottom:3px">So heißen die Dateien dann:</div>'+
+      '<div style="font-size:11px;color:var(--gedaempft);margin-bottom:3px">So heißen die Dateien dann:</div>'+
       '<div id="name-vorschau" style="font-family:Consolas,monospace;font-size:13px;color:#e9ded3"></div></div>'+
     '<label class="chk" style="margin:6px 4px;display:block"><input type="checkbox" id="name-auto" onchange="nameAutoSetzen(this.checked)"> '+
       'Importierte Dateien automatisch so benennen (rückgängig jederzeit hier)</label>'+
@@ -10813,13 +10817,13 @@ function nameListeMalen(){
     'style="display:flex;align-items:center;gap:8px;padding:5px 7px;margin:3px 0;border:1px solid #2c2621;'+
     'border-radius:7px;background:'+(an?'#1b1613':'transparent')+';cursor:'+(an?'grab':'default')+'">'+
     '<input type="checkbox" '+(an?'checked':'')+' onchange="nameBausteinToggle(\\''+b[0]+'\\',this.checked)">'+
-    '<span style="flex:1">'+esc(b[1])+' <span style="color:#8a7d74">'+esc(b[2])+'</span></span>'+
+    '<span style="flex:1">'+esc(b[1])+' <span style="color:var(--gedaempft)">'+esc(b[2])+'</span></span>'+
     (an?'<button class="ib" onclick="nameSchieben(\\''+b[0]+'\\',-1)" title="nach vorn">▲</button>'+
         '<button class="ib" onclick="nameSchieben(\\''+b[0]+'\\',1)" title="nach hinten">▼</button>':'')+
     '</div>';
-  box.innerHTML=(drin.length?'<div style="font-size:11px;color:#8a7d74">Reihenfolge — ziehen oder ▲▼:</div>':'')+
+  box.innerHTML=(drin.length?'<div style="font-size:11px;color:var(--gedaempft)">Reihenfolge — ziehen oder ▲▼:</div>':'')+
     drin.map((b,i)=>zeile(b,true,i)).join('')+
-    (raus.length?'<div style="font-size:11px;color:#8a7d74;margin-top:6px">Nicht im Namen:</div>':'')+
+    (raus.length?'<div style="font-size:11px;color:var(--gedaempft);margin-top:6px">Nicht im Namen:</div>':'')+
     raus.map(b=>zeile(b,false,-1)).join('');
   box.querySelectorAll('.name-zeile[draggable="true"]').forEach(z=>{
     z.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',z.dataset.id); z.style.opacity='.4';});
@@ -10878,11 +10882,11 @@ async function nameProbelauf(){
     const d=await r.json(); namePlan=d;
     const box=document.getElementById('name-plan');
     box.innerHTML=d.eintraege.length?('<table style="width:100%;border-collapse:collapse">'+
-      d.eintraege.map(x=>'<tr><td style="padding:2px 4px;color:'+(x.konflikt?'#e0a030':'#8a7d74')+'">'+
-        (x.konflikt?'⚠':'✅')+'</td><td style="padding:2px 4px;color:#8a7d74">'+esc(x.alt.split(/[\\\\/]/).pop())+'</td>'+
+      d.eintraege.map(x=>'<tr><td style="padding:2px 4px;color:'+(x.konflikt?'#e0a030':'var(--gedaempft)')+'">'+
+        (x.konflikt?'⚠':'✅')+'</td><td style="padding:2px 4px;color:var(--gedaempft)">'+esc(x.alt.split(/[\\\\/]/).pop())+'</td>'+
         '<td style="padding:2px 4px">→ '+esc(x.neu.split(/[\\\\/]/).pop())+'</td></tr>'+
         (x.konflikt?'<tr><td></td><td colspan="2" style="padding:0 4px 4px;color:#e0a030;font-size:11px">'+esc(x.konflikt)+'</td></tr>':'')).join('')+
-      '</table>'):'<div style="color:#8a7d74;padding:6px">Alle Dateien heißen schon so — nichts zu tun.</div>';
+      '</table>'):'<div style="color:var(--gedaempft);padding:6px">Alle Dateien heißen schon so — nichts zu tun.</div>';
     if(stand)stand.textContent=d.bereit+' bereit, '+d.konflikte+' übersprungen'+(d.gesamt>d.eintraege.length?' (Liste zeigt die ersten '+d.eintraege.length+')':'');
     const go=document.getElementById('name-go'); if(go)go.disabled=!d.bereit;
   }catch(e){if(stand)stand.textContent='Probelauf fehlgeschlagen.';}
@@ -11045,7 +11049,7 @@ function tastenLegende(){
     ['Ton',       t('lauter')+'/'+t('leiser')+' Lautstärke · '+t('stumm')+' stumm · '+t('langsamer')+'/'+t('schneller')+' Tempo'],
     ['Bild',      t('vollbild')+' Vollbild · '+t('pip')+' Bild-in-Bild · '+t('untertitel')+' Untertitel · '+t('subfrueher')+'/'+t('subspaeter')+' Untertitel-Versatz'],
     ['Playlist',  'Klick wählt · Doppelklick/Enter spielt · Entf löscht · ↑/↓ Auswahl']];
-  toastHTML('<div style="font-size:11px;color:#8a7d74;margin-bottom:5px">Tastenkürzel</div>'+
+  toastHTML('<div style="font-size:11px;color:var(--gedaempft);margin-bottom:5px">Tastenkürzel</div>'+
     gruppen.map(([k,v])=>'<div style="display:flex;gap:10px;padding:2px 0;line-height:1.5">'+
       '<b style="flex:none;min-width:74px;color:var(--akz2)">'+k+'</b>'+
       '<span>'+esc(v)+'</span></div>').join(''), 9000);

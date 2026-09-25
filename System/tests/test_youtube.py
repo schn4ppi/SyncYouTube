@@ -1705,7 +1705,7 @@ def test_schwebende_flaechen_werden_alle_geschlossen():
     for funktion, flaeche in (("linkFrage", "linkfrage"),
                               ("mengenRegler", "mengenregler")):
         i = quelle.index("function " + funktion)
-        block = quelle[i:i + 3000]
+        block = quelle[i:_funktionsende(quelle, i)]     # ganze Funktion statt fester 3000 Zeichen
         assert "document.body.appendChild(m)" in block, (
             f"{funktion}: Flaeche haengt nicht am <body>")
         assert "menuSchliesser(m)" in block, (
