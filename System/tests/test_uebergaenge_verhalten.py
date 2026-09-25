@@ -88,6 +88,7 @@ function medienInfoSetzen(x,k){calls.push('titel:'+k);}
 function lieblingMalen(){} function renderPlayerQueue(){} function playerLayoutSet(){}
 function speedAnwenden(){} function wiedergabeAnwenden(){} function renderKapitel(){} function subLaden(){}
 function canvasAnwenden(){} function plqFocus(){} function toast(){} function ensurePlayer(){}
+function uiNeuLaden(){return false;}   // Selbst-Erneuerung (F10): hier nie vorgemerkt, eigener Test in test_oberflaeche_laden
 _els['pl-titel']={}; _els['pl-pos']={};
 _els['pl-media']={classList:{remove(){},toggle(){}}, onclick:null,
   set innerHTML(h){const alt=_els['pl-el']; if(alt)alt.isConnected=false;
