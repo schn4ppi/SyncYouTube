@@ -972,8 +972,10 @@ def _ist_cookie_fehler(exc):
 # weg und fragten sofort erneut, ohne `_ist_sperre` und ohne Fehlereintrag;
 # Anreichern, Abo-Prüfung und Entdecken liefen während einer Sperre einfach
 # weiter. Jetzt setzt jede erkannte Sperre (Download, Auflösen, Nebenweg) den
-# Zeitstempel „gesperrt bis“, und jeder Nebenweg und jede Serien-Schleife
-# liest ihn vor dem nächsten Abruf.
+# Zeitstempel „gesperrt bis“, und jede Serien-Schleife (Anreichern, Abo-Prüfung,
+# Entdecken) liest ihn vor dem nächsten Abruf. Was JB einzeln anstößt (Abo
+# anlegen, Kanal-Rückfrage, Backkatalog, Untertitel), fragt weiter: die Pause
+# soll Serien bremsen, nicht JBs Klicks ins Leere laufen lassen (Nacharbeit F4).
 SPERRE_PAUSE_S = 30 * 60
 _youtube_gesperrt_bis = 0.0
 _youtube_sperre_lock = threading.Lock()
@@ -997,14 +999,12 @@ def youtube_gesperrt():
 
 def _nebenweg_abruf(opts, url, wo, download=False):
     """Der yt-dlp-Abruf der Nebenwege (Untertitel, Abo-Blick, Anreichern,
-    Entdecken). Während einer Sperre-Pause fragt er gar nicht. Eine Sperre wird
-    gemeldet und nicht wiederholt, die Cookies bleiben (ohne Cookies wählt
-    yt-dlp genau die Wege, gegen die YouTube sperrt). Nur ein Cookie-Fehler
-    bekommt einen Zweitversuch ohne Cookies; nach einem reinen Netzfehler
-    entfällt er. Rückgabe: das Info-Dict oder None."""
+    Entdecken). Eine Sperre wird gemeldet und nicht wiederholt, die Cookies
+    bleiben (ohne Cookies wählt yt-dlp genau die Wege, gegen die YouTube
+    sperrt). Nur ein Cookie-Fehler bekommt einen Zweitversuch ohne Cookies;
+    nach einem reinen Netzfehler entfällt er. Die Pause nach einer Sperre prüft
+    der Aufrufer, wenn er eine Serie ist. Rückgabe: das Info-Dict oder None."""
     for versuch in (1, 2):
-        if youtube_gesperrt():
-            return None
         try:
             with _ydl(opts) as y:
                 return y.extract_info(url, download=download)
@@ -4616,6 +4616,8 @@ def entdecken(playlist_id, seeds=3, je_seed=25):
     bekannt = {k.split("|", 1)[0] for k in _geladen_schluessel()}
 
     def _ein_seed(sid):
+        if youtube_gesperrt():                        # ein früherer Seed traf auf eine Sperre
+            return {}
         return _abo_flach(f"https://www.youtube.com/watch?v={sid}&list=RD{sid}",
                           limit=n_je)
 
@@ -4865,6 +4867,11 @@ def abo_aktion(daten):
         abo = {"id": uuid.uuid4().hex[:8], "url": url, "name": titel or url,
                "qualitaet": qual, "bekannt": ids, "ts": time.time(), "neu": 0,
                "feed": _abo_feed_url(info)}
+        if not info:
+            # YouTube hat nicht geantwortet (Sperre, Netz). Eine leere Baseline
+            # hielte beim nächsten Puls jede Folge für neu; also holt der
+            # nächste Puls sie nach, ohne zu laden (_abo_heilen, Nacharbeit F4).
+            abo["basis_offen"] = True
         with _io_lock:
             _abos.append(abo)
             _json_speichern(ABO_PFAD, _abos)
@@ -4937,17 +4944,23 @@ def _abo_heilen(abo):
     Nicht-destruktiv: schlaegt der Netz-Abruf fehl, bleibt ALLES unveraendert
     (naechster Anlauf beim folgenden Puls). Rueckgabe (ok, geheilt):
     (True, False) = war schon sauber, (True, True) = frisch geheilt,
-    (False, False) = Heilung noetig, aber Kanal nicht erreichbar."""
+    (False, False) = Heilung noetig, aber Kanal nicht erreichbar.
+    Ebenso geheilt wird ein Abo, dessen Anlage keine Antwort von YouTube
+    bekam (`basis_offen`, Nacharbeit F4); ein leerer Kanal zählt dort als
+    Antwort."""
     url = str(abo.get("url") or "")
     norm = _kanal_url(url)
-    if norm == url:
+    offen = bool(abo.get("basis_offen"))
+    reiter_link = norm != url                         # Alt-Abo: sein Folgen-Cache zeigte Reiter
+    if not (reiter_link or offen):
         return True, False
     norm, ids, titel, info = _abo_baseline(norm)
-    if not ids:
+    if not ids and not (offen and info):
         return False, False
     with _io_lock:
         abo["url"] = norm
         abo["bekannt"] = ids                          # Baseline neu, NICHT laden (wie create)
+        abo.pop("basis_offen", None)
         abo["feed"] = _abo_feed_url(info) or abo.get("feed") or ""
         if titel and (not abo.get("name") or abo["name"] == url):
             abo["name"] = titel
@@ -4955,7 +4968,7 @@ def _abo_heilen(abo):
         _json_speichern(ABO_PFAD, _abos)
     pfad = os.path.join(ABO_INDEX_ORDNER, f"{abo.get('id')}.json")
     try:
-        if os.path.exists(pfad):
+        if reiter_link and os.path.exists(pfad):
             os.remove(pfad)                           # reiner Ableitungs-Cache (zeigte Reiter) — wird frisch geholt
     except OSError:
         pass

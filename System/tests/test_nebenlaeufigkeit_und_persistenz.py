@@ -555,24 +555,105 @@ def test_netzfehler_ohne_zweitversuch(youtube, tmp_path, art):
 def test_nach_einer_sperre_pausieren_die_serien_schleifen_eine_halbe_stunde(youtube, tmp_path, monkeypatch):
     monkeypatch.setattr(app.time, "sleep", lambda s: None)       # die 0,4-s-Pausen der Schleife
     attrappe = youtube(BOT)
-    for i in range(3):
-        _eintrag(tmp_path, f"vid{i:08d}")
+    keys = [_eintrag(tmp_path, f"vid{i:08d}") for i in range(3)]
+    _abo_anlegen()
     app.biblio_enrich_alle()                         # erster Abruf: Sperre, die anderen warten
     assert len(attrappe.abrufe) == 1, f"{len(attrappe.abrufe)} Abrufe trotz Sperre"
-    app._abo_flach("https://www.youtube.com/@probe/videos")
+    app._enrich_keys(keys)
+    app.abos_pruefen()
     assert app.entdecken("").get("fehler"), "Entdecken muss die Pause melden"
-    assert len(attrappe.abrufe) == 1, "Abo-Blick und Entdecken fragten trotz Sperre"
+    assert len(attrappe.abrufe) == 1, "Nachreichern, Abo-Prüfung oder Entdecken fragten trotz Sperre"
     _uhr_vor(monkeypatch, 31 * 60)
-    app._abo_flach("https://www.youtube.com/@probe/videos")
+    app.abos_pruefen()
     assert len(attrappe.abrufe) == 2, "nach der Pause muss es weitergehen"
 
 
 def test_eine_sperre_beim_aufloesen_pausiert_die_nebenwege(youtube, tmp_path):
     attrappe = youtube(BOT)
+    _abo_anlegen()
     app.aufloesen("https://www.youtube.com/watch?v=abcdefghijk", "beste")
     assert app.Q.items[0]["status"] == "fehler"
-    app._abo_flach("https://www.youtube.com/@probe/videos")
-    assert len(attrappe.abrufe) == 1, "der Abo-Blick fragte gleich nach der Sperre wieder"
+    app.abos_pruefen()
+    assert len(attrappe.abrufe) == 1, "die Abo-Prüfung fragte gleich nach der Sperre wieder"
+
+
+def test_entdecken_fragt_nach_einer_sperre_keine_weiteren_seeds(youtube, tmp_path):
+    """Fünf Seeds, höchstens drei laufen zugleich: wer nach der ersten Sperre
+    an die Reihe kommt, fragt nicht mehr."""
+    attrappe = youtube(*[BOT] * 5)
+    for i in range(5):
+        key = _eintrag(tmp_path, f"seed{i:07d}")
+        app._geladen[key]["uploader"] = f"Kanal {i}"
+    app.entdecken("", seeds=5)
+    assert 1 <= len(attrappe.abrufe) <= 3, f"{len(attrappe.abrufe)} Seeds fragten trotz Sperre"
+
+
+# ---------------------------------------------------------------- F4 Nacharbeit: die Pause gilt den Serien
+
+def _folgen_info(n=5):
+    return {"title": "Probe", "entries": [{"id": f"alt{i:08d}", "title": f"Folge {i}"} for i in range(n)]}
+
+
+def _eingereiht(monkeypatch):
+    """abos_pruefen reiht über aufloesen ein: hier wird nur mitgeschrieben."""
+    urls = []
+    monkeypatch.setattr(app, "aufloesen", lambda url, *a, **k: urls.append(url))
+    return urls
+
+
+def _in_der_sperrpause(monkeypatch):
+    monkeypatch.setattr(app, "_youtube_gesperrt_bis", app.time.time() + 10 * 60)
+
+
+def _abo_anlegen(bekannt=()):
+    abo = {"id": "abcd1234", "url": "https://www.youtube.com/@probe/videos", "name": "Probe",
+           "qualitaet": app.CFG["standard_qualitaet"], "bekannt": list(bekannt), "ts": 0, "neu": 0,
+           "feed": ""}
+    app._abos.append(abo)
+    return abo
+
+
+def test_abo_anlage_in_der_sperrpause_fragt_youtube_und_reiht_danach_nichts_altes_ein(youtube, monkeypatch):
+    """Die Pause übersprang auch JBs einzelne Abo-Anlage: das Abo bekam ohne
+    einen einzigen Abruf eine leere Baseline und trotzdem die Antwort „ok“.
+    Nach der Pause hielt abos_pruefen jede Folge des Kanals für neu (bis 60)."""
+    eingereiht = _eingereiht(monkeypatch)
+    _in_der_sperrpause(monkeypatch)
+    attrappe = youtube(_folgen_info(), _folgen_info())
+    antwort = app.abo_aktion({"art": "create", "url": "https://www.youtube.com/@probe"})
+    assert antwort.get("ok") and antwort.get("basis") == 5, (antwort, attrappe.abrufe)
+    _uhr_vor(monkeypatch, 31 * 60)
+    app.abos_pruefen()
+    assert eingereiht == [], f"{len(eingereiht)} alte Folgen wurden eingereiht"
+
+
+def test_abo_anlage_ohne_antwort_von_youtube_holt_die_baseline_nach_statt_alles_zu_laden(youtube, monkeypatch):
+    """Scheitert der Erst-Blick der Anlage (Sperre oder Netz), speicherte
+    abo_aktion eine leere Baseline, und der nächste Puls lud den ganzen Kanal."""
+    eingereiht = _eingereiht(monkeypatch)
+    attrappe = youtube(BOT, BOT)                     # bei der Anlage sperrt YouTube
+    assert app.abo_aktion({"art": "create", "url": "https://www.youtube.com/@probe"}).get("ok")
+    attrappe.antworten[:] = [_folgen_info() for _ in range(3)]   # nach der Pause antwortet es
+    _uhr_vor(monkeypatch, 31 * 60)
+    app.abos_pruefen()
+    app.abos_pruefen()                               # und beim Puls danach
+    assert eingereiht == [], f"{len(eingereiht)} alte Folgen wurden eingereiht"
+    assert app._abos[0]["bekannt"] == [f"alt{i:08d}" for i in range(5)], "die Baseline fehlt weiter"
+
+
+@pytest.mark.parametrize("art", ["kanal_info", "abo_folgen", "untertitel"])
+def test_einzelaktionen_fragen_auch_in_der_sperrpause(youtube, tmp_path, monkeypatch, art):
+    """Die Pause gilt den Serien-Schleifen. Was JB einzeln anstößt, fragt
+    YouTube weiter; vorher meldete es „nicht erreichbar“ oder tat still nichts."""
+    _in_der_sperrpause(monkeypatch)
+    attrappe = youtube(_folgen_info())
+    if art == "kanal_info":
+        assert app.kanal_info("https://www.youtube.com/@probe").get("ok")
+    elif art == "abo_folgen":
+        assert app.abo_folgen(_abo_anlegen()["id"], aktualisieren=True).get("ok")
+    else:
+        app.untertitel_nachladen(_eintrag(tmp_path))
+    assert len(attrappe.abrufe) == 1, attrappe.abrufe
 
 
 # ---------------------------------------------------------------- F6: Bibliotheks-DB
