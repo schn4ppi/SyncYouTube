@@ -1,4 +1,51 @@
-# Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
+# Start-Prompt für den nächsten SyncYouTube-Chat (Stand 25.09.2026, nach der Gesamtprüfung)
+
+> **NACHTRAG 25.09.2026 (Abend) — Gesamtprüfung und drei Reparatur-Runden (Zweig `gesamtpruefung`, in main seit `9f876e1`).**
+> JB-Wunsch: „den Spaghetticode bzw. das Programm prüfen und verbessern“. Erst eine lesende Prüfung (vier
+> Bereiche, je ein Gegenprüfer), dann drei Runden im eigenen Worktree, jede Gruppe mit Test zuerst,
+> skeptischer Abnahme samt roten Gegenproben in einer Wegwerf-Kopie und Nacharbeit. 119 Commits, Suite
+> 615 → **1334 bestanden, 2 übersprungen**; live geprüft nach jedem Einspielen (Oberfläche ohne
+> Skriptfehler, 966 Bibliothekseinträge, Kopf-Prüfungen antworten 403, Untermenü, Fernbedienung, Protokoll).
+> - **Sicherheit:** Host- und Origin-Prüfung vor jedem Riegel (fremde Webseiten und DNS-Rebinding
+>   prallen ab), Einbetten nur durch App und Dashboard, `Referrer-Policy: no-referrer`; Pfade für Abo-Index,
+>   Cover und Untertitel nur noch im eigenen Ordner; kein endgültiges Löschen mehr (Papierkorb, sonst
+>   rückholbar nach `_Papierkorb`, Playlist-Spiegel nach `_entfernt` mit `.nomedia`); Bibliotheks-Schlüssel
+>   und Film-Ids nur noch als `data-`Attribute in Handlern; Versuchsbremse je IP für Code und Geräte-Token,
+>   zeitkonstante Vergleiche; Körpergrenze 2 MB, Lese-Zeitlimit (Ströme ohne Schreib-Zeitlimit);
+>   Selbst-Update nur mit gültiger Authenticode-Signatur desselben Herausgebers und vorhandener `.sha256`,
+>   `build_release.py` baut nicht ohne Signatur-Token.
+> - **JB-Entscheide (25.09.):** WLAN-Geräte dürfen abspielen, suchen, fernsteuern und YouTube-Links laden,
+>   alles andere nur am PC (`LAN_ERLAUBT`/`NUR_PC`, alles nicht Erlaubte ist gesperrt); gekoppelte Geräte
+>   bekommen die volle Oberfläche per HttpOnly-Cookie (Einstellungen dort ausgeblendet), Token nicht mehr in
+>   Adresse und `localStorage`; neue Codes 10 Zeichen, Knopf „🔄 Code erneuern“ im ⚙-Menü, alter Code gilt
+>   bis zum Klick; Neuladen der Seite erst bei Pause oder Titelende; Alias `/handy` entfernt; `--gedaempft`
+>   als CSS-Variable; ein Untermenü-Verhalten in allen Kontextmenüs.
+> - **Nebenläufigkeit:** `profile.json` unter Sperre (ein Widerruf geht nicht mehr verloren), Speichern über
+>   `familie.json_schreiben` mit Wiederholung, eine Sperre für CFG, Worker stirbt nicht mehr am Speichern,
+>   höchstens zwei yt-dlp-Auflösungen zugleich (hängende geben ihren Platz nach 5 min ab), 30 min Pause der
+>   Serien-Abrufe nach einer YouTube-Sperre, Bibliotheks-DB unter Sperre, keine Sperre über Ordnerläufen
+>   oder HTTP-Antworten.
+> - **Fehler behoben:** u. a. Zeitleiste der Kopfleiste im VLC-Modus, Film-Merkliste im Fernsehmodus (war
+>   immer 404), neue Playlist wird verlässlich gewählt, Film-Details nach Ausfall nach 1 h statt 14 Tagen,
+>   Live-TV hängt nicht nach Fehlschlag, Geo-Umgehung trennt keine eigene VPN-Verbindung, ehrliche
+>   Meldungen (M3U zu groß, Kopplung gescheitert, Fernsteuerung aus).
+> - **Aufräumen:** `/api/importieren`, der Bulk-Zweig, 14 tote JS-Funktionen und tote CSS entfernt (Wächter
+>   `tests/test_toter_code.py`); Protokoll `System/yt_protokoll.log` (rotierend, höchstens rund 4 MB);
+>   `python tests/test_youtube.py` fährt alle Tests über pytest; Test-Wachen: Daten-Wache per Audit-Hook,
+>   Netzsperre für alle Module, frische Zustände je Test, JS-Syntax-Wächter über alle Skript-Blöcke.
+> - **Vor dem nächsten Release (nur exe):** einmal am PC mit Netz `update.authenticode_online(<neue
+>   signierte exe>)` messen (erwartet Code 0); ohne gesteckten eToken baut `build_release.py` nicht.
+> - **Handgriffe am echten Gerät (nicht prüfbar ohne Programmstart):** Handy `/m` nach dem Neustart ohne
+>   Code-Eingabe? Abspielen am Handy (Ton, Sperrbildschirm, Vor/Zurück) und am PC; „Code erneuern“, danach
+>   `/m` verlangt den neuen Code. Fernseher: alte Adresse (auch mit `?geraet=`) lädt die volle Oberfläche
+>   ohne Token in der Adresse; Fernsehmodus, Film, Untertitel, ❤, Merkliste; kein Papierkorb/Ordner/
+>   Einstellungen; Browser neu starten bleibt gekoppelt; am PC trennen wirkt sofort; Film über den
+>   Browser-Player länger als 30 s pausieren und fortsetzen.
+> - **Offen (Vorschläge bzw. JB-Fragen, Stand 25.09.):** Code-Cookie 30 Tage fest oder gleitend; Audio-
+>   Endungen `.wav`/`.aac` einheitlich einstufen; eine Audio-Prüfung in der Oberfläche; weitere rohe Ids in
+>   Handlern über `data-`; acht CSS-Kandidaten ohne Nennung plus CSS-Wächter mit Auto-Discovery;
+>   `_json_laden` bei anhaltender Sperre Speichern verweigern; Struktur-Plan (Module aus `youtube_app.py`,
+>   Routentabelle, JS/CSS aus `oberflaeche.py`) noch nicht begonnen.
 
 > **NACHTRAG 25.09.2026 — Nacharbeit der Prüfung Runde 3 (nacharbeit_r3_yt).** Grundlage:
 > JBs Esc-Regel vom 24.09. („gesehen" ab 90 % auch bei Esc/⏭) und die Mindest-Sehzeit.
