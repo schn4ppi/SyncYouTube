@@ -719,3 +719,62 @@ def test_live_tv_alter_cache_wird_beim_lesen_gefiltert(tmp_path):
     (tmp_path / "live_tv.json").write_text(json.dumps({"stand": time.time(), "kanaele": alt}),
                                            encoding="utf-8")
     assert [x["name"] for x in live_tv.kanaele()] == ["Gut"]
+
+
+# ---------------------------------------------------------------- S11: WireGuard-.conf nicht ohne Sicherung überschreiben
+
+WG_ALT = "[Interface]\nPrivateKey = alt\n[Peer]\nEndpoint = alt:51820\n"
+WG_NEU = "[Interface]\nPrivateKey = neu\n[Peer]\nEndpoint = neu:51820\n"
+
+
+def _wg(tmp_path, monkeypatch):
+    ordner = tmp_path / "wireguard"
+    ordner.mkdir()
+    monkeypatch.setitem(app.CFG, "geo_wireguard_ordner", str(ordner))
+    return ordner
+
+
+def test_wireguard_vorhandene_conf_wird_vorher_gesichert(tmp_path, monkeypatch, entfernt):
+    """Vorher überschrieb /api/geo_wireguard eine vorhandene <LAND>.conf ohne
+    Sicherung. Jetzt liegt die alte daneben als .bak (endet nicht auf .conf,
+    zählt also nicht als Land)."""
+    ordner = _wg(tmp_path, monkeypatch)
+    (ordner / "GB.conf").write_text(WG_ALT, encoding="utf-8")
+    r = app.Handler._geo_wireguard(None, {"land": "gb", "content": WG_NEU})
+    assert r.get("ok"), r
+    assert (ordner / "GB.conf").read_text(encoding="utf-8") == WG_NEU
+    sicher = [p for p in ordner.iterdir() if p.name != "GB.conf"]
+    assert len(sicher) == 1 and sicher[0].read_text(encoding="utf-8") == WG_ALT, sicher
+    assert sicher[0].name.startswith("GB.conf.") and sicher[0].name.endswith(".bak")
+    assert r["laender"] == ["GB"] and not entfernt
+
+
+def test_wireguard_gleicher_inhalt_ohne_sicherung(tmp_path, monkeypatch):
+    ordner = _wg(tmp_path, monkeypatch)
+    (ordner / "GB.conf").write_text(WG_NEU, encoding="utf-8")
+    app.Handler._geo_wireguard(None, {"land": "GB", "content": WG_NEU})
+    app.Handler._geo_wireguard(None, {"land": "US", "content": WG_NEU})   # neu, nichts zu sichern
+    assert sorted(p.name for p in ordner.iterdir()) == ["GB.conf", "US.conf"]
+
+
+def test_wireguard_zwei_sicherungen_ueberschreiben_sich_nicht(tmp_path, monkeypatch):
+    ordner = _wg(tmp_path, monkeypatch)
+    (ordner / "GB.conf").write_text(WG_ALT, encoding="utf-8")
+    monkeypatch.setattr(app.time, "strftime", lambda *a, **k: "20260925-120000")
+    app.Handler._geo_wireguard(None, {"land": "GB", "content": WG_NEU})
+    app.Handler._geo_wireguard(None, {"land": "GB", "content": WG_ALT})
+    inhalte = sorted(p.read_text(encoding="utf-8") for p in ordner.iterdir()
+                     if p.name.endswith(".bak"))
+    assert inhalte == sorted([WG_ALT, WG_NEU])
+
+
+@pytest.mark.parametrize("land", ["..\\x", "../x", "ABSOLUT", UNC])
+def test_wireguard_land_bleibt_zwei_buchstaben(tmp_path, monkeypatch, land):
+    """Wächter: der Ländercode ist der Dateiname und bleibt auf zwei
+    Buchstaben begrenzt."""
+    ordner = _wg(tmp_path, monkeypatch)
+    if land == "ABSOLUT":
+        land = str(tmp_path / "x")
+    r = app.Handler._geo_wireguard(None, {"land": land, "content": WG_NEU})
+    assert r.get("fehler") and not any(ordner.iterdir())
+    assert not (tmp_path / "x.conf").exists()

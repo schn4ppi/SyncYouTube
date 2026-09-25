@@ -3546,6 +3546,30 @@ def _rueckholbar_verschieben(pfad, ordner):
     raise OSError(f"kein freier Name in {ordner}")
 
 
+def _vorher_sichern(pfad, neuer_inhalt):
+    """Vor dem Überschreiben (Gesamtprüfung S11): hat eine vorhandene Datei
+    einen anderen Inhalt, liegt sie danach als `<name>.<Zeitstempel>.bak`
+    daneben (endet nicht auf .conf, zählt also nicht als WireGuard-Land).
+    Nie überschreiben: exklusiv angelegt, bei Kollision nummeriert. Gibt den
+    Pfad der Sicherung zurück oder "" (nichts zu sichern); OSError geht an
+    den Aufrufer, der dann nicht überschreibt."""
+    if not os.path.isfile(pfad):
+        return ""
+    with open(pfad, encoding="utf-8", errors="replace") as f:
+        if f.read() == neuer_inhalt:
+            return ""
+    stempel = time.strftime("%Y%m%d-%H%M%S")
+    for n in range(1, 1000):
+        ziel = f"{pfad}.{stempel}{'' if n == 1 else f'-{n}'}.bak"
+        try:
+            with open(pfad, "rb") as quelle, open(ziel, "xb") as kopie:
+                shutil.copyfileobj(quelle, kopie)
+            return ziel
+        except FileExistsError:
+            continue
+    raise OSError(f"kein freier Name für die Sicherung von {pfad}")
+
+
 def _papierkorb_ordner(pfad):
     """`_Papierkorb` im Download-Ordner, wenn die Datei darunter liegt, sonst
     neben der Datei: beides derselbe Datenträger, also ein Umbenennen."""
@@ -6995,7 +7019,9 @@ class Handler(BaseHTTPRequestHandler):
         ordner = CFG.get("geo_wireguard_ordner") or os.path.join(SCRIPT_DIR, "wireguard")
         try:
             os.makedirs(ordner, exist_ok=True)
-            with open(os.path.join(ordner, land + ".conf"), "w", encoding="utf-8") as f:
+            pfad = os.path.join(ordner, land + ".conf")
+            _vorher_sichern(pfad, content)            # S11: vorhandene .conf rückholbar daneben
+            with open(pfad, "w", encoding="utf-8") as f:
                 f.write(content)
             with Q.lock:
                 CFG["geo_wireguard_ordner"] = ordner
