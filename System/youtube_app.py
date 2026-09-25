@@ -7858,7 +7858,8 @@ class Handler(BaseHTTPRequestHandler):
                                                    keys=daten.get("keys") or None))
         # Altlast der alten Kette, verhaltensgleich übernommen (Gruppe 8): nach der
         # Antwort oben folgt eine zweite. Offen als Nebenbefund; ein Client, der
-        # nach Content-Length liest, sieht nur die erste.
+        # nach Content-Length liest, sieht nur die erste. Festgehalten als
+        # xfail(strict) in tests/test_routen_antwort.py: die Reparatur schaltet ihn um.
         self._ok()
 
     def _post_playlist(self, daten):
