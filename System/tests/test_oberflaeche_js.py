@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
 """Wächter für die Oberfläche (oberflaeche.py, JS inline): jede Top-Level-Funktion,
 die `info` benutzt, muss `info` auch selbst deklarieren (Parameter, const/let
-oder Zuweisung). Befund SyncYouTube-12, 06.09.2026: `ordnerImportieren()`
-las `info` undeklariert — der Fehler-Rekorder hielt nur »Promise:
-ReferenceError: info is not defined« ohne Ort fest, und nach dem Ordner-Import
-blieb die Meldung aus und die Bibliothek wurde nicht neu geladen.
+oder Zuweisung). Befund SyncYouTube-12, 06.09.2026: Der Fehler-Rekorder hielt
+nur »Promise: ReferenceError: info is not defined« fest, ohne Ort. Undeklariert
+lasen `info` damals zwei Funktionen, `plSyncNow()` und `ordnerImportieren()`;
+beide sind in 3b6a084 repariert. Ausgelöst hat den Eintrag sehr wahrscheinlich
+`plSyncNow()` (Playlist-Menü „⇄ Jetzt synchronisieren“): Nach dem Sync warf
+die Erfolgsmeldung, der catch-Zweig warf noch einmal, die Liste wurde nicht
+neu geladen. `ordnerImportieren()` hatte seit Build 122 (60a55df, 23.07.2026)
+keinen Aufrufer mehr und konnte gar nicht laufen. (Berichtigt in der
+Gesamtprüfung 25.09.2026; vorher stand hier `ordnerImportieren()` als Ursache.)
 Auto-Discovery über alle Funktionen, kein Netz, kein Server (P6/P7)."""
 import os
 import re

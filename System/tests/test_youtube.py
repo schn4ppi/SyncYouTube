@@ -3034,13 +3034,17 @@ def test_playlist_erlaubt_doppelte_titel():
     # Das Backend hat es bisher STILL verhindert (k not in pl["items"]) - der
     # Titel wurde gezogen, und nichts passierte. Eine Playlist ist eine
     # Reihenfolge, kein Mengenbegriff: derselbe Song darf zweimal vorkommen.
-    alt_pl, alt_sp = app._playlists, app._json_speichern
+    # Eigene Bibliothek (Gesamtpruefung Y0, 25.09.2026): vorher nahm der Test
+    # den ersten Schluessel aus JBs echter Bibliothek und brach bei leerer
+    # Bibliothek still ab — auf einem frischen Klon und unter der Daten-Wache
+    # (leere Zustaende je Test) pruefte er nichts. Gegenprobe: mit einem
+    # `k not in pl["items"]` im add-Zweig blieb der alte Test gruen.
+    alt_pl, alt_sp, alt_gel = app._playlists, app._json_speichern, app._geladen
     app._json_speichern = lambda *a, **k: None
     try:
         app._playlists = [{"id": "p1", "name": "Test", "items": [], "ts": 0}]
-        schluessel = next(iter(app._geladen), None)
-        if not schluessel:
-            return                                    # leere Bibliothek: nichts zu pruefen
+        schluessel = "vidDOPPEL01|audio"
+        app._geladen = {schluessel: {"name": "Doppelt.mp3"}}
         for _ in range(3):
             app.playlist_aktion({"art": "add", "id": "p1", "key": schluessel})
         assert app._playlists[0]["items"] == [schluessel] * 3, \
@@ -3053,7 +3057,7 @@ def test_playlist_erlaubt_doppelte_titel():
         app.playlist_aktion({"art": "ersetzen", "id": "p1", "items": ["gibtsnicht", schluessel]})
         assert app._playlists[0]["items"] == [schluessel]
     finally:
-        app._playlists, app._json_speichern = alt_pl, alt_sp
+        app._playlists, app._json_speichern, app._geladen = alt_pl, alt_sp, alt_gel
 
 
 def test_player_rahmen_ist_16zu9():
@@ -4556,9 +4560,52 @@ def test_kacheln_16zu9_blaettern_und_reihen_je_tab():
     b = quelle[i:_funktionsende(quelle, i)]
     assert b.count(".slice(0,10)") >= 3 and "genresAls(filt,99)" in b \
         and "genresAls(a=>a,6)" in b, "Top-10-Schnitt je Tab + Genre-Reihen fehlen"
-    src = open(os.path.join(MODUL_DIR, "filme.py"), encoding="utf-8").read()
-    assert "[:30]" in src and "[:100]" in src and "[:120]" in src, \
-        "Server: top 30 / Genre 100 / Kandidaten 120"
+    # Server: top 30 / Genre 100 je Typ / Kandidaten 120 — am VERHALTEN von
+    # filme.reihen() (Gesamtpruefung 25.09.2026). Vorher suchte der Test
+    # "[:100]" im Quelltext, und das stand seit 13.08. nur noch in einem
+    # Kommentar (der Code deckelt mit GENRE_JE_TYP je Typ): mit halbiertem
+    # Deckel blieb er gruen.
+    r = _reihen_mit_katalog()
+    assert len(r["top"]) == 30, f"Top muss 30 liefern (Tabs schneiden auf 10): {len(r['top'])}"
+    reihe = r["genres"]["Drama"]
+    assert sum(e["typ"] == "film" for e in reihe) == 100 \
+        and sum(e["typ"] == "serie" for e in reihe) == 100, "Genre-Reihe: 100 je Typ"
+    assert r["top"][0]["id"] == "f119", "Kandidat Nr. 120 gehoert zu den 120 Kandidaten"
+    assert "f125" not in {e["id"] for e in r["top"]}, \
+        "Kandidat Nr. 126 liegt ausserhalb der 120 und darf nicht in die Top"
+
+
+def _reihen_mit_katalog():
+    """filme.reihen() gegen einen gedachten Katalog, ohne Netz und Schluesselbund.
+
+    150 Filme (Bewertung 9,90 fallend bis 6,92) und 110 Serien (6,0 fallend),
+    alle im Genre Drama. Ohne TMDB-Stimmen ist jeder Score auf 6,8 gedeckelt;
+    zwei Filme bekommen viele Stimmen: f119 (Rang 120, noch Kandidat) und f125
+    (Rang 126, kein Kandidat mehr). So zeigt die Top, wo der Kandidaten-Deckel
+    liegt."""
+    import filme
+
+    def eintrag(i, typ, note, tmdb=""):
+        return {"id": f"{typ[0]}{i:03d}", "titel": f"T{i:03d}", "typ": typ, "jahr": 2000,
+                "genres": ["Drama"], "fsk": "", "rating": note, "laufzeit_min": 90,
+                "imdb": "", "tmdb": tmdb, "video_codec": "", "audio_codec": "",
+                "bild_tag": "", "hinzugefuegt": "2026-01-01T00:00:00.0000000Z",
+                "position_s": 0, "gesehen": False}
+    katalog = [eintrag(i, "film", round(9.9 - i * 0.02, 2), {119: "t119", 125: "t125"}.get(i, ""))
+               for i in range(150)]
+    katalog += [eintrag(j, "serie", round(6.0 - j * 0.001, 3)) for j in range(110)]
+    stimmen = {"t119": [100000, 9.9], "t125": [100000, 9.9]}
+    alt = (filme.katalog_lesen, filme.merkliste_lesen, filme._meta_cache, filme._meta_keys, filme._http)
+    try:
+        filme.katalog_lesen = lambda: {"stand": 0, "server_version": "?", "eintraege": katalog}
+        filme.merkliste_lesen = lambda profil="standard": []
+        filme._meta_cache = lambda: {"tmdb_stimmen": dict(stimmen)}
+        filme._meta_keys = lambda: {"tmdb": "", "omdb": ""}     # kein Schluessel: kein Abruf
+        filme._http = lambda *a, **k: (_ for _ in ()).throw(AssertionError("kein Netz"))
+        return filme.reihen()
+    finally:
+        (filme.katalog_lesen, filme.merkliste_lesen, filme._meta_cache,
+         filme._meta_keys, filme._http) = alt
 
 
 def test_player_settings_und_huellen_maus():
