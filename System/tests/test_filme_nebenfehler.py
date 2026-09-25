@@ -12,6 +12,8 @@ import os
 import sys
 import time
 
+import pytest
+
 MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 for pfad in (MODUL_DIR, TESTS_DIR):
@@ -134,6 +136,99 @@ def test_omdb_deckel_greift_und_holt_morgen_nach(tmp_path, monkeypatch):
         ("api.themoviedb.org", 200, FAKE_TMDB), ("omdbapi.com", 200, FAKE_OMDB), _technik()]))
     assert filme.detail("f1")["imdb_rating"] == "8.0"
     assert _meta()["omdb_zaehler"] == 1 and _meta()["omdb_tag"] == heute
+
+
+# ------------------------------------------------ F12 Nacharbeit
+# (a) Beim Nachholen entstand ein frischer, leerer Eintrag: scheiterte TMDB dabei,
+#     war die schon vorhandene Beschreibung eine Stunde lang weg. Jetzt behält
+#     eine Quelle, die diesmal nicht antwortet, ihre alten Felder (auch die Technik).
+# (b) Ein abgelehnter Schlüssel (401) galt als kurzer Ausfall: jede Detailansicht
+#     fragte stündlich alle Quellen neu. Jetzt ruht so ein Eintrag einen Tag; ein
+#     neuer Schlüssel holt sofort nach.
+
+def _technik_voll():
+    titel = dict(FAKE_ITEMS["Items"][0], MediaStreams=[
+        {"Type": "Video", "Codec": "hevc", "Height": 2160},
+        {"Type": "Audio", "Codec": "eac3", "Channels": 6, "Language": "ger"},
+        {"Type": "Subtitle", "Language": "eng"}])
+    return ("/Items/f1", 200, titel)
+
+
+def test_nachholen_behaelt_die_felder_einer_stummen_quelle(tmp_path, monkeypatch):
+    _katalog(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("api.themoviedb.org", 200, FAKE_TMDB), ("omdbapi.com", 500, {}), _technik_voll()]))
+    assert filme.detail("f1")["imdb_rating"] == ""            # OMDb fiel aus: unvollständig
+    _altern("f1", 3601)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("api.themoviedb.org", 429, {}), ("omdbapi.com", 200, FAKE_OMDB), ("/Items/f1", 500, {})]))
+    d = filme.detail("f1")
+    assert d["imdb_rating"] == "8.0", "OMDb wurde nachgeholt"
+    assert d["beschreibung"].startswith("Astronaut") and d["cast"] == ["Matt Damon", "Jessica Chastain"], \
+        f"die schon vorhandene Beschreibung ging beim Nachholen verloren: {d['beschreibung']!r}"
+    assert (d["hoehe"], d["audio_kanaele"], d["audio_sprachen"], d["sub_sprachen"]) == \
+        (2160, 6, ["ger"], ["eng"]), "die Technik-Daten gingen beim Nachholen verloren"
+    assert _meta()["f1"].get("unvollstaendig") is True, "TMDB fehlte diesmal: in einer Stunde erneut"
+
+
+def test_nach_vierzehn_tagen_behaelt_eine_stumme_quelle_ihre_felder(tmp_path, monkeypatch):
+    _katalog(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("api.themoviedb.org", 200, FAKE_TMDB), ("omdbapi.com", 200, FAKE_OMDB), _technik_voll()]))
+    filme.detail("f1")
+    _altern("f1", 15 * 24 * 3600)
+    fehler = _fake_http([("api.themoviedb.org", 200, FAKE_TMDB), _technik_voll()])
+
+    def http(url, **kw):
+        if "omdbapi.com" in url:
+            raise OSError("Zeitüberschreitung")
+        return fehler(url, **kw)
+    monkeypatch.setattr(filme, "_http", http)
+    assert filme.detail("f1")["imdb_rating"] == "8.0"
+
+
+@pytest.mark.parametrize("quelle", ["api.themoviedb.org", "omdbapi.com"])
+def test_abgelehnter_schluessel_ruht_einen_tag(tmp_path, monkeypatch, quelle):
+    _katalog(tmp_path, monkeypatch)
+    antworten = {"api.themoviedb.org": (200, FAKE_TMDB), "omdbapi.com": (200, FAKE_OMDB)}
+    antworten[quelle] = (401, {"status_message": "Invalid API key"})
+    monkeypatch.setattr(filme, "_http", _fake_http(
+        [(t, st, obj) for t, (st, obj) in antworten.items()] + [_technik()]))
+    filme.detail("f1")
+    _altern("f1", 2 * 3600)
+    monkeypatch.setattr(filme, "_http", _fake_http([]))      # jeder Abruf wäre ein Fehler
+    filme.detail("f1")                                       # nach 2 h: kein neuer Abruf
+    _altern("f1", 23 * 3600)                                 # nach 25 h: neuer Versuch
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("api.themoviedb.org", 200, FAKE_TMDB), ("omdbapi.com", 200, FAKE_OMDB), _technik()]))
+    d = filme.detail("f1")
+    assert d["beschreibung"].startswith("Astronaut") and d["imdb_rating"] == "8.0"
+
+
+def test_neuer_schluessel_holt_sofort_nach(tmp_path, monkeypatch):
+    _katalog(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "ALTER-SCHLUESSEL", "omdb": "O"})
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("api.themoviedb.org", 401, {}), ("omdbapi.com", 200, FAKE_OMDB), _technik()]))
+    assert filme.detail("f1")["beschreibung"] == ""
+    assert "ALTER-SCHLUESSEL" not in json.dumps(_meta()), \
+        "der Schlüssel selbst gehört nicht in den Zwischenspeicher"
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "NEUER-SCHLUESSEL", "omdb": "O"})
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("api.themoviedb.org", 200, FAKE_TMDB), ("omdbapi.com", 200, FAKE_OMDB), _technik()]))
+    assert filme.detail("f1")["beschreibung"].startswith("Astronaut"), \
+        "nach dem Tausch des Schlüssels wurde nicht nachgeholt"
+
+
+def test_ausfall_neben_abgelehntem_schluessel_haelt_nur_eine_stunde(tmp_path, monkeypatch):
+    _katalog(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("api.themoviedb.org", 401, {}), ("omdbapi.com", 503, {}), _technik()]))
+    filme.detail("f1")
+    _altern("f1", 3601)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("api.themoviedb.org", 401, {}), ("omdbapi.com", 200, FAKE_OMDB), _technik()]))
+    assert filme.detail("f1")["imdb_rating"] == "8.0"
 
 
 # ------------------------------------------------------------------ F13

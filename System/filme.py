@@ -12,6 +12,7 @@ Regeln (Spec „Zugriff & Sicherheit"):
 - Alle Netz-Zugriffe laufen über _http() — Tests patchen genau diese Funktion
   und gehen nie ins Netz.
 """
+import hashlib
 import json
 import os
 import re
@@ -36,6 +37,7 @@ FEHL_BACKOFF_S = 30 * 60                   # nach Fehlschlag frühestens in 30 m
 FEHL_BACKOFF_MAX_S = 6 * 3600              # Staffel 30 min, 1 h, 2 h, 4 h, dann 6 h
 META_HALTBAR_S = 14 * 24 * 3600            # Ratings altern langsam (Spec)
 META_UNVOLLSTAENDIG_S = 3600               # nach einem Ausfall von TMDB/OMDb (F12)
+META_SCHLUESSEL_S = 24 * 3600              # Schlüssel abgelehnt (401): ruht einen Tag
 EICHEN_VERSUCHE = 8                        # TMDB-Stimmen: Versuche je reihen() (F13)
 EICHEN_PAUSE_S = 3600                      # nach Netz-/Serverfehler ruht das Eichen
 EICHEN_FEHL_RUHE_S = 24 * 3600             # ein unbekannter Titel (404) ruht einen Tag
@@ -808,13 +810,41 @@ def _omdb_erlaubt(cache):
     return (cache.get("omdb_zaehler") or 0) < OMDB_TAGES_DECKEL
 
 
+# Felder je Quelle der Detailseite: antwortet eine Quelle beim Nachholen nicht,
+# behält der Eintrag ihre alten Werte (F12 Nacharbeit).
+_TMDB_FELDER = ("beschreibung", "tagline", "cast", "regie", "drehbuch", "trailer",
+                "empfehlungen_tmdb")
+_OMDB_FELDER = ("imdb_rating", "metacritic", "tomatometer")
+_TECHNIK_FELDER = ("video_codec", "audio_codec", "hoehe", "audio_kanaele",
+                   "audio_sprachen", "sub_sprachen")
+
+
+def _schluessel_marke(schluessel):
+    """Kurzer Fingerabdruck eines API-Schlüssels: erkennt einen neuen Schlüssel,
+    ohne den Schlüssel selbst in den Zwischenspeicher zu schreiben."""
+    if not schluessel:
+        return ""
+    return hashlib.sha256(schluessel.encode("utf-8")).hexdigest()[:12]
+
+
+def _felder_behalten(neu, alt, felder):
+    """Leere Felder von `neu` aus `alt` füllen (Quelle hat diesmal nicht geantwortet)."""
+    for f in felder:
+        if not neu.get(f) and alt.get(f):
+            neu[f] = alt[f]
+
+
 def detail(item_id, profil="standard"):
     """Spiegel-Eintrag + TMDB/OMDb-Anreicherung (on demand, 14-Tage-Cache).
     Fehlender Key oder tote Quelle ⇒ Felder bleiben leer, NIE eine Fehlerseite
-    (Selbstheilungs-Regel). Ein Ausfall (Netzfehler, Antwort außer 200/404,
+    (Selbstheilungs-Regel). Ein Ausfall (Netzfehler, Antwort außer 200/401/404,
     auch 429, oder der OMDb-Tagesdeckel) markiert den Eintrag `unvollstaendig`;
-    der hält nur eine Stunde (F12). Jeder OMDb-Abruf zählt im selben
-    Schreibvorgang in `omdb_zaehler`, sonst griffe der Tagesdeckel nie."""
+    der hält nur eine Stunde (F12). Ein abgelehnter Schlüssel (401) ist kein
+    kurzer Ausfall: der Eintrag ruht einen Tag (META_SCHLUESSEL_S), außer der
+    Schlüssel wurde seither getauscht (`schluessel_abgelehnt` hält nur einen
+    Fingerabdruck). Antwortet eine Quelle beim Nachholen nicht, behält der
+    Eintrag ihre alten Felder, statt sie zu leeren. Jeder OMDb-Abruf zählt im
+    selben Schreibvorgang in `omdb_zaehler`, sonst griffe der Tagesdeckel nie."""
     e = next((x for x in katalog_lesen()["eintraege"] if x["id"] == item_id), None)
     if not e:
         e = _folge_holen(item_id)
@@ -825,14 +855,28 @@ def detail(item_id, profil="standard"):
     # "trailer_v2" ist der Feld-Versions-Marker: ältere Cache-Einträge werden
     # einmal frisch geholt (Netflix-Detailseite Build 184; v2 = Trailer-Fix:
     # language=de-DE filterte auch die VIDEOS auf Deutsch ⇒ meist leer).
-    haltbar = META_UNVOLLSTAENDIG_S if m.get("unvollstaendig") else META_HALTBAR_S
-    if not m or "trailer_v2" not in m or time.time() - (m.get("ts") or 0) > haltbar:
+    abgelehnt = m.get("schluessel_abgelehnt") or {}
+    if m.get("unvollstaendig"):
+        haltbar = META_UNVOLLSTAENDIG_S
+    elif abgelehnt:
+        haltbar = META_SCHLUESSEL_S
+    else:
+        haltbar = META_HALTBAR_S
+    neuer_schluessel = False
+    if abgelehnt:
+        jetzt_keys = _meta_keys()
+        neuer_schluessel = any(_schluessel_marke(jetzt_keys.get(q) or "") != marke
+                               for q, marke in abgelehnt.items())
+    if (not m or "trailer_v2" not in m or neuer_schluessel
+            or time.time() - (m.get("ts") or 0) > haltbar):
+        alt = m
         m = {"ts": time.time(), "beschreibung": "", "cast": [],
              "empfehlungen_tmdb": [], "imdb_rating": "", "metacritic": "",
              "tomatometer": "", "tagline": "", "regie": [], "drehbuch": [],
              "trailer": [], "trailer_v2": True, "hoehe": 0, "audio_kanaele": 0,
              "audio_sprachen": [], "sub_sprachen": []}
-        unvollstaendig = False
+        ausfall = set()                    # Quellen ohne Antwort (Netz, 429, 5xx, Deckel)
+        abgelehnt = {}                     # Quelle -> Fingerabdruck des abgelehnten Schlüssels
         omdb_rufe = 0
         keys = _meta_keys()
         if keys.get("tmdb") and e.get("tmdb"):
@@ -861,12 +905,14 @@ def detail(item_id, profil="standard"):
                     m["empfehlungen_tmdb"] = [str(x.get("id")) for x in
                                               (d.get("recommendations") or {})
                                               .get("results") or []]
+                elif st == 401:            # Schlüssel abgelehnt: kein kurzer Ausfall
+                    abgelehnt["tmdb"] = _schluessel_marke(keys["tmdb"])
                 elif st != 404:            # 404 = Titel gibt es dort nicht (endgültig)
-                    unvollstaendig = True
+                    ausfall.add("tmdb")
             except Exception:              # noqa: BLE001 — Reihe kommt ohne TMDB
-                unvollstaendig = True
+                ausfall.add("tmdb")
         if keys.get("omdb") and e.get("imdb") and not _omdb_erlaubt(cache):
-            unvollstaendig = True          # Tagesdeckel: später nachholen
+            ausfall.add("omdb")            # Tagesdeckel: später nachholen
         elif keys.get("omdb") and e.get("imdb"):
             try:
                 st, roh = _http(f"https://www.omdbapi.com/?i={e['imdb']}"
@@ -883,18 +929,26 @@ def detail(item_id, profil="standard"):
                     m["tomatometer"] = _wert(next(
                         (r.get("Value") for r in d.get("Ratings") or []
                          if "Rotten" in (r.get("Source") or "")), ""))
+                elif st == 401:            # Schlüssel abgelehnt (auch das OMDb-Tageslimit)
+                    abgelehnt["omdb"] = _schluessel_marke(keys["omdb"])
                 elif st != 404:
-                    unvollstaendig = True
+                    ausfall.add("omdb")
             except Exception:              # noqa: BLE001 — Zahl fehlt dann eben
-                unvollstaendig = True
-        if unvollstaendig:
+                ausfall.add("omdb")
+        if ausfall:
             m["unvollstaendig"] = True
+        if abgelehnt:
+            m["schluessel_abgelehnt"] = abgelehnt
+        for quelle, felder in (("tmdb", _TMDB_FELDER), ("omdb", _OMDB_FELDER)):
+            if quelle in ausfall or quelle in abgelehnt:
+                _felder_behalten(m, alt, felder)
         # Technik kommt seit dem Seiten-Abzug nicht mehr im Spiegel mit
         # (teuerstes Feld, live gemessen — s. katalog_abzug): je Titel EIN
         # Einzel-Abruf: Codecs, Auflösung, Ton-Kanäle/-Sprachen, Untertitel-
         # Sprachen (Netflix-Detailseite: Qualität · Sound · Untertitel).
         m["video_codec"] = e.get("video_codec") or ""
         m["audio_codec"] = e.get("audio_codec") or ""
+        technik_da = False
         try:
             st, roh, fehlart, _ = _jellyfin_ruf(_titel_pfad(item_id))
             if st == 200 and not fehlart:
@@ -915,8 +969,11 @@ def detail(item_id, profil="standard"):
                         sp = strom.get("Language") or ""
                         if sp and sp not in m["sub_sprachen"]:
                             m["sub_sprachen"].append(sp)
+                technik_da = True
         except Exception:              # noqa: BLE001 — Technik ist Kür
             pass
+        if not technik_da:
+            _felder_behalten(m, alt, _TECHNIK_FELDER)
         # Zwei-Fragen-Regel (Nachtprüfung 06.08.): mehrere Server-Threads
         # schreiben den Meta-Cache — json_aendern mischt NUR den eigenen
         # Schlüssel ein, statt fremde frische Einträge zu überschreiben. Der
