@@ -427,15 +427,36 @@ def _zustand_starten(zustand, lock, **felder):
         return True
 
 
+_SPERR_FEHLER = (32, 33)                             # ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+
+
+def _voruebergehend_gesperrt(e):
+    """Hält gerade ein anderes Programm die Datei (Virenscanner, Sicherung, das
+    Dashboard)? Unter Windows kommt das als PermissionError [WinError 32/33]."""
+    return isinstance(e, PermissionError) or getattr(e, "winerror", None) in _SPERR_FEHLER
+
+
 def _json_laden(pfad, fallback):
-    try:
-        with open(pfad, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        # kaputte Datei nie verlieren (Suite-Regel: nicht-destruktiv)
-        if os.path.exists(pfad):
-            _defekt_beiseite(pfad)
-        return fallback
+    """JSON lesen; eine kaputte Datei wandert nach `<pfad>.<Zeitstempel>.defekt`
+    und es gilt `fallback`. Ein Sperr-Fehler ist kein Defekt (Gesamtprüfung
+    Gruppe 6): dann wird knapp 1 s lang erneut gelesen, erst danach gilt die
+    Datei als unlesbar. Vorher legte schon eine kurze fremde Sperre die leere
+    Vorgabe an, die das nächste Speichern über die echte Datei schrieb."""
+    for versuch in range(10):
+        try:
+            with open(pfad, encoding="utf-8") as f:
+                return json.load(f)
+        except OSError as e:
+            if _voruebergehend_gesperrt(e) and versuch < 9:
+                time.sleep(0.05 * (versuch + 1) if versuch < 5 else 0.05)
+                continue
+        except ValueError:
+            pass
+        break
+    # kaputte Datei nie verlieren (Suite-Regel: nicht-destruktiv)
+    if os.path.exists(pfad):
+        _defekt_beiseite(pfad)
+    return fallback
 
 
 def _defekt_beiseite(pfad):

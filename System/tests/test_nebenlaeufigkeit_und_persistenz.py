@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import threading
+import time
 
 import pytest
 
@@ -1268,3 +1269,63 @@ def test_gleichzeitige_anstoesse_starten_genau_einen_lauf(monkeypatch, tmp_path,
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ------------------------------------------ _json_laden: Sperre ist kein Defekt (Gruppe 6d)
+# Hielt ein anderes Programm die Datei kurz exklusiv offen (Virenscanner,
+# Sicherung, das Dashboard), warf das Öffnen PermissionError [WinError 32].
+# _json_laden hielt das für einen Defekt: Rettungskopie versucht und die leere
+# Vorgabe zurückgegeben, die das nächste Speichern über die echte Datei
+# schrieb. Jetzt liest es bei einem Sperr-Fehler kurz erneut.
+
+def _exklusiv_sperren(pfad):
+    """Die Datei so öffnen, wie es ein fremdes Programm tut: ohne Freigabe
+    (dwShareMode 0). Jeder andere Zugriff scheitert mit WinError 32."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                                wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    k32.CreateFileW.restype = wintypes.HANDLE
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    h = k32.CreateFileW(str(pfad), 0x80000000, 0, None, 3, 0x80, None)   # GENERIC_READ, OPEN_EXISTING
+    assert h and h != wintypes.HANDLE(-1).value, ctypes.get_last_error()
+    return lambda: k32.CloseHandle(h)
+
+
+def test_json_laden_wartet_eine_kurze_sperre_ab(tmp_path):
+    pfad = tmp_path / "geladen_log.json"
+    pfad.write_text('{"k|beste": {"name": "echt.mp4"}}', encoding="utf-8")
+    freigeben = _exklusiv_sperren(pfad)
+    with pytest.raises(PermissionError):
+        open(pfad, encoding="utf-8").close()          # die Sperre wirkt wirklich
+    t = threading.Timer(0.3, freigeben)
+    t.start()
+    try:
+        daten = app._json_laden(str(pfad), {})
+    finally:
+        t.join()
+    assert daten == {"k|beste": {"name": "echt.mp4"}}, "eine kurze Sperre galt als Defekt"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["geladen_log.json"], "Rettungskopie trotz Sperre"
+
+
+def test_json_laden_gibt_eine_dauersperre_nach_kurzem_warten_auf(tmp_path):
+    pfad = tmp_path / "geladen_log.json"
+    pfad.write_text("{}", encoding="utf-8")
+    freigeben = _exklusiv_sperren(pfad)
+    try:
+        start = time.monotonic()
+        assert app._json_laden(str(pfad), {"vorgabe": 1}) == {"vorgabe": 1}
+        assert time.monotonic() - start < 3, "das Warten ist begrenzt"
+    finally:
+        freigeben()
+    assert pfad.read_text(encoding="utf-8") == "{}", "die gesperrte Datei bleibt, wie sie ist"
+
+
+def test_json_laden_legt_eine_kaputte_datei_ohne_warten_beiseite(tmp_path):
+    pfad = tmp_path / "geladen_log.json"
+    pfad.write_text("{kaputt", encoding="utf-8")
+    start = time.monotonic()
+    assert app._json_laden(str(pfad), {}) == {}
+    assert time.monotonic() - start < 0.5
+    assert any(p.name.endswith(".defekt") for p in tmp_path.iterdir())
