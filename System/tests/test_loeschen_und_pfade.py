@@ -1084,3 +1084,28 @@ def test_ohne_trotzdem_bleibt_das_ueberspringen(tmp_path, monkeypatch, korb):
     item.pop("erzwingen")
     app.herunterladen(item)
     assert laeufe == [] and korb == [] and item["status"] == "uebersprungen"
+
+
+def test_untertitel_mit_url_schluessel_bleiben_nach_dem_einsortieren(tmp_path, monkeypatch, kein_netzpfad):
+    """Runde-1-Befund zu S4, Gruppe 6d: ein Download, der nicht von YouTube
+    stammt (die ganze URL ist der Schlüssel), fand seine Untertitel nur neben
+    der Datei. Das Einsortieren verschiebt sie aber nach
+    `Untertitel/<Id aus dem Dateinamen>.<Sprache>.vtt`, danach waren sie weg.
+    Jetzt fragt der Rückfall zusätzlich die Id der Bibliotheksdatei
+    (_datei_videoid) und sucht damit im Untertitel-Ordner (_id_datei)."""
+    dl = _dl(tmp_path, monkeypatch)
+    video = dl / "Video" / "Clip [123456789].mp4"
+    video.parent.mkdir()
+    video.write_bytes(b"v")
+    (video.parent / "Clip [123456789].de.vtt").write_text("WEBVTT\n\nHallo", encoding="utf-8")
+    url_key = "https://example.org/video/123456789|beste"
+    monkeypatch.setattr(app, "_geladen", {url_key: {"pfad": str(video)}})
+    monkeypatch.setattr(app, "_sag", lambda *a, **k: None)
+    vorher = app.untertitel_liste(url_key)
+    assert [s for _, s in vorher] == ["de"], "vor dem Einsortieren: neben der Datei"
+    assert app.untertitel_einsortieren() == 1
+    ziel = dl / "Untertitel" / "123456789.de.vtt"
+    assert ziel.is_file()
+    assert app.untertitel_liste(url_key) == [(str(ziel), "de")], "nach dem Einsortieren verloren"
+    assert app.untertitel_datei(url_key) == (str(ziel), "de")
+    assert not kein_netzpfad

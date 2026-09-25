@@ -2744,16 +2744,25 @@ def untertitel_liste(key):
     Bevorzugt den Untertitel-Ordner (nach Video-ID); Altbestand neben dem Video
     bleibt Rückfallebene, bis der Einsortier-Lauf ihn verschoben hat.
     Im Untertitel-Ordner wird nur mit einer schlichten Id gesucht (S4, s.
-    `_id_datei`); der Rückfall geht über die Bibliothek, nie über die Anfrage."""
+    `_id_datei`); der Rückfall geht über die Bibliothek, nie über die Anfrage:
+    erst neben der Datei, dann (Gruppe 6) mit der Id der Datei selbst
+    (`_datei_videoid`) im Untertitel-Ordner. So finden auch Downloads, deren
+    Schlüssel die ganze URL ist, ihre Untertitel nach dem Einsortieren."""
     vid = key.split("|")[0]
     ordner = untertitel_ordner()
-    dateien = []
-    if _id_datei(ordner, vid, ".vtt"):
-        dateien = glob.glob(os.path.join(glob.escape(ordner), glob.escape(vid) + ".*.vtt"))
+
+    def im_ordner(v):
+        if not _id_datei(ordner, v, ".vtt"):
+            return []
+        return glob.glob(os.path.join(glob.escape(ordner), glob.escape(v) + ".*.vtt"))
+    dateien = im_ordner(vid)
     if not dateien:
         pfad = _pfad_zu_key(key)
         if pfad:
             dateien = glob.glob(glob.escape(os.path.splitext(pfad)[0]) + ".*.vtt")
+            datei_vid = "" if dateien else _datei_videoid(pfad)
+            if datei_vid and datei_vid != vid:
+                dateien = im_ordner(datei_vid)
     if not dateien:
         return []
 
