@@ -27,6 +27,7 @@ import youtube_app as app  # noqa: E402
 LAN = "192.168.178.50"
 PC_IM_LAN = "192.168.178.20:8776"
 CODE = "AB12CD"
+LETZTER = {}                                     # der Handler der letzten _anfrage
 
 
 @pytest.fixture(autouse=True)
@@ -62,6 +63,7 @@ def _anfrage(pfad, *, methode="GET", ip="127.0.0.1", kopf=None, rumpf=None):
         h.headers[k] = v
     h.rfile, h.wfile = io.BytesIO(rumpf or b""), io.BytesIO()
     h.close_connection = False
+    LETZTER["h"] = h
     getattr(h, "do_" + methode)()
     roh = h.wfile.getvalue()
     kopfteil, _, koerper = roh.partition(b"\r\n\r\n")
@@ -340,3 +342,60 @@ def test_waehrend_der_sperre_zaehlt_nichts(monkeypatch, uhr):
         assert _mit_code("FALSCH") == 403
     uhr.t += 1.1
     assert _mit_code(CODE) == 200
+
+
+# ------------------------------------------------------------ S14: Körper und Zeitlimit
+
+def _post_mit_laenge(laenge, rumpf=b'{"cmd": "play"}'):
+    return _anfrage("/api/remote", methode="POST", rumpf=rumpf,
+                    kopf={"Host": "127.0.0.1:8776", "Content-Length": laenge})[0]
+
+
+def test_koerper_ueber_2_mb_wird_abgewiesen_ohne_zu_lesen():
+    assert _post_mit_laenge(str(2 * 1024 * 1024 + 1)) == 413
+    h = LETZTER["h"]
+    assert h.rfile.tell() == 0, "der Körper darf gar nicht erst gelesen werden"
+    assert h.close_connection, "danach wird die Verbindung geschlossen"
+    assert app._remote["n"] == 0
+
+
+def test_koerper_bis_2_mb_bleibt_erlaubt():
+    rumpf = json.dumps({"cmd": "play", "fuell": "x" * (2 * 1024 * 1024 - 40)}).encode()
+    assert len(rumpf) <= 2 * 1024 * 1024
+    assert _post_mit_laenge(str(len(rumpf)), rumpf) == 200
+
+
+@pytest.mark.parametrize("laenge", ["-1", "-5", "abc", "1e3", "0x10"])
+def test_unlesbare_laenge_gibt_400(laenge):
+    """Eine negative Länge las bisher bis zum Verbindungsende, eine unlesbare
+    warf eine Ausnahme ohne Antwort."""
+    assert _post_mit_laenge(laenge) == 400
+    assert LETZTER["h"].close_connection
+    assert app._remote["n"] == 0
+
+
+def test_handler_hat_ein_zeitlimit_von_30_s():
+    assert app.Handler.timeout == 30
+
+
+def test_zeitlimit_wirkt_im_echten_server(monkeypatch):
+    """Ein Client, der die Anfrage nie zu Ende schickt, hält keinen Faden
+    fest: der Server schließt die Verbindung nach dem Zeitlimit (hier auf
+    0,5 s verkürzt, gemessen am echten ThreadingHTTPServer auf 127.0.0.1)."""
+    import socket
+    import threading
+    import time
+    monkeypatch.setattr(app.Handler, "timeout", 0.5)
+    srv = app.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+    faden = threading.Thread(target=srv.serve_forever, daemon=True)
+    faden.start()
+    try:
+        s = socket.create_connection(srv.server_address, timeout=5)
+        s.sendall(b"POST /api/remote HTTP/1.1\r\nHost: 127.0.0.1\r\n")   # Kopf nie beendet
+        t0 = time.monotonic()
+        assert s.recv(1024) == b"", "der Server hätte die Verbindung schließen müssen"
+        assert time.monotonic() - t0 < 4
+        s.close()
+    finally:
+        srv.shutdown()
+        srv.server_close()

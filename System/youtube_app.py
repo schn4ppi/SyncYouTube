@@ -6390,6 +6390,7 @@ ERWEITERUNGS_SCHEMATA = ("moz-extension", "chrome-extension", "ms-browser-extens
 # /?embed=1 im Rahmen ein; sonst darf nur die App selbst sich einbetten.
 DASHBOARD_URSPRUNG = "http://127.0.0.1:8765"
 EINBETTEN_CSP = f"frame-ancestors 'self' {DASHBOARD_URSPRUNG}"
+MAX_KOERPER = 2 * 1024 * 1024        # S14: größter angenommener POST-Körper
 _HOST_MUSTER = re.compile(r"(?:\[(?P<v6>[0-9a-f:.]+)\]|(?P<name>[a-z0-9_.-]+))(?::(?P<port>\d{1,5}))?")
 
 
@@ -6460,6 +6461,10 @@ def _antwort(handler, code, daten, ctype="application/json", cache=None):
 
 
 class Handler(BaseHTTPRequestHandler):
+    # S14: ein Client, der seine Anfrage nie zu Ende schickt (oder nichts mehr
+    # abnimmt), hält einen Faden höchstens 30 s je Lese-/Schreibschritt fest.
+    timeout = 30
+
     def log_message(self, *a):                        # Konsole ruhig halten
         pass
 
@@ -6919,7 +6924,19 @@ class Handler(BaseHTTPRequestHandler):
             return _antwort(self, 403, {"fehler": "Anfrage von fremder Seite abgelehnt."})
         if not self._hat_zugriff():
             return _antwort(self, 403, {"fehler": "Kein Zugriff — Fernsteuerung aus oder falscher Code."})
-        n = int(self.headers.get("Content-Length") or 0)
+        # S14: negative oder unlesbare Länge -> 400, über 2 MB -> 413; in beiden
+        # Fällen wird der Körper nicht gelesen und die Verbindung geschlossen.
+        roh = (self.headers.get("Content-Length") or "").strip()
+        try:
+            n = int(roh) if roh else 0
+        except ValueError:
+            n = -1
+        if n < 0:
+            self.close_connection = True
+            return _antwort(self, 400, {"fehler": "Content-Length ungültig"})
+        if n > MAX_KOERPER:
+            self.close_connection = True
+            return _antwort(self, 413, {"fehler": "Anfrage zu groß (höchstens 2 MB)"})
         try:
             daten = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
         except ValueError:
