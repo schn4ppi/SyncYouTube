@@ -6,7 +6,9 @@ Zweige). Jetzt steht jede Route einmal in `ROUTEN` {(Methode, Pfad): Name
 der Handler-Methode}; verglichen wird genau mit `urlparse(self.path).path`,
 HEAD folgt GET. Geprüft wird hier, dass der Router wirklich nach dieser
 Tabelle verteilt und nach nichts sonst, dass jede Tabellenzeile ihre Methode
-erreicht, und die Reihenfolge-Fallen der alten Kette. Die Rechte (LAN_ERLAUBT,
+erreicht, dass der Methodenname aus dem Pfad folgt (Nacharbeit: sonst fiele
+ein Zeilentausch nicht auf, die Rechte hängen am Pfad), und die
+Reihenfolge-Fallen der alten Kette. Die Rechte (LAN_ERLAUBT,
 NUR_PC) prüft tests/test_wlan_rechte.py, abgeleitet aus derselben Tabelle.
 
 Wie in test_zugang_und_vertrauen.py läuft jede Anfrage durch den ECHTEN
@@ -70,6 +72,87 @@ def test_gegenprobe_tabellen_fehler_werden_gefunden():
     assert "GET /api/gibtsnicht: Handler._get_gibtsnicht fehlt" in funde
     assert "POST /api/x?y=1: kein reiner Pfad" in funde
     assert "Handler._get_lyrics ist in keiner Tabellenzeile" in funde
+
+
+# Pfad und Methode gehören zusammen (Nacharbeit Y7, 25.09.2026). Die Rechte
+# hängen am Pfad (LAN_ERLAUBT, NUR_PC), was läuft, hängt am Methodennamen in
+# ROUTEN. Vertauschte man zwei Tabellenzeilen, liefe eine Methode, die nur am
+# PC erlaubt ist, unter einem Pfad, den das WLAN darf (Gegenprobe der Abnahme:
+# /api/live mit _get_geraete, volle Suite grün). Darum folgt der Name aus dem
+# Pfad: `_<verb>_` + Pfad ohne führendes `/api/` bzw. `/`, dabei `/` und `.`
+# zu `_`. Ausnahmen stehen nur hier, kurz und ausdrücklich.
+NAMENS_AUSNAHMEN = {
+    ("GET", "/"): "_get_oberflaeche",
+    ("GET", "/index.html"): "_get_oberflaeche",
+    ("GET", "/m"): "_get_handy",
+}
+
+
+def methodenname_aus_pfad(verb, pfad):
+    if (verb, pfad) in NAMENS_AUSNAHMEN:
+        return NAMENS_AUSNAHMEN[(verb, pfad)]
+    rest = pfad[len("/api/"):] if pfad.startswith("/api/") else pfad[1:]
+    return f"_{verb.lower()}_" + rest.replace("/", "_").replace(".", "_")
+
+
+def zuordnungs_fehler(routen, lan_erlaubt, nur_pc):
+    """Was an der Zuordnung Pfad → Methode nicht stimmt (leer = alles gut)."""
+    fehler = [f"{verb} {pfad}: {name}, aus dem Pfad folgt {methodenname_aus_pfad(verb, pfad)}"
+              for (verb, pfad), name in sorted(routen.items())
+              if name != methodenname_aus_pfad(verb, pfad)]
+    fehler += [f"Ausnahme {verb} {pfad} hat keine Route" for verb, pfad in NAMENS_AUSNAHMEN
+               if (verb, pfad) not in routen]
+    # Mehrere Pfade zu einer Methode (/ und /index.html): nur als Ausnahme und
+    # nur mit denselben Rechten, sonst entschiede der Pfad über dieselbe Methode.
+    pfade_je_methode = {}
+    for schluessel, name in routen.items():
+        pfade_je_methode.setdefault(name, []).append(schluessel)
+    for name, schluessel in sorted(pfade_je_methode.items()):
+        if len(schluessel) < 2:
+            continue
+        if any(s not in NAMENS_AUSNAHMEN for s in schluessel):
+            fehler.append(f"{name} unter mehreren Pfaden {sorted(schluessel)}")
+        rechte = {"WLAN" if s in lan_erlaubt else "PC" if s in nur_pc else "?" for s in schluessel}
+        if len(rechte) > 1:
+            fehler.append(f"{name} unter Pfaden mit verschiedenen Rechten {sorted(schluessel)}")
+    return fehler
+
+
+def test_der_methodenname_folgt_aus_dem_pfad():
+    assert zuordnungs_fehler(app.ROUTEN, app.LAN_ERLAUBT, app.NUR_PC) == []
+
+
+def _vertauscht(routen, a, b):
+    neu = dict(routen)
+    neu[a], neu[b] = routen[b], routen[a]
+    return neu
+
+
+def test_gegenprobe_vertauschte_zeilen_werden_gefunden():
+    """Die drei Vertauschungen der Abnahme (M1, M1b, M1c) machen den Wächter
+    rot, ebenso ein zweiter Pfad zu einer Methode, eine Ausnahme ohne Route
+    und zwei Pfade einer Methode mit verschiedenen Rechten."""
+    for a, b in ((("GET", "/api/live"), ("GET", "/api/geraete")),
+                 (("GET", "/api/addon_update"), ("GET", "/api/schaetzfaktoren")),
+                 (("GET", "/api/lyrics"), ("GET", "/api/transkript_suche"))):
+        funde = zuordnungs_fehler(_vertauscht(app.ROUTEN, a, b), app.LAN_ERLAUBT, app.NUR_PC)
+        assert len(funde) == 2 and all(f.startswith((f"{a[0]} {a[1]}:", f"{b[0]} {b[1]}:"))
+                                       for f in funde), funde
+    doppelt = dict(app.ROUTEN)
+    doppelt[("GET", "/api/filme_detail")] = "_get_filme_detail"      # folgt dem Namen, aber zweiter Pfad
+    lan = dict(app.LAN_ERLAUBT)
+    lan[("GET", "/api/filme_detail")] = ("Probe", None)             # gleiche Rechte: nur der zweite Pfad fällt auf
+    assert zuordnungs_fehler(doppelt, lan, app.NUR_PC) == [
+        "_get_filme_detail unter mehreren Pfaden "
+        "[('GET', '/api/filme/detail'), ('GET', '/api/filme_detail')]"]
+    ohne = dict(app.ROUTEN)
+    del ohne[("GET", "/m")]
+    assert zuordnungs_fehler(ohne, app.LAN_ERLAUBT, app.NUR_PC) == ["Ausnahme GET /m hat keine Route"]
+    rechte = dict(app.LAN_ERLAUBT)
+    del rechte[("GET", "/index.html")]
+    assert zuordnungs_fehler(app.ROUTEN, rechte, app.NUR_PC) == [
+        "_get_oberflaeche unter Pfaden mit verschiedenen Rechten "
+        "[('GET', '/'), ('GET', '/index.html')]"]
 
 
 def test_die_verteiler_kennen_keinen_pfad():

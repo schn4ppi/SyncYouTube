@@ -6975,7 +6975,10 @@ NUR_PC = {
 # Vorher zwei if/elif-Ketten, in denen die Reihenfolge zählen konnte. Die
 # Rechte stehen weiter nur in LAN_ERLAUBT und NUR_PC: jede Route steht in
 # genau einer der beiden, jeder Eintrag dort hat eine Route (Wächter
-# tests/test_wlan_rechte.py, abgeleitet aus dieser Tabelle).
+# tests/test_wlan_rechte.py, abgeleitet aus dieser Tabelle). Der Name der
+# Methode folgt aus dem Pfad: `_<verb>_` + Pfad ohne `/api/`, `/` und `.` zu
+# `_`; Ausnahmen nur `/`, `/index.html` und `/m` (tests/test_routen.py). Sonst
+# liefe nach einem Zeilentausch eine PC-Methode unter einem WLAN-Pfad.
 ROUTEN = {
     ("GET", "/koppeln"): "_get_koppeln",
     ("GET", "/fernbedienung"): "_get_fernbedienung",
