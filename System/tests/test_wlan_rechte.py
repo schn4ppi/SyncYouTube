@@ -367,12 +367,25 @@ def test_wlan_darf_youtube_links_laden(monkeypatch, eingereiht, url):
     "https://www.youtube.com/watch?v=a\rhttp://127.0.0.1:8779/",
     "https://www.youtube.com/watch?v=a https://angreifer.de/",
     "https://www.youtube.com/watch?v=a\thttps://angreifer.de/", "", ["https://www.youtube.com/watch?v=a"],
-    "http://127.0.0.1:8779/api/x"])
+    "http://127.0.0.1:8779/api/x",
+    # Unicode-Zeilentrenner: str.splitlines() in `_add` teilt auch dort (Abnahme 25.09.2026)
+    "https://www.youtube.com/watch?v=abcdefghijk https://vimeo.com/123",
+    "https://www.youtube.com/watch?v=abcdefghijk https://vimeo.com/123",
+    "https://www.youtube.com/watch?v=abcdefghijk\x85https://vimeo.com/123",
+    "https://www.youtube.com/watch?v=abcdefghijk https://vimeo.com/123"])
 def test_wlan_andere_und_mehrere_links_werden_abgelehnt(monkeypatch, eingereiht, urls):
     _fernsteuerung(monkeypatch)
     st, _, koerper = _add(urls)
     assert st == 403 and json.loads(koerper).get("nur_pc") is True, (urls, koerper[:120])
     assert eingereiht == []
+
+
+@pytest.mark.parametrize("zeichen", [" ", " ", "\x85", " ", "　", "\x1c", "​"])
+def test_youtube_link_mit_trenner_oder_steuerzeichen_gilt_nicht(zeichen):
+    """Prüfer und Router zerlegen gleich: was `splitlines` trennt, was als
+    Leerraum gilt und jedes Steuer- oder Formatzeichen macht den Link ungültig."""
+    assert app.ist_youtube_link("https://www.youtube.com/watch?v=abcdefghijk")
+    assert not app.ist_youtube_link(f"https://www.youtube.com/watch?v=abc{zeichen}defghijk"), repr(zeichen)
 
 
 def test_wlan_reiht_nicht_in_eine_playlist_ein(monkeypatch, eingereiht):

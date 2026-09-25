@@ -6975,16 +6975,31 @@ def _lan_action(daten):
 # (youtube.com.angreifer.de, …/?u=youtube.com). Ein Zeilenumbruch oder Leerraum
 # im Link hieße: mehrere Adressen in einem Feld — `_add` teilt an Zeilen. Vom PC
 # bleibt jeder http(s)-Link erlaubt, der nicht auf den PC selbst zeigt.
+# Abnahme 25.09.2026: Prüfer und Router zerlegen das Feld mit DERSELBEN Funktion
+# (`link_zeilen`). Vorher prüfte `_lan_add` das ganze Feld als einen Link, und
+# `_add` teilte mit `splitlines()` auch an U+2028, U+2029 und U+0085: ein
+# YouTube-Link mit angehängtem Trenner brachte einen zweiten, beliebigen Link
+# in die Warteschlange.
 YOUTUBE_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
                            "youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com"})
+_KEIN_LINK_ZEICHEN = frozenset({"Zl", "Zp", "Cc", "Cf"})   # Trenner, Steuer- und Formatzeichen
+
+
+def link_zeilen(roh):
+    """Das Link-Feld von /api/add als Liste einzelner Links, genau so, wie
+    `_add` es einreiht (jede nicht leere Zeile, ohne Rand-Leerraum)."""
+    return [u.strip() for u in (roh or "").splitlines() if u.strip()]
 
 
 def ist_youtube_link(url):
     """Genau ein http(s)-Link auf einen YouTube-Host (exakt), ohne Leerraum,
-    Steuerzeichen, Backslash, Anmeldedaten oder fremden Port."""
+    Zeilentrenner, Steuer- oder Formatzeichen, Backslash, Anmeldedaten oder
+    fremden Port."""
+    import unicodedata
     if not isinstance(url, str) or not url:
         return False
-    if any(ord(z) < 0x21 or z in "\\\x7f" for z in url):
+    if any(ord(z) < 0x21 or z in "\\\x7f" or z.isspace()
+           or unicodedata.category(z) in _KEIN_LINK_ZEICHEN for z in url):
         return False
     try:
         teile = urlsplit(url)
@@ -7000,7 +7015,8 @@ def ist_youtube_link(url):
 
 def _lan_add(daten):
     roh = daten.get("urls")
-    if not (isinstance(roh, str) and ist_youtube_link(roh.strip())):
+    links = link_zeilen(roh) if isinstance(roh, str) else []
+    if not (len(links) == 1 and ist_youtube_link(links[0])):
         return "Aus dem WLAN nur einzelne YouTube-Links (ein Link je Auftrag)."
     if daten.get("ziel_playlist"):
         return "Nur am PC: Titel in eine Playlist einreihen."
@@ -8012,7 +8028,7 @@ class Handler(BaseHTTPRequestHandler):
         von, bis = _ganzzahl("von"), _ganzzahl("bis")
         if von and bis and bis < von:
             von, bis = bis, von
-        urls = [u.strip() for u in (daten.get("urls") or "").splitlines() if u.strip()]
+        urls = link_zeilen(daten.get("urls"))         # dieselbe Zerlegung wie im WLAN-Prüfer
         for url in urls:
             if not url.lower().startswith(("http://", "https://")):
                 continue
