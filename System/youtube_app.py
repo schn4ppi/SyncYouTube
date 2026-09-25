@@ -1221,6 +1221,21 @@ _MIME = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".opus": "audio/ogg", ".ogg"
          ".mp4": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska", ".mov": "video/quicktime"}
 
 
+def _schreib_zeitlimit_aufheben(handler):
+    """S14 (Nacharbeit 25.09.2026): Ströme ohne Schreib-Zeitlimit ausliefern.
+    Nach dem Kopf gerufen, von allen Strom-Wegen (Datei, Jellyfin-Proxy,
+    Transcoder). Ein pausierter Film nimmt minutenlang nichts ab; mit dem
+    Zeitlimit des Handlers bräche der Strom nach 30 s ab, und beim Transcoder
+    (keine Länge, keine Range) kann der Browser nichts nachholen. Ein Client,
+    der ganz weg ist, beendet den Strom über den Verbindungsabbruch wie vor S14."""
+    verbindung = getattr(handler, "connection", None)
+    if verbindung is not None:
+        try:
+            verbindung.settimeout(None)
+        except OSError:
+            pass
+
+
 def _stream_datei(handler, pfad):
     """Datei ausliefern, Range-Anfragen (Seek/Abspielen) inklusive."""
     globals()["_letzter_stream"] = time.time()        # Build 144m: „gerade Wiedergabe" merken
@@ -1251,6 +1266,7 @@ def _stream_datei(handler, pfad):
     handler.end_headers()
     if handler.command == "HEAD":
         return
+    _schreib_zeitlimit_aufheben(handler)
     with open(pfad, "rb") as f:
         f.seek(start)
         rest = laenge
@@ -6478,9 +6494,22 @@ def _antwort(handler, code, daten, ctype="application/json", cache=None):
 
 
 class Handler(BaseHTTPRequestHandler):
-    # S14: ein Client, der seine Anfrage nie zu Ende schickt (oder nichts mehr
-    # abnimmt), hält einen Faden höchstens 30 s je Lese-/Schreibschritt fest.
+    # S14: Zeitlimit für das LESEN einer Anfrage (Kopf und Körper). Es gilt je
+    # Leseschritt: ein Client, der 30 s lang nichts mehr schickt, gibt den
+    # Faden frei. Beim Antworten gilt es ebenfalls, und dort wertet sendall es
+    # als Gesamtdauer je Schreibaufruf, nicht je Schritt. Kleine Antworten
+    # stört das nicht; die Strom-Wege heben es nach dem Kopf auf
+    # (_schreib_zeitlimit_aufheben), sonst bräche ein pausierter Film ab.
     timeout = 30
+
+    def handle_one_request(self):
+        # Jede Anfrage liest wieder mit Zeitlimit, auch nach einem Strom auf
+        # derselben Verbindung (falls der Handler je Keep-Alive spricht).
+        try:
+            self.connection.settimeout(self.timeout)
+        except (AttributeError, OSError):
+            pass
+        super().handle_one_request()
 
     def log_message(self, *a):                        # Konsole ruhig halten
         pass
@@ -6787,6 +6816,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "video/mp4")
                 self.send_header("Accept-Ranges", "none")
                 self.end_headers()
+                _schreib_zeitlimit_aufheben(self)        # S14: Pause darf den Strom nicht töten
                 try:
                     while True:
                         stueck = proz.stdout.read(262144)
@@ -6826,6 +6856,7 @@ class Handler(BaseHTTPRequestHandler):
                         if r.headers.get(h):
                             self.send_header(h, r.headers[h])
                     self.end_headers()
+                    _schreib_zeitlimit_aufheben(self)    # S14: Pause darf den Strom nicht töten
                     while True:
                         stueck = r.read(262144)
                         if not stueck:

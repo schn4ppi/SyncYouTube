@@ -14,7 +14,10 @@ import email.message
 import io
 import json
 import os
+import socket
 import sys
+import threading
+import time
 
 import pytest
 
@@ -211,7 +214,12 @@ def test_fernsteuerung_aus_sperrt_auch_gekoppelte_geraete_sofort(monkeypatch):
     app.CFG["fernsteuerung"] = False                  # am PC ausgeschaltet, kein Neustart
     assert _anfrage("/api/status", ip=LAN, kopf=kopf)[0] == 403
     assert _anfrage("/api/status", ip=LAN, kopf={"Host": PC_IM_LAN, "X-Code": CODE})[0] == 403
-    app.CFG["fernsteuerung"] = True                   # wieder an: gilt ebenso sofort
+    # Wieder an: der Riegel lässt sofort durch. Im Betrieb kommt die Anfrage
+    # aber nur an, wenn der Server schon im WLAN lauscht, also mit
+    # eingeschalteter Fernsteuerung gestartet wurde (main bindet sonst nur
+    # 127.0.0.1); nach einem Start mit „aus" braucht das Einschalten wie
+    # bisher einen Neustart.
+    app.CFG["fernsteuerung"] = True
     assert _anfrage("/api/status", ip=LAN, kopf=kopf)[0] == 200
 
 
@@ -375,27 +383,190 @@ def test_unlesbare_laenge_gibt_400(laenge):
 
 
 def test_handler_hat_ein_zeitlimit_von_30_s():
+    """Der Wächter für den WERT: die Tests am echten Server unten verkürzen
+    das Zeitlimit selbst und können ihn deshalb nicht bewachen."""
     assert app.Handler.timeout == 30
 
 
-def test_zeitlimit_wirkt_im_echten_server(monkeypatch):
-    """Ein Client, der die Anfrage nie zu Ende schickt, hält keinen Faden
-    fest: der Server schließt die Verbindung nach dem Zeitlimit (hier auf
-    0,5 s verkürzt, gemessen am echten ThreadingHTTPServer auf 127.0.0.1)."""
-    import socket
-    import threading
-    import time
-    monkeypatch.setattr(app.Handler, "timeout", 0.5)
-    srv = app.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
-    faden = threading.Thread(target=srv.serve_forever, daemon=True)
-    faden.start()
+class _EchterServer:
+    """Der echte ThreadingHTTPServer mit dem echten Handler auf 127.0.0.1 und
+    freiem Port. Das Zeitlimit ist verkürzt, damit kein Test 30 s wartet;
+    `protokoll` spielt einen künftigen HTTP/1.1-Handler (Keep-Alive) nach."""
+
+    def __init__(self, monkeypatch, zeitlimit, protokoll=None):
+        monkeypatch.setattr(app.Handler, "timeout", zeitlimit)
+        if protokoll:
+            monkeypatch.setattr(app.Handler, "protocol_version", protokoll)
+        self.srv = app.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        self.port = self.srv.server_address[1]
+
+    def __enter__(self):
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        return self
+
+    def __exit__(self, *_a):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+    def verbinden(self, empfangspuffer=None):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if empfangspuffer:                            # vor connect: kleines TCP-Fenster
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, empfangspuffer)
+        s.settimeout(10)
+        s.connect(self.srv.server_address)
+        return s
+
+
+def _bis_zum_ende(s):
+    """Alles bis die Gegenseite schließt (oder 10 s nichts kommt)."""
+    roh = b""
     try:
-        s = socket.create_connection(srv.server_address, timeout=5)
+        while True:
+            stueck = s.recv(65536)
+            if not stueck:
+                break
+            roh += stueck
+    except TimeoutError:
+        pass
+    return roh
+
+
+def test_zeitlimit_wirkt_im_echten_server(monkeypatch):
+    """Mechanismus-Nachweis, kein Wächter für den Wert (der steht in
+    test_handler_hat_ein_zeitlimit_von_30_s): Ein Client, der seine Anfrage
+    nie zu Ende schickt, hält keinen Faden fest; der Server schließt die
+    Verbindung nach dem Zeitlimit (hier 0,5 s)."""
+    with _EchterServer(monkeypatch, zeitlimit=0.5) as server:
+        s = server.verbinden()
         s.sendall(b"POST /api/remote HTTP/1.1\r\nHost: 127.0.0.1\r\n")   # Kopf nie beendet
         t0 = time.monotonic()
         assert s.recv(1024) == b"", "der Server hätte die Verbindung schließen müssen"
         assert time.monotonic() - t0 < 4
         s.close()
-    finally:
-        srv.shutdown()
-        srv.server_close()
+
+
+# ------------------------------------------------------------ S14 Nacharbeit: Ströme überleben eine Pause
+# Abnahme 25.09.: Handler.timeout = 30 galt auch beim Schreiben, und sendall
+# wertet es als Gesamtdauer je Schreibaufruf. Nimmt der Browser bei einem
+# pausierten Film länger nichts ab, starb der Strom; beim Transcoder
+# (Accept-Ranges: none, keine Länge) kann der Browser nichts nachholen, das
+# Video endete nach dem Fortsetzen mit einem Fehler. Nachgestellt mit kleinem
+# Empfangspuffer, damit die Pause den Server wirklich im Schreiben festhält.
+
+STROM_BYTES = 16 * 1024 * 1024
+ZEITLIMIT_KURZ = 0.4
+PAUSE_S = 4 * ZEITLIMIT_KURZ
+
+
+class _Quelle:
+    """Liefert `groesse` Null-Bytes stückweise, ohne sie vorzuhalten
+    (ffmpeg-Ausgabe bzw. Jellyfin-Antwort)."""
+
+    def __init__(self, groesse):
+        self.rest = groesse
+
+    def read(self, n=-1):
+        n = self.rest if n is None or n < 0 else min(n, self.rest)
+        self.rest -= n
+        return bytes(n)
+
+
+def _weg_transcoder(monkeypatch, tmp_path):
+    import filme
+    monkeypatch.setattr(filme, "stream_url", lambda iid, druck=False: "http://127.0.0.1:9/film")
+    monkeypatch.setattr(app, "_ffmpeg_exe", lambda: r"C:\bin\ffmpeg.exe")
+    monkeypatch.setattr(app, "_strom_vorprobe", lambda url: None)
+
+    class Prozess:
+        def __init__(self, cmd):
+            self.stdout = _Quelle(STROM_BYTES)
+
+        def kill(self):
+            pass
+    monkeypatch.setattr(app, "_tc_starten", Prozess)
+    return "/api/filme/direkt?id=f1&tc=1&vcopy=1&start=0"
+
+
+def _weg_jellyfin_direkt(monkeypatch, tmp_path):
+    import filme
+    monkeypatch.setattr(filme, "stream_url", lambda iid, druck=False: "http://127.0.0.1:9/film")
+
+    class Antwort(_Quelle):
+        status = 200
+        headers = {"Content-Type": "video/mp4", "Content-Length": str(STROM_BYTES),
+                   "Accept-Ranges": "bytes"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+    monkeypatch.setattr(app.urllib.request, "urlopen", lambda req, timeout=None: Antwort(STROM_BYTES))
+    return "/api/filme/direkt?id=f1"
+
+
+def _weg_datei(monkeypatch, tmp_path):
+    datei = tmp_path / "film.mp4"
+    with open(datei, "wb") as f:
+        for _ in range(STROM_BYTES // (1 << 20)):
+            f.write(bytes(1 << 20))
+    monkeypatch.setattr(app, "_pfad_zu_key", lambda key: str(datei))
+    return "/media?id=film"
+
+
+def _lesen_mit_pause(server, pfad):
+    """Wie ein Browser-Player: Kopf und das erste MB lesen, dann pausieren
+    (nichts abnehmen), dann den Rest. Liefert (Kopf, Körperlänge)."""
+    s = server.verbinden(empfangspuffer=16384)
+    s.sendall(f"GET {pfad} HTTP/1.1\r\nHost: 127.0.0.1:{server.port}\r\n\r\n".encode())
+    roh = b""
+    while b"\r\n\r\n" not in roh:
+        stueck = s.recv(65536)
+        assert stueck, f"Verbindung ohne Kopf zu: {roh[:200]!r}"
+        roh += stueck
+    kopf, _, koerper = roh.partition(b"\r\n\r\n")
+    n = len(koerper)
+    while n < (1 << 20):
+        stueck = s.recv(65536)
+        if not stueck:
+            break
+        n += len(stueck)
+    time.sleep(PAUSE_S)                               # Video pausiert: der Browser nimmt nichts ab
+    n += len(_bis_zum_ende(s))
+    s.close()
+    return kopf.decode("latin-1"), n
+
+
+@pytest.mark.parametrize("weg", [_weg_transcoder, _weg_jellyfin_direkt, _weg_datei],
+                         ids=["transcoder", "jellyfin_direkt", "datei"])
+def test_strom_ueberlebt_eine_pause_laenger_als_das_zeitlimit(monkeypatch, tmp_path, weg):
+    """Der Client liest mitten im Strom viermal so lange nichts, wie das
+    (verkürzte) Zeitlimit erlaubt, und bekommt danach den Rest vollständig."""
+    pfad = weg(monkeypatch, tmp_path)
+    with _EchterServer(monkeypatch, zeitlimit=ZEITLIMIT_KURZ) as server:
+        kopf, n = _lesen_mit_pause(server, pfad)
+    assert kopf.startswith("HTTP/1.0 200"), kopf
+    assert n == STROM_BYTES, f"nach der Pause fehlen {STROM_BYTES - n} von {STROM_BYTES} Bytes"
+
+
+def test_nach_einem_strom_liest_die_naechste_anfrage_wieder_mit_zeitlimit(monkeypatch, tmp_path):
+    """Das Zeitlimit fällt nur für das Ausliefern eines Stroms weg, nie für das
+    Lesen einer Anfrage: Spräche der Handler HTTP/1.1 mit Keep-Alive, läse er
+    die nächste Anfrage auf derselben Verbindung wieder mit Zeitlimit."""
+    datei = tmp_path / "klein.mp4"
+    datei.write_bytes(b"x" * 1000)
+    monkeypatch.setattr(app, "_pfad_zu_key", lambda key: str(datei))
+    with _EchterServer(monkeypatch, zeitlimit=ZEITLIMIT_KURZ, protokoll="HTTP/1.1") as server:
+        s = server.verbinden()
+        s.sendall(b"GET /media?id=k HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        roh = b""
+        while not roh.endswith(b"x" * 1000):
+            stueck = s.recv(65536)
+            assert stueck, roh[:200]
+            roh += stueck
+        assert roh.startswith(b"HTTP/1.1 200"), roh[:200]
+        s.sendall(b"GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\n")      # Kopf nie beendet
+        t0 = time.monotonic()
+        assert s.recv(1024) == b"", "der Server hätte die Verbindung schließen müssen"
+        assert time.monotonic() - t0 < 4
+        s.close()
