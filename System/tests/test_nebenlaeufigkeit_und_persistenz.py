@@ -20,6 +20,7 @@ MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if MODUL_DIR not in sys.path:
     sys.path.insert(0, MODUL_DIR)
 
+import musik_einstufung  # noqa: E402  (Titel-Helfer, seit Gesamtprüfung Y3 dort)
 import youtube_app as app  # noqa: E402
 
 
@@ -1022,7 +1023,7 @@ def _musicbrainz_mit_tor(monkeypatch):
         return None
     monkeypatch.setattr(app, "_mb_suche", mb_suche)
     monkeypatch.setattr(app, "_itunes_suche", lambda *a, **k: None)
-    monkeypatch.setattr(app, "_tag_kandidat", lambda e: ("Kanal", e.get("titel", "")))
+    monkeypatch.setattr(musik_einstufung, "_tag_kandidat", lambda e: ("Kanal", e.get("titel", "")))
     monkeypatch.setattr(app.time, "sleep", lambda s: None)
     return gesucht, frei, erste
 
@@ -1100,7 +1101,7 @@ def test_autotag_gibt_den_merker_am_ende_nur_einmal_frei(monkeypatch):
                 aktiv[0] -= 1
     monkeypatch.setattr(app, "_mb_suche", mb_suche)
     monkeypatch.setattr(app, "_itunes_suche", lambda *a, **k: None)
-    monkeypatch.setattr(app, "_tag_kandidat", lambda e: ("Kanal", e.get("titel", "")))
+    monkeypatch.setattr(musik_einstufung, "_tag_kandidat", lambda e: ("Kanal", e.get("titel", "")))
     monkeypatch.setattr(app.time, "sleep", lambda s: None)
     lauf_a = threading.Thread(target=app.autotag_lauf, args=([k1],), daemon=True)
     haelt, weiter = threading.Event(), threading.Event()
@@ -1231,7 +1232,7 @@ def _lauf_vorbereiten(art, monkeypatch, tmp_path, zaehler, frei):
         keys = _musik("Ein Lied")
         monkeypatch.setattr(app, "_mb_suche", _zaehlt_und_wartet(zaehler, frei))
         monkeypatch.setattr(app, "_itunes_suche", lambda *a, **k: None)
-        monkeypatch.setattr(app, "_tag_kandidat", lambda e: ("Kanal", e.get("titel", "")))
+        monkeypatch.setattr(musik_einstufung, "_tag_kandidat", lambda e: ("Kanal", e.get("titel", "")))
         return lambda: app.autotag_lauf(keys)
     # Geo-Test: der Knopf startet den Test in einem eigenen Faden
     monkeypatch.setattr(app, "_geo_test", {"laeuft": False, "stand": 0.0, "url": "", "titel": "",

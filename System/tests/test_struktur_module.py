@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Ausgelagerte Module der App (Gesamtprüfung Abschnitt 4, ab Y2, 25.09.2026).
 
-Teile von youtube_app.py wandern in eigene Module (links, …). Vier Regeln
-halten das verhaltensgleich und prüfbar:
+Teile von youtube_app.py wandern in eigene Module (links, musik_einstufung,
+…). Vier Regeln halten das verhaltensgleich und prüfbar:
 
 1. Einbahn wie bei filme und geo: ein ausgelagertes Modul importiert
    youtube_app nie. Was es braucht, kommt per Parameter oder `einrichten()`.
@@ -58,7 +58,7 @@ def _definiert(modul):
 def test_ableitung_findet_die_ausgelagerten_module():
     """Gegenprobe für die Ableitung: fände sie nichts mehr, wären die
     folgenden Tests leer und grün."""
-    assert {"links"} <= set(AUSGELAGERT), AUSGELAGERT
+    assert {"links", "musik_einstufung"} <= set(AUSGELAGERT), AUSGELAGERT
     assert len(conftest.VERWEISE) >= 10, conftest.VERWEISE
 
 

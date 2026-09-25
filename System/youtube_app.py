@@ -45,15 +45,23 @@ import familie as fam       # gemeinsamer Kern: atomares Schreiben mit Wiederhol
 import geo
 import links                # reine Link-Deutung (Gesamtprüfung Y2); die App ruft links.X
 import medien_smtc          # Windows-Medienanmeldung des VLC-Motors (pywinrt erst bei Bedarf)
+import musik_einstufung     # Musik-Einstufung und Titel-Helfer (Gesamtprüfung Y3); die App ruft musik_einstufung.X
 import update
 import windows_kennung      # App-Kennung JBK.SyncYouTube + Startmenü-Eintrag (JB 24.09.2026)
 # Verweise für Aufrufer von außen (Tests, Werkzeuge): app.X bleibt erreichbar.
-# Die App selbst ruft links.X; ersetzt wird in Tests nur links.X.
+# Die App selbst ruft modul.X (links.X, musik_einstufung.X); ein Test ersetzt
+# nur modul.X (Wächter tests/test_struktur_module.py).
 from links import (  # noqa: F401
     YOUTUBE_HOSTS, _KANAL_UNTERSEITEN, _KANAL_WURZEL, _KEIN_LINK_ZEICHEN,
     _ist_mix, _kanal_url, _liste_zuschneiden, _mix_limit,
     _plausible_id, _video_id, ist_einzelvideo, ist_youtube_link,
     link_deuten, link_zeilen)
+from musik_einstufung import (  # noqa: F401
+    AUDIO_EXT, AUDIO_EXT_OHNE_AAC, AUDIO_EXT_OHNE_WAV_AAC, MUSIKVIDEO_EXT,
+    VIDEO_EXT, _ANHAENGSEL, _KEIN_LIED, _LIED_MAXDAUER,
+    _TITEL_MUELL, _ist_live_titel, _ist_musik, _ist_musik_muster,
+    _kanal_nummern, _kat_aus_name, _musik_grad, _musik_grade,
+    _tag_kandidat, _titel_aus_name, _titel_blank, _titel_kern)
 
 __version__ = "1.2.7"
 
@@ -1325,16 +1333,6 @@ def geladen_merken(item):
 
 # ---- Bibliothek: Ansicht über alle je geladenen Titel (aus geladen_log.json).
 
-def _titel_aus_name(name):
-    t = re.sub(r"\.[^.]+$", "", name or "")          # Endung weg
-    t = re.sub(r"\s*\[[\w-]{6,}\]\s*$", "", t)        # [videoid] weg
-    return t.strip() or (name or "")
-
-
-def _kat_aus_name(name):
-    n = (name or "").lower()
-    return "MP3" if n.endswith((".mp3", ".m4a", ".opus", ".ogg", ".flac", ".wav")) else "Video"
-
 
 def _datei_index():
     """videoid -> Pfad aus EINEM Ordner-Durchlauf (inkl. Unterordner). So braucht
@@ -1348,7 +1346,7 @@ def _datei_index():
             # NUR Mediendateien: die .vtt-Untertitel/.jpg-Cover NEBEN dem Video
             # dürfen den Index nie vergiften — sonst spielt /media eine
             # Untertitel-Datei aus und das Bild bleibt schwarz (JB-Fund 14.07.).
-            if not f.lower().endswith(AUDIO_EXT + VIDEO_EXT):
+            if not f.lower().endswith(musik_einstufung.AUDIO_EXT + musik_einstufung.VIDEO_EXT):
                 continue
             pfad = os.path.join(root, f)
             m = re.search(r"\[([\w-]{6,})\]", f)
@@ -1368,8 +1366,8 @@ def _datei_aus(liste, qualitaet=""):
     bekam ein |beste-Eintrag die MP3-Fassung -> Ton ja, Bild schwarz (JB 14.07.)."""
     if not liste:
         return None
-    audio = [p for p in liste if p.lower().endswith(AUDIO_EXT)]
-    video = [p for p in liste if p.lower().endswith(VIDEO_EXT)]
+    audio = [p for p in liste if p.lower().endswith(musik_einstufung.AUDIO_EXT)]
+    video = [p for p in liste if p.lower().endswith(musik_einstufung.VIDEO_EXT)]
     if qualitaet == "audio":
         return (audio or video or liste)[0]
     return (video or audio or liste)[0]
@@ -1384,14 +1382,14 @@ def bibliothek_liste():
         pfad = gespeichert if (gespeichert and os.path.isfile(gespeichert)) else _datei_aus(idx.get(vid), qual)
         art = ""
         if pfad:
-            art = "audio" if pfad.lower().endswith(AUDIO_EXT) else "video"
+            art = "audio" if pfad.lower().endswith(musik_einstufung.AUDIO_EXT) else "video"
         out.append({
             "id": key, "videoid": vid, "dateiart": art,
             "qualitaet": e.get("qualitaet") or qual or "",
-            "titel": e.get("titel") or _titel_aus_name(e.get("name", "")),
+            "titel": e.get("titel") or musik_einstufung._titel_aus_name(e.get("name", "")),
             "uploader": e.get("uploader", ""), "dauer": e.get("dauer"),
             "upload_date": e.get("upload_date", ""),
-            "kategorie": e.get("kategorie") or _kat_aus_name(e.get("name", "")),
+            "kategorie": e.get("kategorie") or musik_einstufung._kat_aus_name(e.get("name", "")),
             "vcodec": e.get("vcodec", ""), "acodec": e.get("acodec", ""),
             "abr": e.get("abr", 0), "asr": e.get("asr", 0), "hoehe": e.get("hoehe", 0),
             "groesse": e.get("groesse", 0), "name": e.get("name", ""),
@@ -1412,10 +1410,10 @@ def bibliothek_liste():
     # Build 144g (JB Punkt 4): „Videonummer je Kanal als eigenes Feld."
     # Die ECHTE Kanal-Nummer aus dem Abo-Backkatalog hat Vorrang — sie zählt
     # über den ganzen Kanal, nicht nur über das, was hier liegt.
-    nummer, gesamt = _kanal_nummern(out)
+    nummer, gesamt = musik_einstufung._kanal_nummern(out)
     # Build 144h (JB Punkt 5): „nur Lieder" braucht eine Einstufung, die den
     # KANAL mitliest — deshalb über die ganze Liste, nicht je Eintrag.
-    grade = _musik_grade([(x["id"], x) for x in out])
+    grade = musik_einstufung._musik_grade([(x["id"], x) for x in out])
     # Build 144o: Favorit-Repräsentant je Gruppe. Nur er erscheint im Raster
     # und im Zufall; die übrigen (Clips + Hauptsong, falls ein Clip Favorit
     # ist) liegen im Rechtsklick. `hat_geschwister` sagt, ob es überhaupt
@@ -1435,35 +1433,6 @@ def bibliothek_liste():
         x["hat_geschwister"] = gruppen_groesse.get(vid, 1) > 1
     out.sort(key=lambda x: x["ts"] or 0, reverse=True)
     return out
-
-
-def _kanal_nummern(eintraege):
-    """„Das wievielte Video dieses Kanals ist das?" (JB Punkt 4)
-
-    Ausdrücklich NICHT die Track-Nummer: die heißt „Position innerhalb eines
-    Werks" und stünde bei Einzelvideos 500-mal auf 1 — genau JBs Sorge.
-    Vorbild ist `abo_nr`, das es für Abo-Folgen schon gibt; dieselbe Zählweise
-    (ältestes = 1), nur für JEDEN Kanal statt nur für abonnierte.
-
-    ABGELEITET statt gespeichert: eine einmal geschriebene Nummer würde falsch,
-    sobald ein ÄLTERES Video desselben Kanals dazukommt — und falsche Zahlen
-    wandern beim Kopieren mit. Ohne Kanal gibt es keine Nummer; lieber keine
-    Angabe als eine erfundene.
-    """
-    nach_kanal = {}
-    for x in eintraege:
-        kanal = (x.get("uploader") or "").strip().lower()
-        if kanal:
-            nach_kanal.setdefault(kanal, []).append(x)
-    nummer, gesamt = {}, {}
-    for liste in nach_kanal.values():
-        # Ältestes zuerst; ohne Upload-Datum entscheidet der Ladezeitpunkt,
-        # damit die Reihenfolge stabil bleibt statt zufällig zu springen.
-        liste.sort(key=lambda x: (x.get("upload_date") or "", x.get("ts") or 0))
-        for i, x in enumerate(liste, 1):
-            nummer[x["id"]] = i
-            gesamt[x["id"]] = len(liste)
-    return nummer, gesamt
 
 
 # ---- Datei zu einem Bibliotheks-Schlüssel finden (für Media/Player/Extern)
@@ -1736,26 +1705,6 @@ def clip_erstellen(daten):
 MB_API = "https://musicbrainz.org/ws/2/recording"
 MB_UA = "JB-YTDL-Suite/1.0 (https://github.com/schn4ppi)"
 
-# Müll-Klammern aus YouTube-Titeln: [Official Video], (Lyrics), [4K Upgrade] …
-_TITEL_MUELL = re.compile(
-    r"(?i)[\(\[](official|video|audio|lyric|lyrics|hd|hq|4k|8k|remaster|visualizer"
-    r"|mv|m/v|full album|live|explicit|clean)[^\)\]]*[\)\]]")
-
-
-def _tag_kandidat(e):
-    """Aus YouTube-Titel + Kanal einen (kuenstler, titel)-Kandidaten raten.
-    'Green Day - Boulevard … [Official Video]' -> ('Green Day', 'Boulevard …')."""
-    t = _TITEL_MUELL.sub(" ", e.get("titel") or "")
-    t = re.sub(r"\s+", " ", t).strip(" -–—|")
-    ku = ""
-    for sep in (" - ", " – ", " — ", ": "):
-        if sep in t:
-            ku, t = t.split(sep, 1)
-            break
-    if not ku:                                        # kein 'Künstler - Titel' -> Kanalname säubern
-        ku = re.sub(r"(?i)\s*-\s*topic$|vevo$", "", e.get("uploader") or "").strip()
-    return ku.strip(), t.strip(" -–—|")
-
 
 def titel_abgleich():
     """Anzeige-Titel an bereits umbenannte Dateien angleichen (Build 141).
@@ -1777,7 +1726,7 @@ def titel_abgleich():
             name = e.get("name") or ""
             if not name:
                 continue
-            aus_name = _titel_aus_name(name)
+            aus_name = musik_einstufung._titel_aus_name(name)
             if not aus_name or aus_name == (e.get("titel") or ""):
                 continue
             if not e.get("titel_orig"):
@@ -1807,7 +1756,7 @@ def autotag_nach_download(item):
     try:
         key = _geladen_key(item.get("url") or "", item.get("qualitaet") or "")
         e = _geladen.get(key)
-        if not e or not _ist_musik(e) or e.get("album"):
+        if not e or not musik_einstufung._ist_musik(e) or e.get("album"):
             return
         threading.Thread(target=autotag_lauf, args=([key],), daemon=True).start()
     except Exception:                                 # noqa: BLE001 — nie den Download stören
@@ -1842,42 +1791,6 @@ def auto_umbenennen_nach_download(item):
                  "benannt (↩ rückgängig im Namens-Fenster)")
     except Exception:                                 # noqa: BLE001 — nie den Download stören
         pass
-
-
-def _titel_blank(t):
-    """Titel für einen ZWEITEN Suchversuch von allen Klammer-Zusätzen befreien.
-
-    Build 136 (JB-Frage „wieso sind mehrere Titel noch nicht korrekt
-    benannt?"): _TITEL_MUELL kennt nur BEKANNTE Zusätze (official, lyrics,
-    live …). Alles andere bleibt stehen und lässt die MusicBrainz-Suche ins
-    Leere laufen — in JBs Bibliothek etwa „(Traduzione Italiana)" oder
-    „(from The Wildlife Concert)". Für die Suche ist ein Klammerzusatz fast
-    nie Teil des echten Titels; und wenn doch, findet MusicBrainz ihn auch
-    ohne. Bleibt nichts übrig, wird der Originaltitel behalten — ein leerer
-    Suchbegriff wäre nutzlos.
-    """
-    roh = (t or "").strip()
-    ohne = re.sub(r"[\(\[][^\)\]]*[\)\]]", " ", roh)
-    ohne = re.sub(r"\s+", " ", ohne).strip(" -–—|,")
-    return ohne or roh
-
-
-_ANHAENGSEL = re.compile(
-    r"\s*[-–—|]\s*(official([ \w]*)?|music video|lyric(s| video)?|audio|video|"
-    r"hd|4k( hd)?|remaster(ed)?( \d{4})?|visuali[sz]er)\s*$", re.IGNORECASE)
-
-
-def _titel_kern(t):
-    """Klammer-Zusätze UND bekannte Bindestrich-Anhängsel abstreifen (JB-Fund
-    05.08.: „Running Up That Hill - Official Music Video" fand nichts, weil
-    das Anhängsel keine Klammer ist). Mehrfach, bis nichts mehr passt."""
-    t = _titel_blank(t)
-    for _ in range(3):
-        neu = _ANHAENGSEL.sub("", t).strip(" -–—|,")
-        if neu == t or not neu:
-            break
-        t = neu
-    return t
 
 
 def _mb_get(url, timeout=10):
@@ -1978,15 +1891,6 @@ def _bild_laden(url, timeout=15):
     return None
 
 
-def _ist_live_titel(t):
-    """Sagt der QUELL-Titel selbst, dass es eine Live-Aufnahme ist? (JB 05.08.,
-    Nirvana-Fall: „Live On MTV Unplugged" — dann ist das offizielle LIVE-Album
-    die richtige Quelle, nicht das Studio-Album.) Wortgrenzen, damit „Alive"
-    oder „Delivery" nicht zünden."""
-    return bool(re.search(r"\b(live|unplugged|konzert|concert|acoustic session)\b",
-                          (t or "").casefold()))
-
-
 def _mb_suche(kuenstler, titel, timeout=10, live_hinweis=None):
     """Künstler/Titel/Album via MusicBrainz. Zwei Stufen (die Recording-Suche allein
     ist voller gleichnamiger Live-Bootlegs — live ausgetestet 09.07.2026):
@@ -2043,7 +1947,7 @@ def _mb_suche(kuenstler, titel, timeout=10, live_hinweis=None):
     # Studio-Album der ehrliche Rückfall (Metadaten ja, der Live-Vermerk
     # bleibt im eigenen Titel). OHNE Live-Marker bleiben Live-Alben verboten
     # — der alte Bootleg-Schutz.
-    ist_live = live_hinweis if live_hinweis is not None else _ist_live_titel(titel)
+    ist_live = live_hinweis if live_hinweis is not None else musik_einstufung._ist_live_titel(titel)
     def _album_ok(rel):
         rg = rel.get("release-group") or {}
         sec = rg.get("secondary-types") or []
@@ -2102,141 +2006,6 @@ def _mb_suche(kuenstler, titel, timeout=10, live_hinweis=None):
             "titel": mb_titel if exakt else titel,
             "album": album, "jahr": jahr,
             "release_id": release_id, "rg_id": rg_id, "genre": genre}
-
-
-def _ist_musik(e):
-    """Ist das ein Musiktitel? (Build 140 — JB: „Es sind zwar Videos, aber es
-    sind Videos von Liedern. Ich finde da sollte es so gelten.")
-
-    Vorher zählte nur das Dateiformat, also lief das Auto-Tagging für
-    Musikvideos nie. Jetzt gelten zusätzlich zwei Merkmale, an denen man ein
-    Musikvideo zuverlässig erkennt:
-      · der Kanal ist ein VEVO- oder „… - Topic"-Kanal (die legt YouTube
-        selbst für Labels bzw. automatisch für Musik an),
-      · der Name folgt dem Muster „Künstler - Titel".
-    Bewusst NICHT jedes Video: sonst befragt die App MusicBrainz zu jedem
-    Let's Play und bekommt Zufallstreffer statt Daten.
-    """
-    n = (e.get("name") or "").lower()
-    if e.get("kategorie") == "MP3" or n.endswith((".mp3", ".m4a", ".opus", ".ogg", ".flac")):
-        return True
-    if not n.endswith((".mp4", ".mkv", ".webm")):
-        return False
-    up = (e.get("uploader") or "").strip().lower()
-    if up.endswith("- topic") or up.endswith("vevo"):
-        return True
-    # „Künstler - Titel": ein Bindestrich mit Leerzeichen, und beide Seiten
-    # tragen Text (die Regel steht einmal, in _ist_musik_muster).
-    return _ist_musik_muster(e)
-
-
-# Build 144h (JB Punkt 5): „der Video- und Song-Modus soll wirklich Lieder
-# nehmen, nicht nur Videos und MP3."
-# Wörter, die ein Werk als NICHT-Lied ausweisen. Bewusst kurz und auf das
-# beschränkt, was in JBs Bibliothek und bei YouTube üblich ist — eine lange
-# Wortliste wäre Pflegearbeit und träfe irgendwann echte Liedtitel.
-_KEIN_LIED = re.compile(
-    r"(?i)\b(?:trailer|teaser|gameplay|let'?s\s*play|walkthrough|review|tutorial"
-    r"|podcast|interview|documentary|dokumentation|short\s*film|kurzfilm"
-    r"|full\s*(?:movie|album|episode)|folge\s*\d+|stream\s*highlights?)\b")
-# Länger als das ist kein einzelnes Lied mehr, sondern Mitschnitt, Hörbuch,
-# Podcast oder ein ganzes Album am Stück. 20 Minuten ist großzügig gewählt —
-# das längste Stück in JBs Bibliothek liegt weit darunter (gemessen: genau
-# ein Titel über 20 min, und der ist keiner).
-_LIED_MAXDAUER = 1200
-
-
-def _musik_grad(e):
-    """Wie sicher ist es ein LIED? „belegt" / „wahrscheinlich" / „nein".
-
-    Warum drei Stufen statt ja/nein: An JBs 86 Titeln gemessen haben nur 11
-    einen MusicBrainz-Treffer (kuenstler+track) und 3 einen VEVO-/„- Topic"-
-    Kanal. Ein Filter, der nur Belegtes zeigt, wäre fast leer; einer, der jede
-    Vermutung mitnimmt, holt Animationsfilme und Gaming-Clips herein. Also
-    beides trennen und die Oberfläche sagen lassen, worauf sie sich stützt.
-
-    Ausdrücklich NICHT mehr: „Audiodatei = Musik". Das war eine Setzung, keine
-    Messung — Comedy, Podcasts und Hörbücher liegen genauso als MP3 vor
-    (in JBs Bibliothek z. B. ein Gaming-Clip und ein Louis-C.K.-Mitschnitt).
-    """
-    kuenstler = (e.get("kuenstler") or "").strip()
-    track = (e.get("track") or "").strip()
-    up = (e.get("uploader") or "").strip().lower()
-    if (kuenstler and track) or up.endswith(("- topic", "vevo")):
-        return "belegt"                      # Beleg schlägt jede Heuristik
-    name = e.get("name") or ""
-    if _KEIN_LIED.search(name) or _KEIN_LIED.search(e.get("titel_orig") or ""):
-        return "nein"
-    if (e.get("dauer") or 0) > _LIED_MAXDAUER:
-        return "nein"
-    # Abwägung, an JBs Bibliothek gemessen und danach korrigiert: Ein Filter
-    # ist eine ANSICHT, er schreibt nichts. Ein Titel zu viel ist ein
-    # Schönheitsfehler — ein fehlendes Lied fällt auf und ärgert. Die erste,
-    # strengere Fassung verlangte auch von Audiodateien das Muster
-    # „Künstler - Titel" und verlor damit drei echte Lieder (Elmer Bernstein,
-    # Mateus Asato, Shania Twain). Also: eine Audiodatei ohne Ausschlussgrund
-    # zählt als wahrscheinlich; bei Videos braucht es weiter ein Indiz.
-    n = (e.get("name") or "").lower()
-    if e.get("kategorie") == "MP3" or n.endswith((".mp3", ".m4a", ".opus", ".ogg", ".flac")):
-        return "wahrscheinlich"
-    if _ist_musik_muster(e):
-        return "wahrscheinlich"
-    return "nein"
-
-
-def _musik_grade(eintraege):
-    """Einstufung für eine ganze Liste — mit dem Kanal als zusätzlichem Beleg.
-
-    Nötig, weil `_musik_grad` je Eintrag urteilt und dabei genau die Lieder
-    verliert, deren Dateiname keinen Künstler trägt. An JBs Bibliothek
-    gemessen fielen so acht echte Lieder heraus („The Boxer", „Rocky Mountain
-    High", „Sunshine on My Shoulders" …) — sie stehen als reiner Titel da.
-
-    Der Kanal weiß es aber: Trägt von demselben Uploader mindestens EIN Titel
-    einen Beleg (MusicBrainz-Treffer, VEVO-/„- Topic"-Kanal) ODER das Muster
-    „Künstler - Titel", dann ist das ein Musik-Kanal, und seine übrigen Titel
-    sind wahrscheinlich Lieder. Genau das rettet „The Boxer" über „Simon &
-    Garfunkel - I Am A Rock" und „Rocky Mountain High" über „John Denver -
-    Leaving on a Jet Plane".
-
-    Der Auslöser ist bewusst NICHT „hat irgendeinen wahrscheinlichen Titel":
-    dann würde eine einzige MP3 einen Gaming-Kanal zum Musik-Kanal machen
-    (gemessen an „Asmongold Clips", dessen MP3 kein Künstler-Muster trägt).
-    """
-    grade = {}
-    musik_kanaele = set()
-    for k, e in eintraege.items() if isinstance(eintraege, dict) else eintraege:
-        g = _musik_grad(e)
-        grade[k] = g
-        up = (e.get("uploader") or "").strip().lower()
-        if up and (g == "belegt" or (g != "nein" and _ist_musik_muster(e))):
-            musik_kanaele.add(up)
-    if musik_kanaele:
-        paare = eintraege.items() if isinstance(eintraege, dict) else eintraege
-        for k, e in paare:
-            if grade.get(k) != "nein":
-                continue
-            up = (e.get("uploader") or "").strip().lower()
-            if up not in musik_kanaele:
-                continue
-            # Ausschlussgründe bleiben Ausschlussgründe — ein Trailer auf
-            # einem Musik-Kanal ist trotzdem kein Lied.
-            if _KEIN_LIED.search(e.get("name") or "") or _KEIN_LIED.search(e.get("titel_orig") or ""):
-                continue
-            if (e.get("dauer") or 0) > _LIED_MAXDAUER:
-                continue
-            grade[k] = "wahrscheinlich"
-    return grade
-
-
-def _ist_musik_muster(e):
-    """Nur das Namensmuster „Künstler - Titel" (ohne Format-Annahme): ein
-    Bindestrich mit Leerzeichen, links 2 bis 40 Zeichen, rechts mindestens 2.
-    Die EINE Fassung der Regel, auch für _ist_musik (Gesamtprüfung Gruppe 7)."""
-    stamm = re.sub(r"\.[a-z0-9]{2,4}$", "", e.get("name") or "")
-    teile = re.split(r"\s+[-–—]\s+", stamm, maxsplit=1)
-    return (len(teile) == 2 and 2 <= len(teile[0].strip()) <= 40
-            and len(teile[1].strip()) >= 2)
 
 
 def _tags_in_datei(key, e):
@@ -2467,7 +2236,7 @@ def autotag_lauf(keys=None):
             # Tags anzufassen (CAA drosselt Serien — live gemessen 0/35; so
             # heilt sich der Rückstand bei jedem späteren Lauf von selbst).
             alle = list(keys) if keys else [k for k, e in _geladen_schnappschuss()
-                                            if _ist_musik(e) and not e.get("album")]
+                                            if musik_einstufung._ist_musik(e) and not e.get("album")]
             # Auch Videos (JB 05.08.: „Videos können Lieder sein") — ihr Cover
             # landet als Sidecar; cover_album=True stoppt Wiederholungen.
             nur_cover = [] if keys else [k for k, e in _geladen_schnappschuss()
@@ -2494,18 +2263,18 @@ def autotag_lauf(keys=None):
                 _autotag["erledigt"] += 1
                 if not e:
                     continue
-                ku, ti = _tag_kandidat(e)
+                ku, ti = musik_einstufung._tag_kandidat(e)
                 # Live-Hinweis IMMER aus dem ORIGINAL-Dateititel (Relauf-Falle,
                 # live gemessen: der Kandidat kommt aus den schon getaggten
                 # Feldern — „(Live On MTV Unplugged)" war da längst abgestreift,
                 # und die Live-Regel kam nie zum Zug).
-                live = _ist_live_titel(e.get("titel") or "") or _ist_live_titel(ti)
+                live = musik_einstufung._ist_live_titel(e.get("titel") or "") or musik_einstufung._ist_live_titel(ti)
                 fund = _mb_suche(ku, ti, live_hinweis=live)
                 time.sleep(1.5)                          # MusicBrainz-Regel: max 1 Anfrage/Sekunde (+Puffer)
                 if not fund:
                     # Build 136: zweiter Versuch ohne Klammer-Zusätze — die sind
                     # der häufigste Grund, warum ein Titel nicht gefunden wird.
-                    blank = _titel_kern(ti)
+                    blank = musik_einstufung._titel_kern(ti)
                     if blank != ti:
                         fund = _mb_suche(ku, blank, live_hinweis=live)
                         time.sleep(1.5)
@@ -2513,15 +2282,15 @@ def autotag_lauf(keys=None):
                 # Titel"): MusicBrainz fand nichts oder kein Album — die offene
                 # iTunes-Suche ergänzt NUR leere Felder (nichts überschreiben).
                 if not fund or not fund.get("album"):
-                    it = _itunes_suche(ku, _titel_kern(ti))
+                    it = _itunes_suche(ku, musik_einstufung._titel_kern(ti))
                     if not it:
                         # Vertauschte Reihenfolge probieren („Mr. Sandman - The
                         # Chordettes": der Kandidat riet Künstler und Titel
                         # falsch herum). Der strenge Titel+Künstler-Abgleich
                         # macht das SICHER — nur die richtige Reihenfolge trifft.
-                        it = _itunes_suche(_titel_kern(ti), ku)
+                        it = _itunes_suche(musik_einstufung._titel_kern(ti), ku)
                         if it:                            # Fund in Wahrheit vertauscht
-                            ku, ti = _titel_kern(ti), ku
+                            ku, ti = musik_einstufung._titel_kern(ti), ku
                     if it:
                         if not fund:
                             fund = it
@@ -3032,7 +2801,7 @@ def _vlc_zeigt_bild(key):
     if key.startswith(("film:", "live:")):
         return True
     pfad = _pfad_zu_key(key) if key else None
-    return bool(pfad) and not pfad.lower().endswith(AUDIO_EXT)
+    return bool(pfad) and not pfad.lower().endswith(musik_einstufung.AUDIO_EXT)
 
 
 def _video_im_panel_pausieren(panel):
@@ -3236,7 +3005,7 @@ def _smtc_titel(key):
     if not e:
         return None
     return {"titel": (e.get("track") or e.get("titel")
-                      or _titel_aus_name(e.get("name", "")) or "").strip(),
+                      or musik_einstufung._titel_aus_name(e.get("name", "")) or "").strip(),
             "interpret": (e.get("kuenstler") or e.get("uploader") or "").strip(),
             "album": (e.get("album") or "").strip()}
 
@@ -5374,7 +5143,7 @@ _NAME_ZUSATZ = re.compile(
 
 def _name_teile(e, pfad=""):
     """DB-Eintrag -> Bausteine für den Dateinamen (bereits gesäubert)."""
-    roh = e.get("titel") or _titel_aus_name(os.path.basename(pfad or e.get("name", "")))
+    roh = e.get("titel") or musik_einstufung._titel_aus_name(os.path.basename(pfad or e.get("name", "")))
     roh = re.sub(r"\s*\[[\w-]{6,}\]", "", roh)        # [Video-Id] gehört nie in den Text
     zusatz = " ".join(f"({m.group(1).strip()})" for m in _NAME_ZUSATZ.finditer(roh))
     rest = _NAME_ZUSATZ.sub(" ", _NAME_MUELL.sub(" ", roh))
@@ -5542,7 +5311,7 @@ def migration_anwenden(go=False, schema=None, keys=None):
                 # Grundlage für Suche und Auto-Tagging.
                 if not e.get("titel_orig"):
                     e["titel_orig"] = e.get("titel") or ""
-                e["titel"] = _titel_aus_name(e["name"])
+                e["titel"] = musik_einstufung._titel_aus_name(e["name"])
             umbenannt += 1
         except OSError:
             uebersprungen += 1
@@ -5617,8 +5386,6 @@ def migration_rueckgaengig():
 # "Sonstiges" statt falsch einsortiert zu werden.
 
 SONSTIGES = "Sonstiges"
-AUDIO_EXT = (".mp3", ".m4a", ".opus", ".ogg", ".flac", ".wav", ".aac")
-VIDEO_EXT = (".mp4", ".mkv", ".webm", ".mov", ".avi")
 _einsortier_lauf = _LaeuftSchon()
 
 
@@ -5627,9 +5394,9 @@ def _soll_kategorie(pfad, karten=None):
     Video -> Höhe aus der geladen-DB (Video-Id über die zentrale Kette) oder
     per ffprobe; '' = keine Mediendatei (nicht anfassen), None = unklar."""
     ext = os.path.splitext(pfad)[1].lower()
-    if ext in AUDIO_EXT:
+    if ext in musik_einstufung.AUDIO_EXT:
         return "MP3"
-    if ext not in VIDEO_EXT:
+    if ext not in musik_einstufung.VIDEO_EXT:
         return ""
     vid = _datei_videoid(pfad, karten)
     if vid:
@@ -5708,7 +5475,7 @@ def ordner_importieren():
     karten = _id_karten()
     for wurzel, _, dateien in _walk_ohne_rueckhol(ziel_ordner()):
         for fn in dateien:
-            if not fn.lower().endswith(AUDIO_EXT + VIDEO_EXT):
+            if not fn.lower().endswith(musik_einstufung.AUDIO_EXT + musik_einstufung.VIDEO_EXT):
                 continue
             pfad = os.path.join(wurzel, fn)
             if os.path.normcase(os.path.abspath(pfad)) in bekannt:
@@ -5718,7 +5485,7 @@ def ordner_importieren():
             # eine verschobene Datei eine zweite "lokal-…"-Zeile erzeugt.
             vid = _datei_videoid(pfad, karten) or ("lokal-" + hashlib.md5(
                 os.path.abspath(pfad).encode("utf-8")).hexdigest()[:11])
-            audio = fn.lower().endswith(AUDIO_EXT)
+            audio = fn.lower().endswith(musik_einstufung.AUDIO_EXT)
             key = f"{vid}|{'audio' if audio else 'lokal'}"
             if key in _geladen:
                 continue
@@ -5733,8 +5500,8 @@ def ordner_importieren():
                 continue
             eintrag = {
                 "name": fn, "groesse": groesse, "pfad": pfad,
-                "kategorie": "MP3" if audio else _kat_aus_name(fn),
-                "titel": _titel_aus_name(fn),
+                "kategorie": "MP3" if audio else musik_einstufung._kat_aus_name(fn),
+                "titel": musik_einstufung._titel_aus_name(fn),
                 "url": (f"https://www.youtube.com/watch?v={vid}" if links._plausible_id(vid) else ""),
                 "qualitaet": "audio" if audio else "lokal",
                 "importiert": True, "ts": time.time(),
@@ -5858,7 +5625,7 @@ def untertitel_aufraeumen():
         istziel = os.path.normcase(wurzel) == os.path.normcase(ziel)
         for d in dateien:
             p = os.path.join(wurzel, d)
-            if d.lower().endswith(AUDIO_EXT + VIDEO_EXT):
+            if d.lower().endswith(musik_einstufung.AUDIO_EXT + musik_einstufung.VIDEO_EXT):
                 stems.add(os.path.splitext(p)[0].lower())
                 vid = _datei_videoid(p, karten)      # zentrale Kette statt nur [Id]-Name
                 if vid:
@@ -5927,7 +5694,7 @@ def _finde_datei(url, e):
     basis = ziel_ordner()
     muster = os.path.join(basis, "**", f"*[[]{glob.escape(vid)}[]]*")
     treffer = [p for p in glob.glob(muster, recursive=True)
-               if os.path.isfile(p) and p.lower().endswith(AUDIO_EXT + VIDEO_EXT)
+               if os.path.isfile(p) and p.lower().endswith(musik_einstufung.AUDIO_EXT + musik_einstufung.VIDEO_EXT)
                and not _im_rueckhol_ordner(p, basis)]
     return _datei_aus(treffer, e.get("qualitaet") or "")
 
@@ -5963,7 +5730,7 @@ def db_statistik():
         k = e.get("kategorie")
         if not k:                     # Altbestand ohne Kategorie -> aus Endung raten
             name = (e.get("name") or "").lower()
-            k = "MP3" if name.endswith((".mp3", ".m4a", ".opus", ".ogg", ".flac")) else "Video"
+            k = "MP3" if name.endswith(musik_einstufung.AUDIO_EXT_OHNE_WAV_AAC) else "Video"
         kat[k] = kat.get(k, 0) + 1
     return {"gesamt": len(_geladen), "kategorien": kat}
 

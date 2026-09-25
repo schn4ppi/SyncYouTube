@@ -49,8 +49,9 @@
 !System/geo.py
 !System/vpn.py
 # 25.09.2026: Struktur-Runde der Gesamtprüfung (Abschnitt 4): Teile von
-# youtube_app.py in eigene Module (Y2 Links deuten).
+# youtube_app.py in eigene Module (Y2 Links deuten, Y3 Musik-Einstufung).
 !System/links.py
+!System/musik_einstufung.py
 !System/tests/*.py
 !System/tools/quellstart_paket.py
 # 24.09.2026: Lizenztexte fremder Bestandteile, deren Paket keinen mitbringt

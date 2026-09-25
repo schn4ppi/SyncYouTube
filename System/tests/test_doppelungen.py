@@ -8,6 +8,8 @@ und trotzdem startete jede Änderung daran den ganzen Server neu. Jetzt steht
 es an EINER Stelle (`HEISSE_SEITEN`); geprüft wird am Verhalten: was der
 echte Router neu lädt, was den Selbst-Neustart auslöst, was `ui_stand` zählt.
 """
+import ast
+import glob
 import importlib
 import json
 import os
@@ -20,6 +22,7 @@ for _pfad in (MODUL_DIR, TEST_DIR):
         sys.path.insert(0, _pfad)
 
 import links  # noqa: E402  (Kanal-Regel, seit Gesamtprüfung Y2 dort)
+import musik_einstufung  # noqa: E402  (Musikmuster, seit Gesamtprüfung Y3 dort)
 import youtube_app as app  # noqa: E402
 from test_zugang_und_vertrauen import _anfrage, rechner  # noqa: E402,F401  (rechner: autouse)
 
@@ -191,8 +194,68 @@ def test_ist_musik_bleibt_gleich():
 
 def test_musikmuster_steht_an_einer_stelle(monkeypatch):
     """„Künstler - Titel“ stand wortgleich in _ist_musik und _ist_musik_muster.
-    Jetzt fragt _ist_musik das Muster ab: eine Änderung wirkt auf beide."""
+    Jetzt fragt _ist_musik das Muster ab: eine Änderung wirkt auf beide.
+    Ersetzt wird im Heimatmodul `musik_einstufung` (Gesamtprüfung Y3)."""
     gefragt = []
-    monkeypatch.setattr(app, "_ist_musik_muster", lambda e: gefragt.append(e["name"]) or True)
+    monkeypatch.setattr(musik_einstufung, "_ist_musik_muster", lambda e: gefragt.append(e["name"]) or True)
     assert app._ist_musik({"name": "Lets Play Folge 3.mp4"}) is True
     assert gefragt == ["Lets Play Folge 3.mp4"]
+
+
+# ------------------------------------------------------------ Audio-Endungen (Y3)
+# Vorher fünf Stellen in drei Fassungen (Abschnitt 5). Ob `.wav` und `.aac`
+# überall als Audio gelten, ist JB-Frage 7 (Abschnitt 9): Zähler und Auto-Tag
+# änderten sich. Bis dahin bleibt jede Fassung, wie sie ist. Diese Proben
+# halten das heutige Ergebnis fest, auch das Uneinheitliche.
+
+ENDUNGEN = (".mp3", ".m4a", ".opus", ".ogg", ".flac", ".wav", ".aac",
+            ".mp4", ".mkv", ".webm", ".mov", ".avi", ".txt")
+AUDIO_KURZ = {".mp3", ".m4a", ".opus", ".ogg", ".flac"}
+
+
+def test_audio_endungen_ergebnis_bleibt_gleich(monkeypatch):
+    kat = {e: app._kat_aus_name("x" + e) for e in ENDUNGEN}
+    assert kat == {e: "MP3" if e in AUDIO_KURZ | {".wav"} else "Video" for e in ENDUNGEN}
+    musik = {e: app._ist_musik({"name": "x" + e}) for e in ENDUNGEN}
+    assert musik == {e: e in AUDIO_KURZ for e in ENDUNGEN}          # .wav/.aac: nein
+    grad = {e: app._musik_grad({"name": "x" + e}) for e in ENDUNGEN}
+    assert grad == {e: "wahrscheinlich" if e in AUDIO_KURZ else "nein" for e in ENDUNGEN}
+    video = {e: app._ist_musik({"name": "Queen - Song" + e}) for e in ENDUNGEN}
+    assert video == {e: e in AUDIO_KURZ | {".mp4", ".mkv", ".webm"} for e in ENDUNGEN}
+    soll = {e: app._soll_kategorie("x" + e) for e in (".wav", ".aac", ".mp3", ".txt")}
+    assert soll == {".wav": "MP3", ".aac": "MP3", ".mp3": "MP3", ".txt": ""}   # alle sieben
+    monkeypatch.setattr(app, "_geladen", {f"id{i}|q": {"name": "x" + e} for i, e in enumerate(ENDUNGEN)})
+    assert app.db_statistik() == {"gesamt": len(ENDUNGEN),
+                                  "kategorien": {"MP3": len(AUDIO_KURZ), "Video": len(ENDUNGEN) - len(AUDIO_KURZ)}}
+
+
+def audio_endungslisten(quelltext):
+    """Zeilen jeder Liste von Audio-Endungen im Quelltext: ein Tupel, eine
+    Liste oder eine Menge aus mindestens drei Zeichenketten, die alle mit
+    einem Punkt beginnen, darunter ".mp3"."""
+    zeilen = []
+    for k in ast.walk(ast.parse(quelltext)):
+        if isinstance(k, (ast.Tuple, ast.List, ast.Set)) and len(k.elts) >= 3:
+            werte = [e.value for e in k.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+            if len(werte) == len(k.elts) and ".mp3" in werte and all(w.startswith(".") for w in werte):
+                zeilen.append(k.lineno)
+    return zeilen
+
+
+def test_audio_endungen_stehen_an_einer_stelle():
+    """Jede Fassung steht einmal in musik_einstufung.py; eine neue Liste
+    anderswo wäre die sechste Stelle. Auto-Discovery über alle Programm-Dateien."""
+    funde = {}
+    for pfad in sorted(glob.glob(os.path.join(MODUL_DIR, "*.py"))
+                       + glob.glob(os.path.join(MODUL_DIR, "tools", "*.py"))):
+        with open(pfad, encoding="utf-8") as f:
+            zeilen = audio_endungslisten(f.read())
+        if zeilen:
+            funde[os.path.relpath(pfad, MODUL_DIR)] = zeilen
+    assert set(funde) == {"musik_einstufung.py"}, funde
+    assert len(funde["musik_einstufung.py"]) == 3, "drei Fassungen, je einmal (JB-Frage 7 offen)"
+
+
+def test_gegenprobe_endungsliste_wird_gefunden():
+    quelle = 'def f(n):\n    return n.endswith((".mp3", ".m4a", ".flac"))\nX = (".m4a", ".mp4", ".mov")\n'
+    assert audio_endungslisten(quelle) == [2]

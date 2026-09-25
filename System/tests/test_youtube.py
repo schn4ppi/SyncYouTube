@@ -20,6 +20,7 @@ if MODUL_DIR not in sys.path:
 
 import geo          # noqa: E402
 import vpn          # noqa: E402
+import musik_einstufung  # noqa: E402  (Musik-Einstufung, seit Gesamtprüfung Y3 dort)
 import youtube_app as app   # noqa: E402  (Import liest nur JBs JSONs, startet keinen Server)
 import update       # noqa: E402  (Auto-Updater: reine Funktionen, kein Netz)
 
@@ -2773,10 +2774,12 @@ def test_kanal_nummer_weicht_der_echten_abo_nummer():
     assert 'x["kanal_nr"] = x.get("abo_nr")' in quelle, (
         "Die echte Abo-Nummer hat keinen Vorrang vor der abgeleiteten")
     # Abgeleitet statt gespeichert: eine gespeicherte Nummer wuerde falsch,
-    # sobald ein aelteres Video des Kanals dazukommt.
-    i = quelle.index("def _kanal_nummern")
-    ende = quelle.index("\ndef ", i + 1)
-    assert "upload_date" in quelle[i:ende], "Die Reihenfolge haengt nicht am Upload-Datum"
+    # sobald ein aelteres Video des Kanals dazukommt. Seit Gesamtprüfung Y3
+    # steht _kanal_nummern in musik_einstufung.py.
+    einstufung = open(os.path.join(MODUL_DIR, "musik_einstufung.py"), encoding="utf-8").read()
+    i = einstufung.index("def _kanal_nummern")
+    ende = einstufung.index("\ndef ", i + 1)
+    assert "upload_date" in einstufung[i:ende], "Die Reihenfolge haengt nicht am Upload-Datum"
     # Die Oberflaeche zeigt es als eigene Spalte.
     ui = _oberflaeche_html()
     assert "kanal_nr" in ui, "Keine Spalte fuer die Kanal-Nummer"
@@ -3558,7 +3561,7 @@ def test_cover_nachzug_ohne_neue_mb_suche(monkeypatch):
     monkeypatch.setattr(app, "_pfad_zu_key",
                         lambda k: {"a|mp3": "a.mp3", "b|mp3": "b.mp3",
                                    "c|beste": "c.mp4"}.get(k, ""))
-    monkeypatch.setattr(app, "_ist_musik", lambda e: True)
+    monkeypatch.setattr(musik_einstufung, "_ist_musik", lambda e: True)
     monkeypatch.setattr(app, "_autotag", {"laeuft": False, "gesamt": 0,
                                           "erledigt": 0, "getaggt": 0})
     monkeypatch.setattr(app, "_cover_holen",
@@ -3571,9 +3574,9 @@ def test_cover_nachzug_ohne_neue_mb_suche(monkeypatch):
                         aufrufe.append(("mb", ti)) or None)
     monkeypatch.setattr(app, "_itunes_suche",
                         lambda ku, ti, timeout=10: aufrufe.append(("it", ti)) or None)
-    monkeypatch.setattr(app, "_titel_blank", lambda t: t)
-    monkeypatch.setattr(app, "_titel_kern", lambda t: t)
-    monkeypatch.setattr(app, "_tag_kandidat", lambda e: ("K", e.get("titel", "")))
+    monkeypatch.setattr(musik_einstufung, "_titel_blank", lambda t: t)
+    monkeypatch.setattr(musik_einstufung, "_titel_kern", lambda t: t)
+    monkeypatch.setattr(musik_einstufung, "_tag_kandidat", lambda e: ("K", e.get("titel", "")))
     monkeypatch.setattr(app, "_json_speichern", lambda p, d: None)
     monkeypatch.setattr(app.time, "sleep", lambda s: None)
     app.autotag_lauf()
