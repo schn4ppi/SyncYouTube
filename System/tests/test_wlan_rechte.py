@@ -100,6 +100,12 @@ PROBEN = {
                                {"art": "archiv", "id": "abc"}, {}]),
     ("POST", "/api/action"): ({"art": "pause", "id": "abc"},
                               [{"art": "ordner_offen"}, {"art": "ordner", "id": "abc"}]),
+    ("POST", "/api/add"): ({"urls": "https://www.youtube.com/watch?v=abcdefghijk"},
+                           [{"urls": "https://vimeo.com/1"}, {},
+                            {"urls": "https://www.youtube.com/watch?v=a\nhttps://www.youtube.com/watch?v=b"},
+                            {"urls": "https://www.youtube.com/watch?v=a", "ziel_playlist": "Entdeckt"}]),
+    ("GET", "/api/kanal_info"): ({"url": "https://www.youtube.com/@kanal"},
+                                 [{"url": "http://127.0.0.1:8779/"}, {}]),
 }
 
 
@@ -309,3 +315,124 @@ def test_api_meldet_fernsteuerung_aus_ebenso(monkeypatch):
                                  kopf={"X-Code": CODE})
         assert st == 403 and "Fernsteuerung am PC ausgeschaltet" in json.loads(koerper)["fehler"]
     assert app._remote["n"] == 0
+
+
+# ------------------------------------------------------------ 7a Punkt 7: Links aus dem WLAN nur YouTube
+
+class _SofortFaden:
+    """Ersatz für threading.Thread in `_add`: führt das Ziel sofort aus, damit
+    der Test ohne Warten sieht, welche Links eingereiht wurden."""
+
+    def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+        self._ziel, self._args, self._kwargs = target, args, kwargs or {}
+
+    def start(self):
+        self._ziel(*self._args, **self._kwargs)
+
+
+@pytest.fixture
+def eingereiht(monkeypatch):
+    import threading
+    import types
+    links = []
+    monkeypatch.setattr(app, "aufloesen", lambda url, *a, **k: links.append(url))
+    monkeypatch.setattr(app, "threading", types.SimpleNamespace(**dict(vars(threading), Thread=_SofortFaden)))
+    return links
+
+
+def _add(urls, ip=LAN, **mehr):
+    kopf = {"X-Code": CODE} if ip == LAN else {}
+    return _senden("POST", "/api/add", dict({"urls": urls}, **mehr), ip=ip, kopf=kopf)
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.youtube.com/watch?v=abcdefghijk", "https://youtube.com/watch?v=abcdefghijk",
+    "https://m.youtube.com/watch?v=abcdefghijk", "https://music.youtube.com/watch?v=abcdefghijk",
+    "https://youtu.be/abcdefghijk", "https://www.youtube-nocookie.com/embed/abcdefghijk",
+    "https://youtube-nocookie.com/embed/abcdefghijk", "http://www.youtube.com/playlist?list=PLx",
+    "https://WWW.YOUTUBE.COM./@kanal", "  https://www.youtube.com/watch?v=abcdefghijk\n"])
+def test_wlan_darf_youtube_links_laden(monkeypatch, eingereiht, url):
+    _fernsteuerung(monkeypatch)
+    st, _, koerper = _add(url)
+    assert st == 200, (url, koerper[:120])
+    assert eingereiht == [url.strip()]
+
+
+@pytest.mark.parametrize("urls", [
+    "https://vimeo.com/123", "https://youtube.com.angreifer.de/watch?v=x",
+    "https://angreifer.de/?u=https://www.youtube.com/", "https://www.youtube.com@angreifer.de/",
+    "https://angreifer.de@www.youtube.com/watch?v=x", "https://www.youtube.com\\@angreifer.de/",
+    "https://www.youtube.com:8776/watch?v=x", "ftp://www.youtube.com/x", "javascript:alert(1)",
+    "https://www.youtube.com/watch?v=a\nhttps://www.youtube.com/watch?v=b",
+    "https://www.youtube.com/watch?v=a\rhttp://127.0.0.1:8779/",
+    "https://www.youtube.com/watch?v=a https://angreifer.de/",
+    "https://www.youtube.com/watch?v=a\thttps://angreifer.de/", "", ["https://www.youtube.com/watch?v=a"],
+    "http://127.0.0.1:8779/api/x"])
+def test_wlan_andere_und_mehrere_links_werden_abgelehnt(monkeypatch, eingereiht, urls):
+    _fernsteuerung(monkeypatch)
+    st, _, koerper = _add(urls)
+    assert st == 403 and json.loads(koerper).get("nur_pc") is True, (urls, koerper[:120])
+    assert eingereiht == []
+
+
+def test_wlan_reiht_nicht_in_eine_playlist_ein(monkeypatch, eingereiht):
+    """ziel_playlist legt Titel in eine Playlist: Playlists ändern geht nur am PC."""
+    _fernsteuerung(monkeypatch)
+    st, _, _ = _add("https://www.youtube.com/watch?v=abcdefghijk", ziel_playlist="Entdeckt")
+    assert st == 403 and eingereiht == []
+
+
+def test_wlan_kanal_info_nur_fuer_youtube(monkeypatch):
+    _fernsteuerung(monkeypatch)
+    abrufe = []
+    monkeypatch.setattr(app, "kanal_info", lambda url, limit=None: abrufe.append(url) or {"n": 1})
+    kopf = {"X-Code": CODE}
+    assert _senden("GET", "/api/kanal_info", {"url": "https://www.youtube.com/@kanal"}, kopf=kopf)[0] == 200
+    assert _senden("GET", "/api/kanal_info", {"url": "http://127.0.0.1:8779/"}, kopf=kopf)[0] == 403
+    assert _senden("GET", "/api/kanal_info", {"url": "https://angreifer.de/"}, kopf=kopf)[0] == 403
+    assert abrufe == ["https://www.youtube.com/@kanal"]
+
+
+# Vom PC geht jeder http(s)-Link wie bisher, nur nie einer auf den eigenen Rechner.
+
+@pytest.fixture
+def aufloesung(monkeypatch):
+    """Namensauflösung und eigene Adressen als Attrappe (kein DNS im Test)."""
+    namen = {"zeigt-auf-loopback.example": {"127.0.0.1"}, "zeigt-auf-mich.example": {"192.168.178.20"},
+             "vimeo.com": {"151.101.0.217"}, "gemischt.example": {"93.184.216.34", "::1"}}
+
+    def aufloesen(host):
+        if host in ("www.youtube.com", "youtube.com", "youtu.be"):
+            raise AssertionError("YouTube-Links brauchen keine Namensauflösung")
+        return namen.get(host, set())
+    monkeypatch.setattr(app, "_namen_aufloesen", aufloesen)
+    monkeypatch.setattr(app, "_eigene_adressen", lambda: {"192.168.178.20", "fe80::1"})
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:8779/x", "http://127.1:8779/x", "http://2130706433:8779/x",
+    "http://0x7f000001/x", "http://0x7f.1/x", "http://0177.0.0.1/x", "http://127.0.1/x",
+    "http://0/x", "http://0.0.0.0:8779/x", "http://[::1]:8778/x", "http://[::ffff:127.0.0.1]/x",
+    "http://[::ffff:7f00:1]/x", "http://[0:0:0:0:0:0:0:1]/x", "http://localhost:8779/x",
+    "http://LOCALHOST./x", "http://foo.localhost/x", "http://zeigt-auf-loopback.example/x",
+    "http://zeigt-auf-mich.example:8776/x", "http://192.168.178.20:8776/api/cover?id=x",
+    "http://gemischt.example/x", "http://[fe80::1]/x"])
+def test_pc_links_auf_den_eigenen_rechner_werden_nie_eingereiht(eingereiht, aufloesung, url):
+    st, _, _ = _add(url, ip="127.0.0.1")
+    assert st == 200 and eingereiht == [], url
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.youtube.com/watch?v=abcdefghijk", "https://vimeo.com/123",
+    "http://192.168.178.99/film.mp4", "https://unbekannt.example/x"])
+def test_pc_darf_fremde_links_wie_bisher(eingereiht, aufloesung, url):
+    """Vom PC bleibt alles erlaubt, was nicht auf ihn selbst zeigt (auch ein
+    anderes Gerät im Heimnetz und ein Name, der sich gerade nicht auflösen lässt:
+    dann scheitert der Download ehrlich in der Liste)."""
+    st, _, _ = _add(url, ip="127.0.0.1")
+    assert st == 200 and eingereiht == [url], url
+
+
+def test_pc_mehrere_zeilen_bleiben_erlaubt(eingereiht, aufloesung):
+    st, _, _ = _add("https://www.youtube.com/watch?v=a\nhttp://127.1/x\nhttps://vimeo.com/1", ip="127.0.0.1")
+    assert st == 200 and eingereiht == ["https://www.youtube.com/watch?v=a", "https://vimeo.com/1"]

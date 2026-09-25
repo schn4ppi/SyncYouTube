@@ -36,7 +36,7 @@ import webbrowser
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, urlsplit, parse_qs
 
 import cookie_kopie         # Firefox-Cookies samt WAL für yt-dlp (Lehre aus SyncFindus, 24.09.2026)
 import familie as fam       # gemeinsamer Kern: atomares Schreiben mit Wiederholung (F5)
@@ -6913,6 +6913,127 @@ def _lan_action(daten):
     return None
 
 
+# Links aus dem WLAN (JB-Entscheid 7a Punkt 7, 25.09.2026; S12, S19): nur genau
+# EIN YouTube-Link. Der Host wird exakt verglichen, nie als Teilzeichenkette
+# (youtube.com.angreifer.de, …/?u=youtube.com). Ein Zeilenumbruch oder Leerraum
+# im Link hieße: mehrere Adressen in einem Feld — `_add` teilt an Zeilen. Vom PC
+# bleibt jeder http(s)-Link erlaubt, der nicht auf den PC selbst zeigt.
+YOUTUBE_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
+                           "youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com"})
+
+
+def ist_youtube_link(url):
+    """Genau ein http(s)-Link auf einen YouTube-Host (exakt), ohne Leerraum,
+    Steuerzeichen, Backslash, Anmeldedaten oder fremden Port."""
+    if not isinstance(url, str) or not url:
+        return False
+    if any(ord(z) < 0x21 or z in "\\\x7f" for z in url):
+        return False
+    try:
+        teile = urlsplit(url)
+        port = teile.port
+    except ValueError:
+        return False
+    if teile.scheme.lower() not in ("http", "https") or port not in (None, 80, 443):
+        return False
+    if teile.username is not None or teile.password is not None:
+        return False
+    return (teile.hostname or "").rstrip(".") in YOUTUBE_HOSTS
+
+
+def _lan_add(daten):
+    roh = daten.get("urls")
+    if not (isinstance(roh, str) and ist_youtube_link(roh.strip())):
+        return "Aus dem WLAN nur einzelne YouTube-Links (ein Link je Auftrag)."
+    if daten.get("ziel_playlist"):
+        return "Nur am PC: Titel in eine Playlist einreihen."
+    return None
+
+
+def _lan_kanal_info(daten):
+    if not ist_youtube_link(str(daten.get("url") or "").strip()):
+        return "Aus dem WLAN nur YouTube-Links."
+    return None
+
+
+# Loopback-Sperre für Links vom PC (Fund 06.08., lückenlos seit 25.09.2026, S12):
+# eine Adresse, die auf diesen Rechner zeigt, wird nie ein Download — sonst
+# erreichte ein Link die eigene Oberfläche oder andere lokale Dienste (Findus,
+# Docs). Vorher fing die Sperre nur „localhost“ und die übliche Schreibweise
+# der Loopback-Adresse; 127.1, 2130706433, 0x7f000001, 0.0.0.0, Namen unter
+# .localhost, Namen, die auf 127.0.0.1 zeigen, und die eigene LAN-Adresse kamen
+# durch. Geprüft wird nach der Auflösung. Bleibt: ein Name, der zwischen dieser
+# Prüfung und dem Abruf durch yt-dlp umgebogen wird (DNS-Rebinding), fällt
+# nicht auf.
+_ZAHL_TEIL = re.compile(r"0x[0-9a-f]+|0[0-7]*|[1-9][0-9]*", re.I)
+
+
+def _zahl_ipv4(text):
+    """Die inet_aton-Schreibweisen einer IPv4-Adresse (127.1, 2130706433,
+    0x7f000001, 0177.0.0.1) als IPv4Address; None, wenn es keine ist."""
+    import ipaddress
+    teile = text.split(".")
+    if not 1 <= len(teile) <= 4 or not all(_ZAHL_TEIL.fullmatch(t) for t in teile):
+        return None
+    werte = [int(t, 16) if t[:2].lower() == "0x" else int(t, 8) if len(t) > 1 and t[0] == "0"
+             else int(t) for t in teile]
+    *vorne, letzte = werte
+    if any(w > 255 for w in vorne) or letzte >= 256 ** (4 - len(vorne)):
+        return None
+    zahl = 0
+    for w in vorne:
+        zahl = zahl * 256 + w
+    return ipaddress.IPv4Address(zahl * 256 ** (4 - len(vorne)) + letzte)
+
+
+def _namen_aufloesen(host):
+    """IP-Adressen eines Namens (eigene Funktion, damit Tests ohne DNS laufen)."""
+    try:
+        return {str(a[4][0]).split("%")[0] for a in socket.getaddrinfo(host, None)}
+    except (OSError, UnicodeError):
+        return set()
+
+
+def _eigene_adressen():
+    """Die Adressen dieses Rechners (LAN, auch IPv6) außer Loopback."""
+    return _namen_aufloesen(socket.gethostname())
+
+
+def _adresse_ist_hier(adresse, eigene):
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(str(adresse).split("%")[0])
+    except ValueError:
+        return False
+    if a.is_loopback or a.is_unspecified or str(a) in eigene:
+        return True
+    if a.version == 6:
+        v4 = a.ipv4_mapped or (ipaddress.IPv4Address(int(a)) if int(a) >> 32 == 0 else None)
+        if v4 is not None:
+            return _adresse_ist_hier(v4, eigene)
+        return False
+    return a in ipaddress.ip_network("0.0.0.0/8")
+
+
+def zeigt_auf_diesen_rechner(host):
+    """Zeigt ein Link-Host auf den PC selbst? YouTube-Hosts nie (ohne
+    Namensauflösung); ein Name, der sich nicht auflösen lässt, gilt als fremd
+    (der Download scheitert dann ehrlich in der Liste)."""
+    import ipaddress
+    host = (host or "").strip().strip("[]").lower().rstrip(".")
+    if not host or host == "localhost" or host.endswith(".localhost"):
+        return True
+    if host in YOUTUBE_HOSTS:
+        return False
+    eigene = _eigene_adressen()
+    try:
+        adressen = {ipaddress.ip_address(host.split("%")[0])}
+    except ValueError:
+        zahl = _zahl_ipv4(host)
+        adressen = {zahl} if zahl is not None else _namen_aufloesen(host)
+    return any(_adresse_ist_hier(a, eigene) for a in adressen)
+
+
 LAN_ERLAUBT = {
     # Seiten
     ("GET", "/"): ("Oberfläche; gekoppelte Geräte bekommen die volle Seite", None),
@@ -6959,9 +7080,9 @@ LAN_ERLAUBT = {
     ("GET", "/api/entdecken"): ("suchen: ähnliche Titel entdecken", None),
     ("GET", "/api/filme/wuenschen"): ("suchen: Filme zum Wünschen", None),
     # Downloads anstoßen
-    ("POST", "/api/add"): ("Download anstoßen", None),
+    ("POST", "/api/add"): ("Download anstoßen: genau ein YouTube-Link, ohne Playlist-Ziel", _lan_add),
     ("POST", "/api/link_deuten"): ("Download anstoßen: Link deuten (ohne Netz)", None),
-    ("GET", "/api/kanal_info"): ("Download anstoßen: Kanal vor dem Laden zählen", None),
+    ("GET", "/api/kanal_info"): ("Download anstoßen: Kanal vor dem Laden zählen (nur YouTube)", _lan_kanal_info),
     ("GET", "/api/schaetzfaktoren"): ("Download anstoßen: Größe schätzen", None),
     ("POST", "/api/action"): ("Download-Liste steuern: Pause, Weiter, aus der Liste nehmen", _lan_action),
     ("POST", "/api/filme/anfragen"): ("Filmwunsch an den Film-Server (wie ein Download)", None),
@@ -7771,15 +7892,15 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             # Fund 06.08.: eine aus der EIGENEN Oberfläche gezogene Grafik
             # (http://127.0.0.1:8776/api/cover?…) landete als Pseudo-Download
-            # in der Queue und fuhr sich fest. Loopback ist nie Download-Ziel
-            # (deckt auch ::1 und das ganze 127.0.0.0/8 ab).
-            host = (urlparse(url).hostname or "").lower()
+            # in der Queue und fuhr sich fest. Der PC selbst (localhost, das
+            # ganze 127.0.0.0/8, ::1, 0.0.0.0, jede Schreibweise davon, Namen,
+            # die dorthin zeigen, die eigene LAN-Adresse) ist nie Download-Ziel.
             try:
-                import ipaddress
-                if host == "localhost" or ipaddress.ip_address(host).is_loopback:
-                    continue
-            except ValueError:                       # normaler Hostname
-                pass
+                host = urlsplit(url).hostname
+            except ValueError:
+                continue
+            if zeigt_auf_diesen_rechner(host):
+                continue
             threading.Thread(target=aufloesen, args=(url, qualitaet, ganze_liste),
                              kwargs={"limit": limit, "ziel_playlist": ziel_pl,
                                      "menge": menge, "richtung": richtung,

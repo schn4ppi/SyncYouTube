@@ -4832,9 +4832,9 @@ def test_worker_stirbt_nie_und_eigene_urls_gesperrt():
     block = _py_block("def worker_schleife")
     assert "except Exception" in block and '"fehler"' in block, \
         "der Worker muss Ausnahmen ueberleben und den Eintrag ehrlich melden"
-    block = _py_block("def _add(self")
-    assert "127.0.0.1" in block and "localhost" in block, \
-        "eigene Adressen duerfen nie in die Download-Queue"
+    # „Eigene Adressen dürfen nie in die Download-Queue“: seit dem 25.09.2026
+    # am Verhalten geprüft (tests/test_wlan_rechte.py, jede Schreibweise von
+    # 127.0.0.1, 0.0.0.0, ::1, .localhost, Namen und die eigene LAN-Adresse).
 
 
 def test_info_kopf_netflix_fluss():
