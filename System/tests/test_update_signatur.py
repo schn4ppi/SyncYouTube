@@ -191,3 +191,30 @@ def test_echte_pruefung_am_zwischennamen(tmp_path, monkeypatch):
     fremd.write_bytes(b"MZ" + b"\0" * 1022)
     ok, grund = update.signatur_pruefen(str(kopie), str(fremd))
     assert ok is False and "laufende" in grund
+
+
+# ------------------------------------------------ F24: Neustart mit Startargumenten
+
+def test_neustart_nach_dem_tausch_behaelt_die_startargumente(tmp_path, monkeypatch):
+    """Gesamtprüfung F24: der Neustart nach einem Update startete die exe ohne
+    ihre Argumente; wer sie mit --no-browser/--no-tray betrieb, bekam danach
+    Browser und Tray. Jetzt gehen sys.argv[1:] mit, wie beim Selbst-Neustart."""
+    import subprocess
+
+    class _Ende(Exception):
+        pass
+    laufend = tmp_path / "SyncYouTube.exe"
+    laufend.write_bytes(b"MZ alt")
+    neu = tmp_path / "SyncYouTube_neu.exe"
+    neu.write_bytes(b"MZ neu")
+    gestartet = []
+    monkeypatch.setattr(subprocess, "Popen", lambda befehl, **kw: gestartet.append(list(befehl)))
+
+    def ende(code):
+        raise _Ende(code)
+    monkeypatch.setattr(update.os, "_exit", ende)
+    monkeypatch.setattr(sys, "argv", [str(laufend), "--no-browser", "--no-tray"])
+    with pytest.raises(_Ende):
+        update.apply_exe_update(str(neu), str(laufend))
+    assert gestartet == [[str(laufend), "--no-browser", "--no-tray"]], gestartet
+    assert laufend.read_bytes() == b"MZ neu"

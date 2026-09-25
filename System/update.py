@@ -342,7 +342,10 @@ def apply_exe_update(new_exe, running_exe, restart=True):
         raise
     if restart:
         import subprocess
-        subprocess.Popen([running_exe], close_fds=True)
+        import sys
+        # Mit den Startargumenten (F24), wie der Selbst-Neustart: sonst bekam,
+        # wer die exe mit --no-browser/--no-tray betreibt, danach Browser und Tray.
+        subprocess.Popen([running_exe] + sys.argv[1:], close_fds=True)
         os._exit(0)                                  # nichts darf den Neustart festhalten
 
 
