@@ -10990,9 +10990,19 @@ async function syncSpeichern(id,spiegeln){
   const inp=document.getElementById('sync-pfad');
   const ordner=(inp&&inp.value||'').trim();
   const auto=!!(document.getElementById('sync-auto')||{}).checked;
+  /* JB 25.09.: Ziel in der Bibliothek oder als Netzwerkpfad lehnt der Server ab;
+     dann bleibt der Dialog offen, und der Ordner wird nicht als letzter gemerkt. */
+  let d={};
+  try{
+    const r=await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({art:'sync_config',id,sync_ordner:ordner,
+                           sync_modus:spiegeln?'spiegeln':'kopieren',sync_auto:auto})});
+    d=await r.json().catch(()=>({}));
+    if(!r.ok&&!d.fehler)d={fehler:'Speichern abgelehnt ('+r.status+').'};
+  }catch(e){d={fehler:'Server nicht erreichbar.'};}
+  if(d.fehler){toast('⇄ Sync: '+d.fehler);return;}
   try{if(ordner)localStorage.setItem('ytdl_sync_letzter',ordner);}catch(e){}
-  await plApi({art:'sync_config',id,sync_ordner:ordner,
-               sync_modus:spiegeln?'spiegeln':'kopieren',sync_auto:auto});
+  await plLaden();
   const f=document.getElementById('sync-fly'); if(f)f.remove();
   if(ordner){toast('⇄ Sync: '+(spiegeln?'spiegeln':'kopieren')+(auto?', automatisch':'')+' → '+ordner);
     plSyncNow(id);}

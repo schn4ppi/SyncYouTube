@@ -4168,9 +4168,35 @@ def _playlists_speichern():
         _json_speichern(PLAYLIST_PFAD, _playlists)
 
 
+def sync_ziel_fehler(ordner):
+    """JB-Entscheid 25.09.2026 (Gesamtprüfung, Frage 4): Ein Sync-Ziel in der
+    Bibliothek oder auf einem Netzwerkpfad wird beim Einrichten abgelehnt.
+    Rückgabe: die Meldung oder None. Rein textlich: schon ein `isdir` auf
+    einen UNC-Pfad öffnete eine Netzverbindung."""
+    roh = (ordner or "").strip().replace("/", "\\")
+    if not roh:
+        return None                                   # leer = Sync-Ziel entfernen
+    if roh.upper().startswith("\\\\?\\UNC\\") or (roh.startswith("\\\\") and not roh.startswith("\\\\?\\")):
+        return ("Netzwerkpfade (\\\\server\\…) sind als Sync-Ordner nicht erlaubt. "
+                "Bitte ein Laufwerk wählen, etwa den USB-Stick.")
+    if roh.startswith("\\\\?\\"):
+        roh = roh[4:]                                 # langer lokaler Pfad
+    bib = os.path.normcase(os.path.abspath(ziel_ordner()))
+    ziel = os.path.normcase(os.path.abspath(roh))
+    try:
+        drin = os.path.commonpath([bib, ziel]) == bib
+    except ValueError:                                # anderes Laufwerk
+        drin = False
+    if drin:
+        return (f"Der Sync-Ordner liegt in der Bibliothek ({ziel_ordner()}). "
+                "Bitte einen Ordner außerhalb wählen, etwa auf dem USB-Stick.")
+    return None
+
+
 def playlist_aktion(daten):
     """Ändert eine Playlist; bei `create` Rückgabe der neuen id (F17: die
-    Oberfläche riet sonst „die zuletzt gelistete“)."""
+    Oberfläche riet sonst „die zuletzt gelistete“). Eine abgelehnte
+    Sync-Einrichtung liefert {"fehler": …} und ändert nichts."""
     art = daten.get("art")
     neu_id = None
     with _io_lock:
@@ -4208,6 +4234,9 @@ def playlist_aktion(daten):
                 pl["items"] = [k for k in daten["items"] if k in pl["items"]]
             elif art == "sync_config":
                 if isinstance(daten.get("sync_ordner"), str):
+                    fehler = sync_ziel_fehler(daten["sync_ordner"])
+                    if fehler:
+                        return {"fehler": fehler}
                     pl["sync_ordner"] = daten["sync_ordner"].strip()
                 if daten.get("sync_modus") in ("kopieren", "spiegeln"):
                     pl["sync_modus"] = daten["sync_modus"]
@@ -8040,6 +8069,8 @@ class Handler(BaseHTTPRequestHandler):
                     pl = next((p for p in _playlists if p.get("id") == daten.get("id")), None)
                     return _antwort(self, 200, playlist_sync(pl))
                 neu_id = playlist_aktion(daten)
+                if isinstance(neu_id, dict):          # abgelehnte Sync-Einrichtung
+                    return _antwort(self, 200, neu_id)
                 if neu_id:
                     return _antwort(self, 200, {"ok": True, "id": neu_id})
             elif pfad == "/api/geo_wireguard":
