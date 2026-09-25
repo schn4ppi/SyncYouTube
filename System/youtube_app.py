@@ -1114,8 +1114,22 @@ def _aufloesen_abruf(platzhalter, url, opts):
 
 def _aufloesen_einreihen(platzhalter, info, url, qualitaet, ganze_liste, abo, ziel_playlist,
                          menge, richtung, von, bis):
-    """Das Ergebnis des Auflösens in die Warteschlange übernehmen."""
+    """Das Ergebnis des Auflösens in die Warteschlange übernehmen.
+    Q.lock hält nur das Einreihen selbst (Gesamtprüfung F7): die Platte fragt
+    `schon_geladen` vorher (bei einer verschobenen Datei ein rekursives glob
+    über den ganzen Download-Ordner), die Playlists werden danach geschrieben.
+    Vorher warteten Worker und Ticker so lange mit."""
     eintraege = info.get("entries") if info.get("_type") == "playlist" else None
+    if eintraege is not None:
+        kandidaten = []
+        for e in _liste_zuschneiden(eintraege, menge, richtung):   # Build 127: JB-Regler
+            v_url = e.get("url") or f"https://www.youtube.com/watch?v={e.get('id')}"
+            kandidaten.append((e, v_url, schon_geladen(v_url, qualitaet)))
+    else:
+        einzel_url = info.get("webpage_url") or url
+        einzel_fund = schon_geladen(einzel_url, qualitaet)
+    zuordnen = []                                     # schon Geladenes: in die Playlists, nach der Sperre
+    vermerken = False
     with Q.lock:
         if platzhalter not in Q.items:               # Nutzer hat ihn derweil entfernt
             return
@@ -1130,11 +1144,8 @@ def _aufloesen_einreihen(platzhalter, info, url, qualitaet, ganze_liste, abo, zi
                                      "liegt „von“ hinter dem Listenende?")
         elif eintraege is not None:
             Q.items.remove(platzhalter)
-            eintraege = _liste_zuschneiden(eintraege, menge, richtung)   # Build 127: JB-Regler
-            for e in eintraege:
-                if not e:
-                    continue
-                v_url = e.get("url") or f"https://www.youtube.com/watch?v={e.get('id')}"
+            vermerken = bool(kandidaten)
+            for e, v_url, fund in kandidaten:
                 if _schon_da(v_url, qualitaet):
                     continue
                 neu = Q.neu(v_url, e.get("title"), qualitaet, e.get("duration"))
@@ -1142,29 +1153,28 @@ def _aufloesen_einreihen(platzhalter, info, url, qualitaet, ganze_liste, abo, zi
                     neu["abo"] = abo
                 if ziel_playlist:
                     neu["ziel_pl"] = ziel_playlist
-                fund = schon_geladen(v_url, qualitaet)
                 if fund:
                     _als_uebersprungen(neu, fund)
-                    if abo:                          # war schon da -> trotzdem in die Abo-Playlist
-                        _abo_playlist_zuordnen(abo, _geladen_key(v_url, qualitaet))
-                    if ziel_playlist:                # dito fuer die Entdeckt-Playlist (Build 100)
-                        _playlist_einreihen(ziel_playlist, _geladen_key(v_url, qualitaet))
+                    zuordnen.append(_geladen_key(v_url, qualitaet))
         else:
             platzhalter["titel"] = info.get("title") or url
             platzhalter["dauer"] = info.get("duration")
-            platzhalter["url"] = info.get("webpage_url") or url
+            platzhalter["url"] = einzel_url
             if ziel_playlist:
                 platzhalter["ziel_pl"] = ziel_playlist
             if _schon_da(platzhalter["url"], qualitaet, ausser=platzhalter["id"]):
                 Q.items.remove(platzhalter)
+            elif einzel_fund:
+                _als_uebersprungen(platzhalter, einzel_fund)
             else:
-                fund = schon_geladen(platzhalter["url"], qualitaet)
-                if fund:
-                    _als_uebersprungen(platzhalter, fund)
-                else:
-                    platzhalter["status"] = "wartend"
+                platzhalter["status"] = "wartend"
+    for key in zuordnen:
+        if abo:                                      # war schon da -> trotzdem in die Abo-Playlist
+            _abo_playlist_zuordnen(abo, key)
+        if ziel_playlist:                            # dito fuer die Entdeckt-Playlist (Build 100)
+            _playlist_einreihen(ziel_playlist, key)
     Q.speichern()
-    if eintraege:                                     # v1.1.2: komplette Liste vermerken (Haken im Addon)
+    if vermerken:                                     # v1.1.2: komplette Liste vermerken (Haken im Addon)
         _liste_vermerken(url, ganze_liste, von, bis)
 
 
@@ -6861,6 +6871,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             _antwort(self, 200, oberflaeche.HTML.encode("utf-8"), "text/html")
         elif self.path == "/api/status":
+            lokal = self._ist_lokal()
             # Nachtprüfung 06.08. (Riegel-Regel „Externe nur mit Zugangsdaten"):
             # der volle Status verriet aus dem LAN den Fernsteuerungs-Code
             # (Widerruf damit wirkungslos) und die ganze Config (Pfade,
@@ -6873,23 +6884,26 @@ class Handler(BaseHTTPRequestHandler):
                                      for f in ("oberflaeche.py", "medien_session.py")), 2)
             except OSError:
                 ui_stand = 0
+            # F7: unter Q.lock nur der Schnappschuss der Liste; Platte, Statistik
+            # und das Senden (ein langsamer Client im WLAN) laufen ohne Sperre.
             with Q.lock:
-                if self._ist_lokal():
-                    _antwort(self, 200, {"items": Q.items, "config": CFG,
-                                         "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_exe()),
-                                         "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
-                                         "remote": _remote, "fernsteuerung": fernsteuerung_info(),
-                                         "addon_nachschub": _addon_nachschub,
-                                         "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
-                                         "ui_stand": ui_stand, "jetzt": time.time()})
-                else:
-                    harmlos = {k: CFG.get(k) for k in
-                               ("standard_qualitaet", "unterordner", "metadaten",
-                                "untertitel", "parallel")}
-                    _antwort(self, 200, {"items": Q.items, "config": harmlos,
-                                         "ffmpeg": bool(_ffmpeg_exe()),
-                                         "db": db_statistik(),
-                                         "ui_stand": ui_stand, "jetzt": time.time()})
+                items = [dict(it) for it in Q.items]
+            if lokal:
+                _antwort(self, 200, {"items": items, "config": CFG,
+                                     "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_exe()),
+                                     "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
+                                     "remote": _remote, "fernsteuerung": fernsteuerung_info(),
+                                     "addon_nachschub": _addon_nachschub,
+                                     "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
+                                     "ui_stand": ui_stand, "jetzt": time.time()})
+            else:
+                harmlos = {k: CFG.get(k) for k in
+                           ("standard_qualitaet", "unterordner", "metadaten",
+                            "untertitel", "parallel")}
+                _antwort(self, 200, {"items": items, "config": harmlos,
+                                     "ffmpeg": bool(_ffmpeg_exe()),
+                                     "db": db_statistik(),
+                                     "ui_stand": ui_stand, "jetzt": time.time()})
         elif self.path == "/addon.xpi":
             # Signierte Firefox-Erweiterung direkt aus der App installieren —
             # richtiger MIME-Typ, damit Firefox den Installations-Dialog zeigt.
@@ -6913,14 +6927,17 @@ class Handler(BaseHTTPRequestHandler):
             # Hintergrund — KEIN Dauerprozess, kein neuer Zeitplan
             # (Last-Budget-Regel), aber in der Praxis merkt man es sofort.
             _auto_import_anstossen()
-            with _io_lock:
-                _antwort(self, 200, {"items": bibliothek_liste()})
+            # F7: bibliothek_liste arbeitet auf einem Schnappschuss (F6); der
+            # Ordnerlauf (_datei_index) und das Senden halten keine Sperre.
+            _antwort(self, 200, {"items": bibliothek_liste()})
         elif self.path == "/api/playlists":
-            with _io_lock:
-                _antwort(self, 200, {"items": _playlists})
+            with _io_lock:                            # F7: Text unter der Sperre, Senden danach
+                body = json.dumps({"items": _playlists}, ensure_ascii=False).encode("utf-8")
+            _antwort(self, 200, body)
         elif self.path == "/api/abos":
             with _io_lock:
-                _antwort(self, 200, {"items": _abos})
+                body = json.dumps({"items": _abos}, ensure_ascii=False).encode("utf-8")
+            _antwort(self, 200, body)
         elif self.path.startswith("/api/kanal_info"):   # ganzen Kanal aufloesen (Name + Videozahl)
             q = parse_qs(urlparse(self.path).query)
             url = (q.get("url") or [""])[0]
@@ -7477,6 +7494,7 @@ class Handler(BaseHTTPRequestHandler):
         it = Q.finde(daten.get("id") or "")
         if not it:
             return
+        zeigen = []                                   # F7: Explorer erst nach der Sperre
         with Q.lock:
             if art == "pause":
                 if it["status"] == "laeuft":
@@ -7508,8 +7526,9 @@ class Handler(BaseHTTPRequestHandler):
                 if ziel is not None:
                     Q.items.insert(ziel, Q.items.pop(i))
             elif art == "ordner":
-                pfad = it.get("datei")
-                ordner_zeigen(pfad if (pfad and os.path.exists(pfad)) else None)
+                zeigen.append(it.get("datei"))
+        for pfad in zeigen:
+            ordner_zeigen(pfad if (pfad and os.path.exists(pfad)) else None)
         Q.speichern()
 
     def _geo_wireguard(self, daten):
@@ -7641,6 +7660,16 @@ class Handler(BaseHTTPRequestHandler):
                 _geladen_speichern()
                 _json_speichern(PLAYLIST_PFAD, _playlists)
             return
+        if art == "ordner":                          # Datei im Explorer zeigen (markiert)
+            e = _geladen.get(key)                    # F7: Ordnerlauf + Explorer ohne Sperre
+            if not e:
+                return
+            vid = key.split("|")[0]
+            pfad = e.get("pfad")
+            if not (pfad and os.path.exists(pfad)):
+                pfad = _datei_aus(_datei_index().get(vid), key.partition("|")[2])
+            ordner_zeigen(pfad if (pfad and os.path.exists(pfad)) else None)
+            return
         with _io_lock:
             e = _geladen.get(key)
             if not e:
@@ -7650,13 +7679,6 @@ class Handler(BaseHTTPRequestHandler):
                 _geladen.pop(key, None)
                 _geladen_speichern()
                 _json_speichern(PLAYLIST_PFAD, _playlists)
-                return
-            if art == "ordner":                      # Datei im Explorer zeigen (markiert)
-                vid = key.split("|")[0]
-                pfad = e.get("pfad")
-                if not (pfad and os.path.exists(pfad)):
-                    pfad = _datei_aus(_datei_index().get(vid), key.partition("|")[2])
-                ordner_zeigen(pfad if (pfad and os.path.exists(pfad)) else None)
                 return
             if art == "neuladen":                    # verschobenen/gelöschten Titel neu holen
                 vid = key.split("|")[0]

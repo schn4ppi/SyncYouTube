@@ -6,6 +6,8 @@ legt alle Datenpfade dorthin), echte Fäden, und wo Windows mitspielt, ein
 echter Leser, der die Zieldatei offen hält. Attrappen stehen nur dort, wo
 sonst YouTube gefragt würde.
 """
+import email.message
+import io
 import json
 import os
 import sys
@@ -579,6 +581,159 @@ def test_bibliothek_speichern_waehrend_downloads_eintragen(tmp_path):
     with open(app.GELADEN_PFAD, encoding="utf-8") as f:
         auf_platte = json.load(f)
     assert auf_platte == json.loads(json.dumps(app._geladen)), "die Platte trägt einen älteren Stand"
+
+
+# ---------------------------------------------------------------- F7: keine Sperre über Ordnerlauf und Senden
+
+class _LangsamerClient(io.BytesIO):
+    """Ein Gerät im WLAN, das die Antwort nur langsam abnimmt: jedes write
+    wartet am Tor `frei`."""
+
+    def __init__(self):
+        super().__init__()
+        self.schreibt = threading.Event()
+        self.frei = threading.Event()
+
+    def write(self, b):
+        self.schreibt.set()
+        self.frei.wait(20)
+        return super().write(b)
+
+
+def _handler(pfad="/", wfile=None):
+    h = object.__new__(app.Handler)
+    h.path, h.command, h.request_version = pfad, "GET", "HTTP/1.1"
+    h.requestline = f"GET {pfad} HTTP/1.1"
+    h.client_address = ("127.0.0.1", 50000)
+    h.headers = email.message.Message()
+    h.rfile, h.wfile = io.BytesIO(b""), wfile or io.BytesIO()
+    h.close_connection = False
+    return h
+
+
+def _im_faden(ziel, *args):
+    f = threading.Thread(target=ziel, args=args, daemon=True)
+    f.start()
+    return f
+
+
+def _kommt_durch(ziel, *args, s=3):
+    """Läuft `ziel` in höchstens `s` Sekunden durch?"""
+    f = _im_faden(ziel, *args)
+    f.join(s)
+    return not f.is_alive()
+
+
+def _langsam_abrufen(pfad):
+    client = _LangsamerClient()
+    faden = _im_faden(_handler(pfad, client).do_GET)
+    assert client.schreibt.wait(10), "die Antwort kam nie beim Senden an"
+    return client, faden
+
+
+def test_langsamer_client_beim_status_haelt_die_worker_nicht_auf():
+    app.Q.neu("https://www.youtube.com/watch?v=aaaaaaaaaaa", "eins", "beste")
+    client, faden = _langsam_abrufen("/api/status")
+    try:
+        assert _kommt_durch(app.Q.naechster), "der Worker wartet, bis ein langsamer Client fertig liest"
+    finally:
+        client.frei.set()
+        faden.join(20)
+
+
+@pytest.mark.parametrize("pfad", ["/api/bibliothek", "/api/playlists", "/api/abos"])
+def test_langsamer_client_haelt_weder_download_noch_playlist_auf(tmp_path, monkeypatch, pfad):
+    monkeypatch.setattr(app, "_auto_import_anstossen", lambda *a, **k: None)
+    _download_fertig(tmp_path, 0)
+    client, faden = _langsam_abrufen(pfad)
+    try:
+        assert _kommt_durch(_download_fertig, tmp_path, 1), \
+            "ein fertiger Download wartet auf einen langsamen Client"
+        assert _kommt_durch(app.playlist_aktion, {"art": "create", "name": "Neu"}), \
+            "eine neue Playlist wartet auf einen langsamen Client"
+    finally:
+        client.frei.set()
+        faden.join(20)
+
+
+def test_ordnerlauf_der_bibliothek_haelt_keinen_download_auf(tmp_path, monkeypatch):
+    """Der Datei-Index läuft durch den ganzen Download-Ordner (os.walk); auf
+    einem großen oder schlafenden Laufwerk dauert das. Hier hält ein Tor ihn an."""
+    monkeypatch.setattr(app, "_auto_import_anstossen", lambda *a, **k: None)
+    _download_fertig(tmp_path, 0)
+    im_lauf, weiter = threading.Event(), threading.Event()
+
+    def langsamer_index():
+        im_lauf.set()
+        weiter.wait(20)
+        return {}
+    monkeypatch.setattr(app, "_datei_index", langsamer_index)
+    faden = _im_faden(_handler("/api/bibliothek").do_GET)
+    try:
+        assert im_lauf.wait(10)
+        assert _kommt_durch(_download_fertig, tmp_path, 1), \
+            "ein fertiger Download wartet auf den Ordnerlauf der Bibliothek"
+    finally:
+        weiter.set()
+        faden.join(20)
+
+
+def test_langsame_dateisuche_beim_aufloesen_haelt_die_worker_nicht_auf(tmp_path, monkeypatch):
+    """Beim Einreihen einer Playlist sucht schon_geladen jede bekannte Folge
+    auf der Platte (rekursives glob über den Download-Ordner)."""
+    for i in range(3):
+        app._geladen[f"folge{i:06d}|beste"] = {"name": f"Folge {i}.mp4", "pfad": ""}
+    app.Q.neu("https://www.youtube.com/watch?v=bbbbbbbbbbb", "wartet schon", "beste")
+    in_suche, weiter = threading.Event(), threading.Event()
+
+    def langsame_suche(url, e):
+        in_suche.set()
+        weiter.wait(20)
+        return None
+    monkeypatch.setattr(app, "_finde_datei", langsame_suche)
+    antwort = {"_type": "playlist", "title": "Liste",
+               "entries": [{"id": f"folge{i:06d}", "title": f"Folge {i}",
+                            "url": f"https://www.youtube.com/watch?v=folge{i:06d}"} for i in range(3)]}
+    attrappe = _aufloesen_vorbereiten(monkeypatch, lambda url: antwort)
+    attrappe.frei.set()
+    faden = _im_faden(app.aufloesen, "https://www.youtube.com/playlist?list=PLabc", "beste", True)
+    try:
+        assert in_suche.wait(10)
+        assert _kommt_durch(app.Q.naechster), "der Worker wartet auf die Dateisuche des Auflösens"
+    finally:
+        weiter.set()
+        faden.join(20)
+    assert sum(1 for it in app.Q.items if "folge" in it["url"]) == 3
+
+
+def test_explorer_start_haelt_weder_worker_noch_bibliothek_auf(tmp_path, monkeypatch):
+    """„Im Ordner zeigen“ startet den Explorer; das darf keine Sperre halten."""
+    offen, weiter = threading.Event(), threading.Event()
+
+    def langsamer_explorer(pfad=None):
+        offen.set()
+        weiter.wait(20)
+    monkeypatch.setattr(app, "ordner_zeigen", langsamer_explorer)
+    it = app.Q.neu("https://www.youtube.com/watch?v=ccccccccccc", "fertig", "beste")
+    app.Q.neu("https://www.youtube.com/watch?v=ddddddddddd", "wartet", "beste")
+    _download_fertig(tmp_path, 0)
+    h = _handler()
+    faden = _im_faden(h._action, {"art": "ordner", "id": it["id"]})
+    try:
+        assert offen.wait(10)
+        assert _kommt_durch(app.Q.naechster), "der Worker wartet auf den Explorer"
+    finally:
+        weiter.set()
+        faden.join(20)
+    offen.clear()
+    weiter.clear()
+    faden = _im_faden(h._biblio, {"art": "ordner", "id": "neu00000000|beste"})
+    try:
+        assert offen.wait(10)
+        assert _kommt_durch(_download_fertig, tmp_path, 1), "ein Download wartet auf den Explorer"
+    finally:
+        weiter.set()
+        faden.join(20)
 
 
 if __name__ == "__main__":
