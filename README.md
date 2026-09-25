@@ -102,7 +102,7 @@ Tests: `python System/tests/test_youtube.py` (läuft ohne Zusatzpakete, kein Net
 | `System/oberflaeche.py` | die komplette PC-Oberfläche (eine Datei, wird heiß nachgeladen) |
 | `System/handy.py` | Touch-Oberfläche der Fernsteuerung (`/m`) |
 | `System/geo.py` / `System/vpn.py` | gestufte Geo-Umgehung / NordVPN-Steuerung |
-| `System/update.py` | Selbst-Update der exe (Repo-Pin, SHA256-Verifikation, Rollback) |
+| `System/update.py` | Selbst-Update der exe (Repo-Pin, SHA256-Verifikation, Signaturprüfung, Rollback) |
 | `System/browser-addon/` | universelle Browser-Erweiterung + Build-/Signier-Skripte |
 | `System/_ARCHITEKTUR.md` | Architektur & Fahrplan (historisch, 09.07.; aktuelle Karte: `System/MODULE.md`) |
 | `System/docs/NAECHSTER_PROMPT.md` | Übergabe an die nächste Session (aktuell, 05.08.) |
