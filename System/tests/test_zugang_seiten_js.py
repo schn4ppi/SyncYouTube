@@ -288,9 +288,14 @@ def test_einstellungen_oeffnen_sich_im_wlan_nicht(tmp_path):
     assert fern["d"] == "none" and fern["t"] and "PC" in fern["t"][0]
 
 
-def test_nur_pc_elemente_sind_markiert_und_die_regel_blendet_sie_aus():
-    """Der ⚙-Weg und die Abo-Knöpfe tragen die Klasse nur-pc; die CSS-Regel
-    blendet sie auf Geräten im WLAN aus (body.fern)."""
+def test_nur_pc_elemente_tragen_die_klasse_und_die_regel_steht_im_stil():
+    """Die Abo-Knöpfe tragen die Klasse nur-pc, und die Regel
+    `body.fern .nur-pc{display:none!important}` steht im Stil. Geprüft wird
+    Markup und Text, NICHT die sichtbare Wirkung (kein Test rendert die Seite;
+    Familien-Lehre „CSS scheitert still“). Die Wirkung ist einmal außerhalb des
+    Gates gemessen (Abnahme 25.09.2026: Seite ohne Skripte in einem Browser,
+    mit body.fern 5 von 5 nur-pc-Elementen display:none, ohne 5 von 5
+    sichtbar) und bleibt ein Handgriff für JB am Fernseher."""
     from html.parser import HTMLParser
     q = _pc()
 
@@ -415,7 +420,9 @@ def test_playlist_werkzeuge_im_wlan_ohne_verwaltung(tmp_path):
 
 def test_direkte_nur_pc_knoepfe_tragen_die_klasse(tmp_path):
     """Knöpfe außerhalb der Menüs: ＋ (Titel in Playlist), ↻ Fehlende Infos
-    nachladen (schreibt Metadaten), 🏷 Auto-Tagging und ✂ in der Player-Leiste."""
+    nachladen (schreibt Metadaten), 🏷 Auto-Tagging und ✂ in der Player-Leiste.
+    Geprüft wird nur, dass sie die Klasse tragen; das Ausblenden besorgt die
+    Regel aus dem Test darüber (Wirkung dort beschrieben)."""
     from html.parser import HTMLParser
     q = _pc()
 
