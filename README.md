@@ -138,7 +138,8 @@ Wer noch eine ältere, unsignierte Fassung hat: einfach die aktuelle aus den
 [Releases](../../releases/latest) laden.
 
 Das Selbst-Update tauscht nur eine exe mit gültiger Signatur desselben Herausgebers wie
-die laufende. Eine selbst gebaute, unsignierte exe aktualisiert sich darum nicht selbst.
+die laufende. Eine selbst gebaute, unsignierte exe aktualisiert sich darum nicht selbst und
+lädt dafür auch keine neue Fassung herunter.
 
 ### Der Quellstart-Weg (ohne exe)
 
