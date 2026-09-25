@@ -158,8 +158,15 @@ def download_exe(info, dest_dir, fetch=None):
     (signatur_pruefen gegen die laufende exe) und erst dann atomar an den
     Zielnamen (os.replace) — eine ungeprüfte oder halbe Datei liegt nie unter
     dem Zielnamen. Eine verworfene Signatur bleibt als `….verworfen` liegen
-    (nichts wird gelöscht). Wirft bei jedem Zweifel."""
+    (nichts wird gelöscht). Wirft bei jedem Zweifel.
+
+    Vor dem Laden: ist die laufende exe nicht gültig signiert (etwa selbst
+    gebaut), ließe sich keine neue mit ihr vergleichen; dann wird gar nicht
+    erst geladen (vorher täglich die ganze exe, danach verworfen)."""
     fetch = fetch or fetch_https
+    wer, why = laufende_signatur(frozen_exe())
+    if not wer:
+        raise ValueError(f"Update nicht geladen: {why}")
     if not info.get("sha_url"):
         raise ValueError("Update verworfen: Prüfsumme (SyncYouTube.exe.sha256) fehlt im Release")
     data = fetch(info["exe_url"])
@@ -293,30 +300,122 @@ def authenticode_offline(pfad):
     return _authenticode(pfad, offline=True)
 
 
+_WIN_CERT_REVISION_2_0 = 0x0200
+_WIN_CERT_TYPE_PKCS_SIGNED_DATA = 0x0002
+# Sperrlisten-Abruf gescheitert (kein Urteil über die Signatur selbst):
+# CERT_E_REVOCATION_FAILURE, CRYPT_E_REVOCATION_OFFLINE, CRYPT_E_NO_REVOCATION_CHECK.
+_SPERRLISTE_NICHT_PRUEFBAR = (0x800B010E, 0x80092013, 0x80092012)
+
+
+def signaturblock_pruefen(pfad):
+    """(ok, grund): ist der Signaturblock der exe so gebaut, wie signtool ihn
+    schreibt? Das PE-Sicherheitsverzeichnis endet genau am Dateiende, darin
+    steht genau EIN Eintrag (WIN_CERTIFICATE, Revision 2.0, PKCS#7), dessen
+    Länge der Verzeichnisgröße gleicht, und hinter der PKCS#7-Signatur folgen
+    höchstens 7 Null-Füllbytes (Ausrichtung auf 8).
+
+    Die Signatur deckt ihren eigenen Block nicht ab. Weitere Bytes darin prüft
+    WinVerifyTrust nur mit einer systemweit eingeschalteten Strengprüfung;
+    ohne sie gälte eine echte signierte exe mit zusätzlichen Daten als gültig
+    (Nacharbeit S9). Gemessen an sieben signierten exe (python.org, SyncManga
+    aus dem Familien-Bau, deno, Git, GitHub CLI, Firefox): alle erfüllen die
+    Regel. Jeder Zweifel ist ein Nein."""
+    import struct
+    try:
+        groesse = os.path.getsize(pfad)
+        with open(pfad, "rb") as f:
+            kopf = f.read(4096)
+            if len(kopf) < 0x40 or kopf[:2] != b"MZ":
+                return False, "Signaturblock nicht prüfbar: keine exe"
+            pe = struct.unpack_from("<I", kopf, 0x3C)[0]
+            opt = pe + 24
+            if opt + 2 > len(kopf) or kopf[pe:pe + 4] != b"PE\0\0":
+                return False, "Signaturblock nicht prüfbar: kein PE-Kopf"
+            magic = struct.unpack_from("<H", kopf, opt)[0]
+            if magic not in (0x10B, 0x20B):
+                return False, "Signaturblock nicht prüfbar: unbekannter PE-Kopf"
+            anzahl_bei, verzeichnis = (opt + 92, opt + 96) if magic == 0x10B else (opt + 108, opt + 112)
+            if (verzeichnis + 5 * 8 > len(kopf)
+                    or struct.unpack_from("<I", kopf, anzahl_bei)[0] < 5):
+                return False, "Signaturblock fehlt (kein Sicherheitsverzeichnis)"
+            anfang, laenge = struct.unpack_from("<II", kopf, verzeichnis + 4 * 8)
+            if not anfang or laenge < 8 + 2:
+                return False, "Signaturblock fehlt"
+            if anfang + laenge != groesse:
+                return False, "Signaturblock endet nicht am Dateiende"
+            f.seek(anfang)
+            block = f.read(laenge)
+    except (OSError, struct.error) as e:
+        return False, f"Signaturblock nicht lesbar ({e})"
+    if len(block) != laenge:
+        return False, "Signaturblock unvollständig"
+    dw_laenge, revision, art = struct.unpack_from("<IHH", block, 0)
+    if dw_laenge != laenge:
+        return False, "Signaturblock: Länge des Eintrags passt nicht zum Verzeichnis"
+    if revision != _WIN_CERT_REVISION_2_0 or art != _WIN_CERT_TYPE_PKCS_SIGNED_DATA:
+        return False, "Signaturblock: kein PKCS#7-Eintrag"
+    der = block[8:]
+    if der[0] != 0x30:                               # DER: SEQUENCE
+        return False, "Signaturblock: keine PKCS#7-Signatur"
+    if der[1] < 0x80:
+        kopf_laenge, inhalt = 2, der[1]
+    else:
+        n = der[1] & 0x7F
+        if not 1 <= n <= 4 or len(der) < 2 + n:
+            return False, "Signaturblock: Länge der Signatur unlesbar"
+        kopf_laenge, inhalt = 2 + n, int.from_bytes(der[2:2 + n], "big")
+    ende = kopf_laenge + inhalt
+    if ende > len(der):
+        return False, "Signaturblock: Signatur länger als der Block"
+    rest = der[ende:]
+    if len(rest) > 7 or any(rest):
+        return False, "Signaturblock: hinter der Signatur stehen weitere Daten"
+    return True, ""
+
+
+def laufende_signatur(laufend):
+    """((Inhaber, Aussteller), "") der laufenden exe, nur lokal gelesen; sonst
+    (None, grund). Sie ist das Maß für den Herausgeber jeder neuen exe."""
+    if not laufend:
+        return None, "keine laufende exe zum Vergleich der Signatur"
+    try:
+        code, wer = authenticode_offline(laufend)
+    except Exception as e:                           # noqa: BLE001 — fail-closed
+        return None, f"Signatur der laufenden exe nicht prüfbar ({e})"
+    if code != 0 or not wer:
+        return None, ("die laufende exe ist nicht gültig signiert "
+                      f"(0x{code:08X}), der Herausgeber ist nicht vergleichbar")
+    return wer, ""
+
+
 def signatur_pruefen(neu, laufend):
     """(ok, grund): trägt `neu` eine gültige Authenticode-Signatur desselben
     Signierers (Inhaber UND Aussteller) wie die laufende exe `laufend`?
 
-    Die neue Datei wird samt Sperrlisten geprüft (ein widerrufenes Zertifikat
+    Zuerst der Aufbau des Signaturblocks (signaturblock_pruefen, lokal). Die
+    neue Datei wird samt Sperrlisten geprüft (ein widerrufenes Zertifikat
     gilt nicht). Die laufende dient nur als Maß für den Herausgeber und wird
     lokal gelesen: wurde ihr Zertifikat später widerrufen, soll gerade das
     Update mit dem neuen Zertifikat desselben Herausgebers noch ankommen.
     Jeder Zweifel ist ein Nein (fail-closed)."""
     if not laufend:
         return False, "keine laufende exe zum Vergleich der Signatur"
+    ok, grund = signaturblock_pruefen(neu)
+    if not ok:
+        return False, grund
     try:
         code, wer = authenticode_online(neu)
     except Exception as e:                           # noqa: BLE001 — fail-closed
         return False, f"Signatur nicht prüfbar ({e})"
+    if code in _SPERRLISTE_NICHT_PRUEFBAR:
+        return False, ("Sperrliste der Zertifizierungsstelle nicht erreichbar, die Signatur "
+                       f"ist darum nicht bestätigt (WinVerifyTrust 0x{code:08X}); "
+                       "nächster Versuch später")
     if code != 0 or not wer:
         return False, f"Signatur fehlt oder ist ungültig (WinVerifyTrust 0x{code:08X})"
-    try:
-        code_alt, wer_alt = authenticode_offline(laufend)
-    except Exception as e:                           # noqa: BLE001 — fail-closed
-        return False, f"Signatur der laufenden exe nicht prüfbar ({e})"
-    if code_alt != 0 or not wer_alt:
-        return False, ("die laufende exe ist nicht gültig signiert "
-                       f"(0x{code_alt:08X}), der Herausgeber ist nicht vergleichbar")
+    wer_alt, grund = laufende_signatur(laufend)
+    if not wer_alt:
+        return False, grund
     if wer[0] != wer_alt[0]:
         return False, f"anderer Signierer: {wer[0]} statt {wer_alt[0]}"
     if wer[1] != wer_alt[1]:

@@ -22,6 +22,7 @@ Zwischenspeicher, also ohne Netz. Die Fassung mit Sperrlisten-Abruf
 import hashlib
 import os
 import shutil
+import struct
 import sys
 
 import pytest
@@ -41,8 +42,12 @@ DATEN = b"MZ" + b"x" * 62
 @pytest.fixture
 def umgebung(monkeypatch, tmp_path):
     """Kleine Mindestgröße, Netz-Attrappe, laufende exe in tmp_path. Die
-    WinVerifyTrust-Antwort je Datei steht in `antworten` (Pfad-Endung → Antwort)."""
+    WinVerifyTrust-Antwort je Datei steht in `antworten` (Pfad-Endung → Antwort).
+    Die Test-Dateien sind keine echten exe: die Aufbau-Prüfung des Signaturblocks
+    gilt hier als bestanden; echt gemessen wird sie unten an Kopien der
+    signierten python.exe. `geladen` zeichnet jeden Abruf auf."""
     monkeypatch.setattr(update, "MIN_EXE_SIZE", 16)
+    monkeypatch.setattr(update, "signaturblock_pruefen", lambda p: (True, ""), raising=False)
     laufend = tmp_path / "prog" / "SyncYouTube.exe"
     laufend.parent.mkdir()
     laufend.write_bytes(b"MZ alt")
@@ -63,13 +68,16 @@ def umgebung(monkeypatch, tmp_path):
     netz = {"https://x/exe": DATEN,
             "https://x/sha": (hashlib.sha256(DATEN).hexdigest() + "  SyncYouTube.exe\n").encode()}
 
+    geladen = []
+
     def fetch(url):
+        geladen.append(url)
         if isinstance(netz.get(url), Exception):
             raise netz[url]
         return netz[url]
     info = {"exe_url": "https://x/exe", "sha_url": "https://x/sha", "size": len(DATEN)}
     return {"ziel": str(laufend.parent), "antworten": antworten, "netz": netz, "fetch": fetch,
-            "info": info, "gefragt": gefragt}
+            "info": info, "gefragt": gefragt, "geladen": geladen}
 
 
 def _ziel(u):
@@ -145,7 +153,38 @@ def test_ohne_laufende_exe_kein_tausch(umgebung, monkeypatch):
 def test_falsche_pruefsumme_prueft_gar_nicht_erst_die_signatur(umgebung):
     umgebung["netz"]["https://x/sha"] = b"0" * 64
     assert "SHA256" in _abgelehnt(umgebung)
-    assert umgebung["gefragt"] == []
+    # gefragt wurde nur die laufende exe (vor dem Laden), nie die neue Datei
+    assert umgebung["gefragt"] == [("SyncYouTube.exe", True)]
+
+
+# ------------------------------------------------ erst die eigene Signatur, dann laden
+# Ist die laufende exe nicht gültig signiert (selbst gebaut), lässt sich keine
+# neue mit ihr vergleichen. Vorher lud das Auto-Update trotzdem täglich die ganze
+# exe, schrieb sie als .tmp und verwarf sie erst danach.
+
+@pytest.mark.parametrize("laufend", [(TRUST_E_NOSIGNATURE, None), OSError("wintrust.dll nicht ladbar")])
+def test_ohne_gueltig_signierte_laufende_exe_wird_nicht_geladen(umgebung, laufend):
+    umgebung["antworten"]["laufend"] = laufend
+    grund = _abgelehnt(umgebung)
+    assert umgebung["geladen"] == [], f"trotzdem geladen: {umgebung['geladen']}"
+    assert "laufende" in grund and "nicht geladen" in grund, grund
+    assert os.listdir(umgebung["ziel"]) == ["SyncYouTube.exe"], "kein .tmp und kein .verworfen"
+
+
+@pytest.mark.parametrize("code", [0x800B010E, 0x80092013, 0x80092012])
+def test_sperrliste_nicht_erreichbar_sagt_es_deutlich(umgebung, code):
+    """Die neue exe wird samt Sperrlisten geprüft (Netz). Sind die Server der
+    Zertifizierungsstelle nicht erreichbar, bleibt es beim Nein (fail-closed),
+    aber die Meldung nennt den Grund statt nur einer Fehlernummer."""
+    umgebung["antworten"]["neu"] = (code, None)
+    grund = _abgelehnt(umgebung)
+    assert "Sperrliste" in grund and f"0x{code:08X}" in grund, grund
+
+
+def test_ohne_laufende_exe_wird_nicht_geladen(umgebung, monkeypatch):
+    monkeypatch.setattr(update, "frozen_exe", lambda: None)
+    _abgelehnt(umgebung)
+    assert umgebung["geladen"] == []
 
 
 # ------------------------------------------------ der echte ctypes-Aufruf, lokal
@@ -191,6 +230,87 @@ def test_echte_pruefung_am_zwischennamen(tmp_path, monkeypatch):
     fremd.write_bytes(b"MZ" + b"\0" * 1022)
     ok, grund = update.signatur_pruefen(str(kopie), str(fremd))
     assert ok is False and "laufende" in grund
+
+
+# ------------------------------------------------ Aufbau des Signaturblocks (Nacharbeit S9)
+# Die Authenticode-Signatur deckt ihren eigenen Block (das PE-Sicherheits-
+# verzeichnis) nicht ab. Ohne die systemweite Strengprüfung nimmt WinVerifyTrust
+# eine echte signierte exe an, in deren Block hinter der Signatur weitere Bytes
+# stehen. Die Aufbau-Prüfung verlangt den Block so, wie signtool ihn schreibt.
+
+def _pe_sicherheit(roh):
+    """(Offset des Verzeichnis-Eintrags, Blockanfang, Blockgröße) einer exe."""
+    lfanew = struct.unpack_from("<I", roh, 0x3C)[0]
+    opt = lfanew + 24
+    magic = struct.unpack_from("<H", roh, opt)[0]
+    eintrag = opt + (96 if magic == 0x10B else 112) + 4 * 8
+    anfang, groesse = struct.unpack_from("<II", roh, eintrag)
+    return eintrag, anfang, groesse
+
+
+def _kopie_mit_anhang(quelle, ziel, anhang, innen=True):
+    """Kopie der signierten Datei mit `anhang` am Ende. innen=True: im
+    Signaturblock, Verzeichnisgröße und dwLength sind nachgezogen; sonst liegt
+    der Anhang hinter dem Block."""
+    roh = bytearray(open(quelle, "rb").read())
+    eintrag, anfang, groesse = _pe_sicherheit(roh)
+    assert anfang + groesse == len(roh), "Vorbedingung: der Block endet am Dateiende"
+    roh += anhang
+    if innen:
+        struct.pack_into("<I", roh, eintrag + 4, groesse + len(anhang))
+        dwlen = struct.unpack_from("<I", roh, anfang)[0]
+        struct.pack_into("<I", roh, anfang, dwlen + len(anhang))
+    ziel.write_bytes(bytes(roh))
+    return str(ziel)
+
+
+def test_zusatzbytes_im_signaturblock_werden_verworfen(tmp_path, monkeypatch):
+    quelle, _ = _echt_signiert()
+    monkeypatch.setattr(update, "authenticode_online", update.authenticode_offline)  # kein Netz im Test
+    # 32 Bytes: auf 8 ausgerichtet, so nimmt WinVerifyTrust die Kopie ohne
+    # Strengprüfung an (gemessen: 0x0); unausgerichtet wäre sie schon dort falsch.
+    kopie = _kopie_mit_anhang(quelle, tmp_path / "SyncYouTube_neu.exe.tmp", b"ZUSATZ--" * 4)
+    ok, grund = update.signatur_pruefen(kopie, quelle)
+    assert ok is False, "eine signierte exe mit angehängten Daten im Signaturblock galt als gültig"
+    assert "Signaturblock" in grund, grund
+
+
+@pytest.mark.parametrize("fall", ["acht_nullbytes", "hinter_dem_block", "zweiter_eintrag"])
+def test_aufbau_pruefung_weist_abweichungen_ab(tmp_path, fall):
+    quelle, _ = _echt_signiert()
+    ziel = tmp_path / "neu.exe"
+    if fall == "acht_nullbytes":                      # Füllung länger als die Ausrichtung auf 8
+        pfad = _kopie_mit_anhang(quelle, ziel, b"\0" * 8)
+    elif fall == "hinter_dem_block":                  # Block endet nicht am Dateiende
+        pfad = _kopie_mit_anhang(quelle, ziel, b"\0" * 8, innen=False)
+    else:                                             # ein zweites WIN_CERTIFICATE im Block
+        roh = open(quelle, "rb").read()
+        _, anfang, groesse = _pe_sicherheit(roh)
+        pfad = _kopie_mit_anhang(quelle, ziel, roh[anfang:anfang + groesse])
+        # dwLength des ersten Eintrags bleibt die eigene Länge
+        roh2 = bytearray(open(pfad, "rb").read())
+        struct.pack_into("<I", roh2, anfang, groesse)
+        ziel.write_bytes(bytes(roh2))
+    ok, grund = update.signaturblock_pruefen(pfad)
+    assert ok is False and grund, (fall, grund)
+
+
+def test_aufbau_pruefung_nimmt_die_echte_signatur_an(tmp_path):
+    quelle, _ = _echt_signiert()
+    kopie = tmp_path / "kopie.exe"
+    shutil.copyfile(quelle, kopie)
+    assert update.signaturblock_pruefen(str(kopie)) == (True, "")
+
+
+def test_aufbau_pruefung_ohne_exe_oder_ohne_signatur(tmp_path):
+    for name, inhalt in (("leer.exe", b""), ("text.exe", b"kein Programm"),
+                         ("nur_mz.exe", b"MZ" + b"\0" * 1022)):
+        p = tmp_path / name
+        p.write_bytes(inhalt)
+        ok, grund = update.signaturblock_pruefen(str(p))
+        assert ok is False and grund, (name, grund)
+    ok, grund = update.signaturblock_pruefen(str(tmp_path / "gibt_es_nicht.exe"))
+    assert ok is False and grund
 
 
 # ------------------------------------------------ F24: Neustart mit Startargumenten
