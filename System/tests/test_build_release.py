@@ -138,9 +138,7 @@ def test_nur_signieren_prueft_das_erzeugnis_zuerst(br, monkeypatch, tmp_path):
     signierte genau diese exe und legte sie oben zum Veröffentlichen bereit.
     Jetzt prüft auch --nur-signieren zuerst, fail-closed: kein Signieren, keine
     Prüfsumme, nichts nach oben."""
-    signiert = []
-    monkeypatch.setattr(br.signieren, "signiere",
-                        lambda pfad, **kw: signiert.append(pfad) or "signiert", raising=False)
+    signiert = _signier_attrappe(br, monkeypatch, token=True)
     exe = tmp_path / "dist" / "SyncYouTube.exe"
     exe.parent.mkdir()
     exe.write_bytes(b"MZ")
@@ -159,6 +157,84 @@ def test_nur_signieren_prueft_das_erzeugnis_zuerst(br, monkeypatch, tmp_path):
         assert os.listdir(oben) == [] and not os.path.exists(str(exe) + ".sha256"), name
     # Vollständige Bauliste: signieren, Prüfsumme, nach oben — wie bisher.
     monkeypatch.setattr(br, "BAULISTE", _bauliste(tmp_path / "PKG-01.toc", _vollstaendig(br)))
+    br.main()
+    assert signiert == [str(exe)]
+    assert sorted(os.listdir(oben)) == ["SyncYouTube.exe", "SyncYouTube.exe.sha256"]
+
+
+# ------------------------------------------ ohne Signatur kein Release (S9, 7a Punkt 6)
+# JB-Entscheid 25.09.2026: Das Selbst-Update tauscht nur noch signierte exe.
+# Ein unsignierter Release hielte damit jedes Update an; darum baut
+# build_release.py ohne gesteckten Token gar nicht erst (klare Meldung), und
+# scheitert das Signieren später doch, landet nichts oben.
+
+class _SignierFehler(RuntimeError):
+    pass
+
+
+def _signier_attrappe(br, monkeypatch, *, token, signiert_ok=True):
+    signiert = []
+
+    def pflicht(pfad, **kw):
+        if not (token and signiert_ok):
+            raise _SignierFehler("Release-Bau ohne Signatur (kein_zertifikat)")
+        signiert.append(pfad)
+        return "signiert"
+    monkeypatch.setattr(br.signieren, "SignierFehler", _SignierFehler, raising=False)
+    monkeypatch.setattr(br.signieren, "signtool_pfad", lambda: r"C:\sdk\signtool.exe", raising=False)
+    monkeypatch.setattr(br.signieren, "zertifikate",
+                        lambda: [{"Thumbprint": "AB", "Subject": "CN=X", "Issuer": "CN=CA"}]
+                        if token else [], raising=False)
+    monkeypatch.setattr(br.signieren, "signiere",
+                        lambda *d, **kw: "signiert" if token else "kein_zertifikat", raising=False)
+    monkeypatch.setattr(br.signieren, "signiere_pflicht", pflicht, raising=False)
+    return signiert
+
+
+def _bau_umgebung(br, monkeypatch, tmp_path, argv):
+    aufrufe = []
+    monkeypatch.setattr(br.subprocess, "run",
+                        lambda befehl, **kw: aufrufe.append(befehl) or
+                        types.SimpleNamespace(returncode=0))
+    exe = tmp_path / "dist" / "SyncYouTube.exe"
+    exe.parent.mkdir()
+    exe.write_bytes(b"MZ")
+    oben = tmp_path / "oben"
+    oben.mkdir()
+    monkeypatch.setattr(br, "GEBAUT", str(exe))
+    monkeypatch.setattr(br, "OBEN", str(oben))
+    monkeypatch.setattr(br, "BAULISTE", _bauliste(tmp_path / "PKG-00.toc", _vollstaendig(br)))
+    monkeypatch.setattr(br.sys, "argv", argv)
+    return aufrufe, exe, oben
+
+
+@pytest.mark.parametrize("argv", [["build_release.py"], ["build_release.py", "--nur-signieren"]])
+def test_ohne_token_wird_nicht_gebaut(br, monkeypatch, tmp_path, argv):
+    signiert = _signier_attrappe(br, monkeypatch, token=False)
+    aufrufe, exe, oben = _bau_umgebung(br, monkeypatch, tmp_path, argv)
+    with pytest.raises(SystemExit) as abbruch:
+        br.main()
+    meldung = str(abbruch.value)
+    assert "[FEHLER]" in meldung and "Token" in meldung, meldung
+    assert aufrufe == [], "ohne Token startet kein PyInstaller"
+    assert signiert == [] and os.listdir(oben) == []
+    assert not os.path.exists(str(exe) + ".sha256")
+
+
+def test_scheitert_das_signieren_landet_nichts_oben(br, monkeypatch, tmp_path):
+    # Token beim Start da, beim Signieren nicht mehr (abgezogen, PIN abgebrochen).
+    _signier_attrappe(br, monkeypatch, token=True, signiert_ok=False)
+    aufrufe, exe, oben = _bau_umgebung(br, monkeypatch, tmp_path, ["build_release.py"])
+    with pytest.raises(SystemExit) as abbruch:
+        br.main()
+    assert "[FEHLER]" in str(abbruch.value) and "Signatur" in str(abbruch.value)
+    assert aufrufe, "gebaut wurde"
+    assert os.listdir(oben) == [] and not os.path.exists(str(exe) + ".sha256")
+
+
+def test_mit_token_signiert_und_kopiert(br, monkeypatch, tmp_path):
+    signiert = _signier_attrappe(br, monkeypatch, token=True)
+    aufrufe, exe, oben = _bau_umgebung(br, monkeypatch, tmp_path, ["build_release.py"])
     br.main()
     assert signiert == [str(exe)]
     assert sorted(os.listdir(oben)) == ["SyncYouTube.exe", "SyncYouTube.exe.sha256"]

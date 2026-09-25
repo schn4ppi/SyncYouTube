@@ -428,7 +428,7 @@ def test_netz_ist_fuer_live_tv_geo_vpn_und_update_gesperrt(request):
     import vpn
     module = {"geo": geo, "vpn": vpn, "update": update}
     erwartet = {"geo.freie_proxys", "vpn.status", "vpn._still",
-                "update.fetch_release_json", "update.fetch_https"}
+                "update.fetch_release_json", "update.fetch_https", "update.authenticode_online"}
     benannt = {f"{m.__name__}.{n}" for m, n in conftest.NETZ_SPERREN}
     assert erwartet <= benannt, f"benannte Sperre fehlt in NETZ_SPERREN: {sorted(erwartet - benannt)}"
     offen = [x for x in sorted(erwartet)

@@ -66,7 +66,9 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
   Firefox-`.xpi` liegt beim Release und ist über das Tray-Menü/die Einstellungen installierbar —
   ab v1.0.4 aktualisiert sie sich in Firefox selbst über die Releases dieses Repos)
 - **Selbst-Update** (Standard an): die exe prüft täglich dieses Repo, lädt verifiziert
-  (Größe + SHA256-Abgleich gegen das `.sha256`-Asset) und tauscht sich ohne Adminrechte selbst —
+  (Größe + SHA256-Abgleich gegen das `.sha256`-Asset, dazu eine gültige Signatur desselben
+  Herausgebers wie die laufende exe; fehlt eines davon, wird nicht getauscht) und tauscht sich
+  ohne Adminrechte selbst —
   aber nur im Leerlauf, nie mitten in einem Download. Abschaltbar in den Einstellungen
 
 ## Voraussetzungen / Start (aus dem Quellcode)
@@ -134,6 +136,9 @@ Anlaufzeit.
 
 Wer noch eine ältere, unsignierte Fassung hat: einfach die aktuelle aus den
 [Releases](../../releases/latest) laden.
+
+Das Selbst-Update tauscht nur eine exe mit gültiger Signatur desselben Herausgebers wie
+die laufende. Eine selbst gebaute, unsignierte exe aktualisiert sich darum nicht selbst.
 
 ### Der Quellstart-Weg (ohne exe)
 

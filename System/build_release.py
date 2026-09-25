@@ -29,11 +29,12 @@ REIHENFOLGE (nicht vertauschbar):
                     verwerfen. Genau diese Falle steht schon in SyncMangas Bau-Skript.
   4. kopieren     — die fertige Datei nach oben, wo die Startdatei sie erwartet
 
-FAIL-CLOSED: Ist ein Code-Signing-Zertifikat im Speicher, ist Signieren PFLICHT —
-scheitert es, bricht der Bau ab (`signieren.SignierFehler`). Ein still unsignierter
-Release waere schlimmer als ein abgebrochener Bau. Steckt der Token nicht, meldet
-`signieren` das und der Bau laeuft unsigniert weiter; dieses Skript sagt es dann
-deutlich, damit niemand versehentlich einen unsignierten Stand veroeffentlicht.
+FAIL-CLOSED: Signieren ist PFLICHT (JB-Entscheid 7a Punkt 6, 25.09.2026). Das
+Selbst-Update tauscht nur noch exe mit gueltiger Signatur desselben Herausgebers;
+ein unsignierter Release hielte also jedes Update an. Darum baut dieses Skript
+ohne gesteckten Token gar nicht erst (Pruefung vor PyInstaller, klare Meldung),
+und scheitert das Signieren spaeter doch (`signieren.signiere_pflicht` wirft
+`SignierFehler`), bricht es ab, bevor Pruefsumme oder Kopie nach oben entstehen.
 
 Aufruf:  venv-python build_release.py [--nur-signieren]
 """
@@ -150,14 +151,22 @@ def erzeugnis_oder_abbruch():
     print("      Erzeugnis-Pruefung: winrt-Erweiterungen und msvcp140.dll sind drin.")
 
 
+def token_oder_abbruch():
+    """Vor jedem Bau: ohne signtool oder Code-Signing-Zertifikat (der eToken
+    meldet es, sobald er steckt) wird nicht gebaut. Die eigentliche Pflicht
+    prueft danach `signiere_pflicht`; das hier spart die Minuten des Baus."""
+    if not signieren.signtool_pfad() or not signieren.zertifikate():
+        sys.exit("[FEHLER] Kein Signatur-Token: signtool oder Code-Signing-Zertifikat fehlt. "
+                 "Ohne Signatur wird nicht gebaut, denn das Selbst-Update tauscht nur "
+                 "signierte exe. eToken stecken, SafeNet-Client anmelden, neu starten.")
+
+
 def signieren_und_pruefen():
     print("[2/4] Signieren (der Token fragt ggf. nach der PIN) …")
-    ergebnis = signieren.signiere(GEBAUT, beschreibung="SyncYouTube")
-    if ergebnis == "kein_zertifikat":
-        print("[WARNUNG] Kein Zertifikat im Speicher — die Datei ist UNSIGNIERT.")
-        print("          Nicht veroeffentlichen: Defender wird sie beim Nutzer")
-        print("          frueher oder spaeter in Quarantaene setzen.")
-    return ergebnis
+    try:
+        return signieren.signiere_pflicht(GEBAUT, beschreibung="SyncYouTube")
+    except signieren.SignierFehler as e:
+        sys.exit(f"[FEHLER] Signatur nicht moeglich, nichts wird veroeffentlicht: {e}")
 
 
 def pruefsumme():
@@ -179,17 +188,17 @@ def nach_oben():
 
 
 def main():
+    token_oder_abbruch()
     if "--nur-signieren" not in sys.argv:
         bauen()
     elif not os.path.exists(GEBAUT):
         sys.exit(f"[FEHLER] --nur-signieren, aber {GEBAUT} fehlt.")
     else:
         erzeugnis_oder_abbruch()           # fail-closed auch ohne Bau (Bauliste des letzten Baus)
-    ergebnis = signieren_und_pruefen()
+    signieren_und_pruefen()
     pruefsumme()
     nach_oben()
-    print("\nFertig." if ergebnis != "kein_zertifikat" else
-          "\nFertig — ABER UNSIGNIERT, siehe Warnung oben.")
+    print("\nFertig.")
 
 
 if __name__ == "__main__":

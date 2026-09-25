@@ -410,7 +410,8 @@ def _film_pfade_im_tmp(tmp_path):
 
 NETZ_SPERREN = ((geo, "freie_proxys"),                           # Gratis-Proxy-Liste (geonode)
                 (vpn, "status"), (vpn, "_still"),                # NordVPN-Insights; startet NordVPN.exe
-                (update, "fetch_release_json"), (update, "fetch_https"))  # GitHub-Release
+                (update, "fetch_release_json"), (update, "fetch_https"),  # GitHub-Release
+                (update, "authenticode_online"))                 # Sperrlisten der Signatur (S9)
 
 
 def _netz_sperre(modul, name):
