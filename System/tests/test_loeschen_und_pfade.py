@@ -571,6 +571,28 @@ def test_playlist_sync_ordner_in_der_bibliothek_trifft_nie_das_original(tmp_path
     assert not (dl / "MP3" / "_entfernt").exists() and not entfernt
 
 
+def test_playlist_sync_altbestand_bei_den_originalen_trifft_nie_das_original(
+        tmp_path, monkeypatch, entfernt):
+    """Der Übernahmefall, wie er bei JB liegen kann: die alte Namensliste
+    `sync_manifest` nennt auch die Originale (der alte Code nahm gleich große
+    Dateien auf), und der Sync-Ordner liegt dort, wo die Originale liegen.
+    Hier schützt nur der Abgleich „Ziel ist die Quelldatei selbst“: ohne ihn
+    gälte das Original A als unsere Kopie und wanderte nach `_entfernt`, sobald
+    A die Playlist verlässt. (Der Test darüber bleibt auch ohne diesen
+    Abgleich grün, weil dort keine alte Liste den Namen als unseren ausweist.)"""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    pl["sync_ordner"] = str(dl / "MP3")
+    pl["sync_manifest"] = [A, B]
+    r1 = app.playlist_sync(pl)
+    gemerkt = dict(pl["sync_kopien"]["dateien"])
+    pl["items"] = [KB]
+    r2 = app.playlist_sync(pl)
+    assert (dl / "MP3" / A).read_bytes() == b"AAAA", "Original aus der Bibliothek entfernt"
+    assert not (dl / "MP3" / "_entfernt").exists() and not entfernt
+    assert r1["kopiert"] == 0 and r1["uebersprungen"] == 2 and r2["geloescht"] == 0
+    assert gemerkt == {}, "Original als eigene Kopie gemerkt"
+
+
 def test_playlist_sync_altes_merkblatt_wird_uebernommen(tmp_path, monkeypatch, entfernt):
     """Bestand vor der Umstellung: `sync_manifest` (Namensliste). Eine dort
     genannte, gleich große Kopie eines Titels der Playlist gilt weiter als
