@@ -1081,36 +1081,6 @@ def test_pfad_da():
     assert app.pfad_da("kein\x00pfad")["da"] is False   # kaputte Zeichen crashen nicht
 
 
-# ---------------------------------------------------------------- Runner (ohne pytest)
-
-if __name__ == "__main__":
-    import inspect
-    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-    ok = 0
-    uebersprungen = 0
-    for t in tests:
-        # Befund 07.09.2026: Tests mit pytest-Fixtures (tmp_path, monkeypatch)
-        # meldete dieser Weg als FAIL und gab am Ende Exit 1 zurueck — der in
-        # System/MODULE.md angebotene Lauf »ohne Zusatzpakete« war dadurch
-        # dauerhaft rot, obwohl kein einziger Test kaputt war. Jetzt werden sie
-        # ehrlich uebersprungen statt falsch angeklagt.
-        if any(par.default is inspect.Parameter.empty
-               and par.kind in (par.POSITIONAL_OR_KEYWORD, par.POSITIONAL_ONLY)
-               for par in inspect.signature(t).parameters.values()):
-            print(f"  UEBERSPRUNGEN  {t.__name__} (braucht eine pytest-Fixture)")
-            uebersprungen += 1
-            continue
-        try:
-            t()
-            print(f"  PASS  {t.__name__}")
-            ok += 1
-        except Exception as e:                          # noqa: BLE001 — Testreport
-            print(f"  FAIL  {t.__name__}: {e}")
-    gefahren = len(tests) - uebersprungen
-    print(f"\n{ok}/{gefahren} Tests bestanden ({uebersprungen} nur unter pytest).")
-    sys.exit(0 if ok == gefahren else 1)
-
-
 # ---------------------------------------------------------------- Oberflaechen-Waechter (Build 125)
 
 def _oberflaeche_html():
@@ -5127,3 +5097,13 @@ def test_medientasten_steuern_den_player_auch_im_hintergrund():
     block = quelle[i:_funktionsende(quelle, i)]
     assert "medienZustand('playing')" in block or "medienZustand(" in block, \
         "playbackState wird nie gepflegt"
+
+
+if __name__ == "__main__":
+    # Prüfweg ist pytest (Fixtures, Wachen aus conftest.py). Der Direkt-Lauf
+    # übergibt deshalb an pytest und fährt ALLE Tests dieser Datei; weitere
+    # Argumente gehen mit (z. B. -k name). Bis zur Gesamtprüfung Gruppe 7 lief
+    # hier ein eigener Runner mitten in der Datei: Er sah nur die Tests vor sich
+    # (25.09.2026: 59 von 213) und hatte die Wachen der conftest nicht.
+    import pytest
+    sys.exit(pytest.main([os.path.abspath(__file__), "-p", "no:cacheprovider", *sys.argv[1:]]))

@@ -444,3 +444,29 @@ def test_netz_ist_fuer_live_tv_geo_vpn_und_update_gesperrt(request):
     assert len(zugriffe) == 3 + len(conftest.NETZ_SPERREN) + 1, zugriffe
     assert any("raw.githubusercontent.com" in z for z in zugriffe), zugriffe
     zugriffe.clear()                                       # der Alarm war hier gewollt
+
+
+def test_direktlauf_von_test_youtube_faehrt_alle_tests_ueber_pytest():
+    """Gesamtprüfung Gruppe 7 (Doku und Werkzeug): `python tests/test_youtube.py`
+    lief über einen eigenen Runner MITTEN in der Datei. Er sah nur die Tests vor
+    sich (25.09.2026: 59 von 213) und hatte die Wachen dieser conftest nicht.
+    Jetzt steht der Block am Dateiende und übergibt an pytest. Geprüft zuerst am
+    Aufbau (ohne etwas zu starten), dann mit `--collect-only`: gesammelt wird
+    jede Testfunktion der Datei, ausgeführt wird nichts."""
+    import ast
+    datei = os.path.join(HIER, "test_youtube.py")
+    with open(datei, encoding="utf-8") as f:
+        baum = ast.parse(f.read())
+
+    def ist_hauptblock(k):
+        return (isinstance(k, ast.If) and isinstance(k.test, ast.Compare)
+                and isinstance(k.test.left, ast.Name) and k.test.left.id == "__name__")
+    bloecke = [i for i, k in enumerate(baum.body) if ist_hauptblock(k)]
+    assert bloecke == [len(baum.body) - 1], f"Direkt-Lauf nicht (nur) am Dateiende: Stellen {bloecke}"
+    namen = {k.name for k in baum.body if isinstance(k, ast.FunctionDef) and k.name.startswith("test_")}
+    lauf = subprocess.run([sys.executable, datei, "--collect-only", "-q"], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=300, cwd=MODUL_DIR,
+                          env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    assert lauf.returncode == 0, (lauf.stdout + lauf.stderr)[-2000:]
+    gesammelt = {z.split("::", 1)[1].split("[", 1)[0] for z in lauf.stdout.splitlines() if "::test_" in z}
+    assert gesammelt == namen, sorted(namen ^ gesammelt)[:10]

@@ -46,7 +46,7 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
 - Kacheln / **Alben** (Auto-Tagging via MusicBrainz) / Liste, konfigurierbare Spalten
 - Titel per Maus **in die Player-Playlist ziehen**; Playlist als eigenes, andockbares Fenster
 - Playlists (öffnen, umsortieren, .m3u-Import/-Export, Geräte-Sync kopieren/spiegeln)
-- Smart-Playlists (Regeln), Meistgespielt/Zuletzt, Dublettenfinder, Batch-Tag-Editor
+- Smart-Playlists (Regeln), Meistgespielt/Zuletzt, Dublettenfinder
 - Rechtsklick-Kontextmenüs wie im Explorer, Mehrfachauswahl (Strg/Shift), Papierkorb statt Löschen
 
 **Oberfläche**
@@ -92,7 +92,10 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
    Der Eintrag behält die Variante, mit der er angelegt wurde (Quellstart oder exe), und
    wechselt sein Ziel erst, wenn es nicht mehr startet.
 
-Tests: `python System/tests/test_youtube.py` (läuft ohne Zusatzpakete, kein Netz).
+Tests: `python -m pytest System/tests` (braucht pytest; kein Netz, die Wachen in
+`System/tests/conftest.py` legen alle Daten je Test in einen temporären Ordner). Der
+Direkt-Lauf `python System/tests/test_youtube.py` übergibt an pytest und fährt alle Tests
+dieser Datei. Tests, die deno aus `System/bin` brauchen, werden ohne es sichtbar übersprungen.
 
 ## Aufbau
 
