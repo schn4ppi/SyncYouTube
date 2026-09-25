@@ -72,3 +72,25 @@ def test_leere_liste_zaehlt_als_fehler(tmp_path, monkeypatch):
     monkeypatch.setattr(live_tv.urllib.request, "urlopen", lambda *a, **k: R())
     assert live_tv.kanaele(frisch=True) == ALT
     assert "leer" in live_tv.status()["fehler"]
+
+
+def test_nach_einem_fehlschlag_ruht_der_abruf_eine_stunde(tmp_path, monkeypatch):
+    """Gesamtprüfung F18 (25.09.2026): nach einem gescheiterten Abruf versuchte
+    jeder Aufruf und jeder Senderklick erneut, jedes Mal bis zu 30 s lang.
+    Jetzt ruht der Abruf eine Stunde (`letzter_versuch`); der alte Cache trägt."""
+    _cache_anlegen(tmp_path, time.time() - 3 * live_tv.CACHE_ALTER_S)
+    versuche = []
+
+    def kaputt(*a, **k):
+        versuche.append(1)
+        raise OSError("Netz weg")
+    monkeypatch.setattr(live_tv.urllib.request, "urlopen", kaputt)
+    assert live_tv.kanaele() == ALT and len(versuche) == 1
+    assert live_tv.kanaele() == ALT and live_tv.kanaele() == ALT
+    assert len(versuche) == 1, f"{len(versuche)} Abrufe binnen einer Stunde nach dem Fehlschlag"
+    d = json.loads((tmp_path / "live_tv.json").read_text(encoding="utf-8"))
+    d["letzter_versuch"] -= 3601
+    (tmp_path / "live_tv.json").write_text(json.dumps(d), encoding="utf-8")
+    assert live_tv.kanaele() == ALT and len(versuche) == 2, "nach einer Stunde wird erneut gefragt"
+    live_tv.kanaele(frisch=True)
+    assert len(versuche) == 3, "ein ausdrücklich frischer Abruf fragt sofort"

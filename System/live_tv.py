@@ -17,6 +17,7 @@ import familie as fam
 QUELLE = ("https://raw.githubusercontent.com/jnk22/kodinerds-iptv/master/"
           "iptv/clean/clean_tv.m3u")
 CACHE_ALTER_S = 24 * 3600
+FEHL_PAUSE_S = 3600                        # nach einem gescheiterten Abruf (F18)
 ERLAUBTE_SCHEMEN = ("http", "https")
 _pfade = {}
 
@@ -83,6 +84,7 @@ def _fehler_merken(d, fehler):
     Ausfall). Alter Stand und alte Kanäle bleiben unverändert; `fehler_seit`
     hält den ERSTEN Fehlzeitpunkt, damit das Alter der Liste ablesbar ist."""
     d["letzter_fehler"] = f"{type(fehler).__name__}: {fehler}"
+    d["letzter_versuch"] = time.time()
     if not d.get("fehler_seit"):
         d["fehler_seit"] = time.time()
     d.setdefault("stand", 0)
@@ -98,9 +100,14 @@ def kanaele(frisch=False):
     der Abruf, trägt der alte Cache weiter — der Fehler wird aber gemerkt
     (`letzter_fehler`/`fehler_seit`) und über status() sichtbar. Ausgeliefert
     werden nur Kanäle mit http(s)-Adresse; wie viele der Abruf verworfen
-    hat, steht als `verworfen` im Cache und in status()."""
+    hat, steht als `verworfen` im Cache und in status(). Nach einem
+    gescheiterten Abruf ruht die Quelle FEHL_PAUSE_S (`letzter_versuch`, F18):
+    sonst wartete jeder Aufruf und jeder Senderklick bis zu 30 s. `frisch`
+    fragt trotzdem sofort."""
     d = _cache_lesen()
-    if not frisch and time.time() - (d.get("stand") or 0) < CACHE_ALTER_S:
+    jetzt = time.time()
+    if not frisch and (jetzt - (d.get("stand") or 0) < CACHE_ALTER_S
+                       or jetzt - (d.get("letzter_versuch") or 0) < FEHL_PAUSE_S):
         return _nur_erlaubte(d.get("kanaele"))
     try:
         with urllib.request.urlopen(QUELLE, timeout=30) as r:
