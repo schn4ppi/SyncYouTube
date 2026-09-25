@@ -39,6 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import cookie_kopie         # Firefox-Cookies samt WAL für yt-dlp (Lehre aus SyncFindus, 24.09.2026)
+import familie as fam       # gemeinsamer Kern: atomares Schreiben mit Wiederholung (F5)
 import geo
 import medien_smtc          # Windows-Medienanmeldung des VLC-Motors (pywinrt erst bei Bedarf)
 import update
@@ -163,6 +164,10 @@ STANDARD_CONFIG = {
     # Nutzer auskommt. Wirkt nur in der gepackten exe (im Quellcode-Modus
     # aktualisiert git), tauscht nur im Leerlauf, prüft Größe + SHA256.
     "auto_update": True,
+    # Selbst-Neustart, wenn sich der Quellcode ändert (nur im Leerlauf). Stand
+    # bis 25.09.2026 nicht hier, also warf `config_laden` den Schlüssel weg und
+    # der Neustart ließ sich per config.json nicht abschalten (Gesamtprüfung F16).
+    "auto_neustart": True,
     # GEMESSEN 08.09.2026: Diese fünf Schlüssel schreibt das Programm selbst in
     # config.json, aber sie standen NICHT hier — und `config_laden` behält nur,
     # was hier steht. Also gingen sie bei JEDEM Neustart verloren: das gewählte
@@ -353,6 +358,10 @@ class AbbruchError(Exception):
 # ---------------------------------------------------------------- Persistenz
 
 _io_lock = threading.RLock()
+# EINE Sperre für config.json (Gesamtprüfung F5): vorher schrieben die
+# Einstellungen unter Q.lock, die Wiedergabe-Regeln unter _io_lock und die
+# Altlast-Räumung ohne Sperre. Wer CFG ändert oder speichert, hält _cfg_lock.
+_cfg_lock = threading.RLock()
 
 
 def _json_laden(pfad, fallback):
@@ -362,18 +371,44 @@ def _json_laden(pfad, fallback):
     except (OSError, ValueError):
         # kaputte Datei nie verlieren (Suite-Regel: nicht-destruktiv)
         if os.path.exists(pfad):
-            try:
-                os.replace(pfad, pfad + ".defekt")
-            except OSError:
-                pass
+            _defekt_beiseite(pfad)
         return fallback
 
 
+def _defekt_beiseite(pfad):
+    """Rettungskopie `<pfad>.<Zeitstempel>.defekt`, nie über eine vorhandene
+    (Gesamtprüfung F15): vorher hieß sie immer `<pfad>.defekt`, und ein zweiter
+    Defekt überschrieb die erste Kopie. `os.rename` ersetzt unter Windows kein
+    vorhandenes Ziel; bei gleichem Zeitstempel zählt ein Zusatz hoch."""
+    stempel = time.strftime("%Y%m%d-%H%M%S")
+    for n in range(1, 100):
+        ziel = f"{pfad}.{stempel}{'' if n == 1 else '-' + str(n)}.defekt"
+        if os.path.exists(ziel):
+            continue
+        try:
+            os.rename(pfad, ziel)
+            return ziel
+        except FileExistsError:
+            continue
+        except OSError:
+            return None
+    return None
+
+
 def _json_speichern(pfad, daten):
-    tmp = pfad + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(daten, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, pfad)
+    """Atomar schreiben über `familie.json_schreiben` (Gesamtprüfung F5): eigener
+    tmp-Name je Faden und ein kurzer Wiederholungs-Anlauf, solange ein Leser die
+    Zieldatei offen hat. Vorher teilten sich alle Schreiber `<pfad>.tmp` und
+    gaben beim ersten Freigabekonflikt auf. Der Vertrag bleibt: Scheitert das
+    Schreiben, kommt ein OSError."""
+    if not fam.json_schreiben(pfad, daten):
+        raise OSError(f"{os.path.basename(pfad)} ließ sich nicht schreiben")
+
+
+def _cfg_speichern():
+    """config.json schreiben — unter _cfg_lock, wie jede Änderung an CFG."""
+    with _cfg_lock:
+        _json_speichern(CONFIG_PFAD, CFG)
 
 
 # Stand der ausgelieferten Vorgaben — hochzählen, wenn eine Vorgabe sich ändert.
@@ -473,7 +508,7 @@ def vorgaben_umstellung_festschreiben():
             _json_speichern(sicherung, VORGABEN_ROH)
         except OSError:                               # noqa: BLE001 — lieber nicht umstellen
             return []                                 # als ohne Rückweg umstellen
-    _json_speichern(CONFIG_PFAD, CFG)
+    _cfg_speichern()
     return geaendert
 
 
@@ -3931,13 +3966,14 @@ def wiedergabe_setzen(daten):
     merge = bool(daten.get("merge"))
     with _io_lock:
         if daten.get("global"):
-            w = _wiedergabe_saeubern(daten, CFG.get("wiedergabe") if merge else None)
-            if w:
-                CFG["wiedergabe"] = w
-            else:
-                CFG.pop("wiedergabe", None)
-            _json_speichern(CONFIG_PFAD, CFG)
-            return {"ok": True, "wiedergabe": CFG.get("wiedergabe")}
+            with _cfg_lock:
+                w = _wiedergabe_saeubern(daten, CFG.get("wiedergabe") if merge else None)
+                if w:
+                    CFG["wiedergabe"] = w
+                else:
+                    CFG.pop("wiedergabe", None)
+                _cfg_speichern()
+                return {"ok": True, "wiedergabe": CFG.get("wiedergabe")}
         if daten.get("plid"):
             pl = next((p for p in _playlists if p.get("id") == daten["plid"]), None)
             if not pl:
@@ -3999,8 +4035,9 @@ def wiedergabe_sub_altlast_raeumen():
     if gesichert:
         _json_speichern(os.path.join(DATEN_DIR, "wiedergabe_sub_altlast.json"),
                         gesichert)
-    CFG["wg_sub_migriert"] = True
-    _json_speichern(CONFIG_PFAD, CFG)
+    with _cfg_lock:
+        CFG["wg_sub_migriert"] = True
+        _cfg_speichern()
     return len(gesichert)
 
 
@@ -7345,9 +7382,9 @@ class Handler(BaseHTTPRequestHandler):
             _vorher_sichern(pfad, content)            # S11: vorhandene .conf rückholbar daneben
             with open(pfad, "w", encoding="utf-8") as f:
                 f.write(content)
-            with Q.lock:
+            with _cfg_lock:
                 CFG["geo_wireguard_ordner"] = ordner
-                _json_speichern(CONFIG_PFAD, CFG)
+                _cfg_speichern()
         except OSError as e:
             return {"fehler": str(e)}
         return {"ok": True, "ordner": ordner, "laender": geo.wireguard_laender(ordner)}
@@ -7372,7 +7409,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _config(self, daten):
         erlaubt_browser = ("firefox", "chrome", "edge", "keine")
-        with Q.lock:
+        with _cfg_lock:
             if daten.get("ziel_ordner") is not None:
                 CFG["ziel_ordner"] = str(daten["ziel_ordner"]).strip()
             if daten.get("cookies_browser") in erlaubt_browser:
@@ -7414,7 +7451,7 @@ class Handler(BaseHTTPRequestHandler):
             if isinstance(daten.get("parallel"), int) and 1 <= daten["parallel"] <= 3:
                 CFG["parallel"] = daten["parallel"]
                 _worker_start(CFG["parallel"])
-            _json_speichern(CONFIG_PFAD, CFG)
+            _cfg_speichern()
 
     def _biblio(self, daten):
         key = daten.get("id") or ""
