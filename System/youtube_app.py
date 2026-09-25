@@ -18,6 +18,7 @@ alles UTF-8. Einzige Fremdbibliothek: yt-dlp (Core-venv). ffmpeg liegt in bin/.
 import contextlib
 import glob
 import hashlib
+import hmac
 import json
 import math
 import mimetypes
@@ -196,7 +197,54 @@ def zugriff_erlaubt(client_ip, aktiv, code_soll, code_ist):
         return True
     if not aktiv:
         return False
-    return bool(code_soll) and code_ist == code_soll
+    # Zeitkonstant verglichen (S7): die Antwortzeit verrät keine Präfixe.
+    return bool(code_soll) and hmac.compare_digest(str(code_ist or "").encode("utf-8"),
+                                                   str(code_soll).encode("utf-8"))
+
+
+# Versuchsbremse je Client-IP (Gesamtprüfung S7, 25.09.2026) für Fernsteuerungs-
+# Code und Geräte-Token: ab dem zehnten Fehlversuch sperrt sie 1 s, dann je
+# weiterem Versuch doppelt so lange, höchstens 15 Minuten. Während einer Sperre
+# wird nichts geprüft und nichts gezählt; ein Erfolg setzt zurück. Der PC selbst
+# (Loopback) läuft nie hinein. Anfragen OHNE Zugangsdaten zählen nicht: sie
+# können nichts erraten, und die PC-Seite auf einem gekoppelten Gerät schickt
+# solche in Serie (F9).
+BREMSE_AB = 10
+BREMSE_MAX_S = 15 * 60
+_fehlversuche = {}                   # ip -> {"n": Fehlversuche, "bis": gesperrt bis, "ts": letzter}
+_fehlversuche_lock = threading.Lock()
+_bremse_uhr = time.monotonic
+
+
+def _bremse_wartezeit(n):
+    """Sperrdauer in Sekunden nach n Fehlversuchen in Folge."""
+    if n < BREMSE_AB:
+        return 0
+    return min(BREMSE_MAX_S, 2 ** min(n - BREMSE_AB, 20))
+
+
+def _bremse_gesperrt(ip):
+    with _fehlversuche_lock:
+        e = _fehlversuche.get(ip)
+        return bool(e) and _bremse_uhr() < e["bis"]
+
+
+def _bremse_fehlversuch(ip):
+    with _fehlversuche_lock:
+        jetzt = _bremse_uhr()
+        if len(_fehlversuche) > 1024:                  # Deckel: lange Ruhende fallen weg
+            for alt in [k for k, v in _fehlversuche.items()
+                        if v["bis"] <= jetzt and jetzt - v["ts"] > 4 * BREMSE_MAX_S]:
+                del _fehlversuche[alt]
+        e = _fehlversuche.setdefault(ip, {"n": 0, "bis": 0.0, "ts": jetzt})
+        e["n"] += 1
+        e["ts"] = jetzt
+        e["bis"] = jetzt + _bremse_wartezeit(e["n"])
+
+
+def _bremse_erfolg(ip):
+    with _fehlversuche_lock:
+        _fehlversuche.pop(ip, None)
 
 # SponsorBlock: welche Segmente beim Download rausgeschnitten werden (Community-Daten
 # von sponsor.ajay.app, via yt-dlp). "" = aus, damit nichts ungefragt verändert wird.
@@ -6457,15 +6505,23 @@ class Handler(BaseHTTPRequestHandler):
         ip = self.client_address[0] if self.client_address else ""
         if ip in ("127.0.0.1", "::1"):
             return True
+        if not CFG.get("fernsteuerung"):             # S13: aus heißt aus, sofort und
+            return False                             # auch für gekoppelte Geräte
         pfad = urlparse(self.path).path
         if pfad in ("/m", "/handy", "/koppeln", "/api/geraet_anmelden", "/api/geraet_status"):
             return True                              # Pairing muss VOR dem Token gehen
+        if _bremse_gesperrt(ip):                     # S7: Versuchsbremse je IP
+            return False
         q = parse_qs(urlparse(self.path).query)
         tok = (q.get("geraet") or [self.headers.get("X-Geraet", "")])[0]
-        if profil_geraete.geraet_ok(tok):
-            return True
         code = (q.get("code") or [self.headers.get("X-Code", "")])[0]
-        return zugriff_erlaubt(ip, CFG.get("fernsteuerung"), CFG.get("fernsteuerung_code") or "", code)
+        if profil_geraete.geraet_ok(tok) or zugriff_erlaubt(
+                ip, CFG.get("fernsteuerung"), CFG.get("fernsteuerung_code") or "", code):
+            _bremse_erfolg(ip)
+            return True
+        if tok or code:
+            _bremse_fehlversuch(ip)
+        return False
 
     def do_GET(self):
         if not self._anfrage_vertraut():
@@ -6473,7 +6529,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._hat_zugriff():
             # Nicht gekoppeltes LAN-Gerät auf der Startseite? Dann die
             # Pairing-Seite statt einer kalten 403 (Teilprojekt 3).
-            if urlparse(self.path).path in ("/", "/index.html"):
+            if (urlparse(self.path).path in ("/", "/index.html")
+                    and CFG.get("fernsteuerung")):   # S13: aus = auch keine Koppel-Seite
                 return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
             return _antwort(self, 403, {"fehler": "Kein Zugriff — Gerät nicht gekoppelt."})
         if urlparse(self.path).path == "/koppeln":       # Pairing-Seite direkt

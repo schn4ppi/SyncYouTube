@@ -17,6 +17,7 @@ Sicherheits-Regeln (JB 05.08., Spec „Zugriff & Sicherheit"):
   (zusätzlich zum bestehenden Fernsteuerungs-Code) — Wächter-Test PFLICHT.
 - Einbahn-Regel wie filme/geo: importiert NIE youtube_app.
 """
+import hmac
 import json
 import os
 import re
@@ -126,12 +127,17 @@ def geraet_bestaetigen(geraet_id, profil_id):
     return True
 
 
+def _gleich(ist, soll):
+    """Zeitkonstanter Vergleich für Code und Token (Gesamtprüfung S7)."""
+    return hmac.compare_digest(str(ist or "").encode("utf-8"), str(soll or "").encode("utf-8"))
+
+
 def geraet_token_abholen(geraet_id, code):
     """Schritt 3 (vom wartenden Gerät, pollt): erst nach der Freigabe UND nur
     mit dem richtigen Code gibt es den Token — EINMALIG (Code wird entwertet)."""
     d = _lesen()
     g = next((x for x in d["geraete"] if x["id"] == geraet_id), None)
-    if not (g and g.get("verifiziert") and g.get("code") and code == g["code"]):
+    if not (g and g.get("verifiziert") and g.get("code") and _gleich(code, g["code"])):
         return None
     g["code"] = ""                          # entwertet: kein zweiter Abruf
     _schreiben(d)
@@ -144,7 +150,7 @@ def geraet_ok(token):
         return None
     d = _lesen()
     g = next((x for x in d["geraete"]
-              if x.get("verifiziert") and x.get("token") == token), None)
+              if x.get("verifiziert") and x.get("token") and _gleich(token, x["token"])), None)
     if not g:
         return None
     if time.time() - (g.get("zuletzt") or 0) > 3600:    # sparsam stempeln

@@ -187,3 +187,156 @@ def test_nur_das_dashboard_darf_einbetten():
     assert "x-frame-options" not in koepfe, "DENY würde das Dashboard aussperren"
     st, koepfe, _ = _anfrage("/api/status", kopf={"Host": "127.0.0.1:8776"})
     assert "frame-ancestors" in " ".join(koepfe.get("content-security-policy", []))
+
+
+# ------------------------------------------------------------ S13: aus heißt aus
+
+def _gekoppelt():
+    """Ein fertig gekoppeltes Gerät (Pairing samt Freigabe am PC) -> Token."""
+    import profil_geraete as pg
+    a = pg.geraet_anmelden("Handy")
+    assert pg.geraet_bestaetigen(a["geraet_id"], "standard")
+    return pg.geraet_token_abholen(a["geraet_id"], a["code"])["token"]
+
+
+def test_fernsteuerung_aus_sperrt_auch_gekoppelte_geraete_sofort(monkeypatch):
+    """Vorher galt „aus" für gekoppelte Geräte erst nach einem Neustart (bis
+    dahin lauscht der Server weiter im WLAN)."""
+    token = _gekoppelt()
+    _fernsteuerung(monkeypatch, an=True)
+    kopf = {"Host": PC_IM_LAN, "X-Geraet": token}
+    assert _anfrage("/api/status", ip=LAN, kopf=kopf)[0] == 200
+    app.CFG["fernsteuerung"] = False                  # am PC ausgeschaltet, kein Neustart
+    assert _anfrage("/api/status", ip=LAN, kopf=kopf)[0] == 403
+    assert _anfrage("/api/status", ip=LAN, kopf={"Host": PC_IM_LAN, "X-Code": CODE})[0] == 403
+    app.CFG["fernsteuerung"] = True                   # wieder an: gilt ebenso sofort
+    assert _anfrage("/api/status", ip=LAN, kopf=kopf)[0] == 200
+
+
+@pytest.mark.parametrize("pfad,methode", [("/", "GET"), ("/m", "GET"), ("/koppeln", "GET"),
+                                          ("/api/geraet_anmelden", "POST")])
+def test_fernsteuerung_aus_auch_keine_koppel_wege(monkeypatch, pfad, methode):
+    import profil_geraete as pg
+    _fernsteuerung(monkeypatch, an=False)
+    rumpf = {"name": "Fremd"} if methode == "POST" else None
+    st, _, koerper = _anfrage(pfad, methode=methode, ip=LAN, kopf={"Host": PC_IM_LAN}, rumpf=rumpf)
+    assert st == 403, (pfad, koerper[:80])
+    assert pg.geraete_liste() == [], "bei ausgeschalteter Fernsteuerung koppelt sich niemand an"
+
+
+def test_fernsteuerung_aus_laesst_den_pc_selbst_durch(monkeypatch):
+    _fernsteuerung(monkeypatch, an=False)
+    assert _anfrage("/api/status", kopf={"Host": "127.0.0.1:8776"})[0] == 200
+
+
+# ------------------------------------------------------------ S7: Versuchsbremse
+
+class Uhr:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def uhr(monkeypatch):
+    u = Uhr()
+    monkeypatch.setattr(app, "_bremse_uhr", u, raising=False)
+    return u
+
+
+def _mit_code(code, ip=LAN):
+    return _anfrage("/api/status", ip=ip, kopf={"Host": PC_IM_LAN, "X-Code": code})[0]
+
+
+def test_bremse_greift_ab_zehn_fehlversuchen(monkeypatch, uhr):
+    _fernsteuerung(monkeypatch)
+    for _ in range(9):
+        assert _mit_code("FALSCH") == 403
+    assert _mit_code(CODE) == 200, "neun Fehlversuche sperren noch nicht"
+    for _ in range(10):
+        assert _mit_code("FALSCH") == 403
+    assert _mit_code(CODE) == 403, "nach zehn Fehlversuchen hilft auch der richtige Code nicht"
+    uhr.t += 1.5                                      # erste Sperre: 1 s
+    assert _mit_code(CODE) == 200, "nach Ablauf der Sperre geht es wieder"
+    for _ in range(9):
+        assert _mit_code("FALSCH") == 403
+    assert _mit_code(CODE) == 200, "der Erfolg hat den Zähler zurückgesetzt"
+
+
+def test_bremse_waechst_exponentiell_bis_15_minuten(monkeypatch, uhr):
+    """Nach jedem Fehlversuch messen, wie lange die Sperre steht; der nächste
+    Versuch kommt erst danach (während der Sperre zählt keiner)."""
+    _fernsteuerung(monkeypatch)
+    sperren = []
+    for _ in range(24):
+        assert _mit_code("FALSCH") == 403
+        dauer = 0.0
+        while app._bremse_gesperrt(LAN):
+            uhr.t += 0.25
+            dauer += 0.25
+        sperren.append(dauer)
+    assert sperren[:9] == [0.0] * 9, sperren
+    assert sperren[9:14] == [1.0, 2.0, 4.0, 8.0, 16.0], sperren
+    assert max(sperren) == 900.0 and sperren[-1] == 900.0, "Deckel 15 Minuten"
+
+
+def test_bremse_je_ip_und_nie_fuer_den_pc(monkeypatch, uhr):
+    _fernsteuerung(monkeypatch)
+    for _ in range(12):
+        _mit_code("FALSCH")
+    assert _mit_code(CODE) == 403
+    assert _mit_code(CODE, ip="192.168.178.51") == 200, "ein anderes Gerät bleibt frei"
+    for _ in range(30):
+        _mit_code("FALSCH", ip="127.0.0.1")
+    assert _mit_code(CODE, ip="127.0.0.1") == 200, "der PC selbst wird nie gebremst"
+
+
+def test_bremse_zaehlt_falsche_geraete_token(monkeypatch, uhr):
+    _fernsteuerung(monkeypatch)
+    for _ in range(10):
+        st, _, _ = _anfrage("/api/status", ip=LAN, kopf={"Host": PC_IM_LAN, "X-Geraet": "f" * 32})
+        assert st == 403
+    assert _mit_code(CODE) == 403
+
+
+def test_anfragen_ohne_zugangsdaten_zaehlen_nicht(monkeypatch, uhr):
+    """Die PC-Oberfläche auf einem gekoppelten Gerät fragt ohne Token (F9) —
+    ein Strom solcher 403 darf das Gerät nicht aussperren."""
+    _fernsteuerung(monkeypatch)
+    for _ in range(30):
+        assert _anfrage("/api/status", ip=LAN, kopf={"Host": PC_IM_LAN})[0] == 403
+    assert _mit_code(CODE) == 200
+
+
+def test_vergleiche_laufen_zeitkonstant(monkeypatch):
+    import hmac
+
+    import profil_geraete as pg
+    token = _gekoppelt()
+    echt, aufrufe = hmac.compare_digest, []
+
+    def spion(a, b):
+        aufrufe.append((a, b))
+        return echt(a, b)
+
+    monkeypatch.setattr(hmac, "compare_digest", spion)
+    assert app.zugriff_erlaubt(LAN, True, CODE, CODE) is True
+    assert aufrufe, "Code-Vergleich ohne hmac.compare_digest"
+    aufrufe.clear()
+    assert app.zugriff_erlaubt(LAN, True, CODE, "ÄÖÜ") is False, "Nicht-ASCII bricht nicht"
+    aufrufe.clear()
+    assert pg.geraet_ok(token) == "standard"
+    assert aufrufe, "Token-Vergleich ohne hmac.compare_digest"
+
+
+def test_waehrend_der_sperre_zaehlt_nichts(monkeypatch, uhr):
+    """Anfragen während einer Sperre prallen ab, ohne sie zu verlängern."""
+    _fernsteuerung(monkeypatch)
+    for _ in range(10):
+        _mit_code("FALSCH")
+    for _ in range(50):
+        assert _mit_code("FALSCH") == 403
+    uhr.t += 1.1
+    assert _mit_code(CODE) == 200
