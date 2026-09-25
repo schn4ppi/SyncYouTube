@@ -6810,19 +6810,26 @@ def ticker_schleife():
 # Vertrauen in Anfragen (Gesamtprüfung S2, 25.09.2026). „Kommt von 127.0.0.1"
 # heißt nicht „kommt von JB": jede offene Webseite im Browser schickt von dort.
 # Zwei Kopf-Prüfungen vor jedem Riegel:
-#  * Host: nur IP-Literale, localhost und der eigene Rechnername (erstes Label,
-#    z. B. jb-pc.fritz.box). Eine Seite, deren Name per DNS-Rebinding auf
-#    127.0.0.1 zeigt, trägt ihren EIGENEN Namen im Host-Kopf und prallt ab.
+#  * Host: nur IP-Literale, localhost und der eigene Rechnername, allein oder
+#    mit einer Heimnetz-Endung (HEIMNETZ_ENDUNGEN, z. B. jb-pc.fritz.box). Eine
+#    Seite, deren Name per DNS-Rebinding auf 127.0.0.1 zeigt, trägt ihren
+#    EIGENEN Namen im Host-Kopf und prallt ab. Nachschärfung 25.09.2026: vorher
+#    genügte das erste Label, also kam auch jb-pc.fremde-domain.de durch — und
+#    wer diese Domain besitzt, kann den Namen auf 127.0.0.1 zeigen lassen.
 #  * Origin: fehlt er (urllib aus Tray, SyncFindus, Hülle), ist das kein
 #    Browser-Querzugriff. Sonst nur der eigene Ursprung (Host:Port wie im
 #    Host-Kopf) oder eine Browser-Erweiterung (das Addon).
 # Bewusst KEINE Content-Type-Pflicht: das Addon sendet ohne (background.js).
 ERWEITERUNGS_SCHEMATA = ("moz-extension", "chrome-extension", "ms-browser-extension")
 # Das Dashboard (Tray-Server, SyncDashTray settings_server.PORT) bettet
-# /?embed=1 im Rahmen ein; sonst darf nur die App selbst sich einbetten.
-DASHBOARD_URSPRUNG = "http://127.0.0.1:8765"
-EINBETTEN_CSP = f"frame-ancestors 'self' {DASHBOARD_URSPRUNG}"
+# /?embed=1 im Rahmen ein; sonst darf nur die App selbst sich einbetten. Das
+# Dashboard ist unter beiden Namen des PCs erreichbar (Nachschärfung 25.09.2026).
+DASHBOARD_URSPRUENGE = ("http://127.0.0.1:8765", "http://localhost:8765")
+EINBETTEN_CSP = "frame-ancestors 'self' " + " ".join(DASHBOARD_URSPRUENGE)
+HEIMNETZ_ENDUNGEN = (".local", ".lan", ".home.arpa", ".fritz.box", ".localdomain")
 MAX_KOERPER = 2 * 1024 * 1024        # S14: größter angenommener POST-Körper
+SEITEN = ("/", "/index.html", "/m", "/koppeln", "/fernbedienung")   # Routen, die eine HTML-Seite liefern
+FERNSTEUERUNG_AUS_TEXT = "Fernsteuerung am PC ausgeschaltet."
 _HOST_MUSTER = re.compile(r"(?:\[(?P<v6>[0-9a-f:.]+)\]|(?P<name>[a-z0-9_.-]+))(?::(?P<port>\d{1,5}))?")
 
 
@@ -6851,7 +6858,7 @@ def host_erlaubt(host_kopf):
     if name == "localhost":
         return True
     rechner = (socket.gethostname() or "").strip().lower().split(".")[0]
-    return bool(rechner) and name.split(".")[0] == rechner
+    return bool(rechner) and name in {rechner} | {rechner + e for e in HEIMNETZ_ENDUNGEN}
 
 
 def origin_erlaubt(origin, host_kopf):
@@ -7127,9 +7134,19 @@ class Handler(BaseHTTPRequestHandler):
                 _bremse_fehlversuch(ip)
         return ok
 
+    def _fernsteuerung_aus(self):
+        """S13: aus heißt aus, für jedes Gerät im WLAN, auch ein gekoppeltes.
+        Nachschärfung 25.09.2026: das Gerät erfährt es ehrlich, statt „nicht
+        gekoppelt“ zu lesen; eine Seite bekommt Text statt JSON."""
+        if urlparse(self.path).path in SEITEN:
+            return _antwort(self, 403, profil_geraete.FERNSTEUERUNG_AUS_HTML.encode("utf-8"), "text/html")
+        return _antwort(self, 403, {"fehler": FERNSTEUERUNG_AUS_TEXT})
+
     def do_GET(self):
         if not self._anfrage_vertraut():
             return _antwort(self, 403, {"fehler": "Anfrage von fremder Seite abgelehnt."})
+        if not self._ist_lokal() and not CFG.get("fernsteuerung"):
+            return self._fernsteuerung_aus()
         if not self._hat_zugriff():
             # Nicht gekoppeltes LAN-Gerät auf der Startseite? Dann die
             # Pairing-Seite statt einer kalten 403 (Teilprojekt 3).
@@ -7534,6 +7551,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self._anfrage_vertraut():
             self.close_connection = True
             return _antwort(self, 403, {"fehler": "Anfrage von fremder Seite abgelehnt."})
+        if not self._ist_lokal() and not CFG.get("fernsteuerung"):
+            self.close_connection = True
+            return self._fernsteuerung_aus()
         if not self._hat_zugriff():
             self.close_connection = True
             return _antwort(self, 403, {"fehler": "Kein Zugriff — Fernsteuerung aus oder falscher Code."})

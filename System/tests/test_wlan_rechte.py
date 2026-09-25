@@ -259,3 +259,53 @@ def test_loopback_in_jeder_schreibweise_ist_der_pc(tmp_path, ip):
 @pytest.mark.parametrize("ip", [LAN, "10.0.0.7", "::ffff:192.168.178.50", "fe80::1", ""])
 def test_nicht_loopback_ist_nie_der_pc(ip):
     assert not app.ist_loopback(ip)
+
+
+# ------------------------------------------------------------ Nachschärfung S2: Host-Regel
+
+@pytest.mark.parametrize("host", [
+    "jb-pc", "jb-pc:8776", "JB-PC.fritz.box:8776", "jb-pc.local:8776", "jb-pc.lan:8776",
+    "jb-pc.home.arpa:8776", "jb-pc.localdomain:8776", "jb-pc.fritz.box.:8776",
+    "localhost:8776", "192.168.178.20:8776", "[::1]:8776"])
+def test_host_eigener_name_mit_heimnetz_endung(host):
+    assert _anfrage("/api/status", kopf={"Host": host})[0] == 200, host
+
+
+@pytest.mark.parametrize("host", [
+    "jb-pc.fremde-domain.de:8776", "jb-pc.example:8776", "jb-pc.local.angreifer.de:8776",
+    "jb-pc.fritz.box.angreifer.de:8776", "jb-pc.home:8776", "jb-pc.arpa:8776",
+    "localhost.local:8776", "anderer-pc.fritz.box:8776", "jb-pc-x.lan:8776"])
+def test_host_eigener_name_unter_fremder_domain_wird_abgewiesen(host):
+    """Vorher reichte das erste Label: jb-pc.fremde-domain.de kam durch, und
+    wer diesen Namen im DNS besitzt, kann ihn per Rebinding auf 127.0.0.1 zeigen."""
+    assert _anfrage("/api/status", kopf={"Host": host})[0] == 403, host
+
+
+def test_dashboard_darf_auch_unter_localhost_einbetten():
+    st, koepfe, _ = _anfrage("/?embed=1", kopf={"Host": "127.0.0.1:8776"})
+    csp = " ".join(koepfe.get("content-security-policy", []))
+    assert st == 200
+    assert "http://127.0.0.1:8765" in csp and "http://localhost:8765" in csp, csp
+
+
+# ------------------------------------------------------------ Nachschärfung S13: ehrlicher Text
+
+@pytest.mark.parametrize("pfad", ["/", "/m", "/koppeln", "/fernbedienung"])
+def test_gekoppeltes_geraet_sieht_fernsteuerung_aus_statt_nicht_gekoppelt(monkeypatch, pfad):
+    from test_zugang_und_vertrauen import _gekoppelt
+    token = _gekoppelt()
+    _fernsteuerung(monkeypatch, an=False)
+    st, koepfe, koerper = _anfrage(pfad, ip=LAN, kopf={"Host": PC_IM_LAN, "X-Geraet": token})
+    text = koerper.decode("utf-8")
+    assert st == 403, (pfad, text[:120])
+    assert "Fernsteuerung am PC ausgeschaltet" in text and "nicht gekoppelt" not in text, text[:200]
+    assert koepfe["content-type"][0].startswith("text/html"), "eine Seite zeigt Text, kein JSON"
+
+
+def test_api_meldet_fernsteuerung_aus_ebenso(monkeypatch):
+    _fernsteuerung(monkeypatch, an=False)
+    for methode, pfad in (("GET", "/api/status"), ("POST", "/api/remote")):
+        st, _, koerper = _senden(methode, pfad, {"cmd": "play"} if methode == "POST" else None,
+                                 kopf={"X-Code": CODE})
+        assert st == 403 and "Fernsteuerung am PC ausgeschaltet" in json.loads(koerper)["fehler"]
+    assert app._remote["n"] == 0

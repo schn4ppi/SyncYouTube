@@ -249,6 +249,22 @@ def geraet_entfernen(geraet_id):
     return ok
 
 
+# ---------------------------------------------------------------- Fernsteuerung aus
+
+# Nachschärfung 25.09.2026: Ein gekoppeltes Gerät las bei ausgeschalteter
+# Fernsteuerung „Gerät nicht gekoppelt“ und hätte sich neu koppeln wollen. Die
+# Kopplung bleibt aber gültig; es fehlt nur der Schalter am PC.
+FERNSTEUERUNG_AUS_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sync — Fernsteuerung aus</title><style>
+body{margin:0;background:#0c0a09;color:#f2ece5;font-family:system-ui,sans-serif;
+  display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center}
+.box{padding:30px}h1{font-size:24px}p{color:#b9aea4;font-size:17px;max-width:420px}
+</style></head><body><div class="box"><h1>📴 Fernsteuerung am PC ausgeschaltet.</h1>
+<p>Die Kopplung dieses Geräts bleibt gültig. Am PC unter <b>⚙ → 📱 Fernsteuerung</b>
+wieder einschalten, dann diese Seite neu laden.</p></div></body></html>"""
+
+
 # ---------------------------------------------------------------- Pairing-Seite
 
 PAIRING_HTML = """<!doctype html><html lang="de"><head><meta charset="utf-8">
