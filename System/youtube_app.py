@@ -6173,25 +6173,49 @@ def herunterladen(item):
         return
     if item.get("geo_laender") and not item.get("geo_versucht") and CFG.get("geo_vpn"):
         _geo_download(item, erzwingen)
-        return
-    _download_lauf(item, erzwingen)
+    else:
+        _download_lauf(item, erzwingen)
+    _sicherung_nennen(item)
 
 
 def _vorhandene_sichern(item):
     """„Trotzdem laden“ (Gesamtprüfung Gruppe 6): yt-dlp ersetzt die vorhandene
     Datei (overwrites). Vorher wandert sie rückholbar in den Papierkorb (Rückfall
     `_Papierkorb`, _rueckholbar_entfernen). Lässt sie sich nicht sichern, wird
-    nichts ersetzt: der Eintrag steht mit Grund auf „fehler“. True = weiter."""
+    nichts ersetzt: der Eintrag steht mit Grund auf „fehler“. True = weiter.
+    Wohin sie ging, merkt sich der Eintrag (`gesichert`, s. _sicherung_nennen)."""
     fund = schon_geladen(item["url"], item["qualitaet"]) or item.get("datei") or ""
     if not (fund and os.path.isfile(fund)):
         return True
-    if _rueckholbar_entfernen(fund):
+    ort = _rueckholbar_entfernen(fund)
+    if ort:
+        item["gesichert"] = ort
         return True
     with Q.lock:
         item["status"] = "fehler"
         item["fehler"] = "Die vorhandene Datei ließ sich nicht sichern, darum wurde nichts ersetzt."
     Q.speichern()
     return False
+
+
+def _sicherung_nennen(item):
+    """Nach einem Lauf von „Trotzdem laden“: ist der neue Download gescheitert,
+    nennt der Fehlertext, wo die vorher gesicherte Datei liegt (sonst fehlte der
+    Titel ohne Hinweis in der Bibliothek). Ein geplanter Neuversuch ist noch
+    kein Scheitern; nach einem gelungenen Download wird die Sicherung vergessen."""
+    ort = item.get("gesichert")
+    if not ort or item.get("status") not in ("fehler", "fertig"):
+        return
+    with Q.lock:
+        if item["status"] == "fertig":
+            item.pop("gesichert", None)
+            return
+        hinweis = ("Die vorherige Datei liegt im Windows-Papierkorb." if ort == "papierkorb"
+                   else f"Die vorherige Datei liegt rückholbar unter {ort}.")
+        text = (item.get("fehler") or "").strip()
+        if hinweis not in text:
+            item["fehler"] = f"{text} {hinweis}".strip()
+    Q.speichern()
 
 
 def _zugang_ok(url, extra_opts, timeout=30):

@@ -1086,6 +1086,61 @@ def test_ohne_trotzdem_bleibt_das_ueberspringen(tmp_path, monkeypatch, korb):
     assert laeufe == [] and korb == [] and item["status"] == "uebersprungen"
 
 
+# Nacharbeit: Scheitert der neue Download endgültig (Video gelöscht, Geo-Sperre),
+# fehlt der Titel in der Bibliothek, und die Meldung sagte nicht, wo die
+# gesicherte alte Datei liegt. Jetzt nennt der Fehlertext den Ort.
+
+def _laeufe_mit(monkeypatch, *ausgaenge):
+    """_download_lauf-Attrappe: je Aufruf der nächste Ausgang (Status, Fehlertext)."""
+    rest = list(ausgaenge)
+
+    def lauf(item, erzwingen=False, **kw):
+        item["status"], item["fehler"] = rest.pop(0)
+    monkeypatch.setattr(app, "_download_lauf", lauf)
+
+
+def test_trotzdem_laden_gescheitert_nennt_den_papierkorb(tmp_path, monkeypatch, korb, entfernt):
+    alt, item, _ = _trotzdem_welt(tmp_path, monkeypatch)
+    _laeufe_mit(monkeypatch, ("fehler", "Video nicht verfügbar"))
+    app.herunterladen(item)
+    assert item["status"] == "fehler" and item["fehler"].startswith("Video nicht verfügbar"), item
+    assert "Papierkorb" in item["fehler"], f"der Fehler nennt die gesicherte Datei nicht: {item['fehler']}"
+
+
+def test_trotzdem_laden_gescheitert_nennt_den_rueckhol_ordner(tmp_path, monkeypatch, korb, entfernt):
+    alt, item, _ = _trotzdem_welt(tmp_path, monkeypatch)
+    korb.klappt = False                               # Rückfall: Ordner _Papierkorb im Download-Ordner
+    monkeypatch.setattr(app, "_sag", lambda *a, **k: None)
+    _laeufe_mit(monkeypatch, ("fehler", "Geo-Sperre"))
+    app.herunterladen(item)
+    gesichert = [os.path.join(w, n) for w, _, ns in os.walk(tmp_path / "dl" / app.PAPIERKORB_ORDNER)
+                 for n in ns]
+    assert len(gesichert) == 1 and not alt.exists(), gesichert
+    assert gesichert[0] in item["fehler"], f"der Fehler nennt den Ort nicht: {item['fehler']}"
+
+
+def test_trotzdem_laden_neuversuch_nennt_die_sicherung_weiter(tmp_path, monkeypatch, korb, entfernt):
+    alt, item, _ = _trotzdem_welt(tmp_path, monkeypatch)
+    _laeufe_mit(monkeypatch, ("wartend", "Zeitüberschreitung"), ("fehler", "Video nicht verfügbar"))
+    app.herunterladen(item)                           # erster Versuch: Neuversuch geplant
+    assert "Papierkorb" not in item["fehler"], "ein geplanter Neuversuch ist noch kein Scheitern"
+    item["status"] = "laeuft"
+    app.herunterladen(item)                           # zweiter Versuch (ohne „Trotzdem“, Datei ist schon weg)
+    assert item["status"] == "fehler" and "Papierkorb" in item["fehler"], item["fehler"]
+    assert korb == [str(alt)], "die Datei wurde nur einmal gesichert"
+
+
+def test_trotzdem_laden_gelungen_ohne_hinweis(tmp_path, monkeypatch, korb, entfernt):
+    alt, item, _ = _trotzdem_welt(tmp_path, monkeypatch)
+    _laeufe_mit(monkeypatch, ("fertig", ""))
+    app.herunterladen(item)
+    assert item["status"] == "fertig" and item["fehler"] == ""
+    item["status"], item["fehler"] = "laeuft", ""
+    _laeufe_mit(monkeypatch, ("fehler", "später gescheitert"))
+    app.herunterladen(item)                           # ein späterer Lauf kennt die alte Sicherung nicht mehr
+    assert "Papierkorb" not in item["fehler"], item["fehler"]
+
+
 def test_untertitel_mit_url_schluessel_bleiben_nach_dem_einsortieren(tmp_path, monkeypatch, kein_netzpfad):
     """Runde-1-Befund zu S4, Gruppe 6d: ein Download, der nicht von YouTube
     stammt (die ganze URL ist der Schlüssel), fand seine Untertitel nur neben
