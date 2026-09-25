@@ -3850,6 +3850,15 @@ def _dieselbe_datei(a, b):
         return False
 
 
+def _quellordner_erreichbar(e):
+    """Ist der Ordner erreichbar, in dem die fehlende Quelle eines Eintrags lag
+    (ohne gemerkten Pfad: der Download-Ordner)? Nein heißt: Platte oder
+    Freigabe ab, die Datei kommt vermutlich zurück (Gesamtprüfung S5)."""
+    pfad = e.get("pfad") if isinstance(e.get("pfad"), str) else ""
+    ordner = os.path.dirname(pfad) if pfad else ziel_ordner()
+    return bool(ordner) and os.path.isdir(ordner)
+
+
 def playlist_sync(pl):
     """Playlist-Dateien in den Zielordner (Gerät/USB/Handy) kopieren.
     Modus 'spiegeln': aus der Playlist entfernte Titel verlassen das Ziel —
@@ -3862,8 +3871,10 @@ def playlist_sync(pl):
     und nennt nur wirklich kopierte Dateien; eine schon vorhandene gleich
     große Datei im Ziel ist nicht unsere, das Original selbst (Sync-Ordner in
     der Bibliothek) nie. Entfernt wird nur für Schlüssel, die nicht mehr in
-    der Playlist stehen, und gar nicht, solange eine Quelle fehlt (`fehlend`
-    im Ergebnis; der nächste vollständige Lauf holt es nach). Eine alte
+    der Playlist stehen. Fehlt eine Quelle (`fehlend` im Ergebnis), bleibt
+    ihre Kopie über den Schlüssel geschützt; liegt sie in einem gerade
+    unerreichbaren Ordner (Platte ab), wird in diesem Lauf gar nichts
+    entfernt, der nächste Lauf mit erreichbarem Ordner holt es nach. Eine alte
     Namensliste `sync_manifest` wird einmal übernommen: ein dort genannter
     Name gilt als unsere Kopie, wenn der Titel in der Playlist steht und die
     Datei im Ziel gleich groß ist."""
@@ -3887,6 +3898,7 @@ def playlist_sync(pl):
     idx = _datei_index()
     gewollt = {}                                      # basename -> (Schlüssel, Quellpfad)
     fehlend = 0
+    gesperrt = False                                  # Ordner einer fehlenden Quelle unerreichbar
     for key in items:
         e = _geladen.get(key)
         if not e:
@@ -3897,6 +3909,7 @@ def playlist_sync(pl):
             gewollt[os.path.basename(src)] = (key, src)
         else:
             fehlend += 1                              # Platte ab, Datei verschoben: kein „entfernt"
+            gesperrt = gesperrt or not _quellordner_erreichbar(e)
     neu = {k: n for k, n in bisher.items() if k in in_playlist}   # fehlende/alte bleiben gemerkt
     kopiert = uebersprungen = geloescht = fehler = 0
     for name, (key, src) in gewollt.items():
@@ -3926,7 +3939,7 @@ def playlist_sync(pl):
             umbenannt = key in aktuell and aktuell[key] != name   # alte Kopie unter altem Namen
             if not (entfernt or umbenannt) or name in geschuetzt:
                 continue
-            if fehlend:                               # erst der nächste vollständige Lauf
+            if gesperrt:                              # erst, wenn der Ordner wieder da ist
                 if entfernt:
                     neu[key] = name
                 continue
@@ -6200,8 +6213,9 @@ def filme_sync_pruefen():
 
 
 _auto_sync_stand = {}                                 # playlist-id -> zuletzt gesyncte Signatur
-_auto_sync_nachholen = {}                             # playlist-id -> (Signatur, frühester nächster Versuch)
-AUTO_SYNC_NACHHOL_S = 300
+_auto_sync_nachholen = {}                             # playlist-id -> (Signatur, frühester nächster Versuch, Pause)
+AUTO_SYNC_NACHHOL_S = 300                             # erste Pause nach einem Lauf mit fehlender Quelle
+AUTO_SYNC_NACHHOL_MAX_S = 3600                        # verdoppelt sich je Fehlschlag bis hierher
 
 
 def auto_sync_pruefen():
@@ -6215,7 +6229,10 @@ def auto_sync_pruefen():
     Fehlte beim Lauf eine Quelle (Gesamtprüfung S5), wird die Signatur NICHT
     gemerkt: sonst kopierte der Auto-Sync die Datei nie nach, bis sich die
     Playlist änderte. Der nächste Versuch kommt frühestens nach
-    AUTO_SYNC_NACHHOL_S (jeder Lauf durchsucht den ganzen Download-Ordner).
+    AUTO_SYNC_NACHHOL_S (jeder Lauf durchsucht den ganzen Download-Ordner);
+    fehlt die Quelle weiter, verdoppelt sich die Pause bis
+    AUTO_SYNC_NACHHOL_MAX_S (eine im Explorer gelöschte Datei fehlt für
+    immer). Eine geänderte Playlist läuft sofort und beginnt von vorn.
     """
     # _playlists ist eine LISTE (Fund 07.08.: .values() warf AttributeError —
     # und riss, weil ungefangen, den ganzen Ticker mit; JBs Spiegel-Sync lief
@@ -6235,7 +6252,9 @@ def auto_sync_pruefen():
         try:
             r = playlist_sync(pl)
             if isinstance(r, dict) and r.get("fehlend"):
-                _auto_sync_nachholen[pl.get("id")] = (sig, time.time() + AUTO_SYNC_NACHHOL_S)
+                pause = (min(warte[2] * 2, AUTO_SYNC_NACHHOL_MAX_S)
+                         if warte and warte[0] == sig else AUTO_SYNC_NACHHOL_S)
+                _auto_sync_nachholen[pl.get("id")] = (sig, time.time() + pause, pause)
             else:
                 _auto_sync_stand[pl.get("id")] = sig
                 _auto_sync_nachholen.pop(pl.get("id"), None)

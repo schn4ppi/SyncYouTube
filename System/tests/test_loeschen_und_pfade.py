@@ -541,20 +541,66 @@ def test_playlist_sync_fehlende_quelle_entfernt_nichts(tmp_path, monkeypatch, en
     assert not entfernt
 
 
-def test_playlist_sync_fehlende_quelle_blockiert_auch_das_entfernen(tmp_path, monkeypatch,
-                                                                    entfernt):
-    """Fehlt irgendeine Quelle, wird in diesem Lauf nichts entfernt; der
-    nächste vollständige Lauf holt es nach."""
+def test_playlist_sync_unerreichbarer_quellordner_sperrt_das_entfernen(tmp_path, monkeypatch,
+                                                                       entfernt):
+    """Liegt eine fehlende Quelle in einem Ordner, der gerade nicht erreichbar
+    ist (Platte ab), wird in diesem Lauf nichts entfernt; der nächste Lauf mit
+    erreichbarem Ordner holt es nach."""
     dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
     app.playlist_sync(pl)
-    (dl / "MP3" / A).rename(tmp_path / "weg.mp3")
-    pl["items"] = [KA]                                # B wirklich entfernt, A fehlt kurz
-    app.playlist_sync(pl)
+    pl["items"] = [KA]                                # B wirklich entfernt
+    (dl / "MP3").rename(tmp_path / "platte_ab")       # A fehlt samt Ordner
+    r = app.playlist_sync(pl)
+    assert r.get("fehlend") == 1 and r["geloescht"] == 0
     assert (stick / B).is_file()
-    (tmp_path / "weg.mp3").rename(dl / "MP3" / A)
+    (tmp_path / "platte_ab").rename(dl / "MP3")
     r = app.playlist_sync(pl)
     assert r["geloescht"] == 1 and (stick / "_entfernt" / B).is_file()
     assert not entfernt
+
+
+def test_playlist_sync_dauerhaft_fehlende_datei_sperrt_das_entfernen_nicht(tmp_path, monkeypatch,
+                                                                          entfernt):
+    """Dauerfall (Nacharbeit S5): B wurde im Explorer gelöscht, sein Ordner ist
+    da, der Eintrag in der Bibliothek bleibt. Vorher sperrte das jedes
+    Entfernen für immer: ein aus der Playlist genommener Titel A blieb auf dem
+    Stick. Jetzt sperrt nur ein unerreichbarer Ordner; die Kopie des fehlenden
+    Titels bleibt über seinen Schlüssel geschützt."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    app.playlist_sync(pl)
+    (dl / "MP3" / B).rename(tmp_path / "geloescht.mp3")   # Löschen im Explorer, nachgestellt
+    pl["items"] = [KB]                                # JB nimmt A aus der Playlist
+    r = app.playlist_sync(pl)
+    assert (stick / "_entfernt" / A).read_bytes() == b"AAAA" and not (stick / A).exists(), \
+        "entfernter Titel bleibt für immer auf dem Stick"
+    assert r.get("fehlend") == 1 and r["geloescht"] == 1
+    assert (stick / B).read_bytes() == b"BBBBBB", "Kopie des fehlenden Titels angefasst"
+    assert not entfernt
+
+
+def test_auto_sync_dauerhaft_fehlende_quelle_wartet_immer_laenger(tmp_path, monkeypatch,
+                                                                 entfernt):
+    """Dauerfall (Nacharbeit S5): fehlt eine Quelle für immer, versuchte der
+    Auto-Sync es ohne Ende alle 300 s, und jeder Lauf durchsucht den ganzen
+    Download-Ordner und schreibt die Playlist-Datei. Jetzt verdoppelt sich die
+    Pause nach jedem Lauf mit fehlender Quelle, höchstens bis zu einer Stunde."""
+    monkeypatch.setattr(app, "_auto_sync_stand", {})
+    monkeypatch.setattr(app, "_auto_sync_nachholen", {})
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    pl["sync_auto"] = True
+    stick.mkdir()
+    (dl / "MP3" / B).rename(tmp_path / "geloescht.mp3")
+    laeufe = []
+    echt = app.playlist_sync
+    uhr = [1_000_000.0]
+    monkeypatch.setattr(app, "playlist_sync", lambda p: laeufe.append(uhr[0]) or echt(p))
+    monkeypatch.setattr(app.time, "time", lambda: uhr[0])
+    for _ in range(4 * 60):                           # vier Stunden im Minutentakt
+        app.auto_sync_pruefen()
+        uhr[0] += 60
+    abstaende = [b - a for a, b in zip(laeufe, laeufe[1:])]
+    assert abstaende == [300, 600, 1200, 2400, 3600, 3600], abstaende
+    assert (stick / A).is_file() and not entfernt
 
 
 def test_playlist_sync_ordner_in_der_bibliothek_trifft_nie_das_original(tmp_path, monkeypatch,
