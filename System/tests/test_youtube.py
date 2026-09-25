@@ -4822,7 +4822,7 @@ def test_routen_inventur_und_aussen_gates():
     assert "_ist_lokal" in src[i:i + 900], "Status muss nicht-lokal filtern"
     i = src.index('elif self.path == "/api/config"')
     assert "_ist_lokal" in src[i:i + 300], "Config nur lokal"
-    i = src.index("def _biblio")
+    i = src.index("def _biblio(")                     # exakt: nicht jeder Name mit _biblio…
     assert "_ist_lokal" in src[i:i + 900], "Biblio-Aenderungen nur lokal"
     i = src.index('if self.path == "/api/vlc"')
     assert "_ist_lokal" in src[i:i + 500], "VLC-url/fenster nur lokal"
