@@ -6136,13 +6136,25 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
     Q.speichern()
 
 
+def _q_speichern_im_worker():
+    """Q.speichern, das den Worker nie tötet (Gesamtprüfung F1). Vorher stand
+    das Speichern außerhalb des `try` bzw. im `except`: Scheiterte os.replace
+    (etwa während das Dashboard yt_status.json liest), starb der Worker-Faden
+    für immer, und sein Eintrag blieb auf „laeuft". Der Stand bleibt im
+    Speicher; das nächste Speichern (Ticker, spätestens 5 s) holt ihn nach."""
+    try:
+        Q.speichern()
+    except Exception as e:                           # noqa: BLE001 — Worker darf NIE sterben
+        _sag("Warteschlange nicht gespeichert: " + _fehltext(e))
+
+
 def worker_schleife():
     while True:
         item = Q.naechster()
         if item is None:
             time.sleep(1)
             continue
-        Q.speichern()
+        _q_speichern_im_worker()
         try:
             herunterladen(item)
         except Exception as e:                       # noqa: BLE001 — Worker darf NIE sterben
@@ -6151,12 +6163,15 @@ def worker_schleife():
             # „laeuft" (und blockierte damit auch den Selbst-Neustart, der auf
             # Leerlauf wartet), und es arbeitete ein Worker weniger. Jetzt wird
             # der Eintrag ehrlich zum „fehler" und der Worker lebt weiter.
-            fehler_merken(item.get("url"), str(e), "worker", item.get("titel") or "")
+            try:
+                fehler_merken(item.get("url"), str(e), "worker", item.get("titel") or "")
+            except Exception:                        # noqa: BLE001 — auch das darf nicht töten
+                pass
             with Q.lock:
                 if item.get("status") == "laeuft":
                     item["status"] = "fehler"
                     item["fehler"] = _fehltext(e)
-            Q.speichern()
+            _q_speichern_im_worker()
 
 
 _fehler_seit = {}   # item-id -> Zeitpunkt, seit dem der Eintrag „fehler" ist
@@ -6486,6 +6501,7 @@ def ticker_schleife():
                  if any(it["status"] == "laeuft" for it in Q.items) else None),
                 ("fehler", _fehler_aufraeumen),
                 ("queue", queue_heilen),              # Build 137: hängende Aufträge
+                ("worker", lambda: _worker_start(_worker_soll())),   # F1: tote Worker ersetzen
                 ("neustart", _neustart_pruefen),      # Build 144m: neuer Code
                 ("filme", filme_sync_pruefen),        # Film-Fundament: 6-h-Abzug
                 ("autosync", auto_sync_pruefen)):     # JB 07.08.: Playlist -> Gerät
@@ -7538,16 +7554,26 @@ class Handler(BaseHTTPRequestHandler):
             _json_speichern(GELADEN_PFAD, _geladen)
 
 
-_worker_anzahl = 0
+_worker_faeden = []
+_worker_lock = threading.Lock()
+
+
+def _worker_soll():
+    return max(1, min(3, int(CFG.get("parallel", 1))))
 
 
 def _worker_start(soll):
     """Worker nur hochfahren (laufende Threads sanft auslaufen zu lassen wäre
-    komplex — überzählige Worker finden schlicht keine Arbeit mehr)."""
-    global _worker_anzahl
-    while _worker_anzahl < soll:
-        threading.Thread(target=worker_schleife, daemon=True).start()
-        _worker_anzahl += 1
+    komplex — überzählige Worker finden schlicht keine Arbeit mehr).
+    Gezählt werden nur LEBENDE Fäden (Gesamtprüfung F1): vorher zählte ein
+    Zähler auch gestorbene mit, ein toter Worker wurde also nie ersetzt. Der
+    Ticker ruft das alle 5 s mit auf."""
+    with _worker_lock:
+        _worker_faeden[:] = [f for f in _worker_faeden if f.is_alive()]
+        while len(_worker_faeden) < soll:
+            f = threading.Thread(target=worker_schleife, daemon=True)
+            f.start()
+            _worker_faeden.append(f)
 
 
 def _sag(text):
@@ -7752,7 +7778,7 @@ def main():
         _smtc_einrichten()
     except Exception as e:                           # noqa: BLE001 — nie den Start reißen
         _sag(f"Windows-Medienanmeldung nicht eingerichtet: {e}")
-    _worker_start(max(1, min(3, int(CFG.get("parallel", 1)))))
+    _worker_start(_worker_soll())
     threading.Thread(target=ticker_schleife, daemon=True).start()
     threading.Thread(target=technik_backfill, daemon=True).start()   # Codecs für Alt-Dateien
     threading.Thread(target=titel_abgleich, daemon=True).start()     # Build 141: Anzeige folgt dem Dateinamen

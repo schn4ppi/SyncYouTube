@@ -143,5 +143,120 @@ def test_auto_neustart_bleibt_als_vorgabe_an():
     assert app.config_laden()["auto_neustart"] is True
 
 
+# ---------------------------------------------------------------- F1: Worker-Tod
+
+class _Halt(BaseException):
+    """Beendet eine Worker-Schleife im Test (kein `except Exception` fängt das)."""
+
+
+def _worker_mit_halt(monkeypatch, halt):
+    """Die echte worker_schleife in einem Faden; `halt` beendet sie beim
+    nächsten Griff nach Arbeit. Liefert den Faden und seinen Ausgang."""
+    echt_naechster = app.Q.naechster
+
+    def naechster():
+        if halt.is_set():
+            raise _Halt()
+        return echt_naechster()
+    monkeypatch.setattr(app.Q, "naechster", naechster)
+    ausgang = []
+
+    def lauf():
+        try:
+            app.worker_schleife()
+        except _Halt:
+            ausgang.append("halt")
+        except BaseException as e:                   # noqa: BLE001 — der Test will den Tod sehen
+            ausgang.append(repr(e))
+            raise
+    faden = threading.Thread(target=lauf, daemon=True)
+    faden.start()
+    return faden, ausgang
+
+
+def _warten(bedingung, s=10.0):
+    ende = threading.Event()
+    for _ in range(int(s / 0.01)):
+        if bedingung():
+            return True
+        ende.wait(0.01)
+    return bedingung()
+
+
+def _speichern_scheitert_einmal(monkeypatch, wann=1):
+    """Q.speichern wirft beim `wann`-ten Aufruf einmal einen OSError (so, wie
+    os.replace scheitert, während das Dashboard yt_status.json liest)."""
+    echt = app.Q.speichern
+    zaehler = {"n": 0}
+
+    def speichern():
+        zaehler["n"] += 1
+        if zaehler["n"] == wann:
+            raise OSError(13, "Der Prozess kann nicht auf die Datei zugreifen")
+        return echt()
+    monkeypatch.setattr(app.Q, "speichern", speichern)
+    return zaehler
+
+
+def test_worker_ueberlebt_ein_gescheitertes_speichern(monkeypatch):
+    geladen = []
+
+    def herunterladen(item):
+        geladen.append(item["id"])
+        item["status"] = "fertig"
+    monkeypatch.setattr(app, "herunterladen", herunterladen)
+    monkeypatch.setattr(app, "fehler_merken", lambda *a, **k: None)
+    _speichern_scheitert_einmal(monkeypatch, wann=1)
+    eins = app.Q.neu("https://www.youtube.com/watch?v=aaaaaaaaaaa", "eins", "beste")
+    zwei = app.Q.neu("https://www.youtube.com/watch?v=bbbbbbbbbbb", "zwei", "beste")
+    halt = threading.Event()
+    faden, ausgang = _worker_mit_halt(monkeypatch, halt)
+    try:
+        assert _warten(lambda: len(geladen) == 2 or not faden.is_alive()), "Worker steht"
+    finally:
+        halt.set()
+        faden.join(10)
+    assert ausgang == ["halt"], f"der Worker-Faden starb: {ausgang}"
+    assert geladen == [eins["id"], zwei["id"]], "nach dem Scheitern lud der Worker nicht weiter"
+    assert eins["status"] != "laeuft", "der Eintrag blieb auf »laeuft« stehen"
+
+
+def test_worker_ueberlebt_ein_gescheitertes_speichern_nach_einem_fehler(monkeypatch):
+    """Scheitert der Download UND danach das Speichern im Fehlerzweig."""
+    versuche = []
+
+    def herunterladen(item):
+        versuche.append(item["id"])
+        if len(versuche) == 1:
+            raise RuntimeError("yt-dlp ist abgestürzt")
+        item["status"] = "fertig"
+    monkeypatch.setattr(app, "herunterladen", herunterladen)
+    monkeypatch.setattr(app, "fehler_merken", lambda *a, **k: None)
+    _speichern_scheitert_einmal(monkeypatch, wann=2)   # 1 = vor dem Laden, 2 = im Fehlerzweig
+    eins = app.Q.neu("https://www.youtube.com/watch?v=aaaaaaaaaaa", "eins", "beste")
+    zwei = app.Q.neu("https://www.youtube.com/watch?v=bbbbbbbbbbb", "zwei", "beste")
+    halt = threading.Event()
+    faden, ausgang = _worker_mit_halt(monkeypatch, halt)
+    try:
+        assert _warten(lambda: len(versuche) == 2 or not faden.is_alive()), "Worker steht"
+    finally:
+        halt.set()
+        faden.join(10)
+    assert ausgang == ["halt"], f"der Worker-Faden starb: {ausgang}"
+    assert eins["status"] == "fehler" and zwei["status"] == "fertig"
+
+
+def test_worker_start_ersetzt_tote_faeden(monkeypatch):
+    starts = []
+    monkeypatch.setattr(app, "worker_schleife", lambda: starts.append(1))   # stirbt sofort
+    monkeypatch.setattr(app, "_worker_anzahl", 0, raising=False)            # alter Zähler
+    monkeypatch.setattr(app, "_worker_faeden", [], raising=False)
+    app._worker_start(1)
+    assert _warten(lambda: len(starts) == 1)
+    threading.Event().wait(0.05)                     # der erste Faden ist sicher zu Ende
+    app._worker_start(1)
+    assert _warten(lambda: len(starts) == 2, s=2), "ein toter Worker wird nie ersetzt"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
