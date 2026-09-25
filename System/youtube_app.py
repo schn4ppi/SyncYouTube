@@ -6863,9 +6863,15 @@ FREIE_SEITEN = ("/m", "/koppeln")                             # auch ohne Zugang
 #    liefe nach zehn Sekunden in die Versuchsbremse.
 COOKIE_GERAET = "syncyt_geraet"
 COOKIE_CODE = "syncyt_code"
-# Der Token hält 400 Tage (die Obergrenze der Browser), der Code 30 Tage: ein
-# Handy mit Code gibt ihn danach neu ein, ein gekoppelter Fernseher nie.
+# Der Token hält 400 Tage (die Obergrenze der Browser) und verlängert sich
+# gleitend: jede Seite (VERLAENGERN_SEITEN), die ein Gerät mit gültigem
+# Token-Cookie öffnet, setzt es mit voller Laufzeit neu (Abnahme 25.09.2026;
+# vorher lief es 400 Tage nach der Kopplung ab). Ein gekoppelter Fernseher, der
+# wenigstens alle 400 Tage einmal öffnet, koppelt also nie neu. Der Code hält
+# 30 Tage ab der Eingabe, ohne Verlängerung: ein Handy mit Code gibt ihn danach
+# neu ein (offene Frage an JB, ob er länger halten soll).
 COOKIE_DAUER = {COOKIE_GERAET: 400 * 24 * 3600, COOKIE_CODE: 30 * 24 * 3600}
+VERLAENGERN_SEITEN = ("/", "/index.html", "/m")
 _COOKIE_WERT = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
@@ -7322,10 +7328,12 @@ class Handler(BaseHTTPRequestHandler):
             return "", ""
         return eins("geraet", "X-Geraet", COOKIE_GERAET), eins("code", "X-Code", COOKIE_CODE)
 
-    def _keks_merken(self, name, wert, quelle, gueltig):
-        """Gültig aus Adresse oder Kopf: Cookie setzen. Ungültig aus dem Cookie:
-        Cookie löschen. Alles andere bleibt, wie es ist."""
-        if gueltig and quelle in ("adresse", "kopf") and _COOKIE_WERT.fullmatch(wert):
+    def _keks_merken(self, name, wert, quelle, gueltig, verlaengern=False):
+        """Gültig aus Adresse oder Kopf: Cookie setzen. Gültig aus dem Cookie
+        und `verlaengern` (eine Seite öffnet): mit voller Laufzeit neu setzen.
+        Ungültig aus dem Cookie: Cookie löschen. Alles andere bleibt, wie es ist."""
+        neu_setzen = quelle in ("adresse", "kopf") or (verlaengern and quelle == "cookie")
+        if gueltig and neu_setzen and _COOKIE_WERT.fullmatch(wert):
             self._neue_cookies.append(cookie_zeile(name, wert))
         elif not gueltig and quelle == "cookie":
             self._neue_cookies.append(cookie_zeile(name, ""))
@@ -7375,8 +7383,9 @@ class Handler(BaseHTTPRequestHandler):
                 _bremse_erfolg(ip)
             else:
                 _bremse_fehlversuch(ip)
-        if tok:
-            self._keks_merken(COOKIE_GERAET, tok, tok_quelle, bool(profil))
+        if tok:                                      # gleitend: nur Seiten, nie die API
+            seite = pfad in VERLAENGERN_SEITEN and self.command in ("GET", "HEAD")
+            self._keks_merken(COOKIE_GERAET, tok, tok_quelle, bool(profil), verlaengern=seite)
         if code and not profil:
             self._keks_merken(COOKIE_CODE, code, code_quelle, bool(code_ok))
         self._zugang_aus_adresse = bool((profil and tok_quelle == "adresse")

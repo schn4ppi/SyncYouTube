@@ -724,11 +724,34 @@ def test_das_cookie_oeffnet_seite_api_und_post(monkeypatch):
         kopf = {"Host": PC_IM_LAN, "Cookie": keks}
         st, koepfe, koerper = _anfrage("/", ip=LAN, kopf=kopf)
         assert st == 200 and b"<html" in koerper[:400].lower(), keks
-        assert "set-cookie" not in koepfe, "ein gültiges Cookie wird nicht neu gesetzt"
-        assert _anfrage("/api/status", ip=LAN, kopf=kopf)[0] == 200
-        st, _, _ = _anfrage("/api/remote", methode="POST", ip=LAN, kopf=kopf, rumpf={"cmd": "next"})
-        assert st == 200
+        st, koepfe, _ = _anfrage("/api/status", ip=LAN, kopf=kopf)
+        assert st == 200 and "set-cookie" not in koepfe, "ein API-Aufruf setzt das Cookie nie neu"
+        st, koepfe, _ = _anfrage("/api/remote", methode="POST", ip=LAN, kopf=kopf, rumpf={"cmd": "next"})
+        assert st == 200 and "set-cookie" not in koepfe
     assert app._remote["cmd"] == "next"
+
+
+# Gleitende Verlängerung (Abnahme 25.09.2026): Das Token-Cookie lief 400 Tage
+# nach der KOPPLUNG ab, danach stand der Fernseher wieder auf der
+# Kopplungsseite. Jetzt setzt jede SEITE (nicht jeder API-Aufruf, die
+# Oberfläche fragt jede Sekunde) ein gültiges Token-Cookie mit voller
+# Laufzeit neu: die 400 Tage zählen ab dem letzten Öffnen.
+
+@pytest.mark.parametrize("seite", ["/", "/index.html", "/m", "/?embed=1"])
+def test_seite_verlaengert_das_token_cookie(monkeypatch, seite):
+    token = _mit_gekoppeltem_geraet(monkeypatch)
+    st, koepfe, _ = _anfrage(seite, ip=LAN, kopf={"Host": PC_IM_LAN, "Cookie": f"syncyt_geraet={token}"})
+    assert st == 200, (seite, st)
+    wert, attr = _attribute(_kekse(koepfe)["syncyt_geraet"])
+    assert wert == token and int(attr["max-age"]) == app.COOKIE_DAUER["syncyt_geraet"]
+    assert "httponly" in attr and attr.get("samesite") == "Strict" and attr.get("path") == "/"
+
+
+def test_code_cookie_wird_nicht_verlaengert(monkeypatch):
+    """Der Code gilt 30 Tage ab der Eingabe (offene Frage an JB, ob länger)."""
+    _fernsteuerung(monkeypatch)
+    st, koepfe, _ = _anfrage("/m", ip=LAN, kopf={"Host": PC_IM_LAN, "Cookie": f"syncyt_code={CODE}"})
+    assert st == 200 and "set-cookie" not in koepfe
 
 
 def test_kopf_und_adresse_bleiben_als_rueckfall(monkeypatch):
