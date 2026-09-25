@@ -89,7 +89,9 @@ Lokale Adressen bleiben erlaubt, ebenso ein UDP-connect (sendet nichts; so
 ermittelt `_lan_ip` die eigene Adresse). Lokal heißt auch 0.0.0.0 und jede
 Adresse der eigenen Schnittstellen (Nacharbeit 25.09.): mit Fernsteuerung
 lauscht die App dort, und ein Test über die LAN-Adresse verlässt den Rechner
-nicht.
+nicht. Kindprozesse sieht der Riegel nicht; für die deno-Aufrufe der Tests
+setzt die conftest DENO_NO_UPDATE_CHECK (sonst fragt deno einmal am Tag im
+Netz nach einer neuen Version).
 
 `tests/test_wachen.py` prüft die Wachen, `test_cookies_wal.py::test_i` die
 Firefox-Wache gegen die echte Suche.
@@ -109,6 +111,10 @@ MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if MODUL_DIR not in sys.path:
     sys.path.insert(0, MODUL_DIR)
 PROGRAMM_DIR = os.path.dirname(MODUL_DIR)      # System\ + Downloads\: im Betrieb JBs Daten
+
+# deno fragt sonst einmal am Tag im Netz nach einer neuen Version; die Tests
+# starten deno als Kindprozess, und den sieht der Netz-Riegel nicht.
+os.environ.setdefault("DENO_NO_UPDATE_CHECK", "1")
 
 
 # ---------------------------------------------------------------- Daten-Wache (Audit-Hook)

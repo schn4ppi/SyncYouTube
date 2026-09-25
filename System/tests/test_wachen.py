@@ -388,6 +388,20 @@ def test_eigene_adressen_gelten_nicht_als_netz(request):
     zugriffe.clear()                                       # der Alarm war hier gewollt
 
 
+def test_deno_fragt_in_tests_nicht_nach_neuen_versionen():
+    """`deno run` fragt ohne DENO_NO_UPDATE_CHECK einmal am Tag im Netz nach
+    einer neuen deno-Version. Drei Test-Dateien starten deno (Syntax der
+    Oberfläche, Medientasten, Sperre und Drossel), und Kindprozesse sieht der
+    Hook nicht. Die conftest setzt die Variable darum für die ganze Sitzung.
+    Geprüft an einem Python-Kindprozess, nicht an deno: der Rot-Lauf soll
+    nicht selbst nachfragen."""
+    lauf = subprocess.run([sys.executable, "-c",
+                           "import os; print(os.environ.get('DENO_NO_UPDATE_CHECK'))"],
+                          capture_output=True, text=True, timeout=60)
+    assert lauf.stdout.strip() not in ("", "None"), (
+        "deno-Aufrufe der Tests erben kein DENO_NO_UPDATE_CHECK")
+
+
 def test_netz_ist_fuer_live_tv_geo_vpn_und_update_gesperrt(request):
     """Vorher sperrte die conftest nur das Netz des Film-Teils. live_tv,
     geo.freie_proxys, vpn (NordVPN-Status und das Umschalten der Verbindung)
