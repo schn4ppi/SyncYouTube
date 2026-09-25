@@ -1,5 +1,74 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 05.08.2026, Build 171)
 
+> **NACHTRAG 25.09.2026 — Nacharbeit der Prüfung Runde 3 (nacharbeit_r3_yt).** Grundlage:
+> JBs Esc-Regel vom 24.09. („gesehen" ab 90 % auch bei Esc/⏭) und die Mindest-Sehzeit.
+> Entscheidung des Hauptagenten (analog): das Schließen der Hülle im Abspann ist dieselbe Art
+> Beenden wie Esc. Jeweils Test zuerst (am alten Stand rot), dann Fix.
+> - **Hülle zu:** Die SEITE meldet beim Entladen selbst (`oberflaeche.py` `filmAbschied` an
+>   `pagehide`, über die EINE Meldestelle, `fetch` mit `keepalive`) — sie kennt die Sehzeit.
+>   Der Server-Rückfall (`youtube_app._film_stelle_melden`) wartet bis `HUELLE_GNADE_S` (2 s)
+>   auf diese Meldung (die Route `/api/filme/fortschritt` merkt sie, auch bis
+>   `HUELLE_VORLAUF_S` = 10 s VOR dem Pausieren) und schweigt dann. Kommt keine, meldet er die
+>   Stelle unter Jellyfins Grenze (`_stelle_unter_jf_grenze`: 0,9 × (Länge − 30 s), dieselbe
+>   Rechnung wie die Seite, am Ergebnis gleich geprüft), nie „gesehen"; nichts bei
+>   unbekannter Länge oder kurzem Stück (Grenze 0). Geprüft mit dem Jellyfin-12.1-Orakel:
+>   Hülle zu bei 95 % hakt bei keiner Laufzeit ± 30 s.
+> - **Esc ohne Fernbedienung:** Dauer und Stelle kommen vom VLC-Status (vor dem Stopp), nie
+>   „gesehen", Stelle unter der Grenze. Allgemein: ohne bekannte Dauer geht NICHTS hinaus
+>   (vorher ungekappt; Toast „🎬 Film beendet.").
+> - **Gedrosselter VLC-Takt:** ein Sprung ist, was mehr als 3 s SCHNELLER lief als die
+>   Wanduhr × Tempo (größeres der beiden Tempi; `SEHZEIT.uhr`) — ein im verdeckten Tab
+>   durchgeschauter Film zählt (Probe P3: vorher gemeldet 0, ohne „gesehen").
+> - **Natürliches Ende:** erfüllt (a), sobald es hinter 0,9 × (Dauer − 30 s) liegt (Transcoder:
+>   Dauer auf Minuten gerundet, ein 151-s-Stück hieß nie „gesehen"); ein Strom, der mitten im
+>   Film abreißt, bleibt eine Stelle.
+> - **Kleinere:** `tvpLandePos` nimmt `SEHZEIT.jfMaxResume`; die Schwellen stehen im Code als
+>   „von JB zu bestätigen"; `filme._druck_in_ruhe` verbraucht den einen Versuch je Ruhe nur,
+>   wenn Jellyfin antwortete (Erfolg/401/403) — ein Netz-Wackler sperrt den Film-Start nicht
+>   mehr bis zu 10 Min; Protokolle im Testmodus per Kindlauf verhaltensgeprüft; „gesehen"-Route
+>   im Test über Pfad + Merkmale statt Zeichenkette.
+> - **Test-Wachen** (`tests/conftest.py`): Schlüsselbund und Netz des Film-Teils (`_zugang`,
+>   `_meta_keys`, `_seerr_url`, `_http`, `_seerr_http`) sind für die GANZE Sitzung laut
+>   gesperrt, auch im Hintergrundfaden; Film-Pfade je Test in `tmp_path`; die Sperren werden
+>   vor und nach jedem Test neu gesetzt, weil ein `importlib.reload(filme)` (test_filme,
+>   „Zustand überlebt den Neustart") die echten Funktionen zurückbringt. **Befunde dabei:**
+>   vier Tests lasen JBs echten TMDB-Schlüssel aus dem Schlüsselbund und reichten ihn an ihre
+>   Attrappe (kein Netzruf, nur die Attrappe verhinderte ihn), und der Neulade-Test las danach
+>   über `zustand()` den echten Jellyfin-Zugang — in jedem vollen Lauf, nur lesend; beides
+>   behoben. Die Jellyfin-Attrappen melden unerwartete Rufe laut
+>   (`test_filme.UNERWARTETE_RUFE`): sieben still als Netzfehler verschluckte Fälle aufgedeckt
+>   und repariert.
+> - **Prüf-Fläche:** volle Suite 615 grün (vorher 600); 24 Gegenproben in einer Wegwerf-Kopie
+>   (`%TEMP%\yt_r4_gp`, nur getrackte Dateien + deno, Schlüsselbund und Netz dort an der Quelle
+>   stillgelegt), alle rot aus dem erwarteten Grund; `node --check` aller 5 Skript-Blöcke ok;
+>   ruff ohne neue Befunde. **Vorfall:** Die erste Fassung der Gegenprobe G21 schaltete nur
+>   die Schlüsselbund-Sperren ab — ihr Kindlauf las dabei JBs Jellyfin-Zugang aus dem
+>   Schlüsselbund (nur lesend, nichts ausgegeben); das Netz blieb gesperrt, kein Ruf an Renés
+>   Server. Seitdem das zweite Netz in der Kopie.
+> - **Nicht live gemessen:** ob WebView2 beim Schließen der Hülle `pagehide` feuert und die
+>   keepalive-Meldung vor dem Prozessende ankommt — sonst greift der Rückfall, und im Abspann
+>   gibt es dann KEIN „gesehen", nur die Grenze (Probe: Hülle im Abspann schließen, Kachel ✓?).
+> - **Grenzen:** F5 oder Tab zu bei einem VLC-Film im Abspann meldet nach der Regel „gesehen",
+>   obwohl der Film im VLC weiterläuft. Ohne bekannte Dauer merkt die Seite eine Folgen-Stelle
+>   nur lokal. Im gedrosselten Takt kann die Sehzeit höchstens um die verstrichene Wanduhr ×
+>   Tempo zu hoch liegen (z. B. ein Sprung über das Windows-Overlay im verdeckten Tab).
+> - **Bewusst nicht geändert:** (i) „kein echtes Stück unter der Grenze ⇒ Grenze statt
+>   Startstelle" (Vorschlag der Prüfung): widerspräche JBs Beispiel 3 (ab 50 %, sofort ans
+>   Ende ⇒ die Startstelle ist der ehrliche Wiedereinstieg); die Ursache (gedrosselter Takt)
+>   ist behoben. (ii) Die gemeldete Stelle bleibt „letzte echt geschaute Stelle UNTER der
+>   Grenze": die Alternative min(Ende des letzten Stücks, Grenze) meldete im Testfall (b)
+>   2133 s, eine Stelle, die nie geschaut wurde (Sprung von 60 s auf 2140 s). (iii)
+>   `IsPaused:true` bzw. `Stopped` bei verweigertem „gesehen" (Vorschlag, unbestätigt): die
+>   Kappung hängt an Jellyfins Leerlauf-Stopp (in 12.1 mit der zuletzt gemeldeten Stelle, für
+>   10.11 unbelegt) — erst live messen, wenn der Zugang wieder geht.
+> - **JB-Fragen:** (1) Übernimmt die Musik den VLC im Abspann (kein eigenes Ende), geht nur
+>   die Grenze hinaus, nie „gesehen" — „Hülle zu" zählt jetzt wie Esc. Soll auch die
+>   Musik-Übernahme bei reichender Sehzeit „gesehen" sein? (2) Kurze Stücke (unter 5,5 min)
+>   ohne „gesehen": die Seite meldet Stelle 0 (Weiterschauen weg), der Hüllen-Rückfall gar
+>   nichts — so lassen, nie melden, oder wie früher Jellyfins Kurz-Regel („gesehen" ab 5 %)?
+>   (3) Die Schwellen der Mindest-Sehzeit (5 min, 50 %, 3 s, 30 s Spielraum) bestätigen.
+>   (4) Startmenü-Regel (Nachtrag „nacharbeit_r2" unten).
+
 > **NACHTRAG 25.09.2026 — Jellyfin 12: ApiKey und Nachfolge-Routen (Runde 3, yt:jellyfin12).**
 > Grundlage: Beleg mit Gegenprüfung am Quelltext v12.1 (nicht live gemessen, kein Netz zu
 > Renés Server). Jellyfin 12.1 liest das Token nur noch aus `Authorization: MediaBrowser …,
@@ -28,16 +97,27 @@
 > - **Falle:** Eine `AssertionError` der Attrappe („unerwarteter Pfad") verschluckt
 >   `_jellyfin_ruf` als Netzfehler. Ein Schlüssel in `antworten`, der die Nachfolge-Form
 >   nicht trifft, testet darum still den Netz-Zweig — die Schlüssel sind jetzt
->   `/Items?`, `/Items/<id>?`, `/UserPlayedItems/`.
+>   `/Items?`, `/Items/<id>?`, `/UserPlayedItems/`. *Seit der Nacharbeit Runde 3 entschärft:*
+>   beide Attrappen tragen jeden unerwarteten Ruf in `test_filme.UNERWARTETE_RUFE` ein, die
+>   Fixture macht den Test am Ende rot (fand sofort sieben stille Fälle, s. Nachtrag oben).
 > - **Offen:** (1) Live nicht gemessen: ob Renés Vorschaltschutz `?ApiKey=` wie `?api_key=`
 >   durchlässt. Lesende Proben dafür (nur nach Rückfrage): `GET /Users/Me?ApiKey=<token>` ohne
->   Kopf ⇒ 200, `GET /Users/Me?api_key=<token>` ⇒ 401. (2) Vorschlag (unbestätigt): nach der
+>   Kopf ⇒ 200, `GET /Users/Me?api_key=<token>` ⇒ 401, und (Nacharbeit Runde 3) direkt am
+>   Strom-Pfad `GET {jf}/Videos/{film}/stream?static=true&ApiKey=<token>` mit `Range:
+>   bytes=0-0` ⇒ 206 — sie beweist nicht, dass Jellyfin ApiKey liest (das zeigen die
+>   /Users/Me-Proben), wohl aber, dass der Vorschaltschutz den Strom-Pfad mit ApiKey
+>   durchlässt; sonst fielen VLC, Browser-Proxy, Umwandlung und Vorschau gleichzeitig aus
+>   (EINE Stelle, kein Rückfall). Vorschlag (unbestätigt): bei 401/403 am Strom einmal mit
+>   `api_key` nachfragen. (2) Vorschlag (unbestätigt): nach der
 >   letzten Stellen-Meldung `POST /Sessions/Playing/Stopped {ItemId, PositionTicks}` senden
 >   (PlaystateController.cs:247-249). SyncYouTube schickt nie ein Stopped; Jellyfins
 >   Leerlauf-Wächter räumt die Wiedergabe erst nach 5 bis 10 Minuten ab (in 12.1 mit der
 >   zuletzt gemeldeten Stelle, PR #17631). So lange steht sie in Renés Dashboard, und ein
 >   „gesehen" mit Stelle unter 90 % bekäme dabei den Weiterschauen-Punkt zurück (seit der
->   Mindest-Sehzeit selten). Nicht gebaut. (3) Vorschlag (unbestätigt): `X-Emby-Authorization`
+>   Mindest-Sehzeit selten). Nicht gebaut. VERMUTUNG aus der Gegenprüfung (jellyfin12.json,
+>   PR #17631): in 10.11 schrieb die Aufräumung ungenutzter Wiedergaben eine hochgerechnete
+>   Stelle — Weiterschauen-Stellen aus der Zeit vor Renés Update können darum 5 bis 10 Minuten
+>   zu weit liegen. Nichts gebaut. (3) Vorschlag (unbestätigt): `X-Emby-Authorization`
 >   in `_kopf` weglassen (wirkt in 12 ohne Legacy-Schalter nicht mehr).
 
 > **NACHTRAG 25.09.2026 — Mindest-Sehzeit (Runde 3, yt:mindest_sehzeit, 39cdc63).** JB-Idee
@@ -57,15 +137,9 @@
 > - Prüf-Fläche: `tests/test_mindest_sehzeit.py` (10, deno mit echtem Seiten-JS, Jellyfin-
 >   12.1-Orakel über jede Laufzeit ± 30 s), 21 Gegenproben (`%TEMP%\yt_r3_gp_ms`), alle rot.
 >   Volle Suite 597 grün (vorher 587).
-> - **Offen:** (1) „Hülle zu" im Abspann (`youtube_app._film_stelle_melden`) meldet die rohe
->   VLC-Stelle: über 90 % hakt Jellyfin selbst, die Mindest-Sehzeit greift dort nicht — hängt
->   an der JB-Frage im Nachtrag unten. (2) Esc ohne offene Fernbedienung kennt keine Dauer und
->   meldet ungekappt. (3) Kennt Jellyfin keine Laufzeit, setzt JEDE Meldung Played. (4) VLC-
->   Rückfall im normalen Browser-Tab: ist der Tab verdeckt, drosselt Chrome den 1-s-Takt;
->   Takt-Schritte über 3 s gelten dann als Sprung, ein durchgeschauter Film würde am Ende
->   verweigert (Vorschlag, unbestätigt: Sprung erst, wenn der Schritt die verstrichene Zeit ×
->   Tempo um mehr als 3 s übersteigt). (5) Live nicht gemessen (Renés Jellyfin HTTP 401;
->   `timeupdate` im verdeckten Tab).
+> - **Offen:** (1), (2) und (4) sind in der Nacharbeit Runde 3 behoben (s. Nachtrag oben).
+>   (3) Kennt Jellyfin keine Laufzeit, setzt JEDE Meldung Played. (5) Live nicht gemessen
+>   (Renés Jellyfin HTTP 401; `timeupdate` im verdeckten Tab).
 >
 > **NACHTRAG 25.09.2026 — Nacharbeit der Prüfung Runde 2 (nacharbeit_r2).** Gebaut,
 > jeweils Test zuerst (am alten Stand rot), dann Fix, dazu je Sicherung eine rote Gegenprobe
@@ -89,13 +163,21 @@
 >   die Kachel unter dem ruhenden Zeiger auslöst (dann käme die Karte wie bei jedem Hover).
 > - **Hülle zu meldet die Film-Stelle** (`youtube_app.py` `_film_stelle_melden`): nach dem
 >   Pausieren geht die Stelle eines Jellyfin-Films über `filme.fortschritt` an Jellyfin (im
->   eigenen Faden, nie unter `_vlc_lock`; nur eine echte Stelle > 0). **„gesehen" NICHT** —
->   **JB-Frage offen:** zählt das Schließen der Hülle im Abspann (ab 90 %) wie Esc/⏭?
->   Dann ist es EINE Zeile (`gesehen=False` in `_film_stelle_melden`).
+>   eigenen Faden, nie unter `_vlc_lock`; nur eine echte Stelle > 0). **„gesehen" NICHT.**
+>   *(Berichtigt in der Nacharbeit Runde 3, s. Nachtrag oben: „EINE Zeile" stimmte nicht —
+>   Jellyfin setzte über 90 % selbst „gesehen", die rohe Stelle entschied es also schon. Seit
+>   der Nacharbeit meldet die Seite beim Entladen selbst, der Server kappt nur noch.)*
 > - **Startmenü: eine stabile Regel** (`windows_kennung.py` `_startbar`): das Ziel des eigenen
 >   Eintrags wechselt nur, wenn das bisherige nicht mehr startet (Programm verschoben, exe
 >   entfernt). Ergebnis „behalten" statt „aktualisiert" — ein Start der exe oder des
 >   Basis-Pythons stellt den Quellstart-Eintrag nicht mehr um (und umgekehrt).
+>   **Grenze der Regel (Prüfung Runde 3):** „startbar" heißt nur, dass Ziel und
+>   youtube_app.py als Dateien da sind. Entsteht der Eintrag einmal über ein Basis-Python ohne
+>   die venv-Pakete (JB hat ihn gelöscht, erster Start auf einem frischen Rechner), bleibt er
+>   dort und startet die App nicht. Auf JBs PC zeigt er auf das venv-pythonw (früher live
+>   gelesen). Vorschlag (unbestätigt): für .py-Einträge nur ein Python mit pyvenv.cfg daneben
+>   oder das eingebettete Python des Quellstart-Pakets als startbar werten. **JB-Frage:**
+>   „der erste Eintrag gewinnt" (heute) oder „Quellbetrieb/venv hat Vorrang"?
 > - Kleinere: abgewiesenes „gesehen" bleibt als `abgewiesen` liegen, auch wenn die jüngere
 >   Stelle ankommt; langsamer VLC-Start wird nach 8 Takten nicht mehr gestoppt (Zustand vor
 >   3bd24a9; gestoppt wird nur bei `ende` oder wenn der Film lief); der Freigabe-Stopp mit
@@ -120,8 +202,8 @@
 >   schließen?; Profile und Gäste („gesehen" je Profil?); soll der Spiegel auch beim
 >   Nachreichen aus der Warteschlange nachziehen?; ⏮ im Abspann meldet die laufende Folge
 >   als gesehen (Jellyfin-konform, von JB nicht ausdrücklich bestätigt); Esc ohne offene
->   Fernbedienung (Seite neu geladen) meldet nie „gesehen" (Vorschlag, unbestätigt: Dauer aus
->   `vlcDauerLetzte`).
+>   Fernbedienung (Seite neu geladen) meldet nie „gesehen" (seit der Nacharbeit Runde 3 mit
+>   Dauer und Stelle aus dem VLC-Status und unter Jellyfins Grenze, s. Nachtrag oben).
 > - **„Pause sperrt 30 Min" (449e163, `youtube_app.py` `PAUSE_SPERRE`/`_vlc_haelt_neustart_auf`):**
 >   Offen: Probe mit echtem libvlc (VLC pausieren, eine Backend-.py ändern, der Neustart muss
 >   rund 30 Min warten); ein pausierter Film schließt sich nach 30 Min beim Neustart weiterhin
