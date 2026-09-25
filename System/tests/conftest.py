@@ -60,14 +60,19 @@ System-Ordner, acht Tests legten Downloads\\ an. Jetzt:
   * Zwischen den Tests zeigt alles in einen Sitzungs-Ordner, damit ein
     Hintergrundfaden, der seinen Test überlebt, nie die echten Pfade erbt.
   * Ein Audit-Hook lässt jeden Schreibversuch in den Programmordner laut
-    scheitern (öffnen zum Schreiben, umbenennen, löschen, Ordner anlegen,
-    Zeitstempel/Rechte setzen), auch im Ziel der Junction System\\bin.
+    scheitern (öffnen zum Schreiben, umbenennen, kopieren, löschen, Ordner
+    anlegen, Zeitstempel/Rechte setzen, SQLite-Datenbank öffnen außer nur
+    lesend), auch im Ziel der Junction System\\bin. `shutil.copy2` meldet
+    unter Windows nur `_winapi.CopyFile2` und SQLite nur `sqlite3.connect`
+    (Nacharbeit 25.09.: beide schrieben vorher still).
     Frei bleiben `__pycache__`, `.pytest_cache` sowie basetemp und %TEMP%,
     falls sie im Programmordner liegen. Den Papierkorb (ctypes, ohne
     Audit-Ereignis) sperrt eine Hülle um `youtube_app._in_papierkorb`.
 Grenzen: Der Import der App LIEST die echten Dateien weiterhin einmal (nur
 lesend; schreiben würde er nur eine defekte Datei beiseite, und das scheitert
-jetzt laut). Kindprozesse sieht der Hook nicht. Ein eigener Download-Ordner
+jetzt laut). Kindprozesse sieht der Hook nicht, ebenso wenig direkte
+Windows-Aufrufe über ctypes; die beiden schreibenden der App (Papierkorb,
+Startmenü-Verknüpfung) sind eigens gesperrt. Ein eigener Download-Ordner
 aus JBs config.json liegt außerhalb des Programmordners; ihn schützt nur, dass
 CFG je Test frisch aus den Vorgaben kommt. Der Direkt-Lauf
 `python tests/test_youtube.py` lädt diese Datei nicht und hat keine Wache.
@@ -90,6 +95,7 @@ import socket
 import sys
 import tempfile
 import urllib.parse
+import urllib.request
 
 import pytest
 
@@ -147,12 +153,33 @@ _SCHREIB_MODI = set("wax+")
 _SCHREIB_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 _ZIEL_ARGS = {"os.rename": (0, 1), "shutil.move": (0, 1),          # os.replace meldet os.rename
               "os.link": (1,), "os.symlink": (1,), "shutil.copyfile": (1,), "shutil.copytree": (1,),
+              "_winapi.CopyFile2": (1,),         # shutil.copy2 unter Windows: meldet NUR dieses Ereignis
+              "_winapi.CreateJunction": (1,),
               "os.remove": (0,), "os.rmdir": (0,), "os.mkdir": (0,), "shutil.rmtree": (0,),
               "os.utime": (0,), "os.chmod": (0,), "os.truncate": (0,)}
 _VPN_PROGRAMME = {"nordvpn.exe", "windscribe-cli.exe", "windscribe-cli", "wireguard.exe", "wg.exe"}
 _EIGENER_NAME = socket.gethostname().lower()
-_BEACHTET = frozenset(_ZIEL_ARGS) | {"open", "socket.connect", "socket.sendto", "socket.getaddrinfo",
-                                     "urllib.Request", "subprocess.Popen"}
+_BEACHTET = frozenset(_ZIEL_ARGS) | {"open", "sqlite3.connect", "socket.connect", "socket.sendto",
+                                     "socket.getaddrinfo", "urllib.Request", "subprocess.Popen"}
+
+
+def _sqlite_datei(db):
+    """Die Datei, die `sqlite3.connect` anlegen oder beschreiben kann (SQLite
+    öffnet sie ohne Python, es gibt kein open-Ereignis). None für den
+    Arbeitsspeicher und für nur lesende Adressen (`?mode=ro`, `?immutable=1`)."""
+    try:
+        db = os.fsdecode(os.fspath(db))
+    except TypeError:
+        return None
+    if db in ("", ":memory:"):
+        return None
+    if db.startswith("file:"):
+        teile = urllib.parse.urlsplit(db)
+        frage = urllib.parse.parse_qs(teile.query)
+        if frage.get("mode") in (["ro"], ["memory"]) or frage.get("immutable") == ["1"]:
+            return None
+        return urllib.request.url2pathname(teile.path)
+    return db
 
 
 def _alarm(fund, text):
@@ -191,6 +218,10 @@ def _wache(ereignis, args):
         elif not (isinstance(flags, int) and flags & _SCHREIB_FLAGS):
             return
         if geschuetzt(pfad):
+            _schreib_alarm(ereignis, pfad)
+    elif ereignis == "sqlite3.connect":
+        pfad = _sqlite_datei(args[0])
+        if pfad is not None and geschuetzt(pfad):
             _schreib_alarm(ereignis, pfad)
     elif ereignis in _ZIEL_ARGS:
         for i in _ZIEL_ARGS[ereignis]:

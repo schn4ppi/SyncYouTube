@@ -261,17 +261,36 @@ def test_schreiben_in_den_programmordner_scheitert_laut(request, tmp_path):
     """Jeder Weg in den Programmordner scheitert laut, auch an `except OSError`
     vorbei (pytest.fail erbt von BaseException). Dabei die Falle aus dem
     Familien-Lehrbuch: `os.makedirs(…, exist_ok=True)` verschluckt eine Sperre,
-    die als OSError kommt, wenn der Ordner schon existiert."""
+    die als OSError kommt, wenn der Ordner schon existiert.
+    Nacharbeit (25.09.): `shutil.copy2` meldet unter Windows nur
+    `_winapi.CopyFile2`, `sqlite3.connect` nur sich selbst (die Datei öffnet
+    SQLite ohne Python) — beide schrieben still in den Programmordner, und die
+    App kopiert mit copy2 (playlist_sync). Ebenso `_winapi.CreateJunction`."""
+    import _winapi
+    import shutil
+    import sqlite3
+
     import conftest
     import youtube_app as app
     quelle = tmp_path / "q.json"
     quelle.write_text("{}", encoding="utf-8")
     for weg in (lambda: open(os.path.join(PROBE, "config.json"), "w", encoding="utf-8"),
                 lambda: os.replace(str(quelle), os.path.join(PROBE, "warteschlange.json")),
-                lambda: os.makedirs(MODUL_DIR, exist_ok=True)):
+                lambda: os.makedirs(MODUL_DIR, exist_ok=True),
+                lambda: shutil.copy2(str(quelle), os.path.join(PROBE, "titel.mp3")),
+                lambda: sqlite3.connect(os.path.join(PROBE, "neu.db")),
+                lambda: _winapi.CreateJunction(str(tmp_path), os.path.join(PROBE, "verweis"))):
         with pytest.raises(pytest.fail.Exception):
             weg()
     assert quelle.exists(), "die Quelle ist trotz Sperre weg"
+    # SQLite: Arbeitsspeicher und nur lesende Adressen bleiben frei (am
+    # Ereignis geprüft, ohne eine Datei anzufassen).
+    sqlite3.connect(":memory:").close()
+    for nur_lesend in ("?mode=ro", "?immutable=1"):
+        sys.audit("sqlite3.connect", "file:" + os.path.join(MODUL_DIR, "x.db").replace(os.sep, "/")
+                  + nur_lesend)
+    with pytest.raises(pytest.fail.Exception):
+        sys.audit("sqlite3.connect", "file:" + os.path.join(MODUL_DIR, "x.db").replace(os.sep, "/"))
     # Papierkorb (ctypes, kein Audit-Ereignis): eigene Sperre am Aufrufpunkt.
     # Erst nach dem Beweis oben gerufen, damit der Rot-Lauf nie Windows fragt.
     assert getattr(app._in_papierkorb, "daten_wache", False), "_in_papierkorb ist ungesperrt"
@@ -289,7 +308,7 @@ def test_schreiben_in_den_programmordner_scheitert_laut(request, tmp_path):
                            (os.path.join(MODUL_DIR, ".pytest_cache", "v", "x"), False)):
         assert conftest.geschuetzt(pfad) is gesperrt, pfad
     zugriffe = request.getfixturevalue("_daten_wache")
-    assert len(zugriffe) == 4 and all("Programmordner" in z for z in zugriffe), zugriffe
+    assert len(zugriffe) == 8 and all("Programmordner" in z for z in zugriffe), zugriffe
     zugriffe.clear()                                       # der Alarm war hier gewollt
 
 
