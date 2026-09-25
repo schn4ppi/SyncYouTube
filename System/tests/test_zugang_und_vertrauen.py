@@ -352,6 +352,108 @@ def test_waehrend_der_sperre_zaehlt_nichts(monkeypatch, uhr):
     assert _mit_code(CODE) == 200
 
 
+# Nacharbeit S7: Prüfen und Zählen lagen in zwei getrennten Sperrabschnitten,
+# dazwischen der Vergleich; geraet_ok liest dabei profile.json von der Platte
+# und gibt den Faden frei. Jede Anfrage, die in dieses Fenster fiel, durfte
+# raten. Die Attrappe unten macht das Fenster so breit wie ein langsamer
+# Plattenzugriff (50 ms), damit der Stoß es sicher trifft.
+
+def _versuche_zaehlen(monkeypatch):
+    """Zählt jeden Vergleich (Code und Geräte-Token), den der Riegel anstellt."""
+    import profil_geraete as pg
+    vergleiche = {"code": 0, "token": 0}
+    zaehler_lock = threading.Lock()
+    echt_ok, echt_code = pg.geraet_ok, app.zugriff_erlaubt
+
+    def langsam_ok(tok):
+        if tok:
+            with zaehler_lock:
+                vergleiche["token"] += 1
+        time.sleep(0.05)                              # profile.json von der Platte
+        return echt_ok(tok)
+
+    def code_gezaehlt(*a):
+        if a[3]:
+            with zaehler_lock:
+                vergleiche["code"] += 1
+        return echt_code(*a)
+
+    monkeypatch.setattr(pg, "geraet_ok", langsam_ok)
+    monkeypatch.setattr(app, "zugriff_erlaubt", code_gezaehlt)
+    return vergleiche
+
+
+def _stoss(anzahl, kopf, ip=LAN):
+    """`anzahl` Anfragen gleichzeitig (hinter einer Schranke); liefert die Status."""
+    schranke, ergebnisse = threading.Barrier(anzahl), []
+
+    def eine():
+        schranke.wait()
+        ergebnisse.append(_anfrage("/api/status", ip=ip, kopf=dict(kopf))[0])
+    faeden = [threading.Thread(target=eine) for _ in range(anzahl)]
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join(30)
+    assert not any(f.is_alive() for f in faeden), "ein Faden hängt"
+    return ergebnisse
+
+
+def test_paralleler_stoss_nach_ablauf_der_sperre_hat_nur_einen_versuch(monkeypatch, uhr):
+    """Zähler auf 30, Sperre gerade abgelaufen, 50 Anfragen gleichzeitig mit
+    falschem Code UND fremdem Geräte-Token (den Kopf kann jeder beilegen):
+    höchstens EIN Vergleich je Fenster, alle anderen prallen ab."""
+    _fernsteuerung(monkeypatch)
+    for _ in range(30):
+        assert _mit_code("FALSCH") == 403
+        uhr.t += app.BREMSE_MAX_S + 1                 # jede Sperre abwarten: alle 30 zählen
+    vergleiche = _versuche_zaehlen(monkeypatch)
+    ergebnisse = _stoss(50, {"Host": PC_IM_LAN, "X-Code": "FALSCH", "X-Geraet": "f" * 32})
+    assert ergebnisse == [403] * 50
+    assert vergleiche["code"] <= 1 and vergleiche["token"] <= 1, vergleiche
+    assert app._bremse_gesperrt(LAN), "der eine Fehlversuch hat die nächste Sperre gesetzt"
+
+
+def test_erster_stoss_hat_hoechstens_zehn_versuche(monkeypatch, uhr):
+    """Vor dem zehnten Fehlversuch gab es gar keine Sperre: ein Stoß aus 50
+    gleichzeitigen Anfragen durfte 50-mal raten. Jetzt höchstens so oft, wie
+    nacheinander auch (zehn), danach steht die Sperre."""
+    _fernsteuerung(monkeypatch)
+    vergleiche = _versuche_zaehlen(monkeypatch)
+    ergebnisse = _stoss(50, {"Host": PC_IM_LAN, "X-Code": "FALSCH", "X-Geraet": "f" * 32})
+    assert ergebnisse == [403] * 50
+    assert vergleiche["code"] <= app.BREMSE_AB and vergleiche["token"] <= app.BREMSE_AB, vergleiche
+    assert _mit_code(CODE) == 403, "nach zehn Fehlversuchen steht die Sperre"
+
+
+def test_gekoppeltes_geraet_mit_vielen_gleichzeitigen_anfragen_kommt_immer_durch(monkeypatch, uhr):
+    """Die Handy-Seite lädt Vorschaubilder und Status parallel, jede Anfrage mit
+    Token. Die Bremse darf dabei keine einzige abweisen (Erlaubt-Fall)."""
+    import profil_geraete as pg
+    token = _gekoppelt()
+    assert pg.geraet_ok(token)                        # Zeitstempel schon gesetzt: kein Schreiben im Stoß (S8)
+    _fernsteuerung(monkeypatch)
+    _versuche_zaehlen(monkeypatch)
+    ergebnisse = _stoss(40, {"Host": PC_IM_LAN, "X-Geraet": token})
+    assert ergebnisse == [200] * 40
+    assert not app._bremse_gesperrt(LAN)
+
+
+def test_ausnahme_im_vergleich_zaehlt_nicht_und_gibt_den_platz_frei(monkeypatch, uhr):
+    """Scheitert der Vergleich selbst (profile.json nicht lesbar), zählt das
+    nicht als Fehlversuch, und der belegte Platz wird wieder frei."""
+    import profil_geraete as pg
+    _fernsteuerung(monkeypatch)
+
+    def kaputt(tok):
+        raise OSError("profile.json gerade nicht lesbar")
+    monkeypatch.setattr(pg, "geraet_ok", kaputt)
+    for _ in range(3 * app.BREMSE_AB):
+        with pytest.raises(OSError):
+            _anfrage("/api/status", ip=LAN, kopf={"Host": PC_IM_LAN, "X-Geraet": "f" * 32})
+    assert app._fehlversuche == {}, "nichts gezählt, kein Platz belegt"
+
+
 # ------------------------------------------------------------ S14: Körper und Zeitlimit
 
 def _post_mit_laenge(laenge, rumpf=b'{"cmd": "play"}'):

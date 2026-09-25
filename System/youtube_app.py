@@ -209,10 +209,19 @@ def zugriff_erlaubt(client_ip, aktiv, code_soll, code_ist):
 # (Loopback) läuft nie hinein. Anfragen OHNE Zugangsdaten zählen nicht: sie
 # können nichts erraten, und die PC-Seite auf einem gekoppelten Gerät schickt
 # solche in Serie (F9).
+# Nacharbeit 25.09.: Prüfen und Belegen geschehen in EINEM Sperrabschnitt
+# (_bremse_versuch). Gleichzeitig laufen höchstens so viele Vergleiche, wie
+# bis zur nächsten Sperre noch frei sind: vor dem zehnten Fehlversuch zusammen
+# höchstens zehn, danach genau einer je Sperrfenster. Wer darüber hinaus
+# kommt, wartet kurz auf einen laufenden Vergleich statt abzuprallen; ein
+# gekoppeltes Gerät mit vielen parallelen Anfragen wird so nie abgewiesen.
 BREMSE_AB = 10
 BREMSE_MAX_S = 15 * 60
-_fehlversuche = {}                   # ip -> {"n": Fehlversuche, "bis": gesperrt bis, "ts": letzter}
+BREMSE_WARTEN_S = 10                 # so lange wartet ein Versuch höchstens auf einen freien Platz
+_fehlversuche = {}                   # ip -> {"n": Fehlversuche, "bis": gesperrt bis, "ts": letzter,
+#                                            "laufend": gerade laufende Vergleiche}
 _fehlversuche_lock = threading.Lock()
+_bremse_frei = threading.Condition(_fehlversuche_lock)
 _bremse_uhr = time.monotonic
 
 
@@ -229,22 +238,65 @@ def _bremse_gesperrt(ip):
         return bool(e) and _bremse_uhr() < e["bis"]
 
 
-def _bremse_fehlversuch(ip):
-    with _fehlversuche_lock:
-        jetzt = _bremse_uhr()
-        if len(_fehlversuche) > 1024:                  # Deckel: lange Ruhende fallen weg
-            for alt in [k for k, v in _fehlversuche.items()
-                        if v["bis"] <= jetzt and jetzt - v["ts"] > 4 * BREMSE_MAX_S]:
-                del _fehlversuche[alt]
-        e = _fehlversuche.setdefault(ip, {"n": 0, "bis": 0.0, "ts": jetzt})
+def _bremse_versuch(ip):
+    """True = dieser Versuch darf vergleichen; danach MUSS genau eines von
+    _bremse_erfolg, _bremse_fehlversuch oder _bremse_freigeben folgen.
+    False = gesperrt (oder nach BREMSE_WARTEN_S kein Platz frei); dann wird
+    weder verglichen noch gezählt."""
+    frist = time.monotonic() + BREMSE_WARTEN_S
+    with _bremse_frei:
+        while True:
+            e = _fehlversuche.get(ip)
+            if e and _bremse_uhr() < e["bis"]:
+                return False
+            n, laufend = (e["n"], e["laufend"]) if e else (0, 0)
+            if laufend == 0 or n + laufend < BREMSE_AB:
+                if e is None:
+                    e = _fehlversuche[ip] = {"n": 0, "bis": 0.0, "ts": _bremse_uhr(), "laufend": 0}
+                e["laufend"] += 1
+                return True
+            rest = frist - time.monotonic()
+            if rest <= 0:
+                return False
+            _bremse_frei.wait(rest)
+
+
+def _bremse_abschliessen(ip, fehlversuch):
+    """Einen belegten Versuch freigeben; im Sperrabschnitt gerufen."""
+    jetzt = _bremse_uhr()
+    e = _fehlversuche.setdefault(ip, {"n": 0, "bis": 0.0, "ts": jetzt, "laufend": 0})
+    e["laufend"] = max(0, e["laufend"] - 1)
+    if fehlversuch is True:
         e["n"] += 1
         e["ts"] = jetzt
         e["bis"] = jetzt + _bremse_wartezeit(e["n"])
+    elif fehlversuch is False:                       # Erfolg setzt zurück
+        e["n"], e["bis"] = 0, 0.0
+    if e["n"] == 0 and e["laufend"] == 0:
+        del _fehlversuche[ip]
+    _bremse_frei.notify_all()
+
+
+def _bremse_fehlversuch(ip):
+    with _bremse_frei:
+        jetzt = _bremse_uhr()
+        if len(_fehlversuche) > 1024:                  # Deckel: lange Ruhende fallen weg
+            for alt in [k for k, v in _fehlversuche.items()
+                        if not v["laufend"] and v["bis"] <= jetzt
+                        and jetzt - v["ts"] > 4 * BREMSE_MAX_S]:
+                del _fehlversuche[alt]
+        _bremse_abschliessen(ip, True)
 
 
 def _bremse_erfolg(ip):
-    with _fehlversuche_lock:
-        _fehlversuche.pop(ip, None)
+    with _bremse_frei:
+        _bremse_abschliessen(ip, False)
+
+
+def _bremse_freigeben(ip):
+    """Vergleich ohne Ergebnis (Ausnahme): Platz frei, nichts gezählt."""
+    with _bremse_frei:
+        _bremse_abschliessen(ip, None)
 
 # SponsorBlock: welche Segmente beim Download rausgeschnitten werden (Community-Daten
 # von sponsor.ajay.app, via yt-dlp). "" = aus, damit nichts ungefragt verändert wird.
@@ -6561,18 +6613,25 @@ class Handler(BaseHTTPRequestHandler):
         pfad = urlparse(self.path).path
         if pfad in ("/m", "/handy", "/koppeln", "/api/geraet_anmelden", "/api/geraet_status"):
             return True                              # Pairing muss VOR dem Token gehen
-        if _bremse_gesperrt(ip):                     # S7: Versuchsbremse je IP
-            return False
         q = parse_qs(urlparse(self.path).query)
         tok = (q.get("geraet") or [self.headers.get("X-Geraet", "")])[0]
         code = (q.get("code") or [self.headers.get("X-Code", "")])[0]
-        if profil_geraete.geraet_ok(tok) or zugriff_erlaubt(
-                ip, CFG.get("fernsteuerung"), CFG.get("fernsteuerung_code") or "", code):
-            _bremse_erfolg(ip)
-            return True
-        if tok or code:
-            _bremse_fehlversuch(ip)
-        return False
+        if not (tok or code):                        # nichts zu raten: zählt nicht
+            return False
+        if not _bremse_versuch(ip):                  # S7: prüfen und belegen in EINEM Schritt
+            return False
+        ok = None
+        try:
+            ok = bool(profil_geraete.geraet_ok(tok) or zugriff_erlaubt(
+                ip, CFG.get("fernsteuerung"), CFG.get("fernsteuerung_code") or "", code))
+        finally:
+            if ok is None:
+                _bremse_freigeben(ip)                # Ausnahme im Vergleich: nichts zählen
+            elif ok:
+                _bremse_erfolg(ip)
+            else:
+                _bremse_fehlversuch(ip)
+        return ok
 
     def do_GET(self):
         if not self._anfrage_vertraut():
