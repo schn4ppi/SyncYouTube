@@ -79,6 +79,11 @@ Startmenü-Verknüpfung) sind eigens gesperrt. Ein eigener Download-Ordner
 aus JBs config.json liegt außerhalb des Programmordners; ihn schützt nur, dass
 CFG je Test frisch aus den Vorgaben kommt. Der Direkt-Lauf
 `python tests/test_youtube.py` lädt diese Datei nicht und hat keine Wache.
+Er fährt nur die Tests VOR seinem Runner-Block (`if __name__ …` steht mitten
+in der Datei; am 25.09.: 59 von 213). Gemessen am 25.09. mit einem
+Schreib-Protokoll in einer Wegwerf-Kopie ohne Daten: diese 59 schreiben
+außer `__pycache__` nur nach %TEMP%, kein Netz, kein Schlüsselbund. Mit
+echten Daten liest der Import sie trotzdem (nur lesend).
 
 Netz (Y0): benannte Sperren wie beim Film-Teil für geo.freie_proxys,
 vpn.status, vpn._still (startet NordVPN.exe) und update.fetch_*. Dazu ein

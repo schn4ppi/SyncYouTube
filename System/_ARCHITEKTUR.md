@@ -23,7 +23,7 @@ oberflaeche.py        Gesamte PC-Oberfläche (HTML/CSS/JS als ein String).
 handy.py              Schlanke Touch-Oberfläche der Handy-Fernsteuerung (unter /m).
 
 tests/test_youtube.py Verhaltens-Sicherheitsnetz (reine Funktionen, kein Netz/Platte).
-                      Start:  python tests/test_youtube.py   (auch ohne pytest), 17 Tests.
+                      Start:  python tests/test_youtube.py   (auch ohne pytest; so nur die Tests vor dem Runner-Block, 25.09.2026: 59 von 213).
 browser-addon/        Universelle Erweiterung (FF/Chrome/Edge aus 1 Code, build.py).
 ```
 
