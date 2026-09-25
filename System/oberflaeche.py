@@ -2266,28 +2266,6 @@ function menuAnBody(m,knopf){
   if(knopf)m._anker=knopf;
   if(m._anker&&m._anker.isConnected)popoverBei(m, m._anker.getBoundingClientRect());
 }
-function menuInsBild(m,rand){
-  // Build 119 (JB-Fund): aufklappende Menüs (Ansicht/Spalten) hängen als
-  // absolut positionierte Kinder AN ihrem Knopf — sitzt der weit rechts,
-  // ragen sie aus dem Fenster. Erst nach links ausrichten; reicht das nicht
-  // (Menü breiter als der Platz daneben), wird es freigestellt und vom
-  // Bildschirm-Wächter geklemmt. Gilt für alle .colmenu-Menüs.
-  if(!m||m.style.display==='none')return;
-  rand=rand||10;
-  m.style.position=''; m.style.left=''; m.style.right='';
-  m.style.top=''; m.style.maxWidth=''; m.style.maxHeight='';
-  let r=m.getBoundingClientRect();
-  if(r.right>window.innerWidth-rand){                 // nach links ausrichten
-    m.style.left='auto'; m.style.right='0';
-    r=m.getBoundingClientRect();
-  }
-  if(r.left<rand||r.right>window.innerWidth-rand||r.bottom>window.innerHeight-rand){
-    const merk=r;                                     // Startpunkt merken
-    m.style.position='fixed'; m.style.left=merk.left+'px'; m.style.top=merk.top+'px';
-    m.style.right='auto';
-    imBlick(m,rand);
-  }
-}
 function alleImBlick(){
   document.querySelectorAll(SCHWEBEND).forEach(e=>imBlick(e));
   document.querySelectorAll('.colmenu').forEach(m=>{
@@ -2537,7 +2515,6 @@ function saveLayout(){
   _lastSig=sig;
   try{localStorage.setItem(LKEY,JSON.stringify(L));}catch(e){}
 }
-function layoutReset(){layoutMerken();L=defaultLayout();renderPanels();}
 function panelEl(id){return document.querySelector('.panel[data-id="'+id+'"]');}
 function bringFront(p){p.zi=++L.z;const el=panelEl(p.id);if(el)el.style.zIndex=p.zi;}
 
@@ -2882,9 +2859,6 @@ function fensterAbstand(){let v=NaN; try{v=parseInt(localStorage.getItem('ytdl_g
 // Fenster „kleben": die linke/obere Kante des gezogenen Fensters an sinnvolle
 // Positionen fangen — Rand, Kanten-Ausrichtung mit Nachbarn, und Anlegen mit
 // eingestelltem Abstand (Gap). So sitzen Fenster sauber nebeneinander.
-function naechsteKante(pos, kandidaten, T){          // die NÄCHSTE Kante im Fangradius (Mathe: layout_kern)
-  return LK.naechsteKante(pos, kandidaten, T);
-}
 function snapKanten(p){                               // kräftiger Magnet (JB: „haften!") — Mathe: layout_kern
   const c=document.getElementById('canvas');
   const s=LK.snapXY(p, L.panels, c.clientWidth, c.clientHeight, fensterAbstand(), 16);
@@ -3874,31 +3848,6 @@ function mengenRegler(d,q){
   };
   malen();
   menuSchliesser(m);
-}
-async function appBeenden(){
-  if(!confirm('SyncYouTube komplett beenden?\\n\\nLaufende Downloads werden pausiert (setzen beim naechsten Start fort). Auch der Hintergrund-Dienst wird geschlossen.'))return;
-  try{await fetch('/api/beenden',{method:'POST'});}catch(e){}
-  document.body.innerHTML='<div style="padding:40px;font:16px system-ui;color:#c9bcae">SyncYouTube wurde beendet. Dieses Fenster kann geschlossen werden.</div>';
-}
-function cmdDlRow(i){                                  // eine Download-Zeile (Dateiname + Balken), Klick = Pause
-  const p=Math.round(i.prozent||0);
-  const ic={laeuft:'⏬',wartend:'⏳',pausiert:'⏸',fehler:'⚠',prueft:'🔎'}[i.status]||'•';
-  const rechts=i.status==='laeuft'?(p+'%'):(i.status==='fehler'?'Fehler':(i.status==='pausiert'?'Pause':(i.status==='prueft'?'prüft':'wartet')));
-  return `<div class="dlrow ${i.status}" onclick="dlKlick('${i.id}','${i.status}')" title="${esc(i.titel||'')} — Klick: Pause / Fortsetzen">`+
-    `<span class="dlic">${ic}</span>`+
-    `<span class="dltitel">${esc((i.titel||'…').slice(0,70))}</span>`+
-    `<span class="dlbar"><i style="width:${p}%"></i></span>`+
-    `<span class="dlpct">${esc(rechts)}</span>`+
-    `<button class="dlx" onclick="event.stopPropagation();aktion('${i.id}','entfernen')" title="Abbrechen &amp; aus der Warteschlange entfernen (Dateien bleiben)">✖</button></div>`;
-}
-function cmdQueueRender(items){                        // rechte Spalte: alle aktiven Downloads untereinander
-  const el=document.getElementById('cmd-queue'); if(!el)return;
-  const aktiv=(items||[]).filter(i=>i.status!=='fertig'&&i.status!=='uebersprungen');
-  el.innerHTML=aktiv.length?aktiv.slice(0,40).map(cmdDlRow).join(''):'<span class="cmd-empty">// keine aktiven Downloads</span>';
-}
-function dlKlick(id,status){                           // Download anhalten / fortsetzen
-  if(status==='laeuft')aktion(id,'pause');
-  else if(status==='pausiert'||status==='fehler')aktion(id,'weiter');
 }
 /* „Now Playing"-Mini in der Command-Bar: Steuerung + Titel, darunter Spulleiste
    mit Zeitanzeige (JB 13.07.). malen() ruft das jede Sekunde — damit die
@@ -10808,18 +10757,6 @@ async function plDelete(){const id=document.getElementById('plsel').value; if(!i
   const p=plState.find(x=>x.id===id); if(p&&confirm('Playlist „'+p.name+'" löschen? (Dateien bleiben erhalten)'))await plApi({art:'delete',id});}
 async function plRename(){const id=document.getElementById('plsel').value; if(!id)return;
   const p=plState.find(x=>x.id===id); const n=prompt('Neuer Name:',p?p.name:''); if(n&&n.trim())await plApi({art:'rename',id,name:n.trim()});}
-async function plAdd(key){
-  let id=document.getElementById('plsel').value;
-  if(!id){
-    if(plState.length){alert('Bitte oben zuerst eine Playlist wählen — oder ＋ Neu.');return;}
-    const n=prompt('Neue Playlist — Name:'); if(!n||!n.trim())return;
-    id=await plAnlegen(n.trim()); if(!id)return;
-    document.getElementById('plsel').value=id; plMalen();
-  }
-  await plApi({art:'add',id,key});
-  const p=plState.find(x=>x.id===id), t=libFind(key);
-  if(p)plInfo('„'+((t&&t.titel)||'').slice(0,22)+'" → '+p.name+' ✓');
-}
 function plPlaySel(){const id=document.getElementById('plsel').value; const p=plState.find(x=>x.id===id);
   if(!id||!p){
     // KEINE Playlist gewählt (JB 14.07.): dann die aktuell ANGEZEIGTE Bibliothek
