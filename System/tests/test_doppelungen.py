@@ -124,3 +124,72 @@ def test_js_rekorder_bleibt_gedeckelt(monkeypatch, tmp_path):
     st, _, _ = _anfrage("/api/js_fehler", methode="POST", kopf=PC, rumpf={"text": "Probe"})
     assert st == 200 and ziel.stat().st_size < 200_000
     assert json.loads(ziel.read_text(encoding="utf-8").splitlines()[-1])["text"] == "Probe"
+
+
+# ------------------------------------------------------------ Kanal-Links
+
+KANAL_PROBEN = [
+    "https://www.youtube.com/@kanal", "https://www.youtube.com/@kanal/", "https://youtube.com/@Kanal",
+    "https://www.youtube.com/channel/UC123", "https://www.youtube.com/c/Name", "https://www.youtube.com/user/alt",
+    "https://www.youtube.com/@kanal/videos", "https://www.youtube.com/@kanal/streams",
+    "https://www.youtube.com/@kanal/shorts", "https://www.youtube.com/@kanal/playlists",
+    "https://www.youtube.com/@kanal/featured", "https://www.youtube.com/@kanal/live",
+    "https://www.youtube.com/@kanal/community", "https://www.youtube.com/@kanal/about",
+    "https://www.youtube.com/watch?v=abcdefghijk", "https://www.youtube.com/playlist?list=PL1",
+    "https://www.youtube.com/shorts/abcdefghijk", "https://www.youtube.com/", "https://www.youtube.com/results",
+    "https://www.youtube.com/@a/b/c",
+]
+
+
+def test_kanal_links_eine_regel_fuer_beide_leser():
+    """link_deuten und _kanal_url urteilen gleich: eine blosse Kanal-Wurzel ist
+    mehrdeutig (laden oder abonnieren?) und bekommt beim Laden /videos
+    angehängt; eine Unterseite ist eindeutig und bleibt, wie sie ist."""
+    for url in KANAL_PROBEN:
+        d = app.link_deuten(url)
+        wurzel = d["typ"] == "kanal" and not d["eindeutig"]
+        assert (app._kanal_url(url) != url) == wurzel, (url, d["typ"], app._kanal_url(url))
+        if wurzel:
+            assert app._kanal_url(url).endswith("/videos")
+
+
+def test_kanal_links_regel_steht_an_einer_stelle(monkeypatch):
+    """Die Regel stand zweimal wortgleich da (link_deuten und _kanal_url). Jetzt
+    gibt es sie einmal: Eine neue Unterseite gilt sofort für beide Leser."""
+    url = "https://www.youtube.com/@kanal/community"
+    assert app.link_deuten(url)["typ"] == "video"      # heute: keine bekannte Unterseite
+    monkeypatch.setattr(app, "_KANAL_UNTERSEITEN", app._KANAL_UNTERSEITEN + ("/community",))
+    assert app.link_deuten(url) == {"typ": "kanal", "eindeutig": True, "frage": "", "optionen": []}
+    assert app._kanal_url(url) == url
+
+
+# ------------------------------------------------------------ Musikmuster
+
+MUSIK_PROBEN = [
+    ({"name": "Queen - Bohemian Rhapsody [abc].mp4"}, True),
+    ({"name": "Queen – Bohemian Rhapsody.webm"}, True),
+    ({"name": "Q - X.mkv"}, False),                      # Künstler zu kurz
+    ({"name": "Warum X - und Y.mp4"}, True),             # Muster greift (bewusst großzügig)
+    ({"name": "Lets Play Folge 3.mp4"}, False),
+    ({"name": "Ein sehr sehr langer Kanalname der mehr als vierzig Zeichen hat - Titel.mp4"}, False),
+    ({"name": "Clip.mp4", "uploader": "Queen - Topic"}, True),
+    ({"name": "Clip.mp4", "uploader": "QueenVEVO"}, True),
+    ({"name": "Hörbuch.mp3"}, True),
+    ({"name": "x.avi"}, False),
+    ({"name": "Queen - Song.avi"}, False),               # kein Video-Format der Liste
+    ({"name": "egal.mp4", "kategorie": "MP3"}, True),
+]
+
+
+def test_ist_musik_bleibt_gleich():
+    for e, erwartet in MUSIK_PROBEN:
+        assert app._ist_musik(e) is erwartet, e
+
+
+def test_musikmuster_steht_an_einer_stelle(monkeypatch):
+    """„Künstler - Titel“ stand wortgleich in _ist_musik und _ist_musik_muster.
+    Jetzt fragt _ist_musik das Muster ab: eine Änderung wirkt auf beide."""
+    gefragt = []
+    monkeypatch.setattr(app, "_ist_musik_muster", lambda e: gefragt.append(e["name"]) or True)
+    assert app._ist_musik({"name": "Lets Play Folge 3.mp4"}) is True
+    assert gefragt == ["Lets Play Folge 3.mp4"]

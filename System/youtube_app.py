@@ -845,6 +845,13 @@ def ist_einzelvideo(url):
         return True
 
 
+# Kanal-Links, EINE Regel für link_deuten und _kanal_url (Gesamtprüfung Gruppe 7,
+# vorher wortgleich zweimal): Eine Unterseite ist eindeutig und bleibt, wie sie
+# ist; die blosse Kanal-Wurzel ist mehrdeutig (laden oder abonnieren?).
+_KANAL_UNTERSEITEN = ("/videos", "/streams", "/shorts", "/playlists", "/featured", "/live")
+_KANAL_WURZEL = re.compile(r"^/(@[^/]+|channel/[^/]+|c/[^/]+|user/[^/]+)$")
+
+
 def link_deuten(url):
     """Was will JB mit diesem Link? (Build 126 — „ein Feld für alles")
 
@@ -890,10 +897,9 @@ def link_deuten(url):
         return dict(typ="playlist", **eindeutig)
     if "youtu.be" in host or low.startswith("/shorts/") or "/watch" in low:
         return dict(typ="video", **eindeutig)
-    if any(low.endswith(s) for s in ("/videos", "/streams", "/shorts",
-                                     "/playlists", "/featured", "/live")):
+    if low.endswith(_KANAL_UNTERSEITEN):
         return dict(typ="kanal", **eindeutig)         # Unterseite = klar: laden
-    if re.match(r"^/(@[^/]+|channel/[^/]+|c/[^/]+|user/[^/]+)$", pfad):
+    if _KANAL_WURZEL.match(pfad):
         return {"typ": "kanal", "eindeutig": False,   # MEHRDEUTIG: laden oder abo?
                 "frage": "Das ist ein Kanal.",
                 "optionen": [{"id": "abo", "text": "Abonnieren (neue Folgen kommen von allein)",
@@ -917,10 +923,9 @@ def _kanal_url(url):
     low = path.lower()
     if parse_qs(p.query).get("v") or "/playlist" in low or "/watch" in low:
         return url
-    if any(low.endswith(s) for s in ("/videos", "/streams", "/shorts",
-                                     "/playlists", "/featured", "/live")):
+    if low.endswith(_KANAL_UNTERSEITEN):
         return url
-    if re.match(r"^/(@[^/]+|channel/[^/]+|c/[^/]+|user/[^/]+)$", path):
+    if _KANAL_WURZEL.match(path):
         return "https://www.youtube.com" + path + "/videos"
     return url
 
@@ -2240,11 +2245,8 @@ def _ist_musik(e):
     if up.endswith("- topic") or up.endswith("vevo"):
         return True
     # „Künstler - Titel": ein Bindestrich mit Leerzeichen, und beide Seiten
-    # tragen Text. Reine Satzzeichen-Striche („Warum X - und Y") fängt die
-    # Längenprüfung ab.
-    stamm = re.sub(r"\.[a-z0-9]{2,4}$", "", e.get("name") or "")
-    teile = re.split(r"\s+[-–—]\s+", stamm, maxsplit=1)
-    return len(teile) == 2 and 2 <= len(teile[0].strip()) <= 40 and len(teile[1].strip()) >= 2
+    # tragen Text (die Regel steht einmal, in _ist_musik_muster).
+    return _ist_musik_muster(e)
 
 
 # Build 144h (JB Punkt 5): „der Video- und Song-Modus soll wirklich Lieder
@@ -2347,7 +2349,9 @@ def _musik_grade(eintraege):
 
 
 def _ist_musik_muster(e):
-    """Nur das Namensmuster „Künstler - Titel" (ohne Format-Annahme)."""
+    """Nur das Namensmuster „Künstler - Titel" (ohne Format-Annahme): ein
+    Bindestrich mit Leerzeichen, links 2 bis 40 Zeichen, rechts mindestens 2.
+    Die EINE Fassung der Regel, auch für _ist_musik (Gesamtprüfung Gruppe 7)."""
     stamm = re.sub(r"\.[a-z0-9]{2,4}$", "", e.get("name") or "")
     teile = re.split(r"\s+[-–—]\s+", stamm, maxsplit=1)
     return (len(teile) == 2 and 2 <= len(teile[0].strip()) <= 40
