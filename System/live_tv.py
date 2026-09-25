@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 import familie as fam
@@ -16,6 +17,7 @@ import familie as fam
 QUELLE = ("https://raw.githubusercontent.com/jnk22/kodinerds-iptv/master/"
           "iptv/clean/clean_tv.m3u")
 CACHE_ALTER_S = 24 * 3600
+ERLAUBTE_SCHEMEN = ("http", "https")
 _pfade = {}
 
 
@@ -23,9 +25,22 @@ def einrichten(daten_dir):
     _pfade["cache"] = os.path.join(daten_dir, "live_tv.json")
 
 
-def m3u_parsen(text):
-    """#EXTINF-Zeilen → Kanäle (Name, Logo, Gruppe) + folgende URL-Zeile."""
+def _erlaubt(url):
+    """Nur http(s) mit Rechnername (Gesamtprüfung S18): die Liste kommt aus
+    dem Netz, und VLC öffnet jede Adresse daraus. Datei-, Laufwerks- oder
+    Freigabe-Adressen haben in einer Senderliste nichts zu suchen."""
+    try:
+        teile = urllib.parse.urlsplit(str(url or ""))
+    except ValueError:
+        return False
+    return teile.scheme.lower() in ERLAUBTE_SCHEMEN and bool(teile.hostname)
+
+
+def m3u_zerlegen(text):
+    """#EXTINF-Zeilen → (Kanäle (Name, Logo, Gruppe) + folgende URL-Zeile,
+    Zahl der verworfenen Einträge ohne http(s)-Adresse)."""
     out = []
+    verworfen = 0
     info = None
     for zeile in (text or "").splitlines():
         zeile = zeile.strip()
@@ -36,10 +51,23 @@ def m3u_parsen(text):
             info = {"name": name, "logo": logo.group(1) if logo else "",
                     "gruppe": gruppe.group(1) if gruppe else "Sender"}
         elif zeile and not zeile.startswith("#") and info:
-            info["url"] = zeile
-            out.append(info)
+            if _erlaubt(zeile):
+                info["url"] = zeile
+                out.append(info)
+            else:
+                verworfen += 1
             info = None
-    return out
+    return out, verworfen
+
+
+def m3u_parsen(text):
+    """Nur die Kanäle aus m3u_zerlegen."""
+    return m3u_zerlegen(text)[0]
+
+
+def _nur_erlaubte(kanaele):
+    """Auch ein Cache von vor dem Filter liefert nur http(s) aus."""
+    return [k for k in (kanaele or []) if isinstance(k, dict) and _erlaubt(k.get("url"))]
 
 
 def _cache_lesen():
@@ -68,28 +96,33 @@ def _fehler_merken(d, fehler):
 def kanaele(frisch=False):
     """Senderliste aus dem Cache (24 h) oder frisch von der Quelle. Scheitert
     der Abruf, trägt der alte Cache weiter — der Fehler wird aber gemerkt
-    (`letzter_fehler`/`fehler_seit`) und über status() sichtbar."""
+    (`letzter_fehler`/`fehler_seit`) und über status() sichtbar. Ausgeliefert
+    werden nur Kanäle mit http(s)-Adresse; wie viele der Abruf verworfen
+    hat, steht als `verworfen` im Cache und in status()."""
     d = _cache_lesen()
     if not frisch and time.time() - (d.get("stand") or 0) < CACHE_ALTER_S:
-        return d.get("kanaele") or []
+        return _nur_erlaubte(d.get("kanaele"))
     try:
         with urllib.request.urlopen(QUELLE, timeout=30) as r:
-            liste = m3u_parsen(r.read().decode("utf-8", "replace"))
+            liste, verworfen = m3u_zerlegen(r.read().decode("utf-8", "replace"))
         if not liste:
-            raise ValueError("Senderliste leer (0 Kanäle geparst)")
+            raise ValueError("Senderliste leer (0 Kanäle geparst"
+                             + (f", {verworfen} ohne http(s) verworfen)" if verworfen else ")"))
         fam.json_schreiben(_pfade["cache"], {"stand": time.time(),
-                                             "kanaele": liste})
+                                             "kanaele": liste, "verworfen": verworfen})
         return liste
     except Exception as e:                 # noqa: BLE001 — alter Cache trägt, Fehler wird gemerkt
         _fehler_merken(d, e)
-    return d.get("kanaele") or []
+    return _nur_erlaubte(d.get("kanaele"))
 
 
 def status():
     """Für /api/live und Wächter: Stand der Liste, Kanalzahl, letzter Fehler
-    (leer = gesund) und seit wann der Abruf scheitert (0 = gar nicht)."""
+    (leer = gesund), seit wann der Abruf scheitert (0 = gar nicht) und wie
+    viele Einträge der letzte Abruf ohne http(s)-Adresse verworfen hat."""
     d = _cache_lesen()
     return {"stand": d.get("stand") or 0,
             "kanaele": len(d.get("kanaele") or []),
             "fehler": d.get("letzter_fehler") or "",
-            "fehler_seit": d.get("fehler_seit") or 0}
+            "fehler_seit": d.get("fehler_seit") or 0,
+            "verworfen": d.get("verworfen") or 0}

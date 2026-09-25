@@ -656,3 +656,66 @@ def test_auto_sync_versucht_unvollstaendig_erst_nach_pause(tmp_path, monkeypatch
     uhr[0] += app.AUTO_SYNC_NACHHOL_S + 1
     app.auto_sync_pruefen()
     assert len(laeufe) == 3
+
+
+# ---------------------------------------------------------------- S18: Live-TV nur mit http(s)
+
+import json  # noqa: E402
+
+import live_tv  # noqa: E402
+
+_M3U_GEMISCHT = "\n".join([
+    "#EXTM3U",
+    '#EXTINF:-1 group-title="G",Gut',
+    "https://s/gut.m3u8",
+    '#EXTINF:-1 group-title="G",Auch gut',
+    "HTTP://s/auch.m3u8",
+    '#EXTINF:-1 group-title="G",Datei',
+    "file:///C:/Windows/win.ini",
+    '#EXTINF:-1 group-title="G",Freigabe',
+    UNC + ".m3u8",
+    '#EXTINF:-1 group-title="G",Laufwerk',
+    "C:\\Users\\x.m3u8",
+    '#EXTINF:-1 group-title="G",Smb',
+    "smb://host/x",
+    '#EXTINF:-1 group-title="G",Ohne Host',
+    "http:///x",
+    ""])
+
+
+def test_live_tv_nimmt_nur_http_und_https(tmp_path):
+    """Die Senderliste kommt aus dem Netz; VLC spielt jede Adresse daraus. Nur
+    http und https bleiben, alles andere (Datei, Freigabe, Laufwerk, smb)
+    fällt heraus."""
+    k = live_tv.m3u_parsen(_M3U_GEMISCHT)
+    assert [x["name"] for x in k] == ["Gut", "Auch gut"], k
+
+
+def test_live_tv_zaehlt_verworfene(tmp_path, monkeypatch):
+    live_tv.einrichten(str(tmp_path))
+
+    class R:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return _M3U_GEMISCHT.encode("utf-8")
+    monkeypatch.setattr(live_tv.urllib.request, "urlopen", lambda *a, **k: R())
+    assert len(live_tv.kanaele(frisch=True)) == 2
+    st = live_tv.status()
+    assert st["kanaele"] == 2 and st["verworfen"] == 5, st
+
+
+def test_live_tv_alter_cache_wird_beim_lesen_gefiltert(tmp_path):
+    """Ein Cache aus der Zeit vor dem Filter (24 h gültig) liefert fremde
+    Adressen nicht mehr aus; /api/live/play prüft gegen genau diese Liste."""
+    live_tv.einrichten(str(tmp_path))
+    import time
+    alt = [{"name": "Gut", "logo": "", "gruppe": "G", "url": "https://s/gut.m3u8"},
+           {"name": "Datei", "logo": "", "gruppe": "G", "url": "file:///C:/x"}]
+    (tmp_path / "live_tv.json").write_text(json.dumps({"stand": time.time(), "kanaele": alt}),
+                                           encoding="utf-8")
+    assert [x["name"] for x in live_tv.kanaele()] == ["Gut"]
