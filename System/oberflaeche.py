@@ -3512,18 +3512,35 @@ async function laden(){
    alten Tab — die Oberfläche lädt heiß vom Server, aber nur bei einem
    RELOAD, den nie jemand machte). Ändert sich der Stand der Oberfläche auf
    der Platte, lädt die Seite sich selbst neu — sanft: nie mitten im Film,
-   in einem Dialog oder beim Tippen, höchstens einmal je Minute. */
-let uiStand=null;
+   in einem Dialog oder beim Tippen, höchstens einmal je Minute.
+   Nie mitten im Titel (JB-Entscheid 7a Punkt 5, 25.09.2026): spielt Musik
+   oder VLC, bleibt das Neuladen vorgemerkt; der Sekundentakt holt es in der
+   nächsten Pause nach, am Titelende ersetzt es das Weiterschalten
+   (plTitelEnde, vlcTick). */
+let uiStand=null, uiNeuVorgemerkt=false;
 function uiStandPruefen(stand){
   if(!stand)return;
   if(uiStand===null){uiStand=stand; return;}
   if(stand===uiStand)return;
+  uiNeuVorgemerkt=true;
+  if(wiedergabeSpielt())return;
+  uiNeuLaden();
+}
+function wiedergabeSpielt(){                           // Musik im Browser oder am Gerät VLC
+  const pe=document.getElementById('pl-el');
+  return !!(pe&&!pe.paused&&!pe.ended)||(plGeraet==='vlc'&&vlcSpielt);
+}
+/* Lädt neu, wenn ein neuer Stand vorgemerkt ist und nichts dagegen spricht;
+   true heißt: die Seite lädt jetzt neu. */
+function uiNeuLaden(){
+  if(!uiNeuVorgemerkt)return false;
   const tippt=document.activeElement&&['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
-  if(tvpOffen||tvInfoOffen||tvDialogOffen||tippt)return;
+  if(tvpOffen||tvInfoOffen||tvDialogOffen||tippt)return false;
   const letzter=+sessionStorage.getItem('ui_reload_ts')||0;
-  if(Date.now()-letzter<60000)return;
+  if(Date.now()-letzter<60000)return false;
   sessionStorage.setItem('ui_reload_ts',String(Date.now()));
   location.reload();
+  return true;
 }
 /* Addon-Nachschub (v1.2.0, JB): „eine kurze Info, dass jetzt x Downloads
    getätigt werden" — je id genau EIN Toast (Muster wie _remoteN: beim
@@ -7951,6 +7968,7 @@ function xfPruefen(){                                  // Regel umgestellt (Slee
    der Vorbereitung); sonst wird er freigegeben und es geht normal weiter. */
 function plTitelEnde(ev){
   const el=ev&&ev.target; if(!el||!el.isConnected)return;   // abgelöstes Element entscheidet nichts mehr
+  if(uiNeuLaden())return;                                 // vorgemerkter neuer Stand: jetzt neu laden (F10)
   const d=nachEnde(xfNext?xfNext._key:el._zug);          // Zufall: der Zug dieses Titels gilt
   if(xfNext){
     if(xfNachfolgerGilt(d)){xfUebernehmen(d.idx); return;}
@@ -9648,7 +9666,7 @@ async function vlcTick(){
   // stehen, bis etwas Neues spielt — ohne die Merker-Variable liefe die
   // Warteschlange bei leerem Ende im 1-s-Takt immer weiter).
   if(s.zustand==='ende'&&s.key&&s.key===aktKey()&&vlcEndeFuer!==s.key){
-    vlcEndeFuer=s.key; playerAdvance();
+    vlcEndeFuer=s.key; if(!uiNeuLaden())playerAdvance();  // F10: vorgemerkter neuer Stand lädt statt weiter
   }
 }
 /* ---- Wiedergabe-Grundeinstellungen (Spec Punkt 5, Etappe C) --------------
