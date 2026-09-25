@@ -1141,25 +1141,62 @@ def test_autotag_gibt_den_merker_am_ende_nur_einmal_frei(monkeypatch):
 
 # ---------------------------------------------------------------- Läuft-schon-Merker
 
-def _unguenstigste_verzahnung(n):
-    """threading.settrace-Spur: jeder Faden hält an der Zeile an, die einen
-    Merker „laeuft“ auf True setzt, bis alle n dort sind (höchstens 0,5 s).
-    So läuft jedes Mal die Verzahnung, in der alle zwischen Prüfen und Setzen
-    stehen; ein Merker unter Sperre lässt dort nur einen hin."""
-    import linecache
+def _merker_zeilen():
+    """Zeilen der App, die einen Merker „laeuft“ auf True setzen, am Syntaxbaum
+    gefunden statt am Zeilentext: eine Zuweisung von True an `…laeuft`,
+    `x.laeuft` oder `x["laeuft"]`, dazu `x.update({"laeuft": True, …})`. Eine
+    Antwort wie `return {"ok": True, "laeuft": True}` setzt nichts und zählt
+    nicht mit."""
+    import ast
+    with open(app.__file__, encoding="utf-8") as f:
+        baum = ast.parse(f.read())
+
+    def ist_true(knoten):
+        return isinstance(knoten, ast.Constant) and knoten.value is True
+
+    def ist_merker(ziel):
+        if isinstance(ziel, ast.Name):
+            return "laeuft" in ziel.id
+        if isinstance(ziel, ast.Attribute):
+            return "laeuft" in ziel.attr
+        return (isinstance(ziel, ast.Subscript) and isinstance(ziel.slice, ast.Constant)
+                and ziel.slice.value == "laeuft")
+
+    def setzt_im_dict(aufruf):
+        return (isinstance(aufruf.func, ast.Attribute) and aufruf.func.attr == "update"
+                and any(isinstance(d, ast.Dict) and any(
+                    isinstance(k, ast.Constant) and k.value == "laeuft" and ist_true(v)
+                    for k, v in zip(d.keys, d.values)) for d in aufruf.args))
+    zeilen = set()
+    for knoten in ast.walk(baum):
+        if isinstance(knoten, ast.Assign) and ist_true(knoten.value) and any(map(ist_merker, knoten.targets)):
+            zeilen.add(knoten.lineno)
+        elif isinstance(knoten, ast.Call) and setzt_im_dict(knoten):
+            zeilen.add(knoten.lineno)
+    return zeilen
+
+
+def _unguenstigste_verzahnung(n, treffer):
+    """threading.settrace-Spur: jeder Faden hält an einer Zeile an, die einen
+    Merker „laeuft“ auf True setzt (`_merker_zeilen`), bis alle n dort sind
+    (höchstens 0,5 s). So läuft jedes Mal die Verzahnung, in der alle zwischen
+    Prüfen und Setzen stehen; ein Merker unter Sperre lässt dort nur einen hin.
+    Jeder Halt landet in `treffer`: greift der Haltepunkt nicht mehr (etwa weil
+    der Merker anders gesetzt wird), scheitert der Test laut, statt still ohne
+    erzwungene Verzahnung grün zu bleiben."""
     schranke = threading.Barrier(n, timeout=0.5)
     datei = app.__file__
+    zeilen = _merker_zeilen()
 
     def spur(frame, ereignis, arg):
         if ereignis == "call":
             return spur if frame.f_code.co_filename == datei else None
-        if ereignis == "line":
-            zeile = linecache.getline(datei, frame.f_lineno)
-            if "laeuft" in zeile and "True" in zeile and not zeile.lstrip().startswith(("#", "return")):
-                try:
-                    schranke.wait()
-                except threading.BrokenBarrierError:
-                    pass
+        if ereignis == "line" and frame.f_lineno in zeilen:
+            treffer.append(frame.f_lineno)
+            try:
+                schranke.wait()
+            except threading.BrokenBarrierError:
+                pass
         return spur
     return spur
 
@@ -1211,7 +1248,8 @@ def test_gleichzeitige_anstoesse_starten_genau_einen_lauf(monkeypatch, tmp_path,
     monkeypatch.setattr(app.time, "sleep", lambda s: None)
     zaehler, frei = [], threading.Event()
     anstoss = _lauf_vorbereiten(art, monkeypatch, tmp_path, zaehler, frei)
-    threading.settrace(_unguenstigste_verzahnung(8))
+    treffer = []
+    threading.settrace(_unguenstigste_verzahnung(8, treffer))
     try:
         faeden = [_im_faden(anstoss) for _ in range(8)]
     finally:
@@ -1224,6 +1262,7 @@ def test_gleichzeitige_anstoesse_starten_genau_einen_lauf(monkeypatch, tmp_path,
         frei.set()
         for f in faeden:
             f.join(20)
+    assert treffer, "der Haltepunkt am Merker griff nie: die ungünstigste Verzahnung wurde nicht erzwungen"
     assert gestartet == 1, f"{gestartet} Läufe liefen gleichzeitig los"
 
 
