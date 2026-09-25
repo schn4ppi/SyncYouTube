@@ -2197,9 +2197,20 @@ def test_playlist_haken_wenn_schon_eingereiht(tmp_path, monkeypatch):
     assert app.addon_hab_liste("RDx1") == {"da": False}
     assert app.addon_hab_liste("") == {"da": False}
     # Die Route muss VOR /api/addon_hab haengen - startswith("/api/addon_hab")
-    # wuerde /api/addon_hab_liste sonst wegfressen.
-    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
-    assert quelle.index('"/api/addon_hab_liste"') < quelle.index('"/api/addon_hab"'), (
+    # wuerde /api/addon_hab_liste sonst wegfressen. Seit 25.09.2026 am
+    # Verhalten der echten Route geprüft statt an der Reihenfolge im Quelltext
+    # (die WLAN-Tabellen vor dem Router nennen beide Pfade ebenfalls).
+    import email.message
+    import io
+    import json as _json
+    h = object.__new__(app.Handler)
+    h.path, h.command, h.request_version = "/api/addon_hab_liste?id=PLabc123", "GET", "HTTP/1.1"
+    h.requestline = f"GET {h.path} HTTP/1.1"
+    h.client_address = ("127.0.0.1", 50000)
+    h.headers = email.message.Message()
+    h.rfile, h.wfile = io.BytesIO(), io.BytesIO()
+    h.do_GET()
+    assert _json.loads(h.wfile.getvalue().partition(b"\r\n\r\n")[2]) == {"da": True}, (
         "addon_hab frisst addon_hab_liste (startswith-Falle)")
     # Addon-Seite: Listen-Zustand lokal gemerkt, Haken am Listen-Pfeil, und der
     # Dialog sagt es ehrlich - der Klick VERWEIGERT nicht (von-bis-Nachladen
@@ -4774,62 +4785,35 @@ def test_bibliothek_auswahl_ordner_und_autosync():
         "_playlists ist eine LISTE (AttributeError-Falle)"
 
 
-def test_routen_inventur_und_aussen_gates():
+def test_routen_inventur_und_aussen_gates(monkeypatch):
     # Nachtprüfung 06.08. (Riegel-Regel "Externe nur mit Zugangsdaten"):
     # /api/status verriet den Fernsteuerungs-Code, /api/config war von
     # aussen beschreibbar, /api/biblio loeschte, /api/vlc spielte beliebige
-    # URLs (SSRF). Wurzel-Fix statt Handliste: JEDE /api-Route muss hier
-    # ausdruecklich eingeordnet sein - eine neue Route ohne Eintrag ist rot.
-    import re as _re
-    src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
-    routen = set(_re.findall(r'self\.path(?: == |\.startswith\()"(/api/[a-z_/.]+)"', src))
-    # frei  = hinter _hat_zugriff (Riegel), kein Zusatz-Gate
-    # lokal = zusaetzlich nur 127.0.0.1 (im Code belegt)
-    # teilw = Route frei, aber gefaehrliche Zweige nur lokal (Stichproben unten)
-    EINORDNUNG = {
-        "/api/status": "teilw", "/api/config": "lokal", "/api/biblio": "teilw",
-        "/api/action": "teilw", "/api/vlc": "teilw", "/api/live/play": "teilw",
-        "/api/beenden": "lokal", "/api/ordner_waehlen": "lokal",
-        "/api/migration_probelauf": "lokal", "/api/umbenennen": "lokal",
-        "/api/geraet_bestaetigen": "lokal", "/api/geraet_entfernen": "lokal",
-        "/api/geraete": "lokal",
-        # Zustand darf jedes Geraet sehen (auch vom Sofa muss ein Ausfall
-        # auffallen) — der ROHE Fehlertext aber nicht: eine urllib-Ausnahme
-        # traegt Renes Server-Adresse. Nicht-lokal: "Server nicht erreichbar".
-        "/api/filme/zustand": "teilw",
-    }
-    FREI = {"/api/abo", "/api/abos", "/api/add", "/api/addon_hab",
-            "/api/addon_hab_liste", "/api/addon_nachschub", "/api/addon_update",
-            "/api/autotag", "/api/biblio_enrich", "/api/bibliothek", "/api/clip",
-            "/api/clip_favorit", "/api/cover", "/api/entdecken",
-            "/api/filme/anfragen", "/api/filme/bild", "/api/filme/detail",
-            "/api/filme/episoden", "/api/filme/fortschritt", "/api/filme/katalog",
-            "/api/filme/mehrwie", "/api/filme/merk", "/api/filme/play",
-            "/api/filme/reihen", "/api/filme/snippet", "/api/filme/sync",
-            "/api/filme/wuenschen", "/api/filme/direkt", "/api/vlc_standbild",
-            "/api/js_fehler", "/api/geo_status", "/api/geo_test",
-            "/fernbedienung",
-            "/api/geo_wireguard", "/api/geraet_anmelden", "/api/geraet_qr",
-            "/api/geraet_status", "/api/importieren", "/api/kanal_info",
-            "/api/link_deuten", "/api/live", "/api/lyrics", "/api/pfad_da",
-            "/api/played", "/api/playlist", "/api/playlist_export",
-            "/api/playlist_import", "/api/playlists", "/api/profil_anlegen",
-            "/api/profile", "/api/remote", "/api/schaetzfaktoren",
-            "/api/transkript_suche", "/api/untertitel", "/api/untertitel_laden",
-            "/api/wiedergabe"}
-    fehlend = sorted(r for r in routen if r not in EINORDNUNG and r not in FREI)
-    assert not fehlend, f"Routen ohne Sicherheits-Einordnung: {fehlend}"
-    # Stichproben: die vier Gates der Nachtpruefung stehen wirklich im Code.
-    i = src.index('elif self.path == "/api/status"')
-    assert "_ist_lokal" in src[i:i + 900], "Status muss nicht-lokal filtern"
-    i = src.index('elif self.path == "/api/config"')
-    assert "_ist_lokal" in src[i:i + 300], "Config nur lokal"
-    i = src.index("def _biblio(")                     # exakt: nicht jeder Name mit _biblio…
-    assert "_ist_lokal" in src[i:i + 900], "Biblio-Aenderungen nur lokal"
-    i = src.index('if self.path == "/api/vlc"')
-    assert "_ist_lokal" in src[i:i + 500], "VLC-url/fenster nur lokal"
-    i = src.index('elif self.path == "/api/live/play"')
-    assert "live_tv.kanaele()" in src[i:i + 700], "Live-URL nur aus der Kanal-Liste"
+    # URLs (SSRF). Die Inventur mit Handliste und die Quelltext-Stichproben
+    # (»_ist_lokal steht in den 300 Zeichen nach der Route«) sind seit dem
+    # 25.09.2026 (Gesamtprüfung S10, JB-Entscheid 7a Punkt 2) ersetzt: die
+    # Routen stehen in LAN_ERLAUBT/NUR_PC, und tests/test_wlan_rechte.py liest
+    # sie aus dem Syntaxbaum des Routers und schickt JEDE mit LAN-Adresse und
+    # gültigem Code durch den echten Handler (Status, Config, Biblio und VLC
+    # inklusive). Hier bleibt die Stichprobe, die dort nicht vorkommt: die
+    # Live-Adresse kommt nur aus der Senderliste, auch vom PC.
+    import email.message
+    import io
+    import json as _json
+    monkeypatch.setattr(app.live_tv, "kanaele", lambda: [{"url": "https://sender.example/a.m3u8"}])
+    aufrufe = []
+    monkeypatch.setattr(app, "vlc_kommando", lambda d: aufrufe.append(d) or {"ok": True})
+    rumpf = _json.dumps({"url": "file:///C:/Windows/win.ini", "name": "x"}).encode()
+    h = object.__new__(app.Handler)
+    h.path, h.command, h.request_version = "/api/live/play", "POST", "HTTP/1.1"
+    h.requestline = "POST /api/live/play HTTP/1.1"
+    h.client_address = ("127.0.0.1", 50000)
+    h.headers = email.message.Message()
+    h.headers["Content-Length"] = str(len(rumpf))
+    h.rfile, h.wfile = io.BytesIO(rumpf), io.BytesIO()
+    h.do_POST()
+    assert h.wfile.getvalue().split(b" ")[1] == b"403" and aufrufe == [], \
+        "Live-URL nur aus der Kanal-Liste"
 
 
 def test_worker_stirbt_nie_und_eigene_urls_gesperrt():

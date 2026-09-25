@@ -63,22 +63,42 @@ def test_pairing_codes_altern(tmp_path, monkeypatch):
         "abgelaufene Pairing-Anfragen muessen verschwinden"
 
 
-def test_riegel_verkabelt():
+def test_riegel_verkabelt(monkeypatch):
     # PFLICHT-Waechter (Spec 'Zugriff & Sicherheit'): der Handler prueft den
-    # Geraete-Token, Pairing-Wege sind frei, Verwaltung NUR lokal.
-    quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
-    i = quelle.index("def _hat_zugriff")
-    block = quelle[i:i + 1600]
-    assert "profil_geraete.geraet_ok" in block, "Geraete-Token wird nicht geprueft"
-    assert "/api/geraet_anmelden" in block and "/api/geraet_status" in block, \
-        "Pairing muss VOR dem Token erreichbar sein"
-    for geschuetzt in ("/api/geraete", "/api/geraet_qr"):
-        j = quelle.index(f'"{geschuetzt}"')
-        assert "_ist_lokal" in quelle[j:j + 300], geschuetzt + " muss nur-PC sein"
-    for geschuetzt in ("/api/geraet_bestaetigen", "/api/geraet_entfernen"):
-        j = quelle.index(f'"{geschuetzt}"')
-        assert "_ist_lokal" in quelle[j:j + 300], geschuetzt + " muss nur-PC sein"
-    assert "PAIRING_HTML" in quelle, "unbekanntes LAN-Geraet muss die Koppel-Seite sehen"
+    # Geraete-Token, Pairing-Wege sind frei, Verwaltung NUR lokal. Seit dem
+    # 25.09.2026 am Verhalten des echten Handlers (LAN-Adresse, kein Ersatz des
+    # Riegels) statt an Quelltext-Fenstern; die volle Routen-Inventur steht in
+    # tests/test_wlan_rechte.py.
+    import youtube_app as app
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from test_zugang_und_vertrauen import LAN, PC_IM_LAN, _anfrage
+    monkeypatch.setitem(app.CFG, "fernsteuerung", True)
+    monkeypatch.setitem(app.CFG, "fernsteuerung_code", "")      # nur der Geräte-Token zählt
+    monkeypatch.setattr(app, "_fehlversuche", {})
+    kopf = {"Host": PC_IM_LAN}
+    # Unbekanntes Gerät: die Koppel-Seite statt einer kalten 403, Pairing frei
+    st, _, koerper = _anfrage("/", ip=LAN, kopf=kopf)
+    assert st == 200 and pg.PAIRING_HTML.encode("utf-8") == koerper
+    assert _anfrage("/api/status", ip=LAN, kopf=kopf)[0] == 403
+    import json
+    st, _, koerper = _anfrage("/api/geraet_anmelden", methode="POST", ip=LAN, kopf=kopf,
+                              rumpf={"name": "TV"})
+    a = json.loads(koerper)
+    assert st == 200 and a.get("code"), "Pairing muss VOR dem Token erreichbar sein"
+    assert pg.geraet_bestaetigen(a["geraet_id"], "standard")
+    st, _, koerper = _anfrage(f"/api/geraet_status?id={a['geraet_id']}&code={a['code']}",
+                              ip=LAN, kopf=kopf)
+    token = json.loads(koerper)["token"]
+    # Der Token wird geprüft; Verwaltung bleibt nur-PC, auch mit Token
+    assert _anfrage("/api/status", ip=LAN, kopf=dict(kopf, **{"X-Geraet": token}))[0] == 200
+    assert _anfrage("/api/status", ip=LAN, kopf=dict(kopf, **{"X-Geraet": "falsch"}))[0] == 403
+    mit = dict(kopf, **{"X-Geraet": token})
+    for pfad in ("/api/geraete", "/api/geraet_qr"):
+        assert _anfrage(pfad, ip=LAN, kopf=mit)[0] == 403, pfad + " muss nur-PC sein"
+    for pfad in ("/api/geraet_bestaetigen", "/api/geraet_entfernen"):
+        st, _, _ = _anfrage(pfad, methode="POST", ip=LAN, kopf=mit, rumpf={"id": a["geraet_id"]})
+        assert st == 403, pfad + " muss nur-PC sein"
+    assert any(g["id"] == a["geraet_id"] for g in pg.geraete_liste()), "Gerät blieb gekoppelt"
 
 
 # ---------------------------------------------------------------- S8: Sperre (Gesamtpruefung 25.09.)

@@ -194,11 +194,26 @@ STANDARD_CONFIG = {
 }
 
 
+def ist_loopback(ip):
+    """Kommt eine Anfrage vom eigenen Rechner? 127.0.0.0/8 und ::1, auch als
+    IPv4 in IPv6 (::ffff:127.0.0.1). Die EINE Schreibweise für alle Riegel
+    (Gesamtprüfung S10, 25.09.2026): vorher wiesen sechs Stellen mit
+    `client_address != "127.0.0.1"` den PC ab, wenn er über ::1 kam."""
+    import ipaddress
+    try:
+        adresse = ipaddress.ip_address(str(ip or "").split("%")[0])
+    except ValueError:
+        return False
+    if getattr(adresse, "ipv4_mapped", None):
+        adresse = adresse.ipv4_mapped
+    return adresse.is_loopback
+
+
 def zugriff_erlaubt(client_ip, aktiv, code_soll, code_ist):
     """Wer darf auf die App zugreifen? Der eigene PC (localhost) IMMER. Aus dem
     Heim-WLAN NUR, wenn die Fernsteuerung an ist UND der Zugangscode stimmt.
     (Sicherheits-Kern der Handy-Fernsteuerung — bewusst als reine Funktion testbar.)"""
-    if client_ip in ("127.0.0.1", "::1", "localhost"):
+    if client_ip == "localhost" or ist_loopback(client_ip):
         return True
     if not aktiv:
         return False
@@ -6854,6 +6869,145 @@ def origin_erlaubt(origin, host_kopf):
     return teile.netloc.lower() == host_kopf.strip().lower()
 
 
+# ---------------------------------------------------------------- Wer darf was aus dem WLAN?
+# JB-Entscheid 7a Punkt 2 (25.09.2026, Gesamtprüfung S10): Ein Gerät im WLAN (mit
+# Fernsteuerungs-Code oder Geräte-Token) darf abspielen, suchen, fernsteuern,
+# Status und Bibliothek lesen und Downloads anstoßen. Alles, was Dateien löscht
+# oder verschiebt, Pfade setzt, config.json oder profile.json schreibt, Profile
+# anlegt, Tags oder Metadaten schreibt, Clips erzeugt, Abos oder Playlists
+# ändert, WireGuard-Dateien ablegt oder den VPN-Test startet, geht nur vom PC
+# selbst (Loopback). Vorher hingen zwölf Einzelprüfungen in zwei Schreibweisen
+# an den Routen, und rund zehn verändernde Routen hatten keine.
+# Jede Route steht in GENAU einer der beiden Tabellen; der Handler prüft sie vor
+# dem Routing (`Handler._lan_tor`). Was in keiner steht, ist aus dem WLAN
+# gesperrt (fail-closed). Der Wächter tests/test_wlan_rechte.py liest die Routen
+# aus dem Syntaxbaum des Routers und schickt jede mit LAN-Adresse und gültigem
+# Code durch den echten Handler.
+# LAN_ERLAUBT: (Methode, Pfad) -> (Grund, Prüfer oder None). Ein Prüfer sieht
+# die Anfrage-Daten (GET: die Query, je Schlüssel der erste Wert; POST: der
+# JSON-Körper) und liefert einen Ablehnungstext, wenn ein Zweig der Route doch
+# nur am PC geht. HEAD folgt GET.
+
+def _lan_vlc(daten):
+    if daten.get("url") or daten.get("cmd") == "fenster":
+        return "Nur am PC: beliebige Adressen im VLC spielen und das Video-Fenster setzen."
+    return None
+
+
+def _lan_biblio(daten):
+    if daten.get("art") != "herz":                   # löschen, vergessen, Archiv, Explorer, Player …
+        return "Nur am PC: die Bibliothek ändern (aus dem WLAN geht nur ❤)."
+    return None
+
+
+def _lan_action(daten):
+    if daten.get("art") in ("ordner_offen", "ordner"):
+        return "Nur am PC: den Explorer öffnen."
+    return None
+
+
+LAN_ERLAUBT = {
+    # Seiten
+    ("GET", "/"): ("Oberfläche; gekoppelte Geräte bekommen die volle Seite", None),
+    ("GET", "/index.html"): ("Oberfläche (zweiter Name für /)", None),
+    ("GET", "/m"): ("Handy-Seite, freier Einstieg mit Code-Eingabe", None),
+    ("GET", "/koppeln"): ("Kopplungsseite, frei (Gerät meldet sich an)", None),
+    ("GET", "/fernbedienung"): ("Fernbedienung (sendet nur an die eigene Seite)", None),
+    # Status und Bibliothek lesen
+    ("GET", "/api/status"): ("Status lesen (ohne Code, Pfade und Einstellungen)", None),
+    ("GET", "/api/bibliothek"): ("Bibliothek lesen", None),
+    ("GET", "/api/playlists"): ("Playlists lesen", None),
+    ("GET", "/api/playlist_export"): ("Playlist als M3U lesen", None),
+    ("GET", "/api/abos"): ("Abos lesen", None),
+    ("GET", "/api/profile"): ("Profile lesen („Wer schaut?“)", None),
+    ("GET", "/api/live"): ("Live-Sender lesen", None),
+    ("GET", "/api/filme/katalog"): ("Film-Katalog lesen", None),
+    ("GET", "/api/filme/zustand"): ("Film-Zustand lesen (Fehler nur als Kurztext)", None),
+    ("GET", "/api/filme/reihen"): ("Film-Reihen lesen", None),
+    ("GET", "/api/filme/detail"): ("Film-Details lesen", None),
+    ("GET", "/api/filme/episoden"): ("Staffeln und Folgen lesen", None),
+    ("GET", "/api/filme/mehrwie"): ("ähnliche Filme lesen", None),
+    ("GET", "/api/filme/anfragen"): ("eigene Filmwünsche lesen", None),
+    # abspielen
+    ("GET", "/media"): ("abspielen: Datei-Strom", None),
+    ("GET", "/api/cover"): ("abspielen: Cover aus der Datei", None),
+    ("GET", "/api/untertitel"): ("abspielen: Untertitel", None),
+    ("GET", "/api/lyrics"): ("abspielen: Liedtext", None),
+    ("GET", "/api/filme/direkt"): ("abspielen: Film-Strom", None),
+    ("GET", "/api/filme/bild"): ("abspielen: Film-Bild", None),
+    ("GET", "/api/filme/snippet"): ("abspielen: Vorschau-Szene", None),
+    ("POST", "/api/played"): ("abspielen: Wiedergabe mitzählen", None),
+    ("POST", "/api/untertitel_laden"): ("abspielen: fehlende Untertitel holen", None),
+    ("POST", "/api/filme/fortschritt"): ("abspielen: Stelle und „gesehen“ melden", None),
+    ("POST", "/api/filme/merk"): ("abspielen: Film-Merkliste des Profils", None),
+    ("POST", "/api/biblio"): ("nur ❤ Lieblingssong umschalten", _lan_biblio),
+    # fernsteuern
+    ("POST", "/api/remote"): ("fernsteuern: Befehl an den PC-Player", None),
+    ("POST", "/api/vlc"): ("fernsteuern: VLC-Befehle (ohne fremde Adresse, ohne Fenster)", _lan_vlc),
+    ("POST", "/api/filme/play"): ("fernsteuern: Film im VLC am PC", None),
+    ("POST", "/api/live/play"): ("fernsteuern: Live-Sender im VLC (nur aus der Senderliste)", None),
+    ("GET", "/api/vlc_standbild"): ("fernsteuern: Standbild des VLC", None),
+    # suchen
+    ("GET", "/api/transkript_suche"): ("suchen: in Untertiteln", None),
+    ("GET", "/api/entdecken"): ("suchen: ähnliche Titel entdecken", None),
+    ("GET", "/api/filme/wuenschen"): ("suchen: Filme zum Wünschen", None),
+    # Downloads anstoßen
+    ("POST", "/api/add"): ("Download anstoßen", None),
+    ("POST", "/api/link_deuten"): ("Download anstoßen: Link deuten (ohne Netz)", None),
+    ("GET", "/api/kanal_info"): ("Download anstoßen: Kanal vor dem Laden zählen", None),
+    ("GET", "/api/schaetzfaktoren"): ("Download anstoßen: Größe schätzen", None),
+    ("POST", "/api/action"): ("Download-Liste steuern: Pause, Weiter, aus der Liste nehmen", _lan_action),
+    ("POST", "/api/filme/anfragen"): ("Filmwunsch an den Film-Server (wie ein Download)", None),
+    ("POST", "/api/filme/sync"): ("Film-Katalog neu abrufen (wie Lesen)", None),
+    # Kopplung und Fehlerbericht
+    ("POST", "/api/geraet_anmelden"): ("Kopplung Schritt 1, frei (höchstens 20 offene Anfragen)", None),
+    ("GET", "/api/geraet_status"): ("Kopplung: Token abholen, frei", None),
+    ("POST", "/api/js_fehler"): ("Fehlerbericht der Oberfläche (Datei höchstens 200 KB)", None),
+}
+
+NUR_PC = {
+    ("GET", "/addon.xpi"): "Browser-Erweiterung installiert man am PC",
+    ("GET", "/api/addon_hab"): "Browser-Erweiterung am PC",
+    ("GET", "/api/addon_hab_liste"): "Browser-Erweiterung am PC",
+    ("GET", "/api/addon_update"): "Browser-Erweiterung am PC",
+    ("POST", "/api/addon_nachschub"): "Browser-Erweiterung am PC",
+    ("GET", "/api/geraete"): "Geräte verwalten (profile.json)",
+    ("GET", "/api/geraet_qr"): "Geräte verwalten (profile.json)",
+    ("POST", "/api/geraet_bestaetigen"): "Gerät freigeben schreibt profile.json",
+    ("POST", "/api/geraet_entfernen"): "Gerät trennen schreibt profile.json",
+    ("POST", "/api/profil_anlegen"): "legt ein Profil an (profile.json)",
+    ("GET", "/api/ordner_waehlen"): "öffnet einen Dialog am PC und setzt Pfade",
+    ("GET", "/api/pfad_da"): "prüft Pfade auf dem PC",
+    ("GET", "/api/geo_status"): "Geo-Einstellungen (mit lokalen Pfaden)",
+    ("POST", "/api/config"): "schreibt config.json",
+    ("POST", "/api/wiedergabe"): "Wiedergabe-Regeln schreiben config.json",
+    ("POST", "/api/beenden"): "beendet das Programm",
+    ("GET", "/api/migration_probelauf"): "Umbenennen verschiebt Dateien",
+    ("POST", "/api/umbenennen"): "verschiebt Dateien",
+    ("POST", "/api/importieren"): "nimmt Dateien in die Bibliothek auf",
+    ("POST", "/api/biblio_enrich"): "schreibt Metadaten",
+    ("POST", "/api/autotag"): "schreibt Tags in Dateien",
+    ("POST", "/api/clip"): "erzeugt Clips",
+    ("POST", "/api/clip_favorit"): "ändert die Bibliothek",
+    ("POST", "/api/playlist"): "ändert Playlists, der Spiegel-Sync verschiebt Dateien",
+    ("POST", "/api/playlist_import"): "legt Playlists an",
+    ("POST", "/api/abo"): "ändert Abos und löscht Abo-Videos",
+    ("POST", "/api/geo_wireguard"): "legt WireGuard-Dateien ab und schreibt config.json",
+    ("POST", "/api/geo_test"): "startet den VPN-Test",
+}
+
+
+def lan_ablehnung(methode, pfad, daten):
+    """Ablehnungstext für eine Anfrage aus dem WLAN, oder None, wenn sie darf."""
+    methode = "GET" if methode == "HEAD" else methode
+    eintrag = LAN_ERLAUBT.get((methode, pfad))
+    if eintrag is None:
+        grund = NUR_PC.get((methode, pfad))
+        return f"Nur am PC: {grund}." if grund else "Nur am PC."
+    pruefer = eintrag[1]
+    return pruefer(daten if isinstance(daten, dict) else {}) if pruefer else None
+
+
 def _cors(handler):
     """CORS nur für Browser-Erweiterungen freigeben (nie für beliebige Webseiten —
     der Server lauscht ohnehin nur auf 127.0.0.1). Erlaubt das Firefox-Addon,
@@ -6921,7 +7075,15 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def _ist_lokal(self):
-        return (self.client_address[0] if self.client_address else "") in ("127.0.0.1", "::1")
+        """Der PC selbst (Loopback, auch ::1): die EINE Schreibweise des Riegels (S10)."""
+        return ist_loopback(self.client_address[0] if self.client_address else "")
+
+    def _lan_tor(self, methode, daten):
+        """S10: Aus dem WLAN nur, was LAN_ERLAUBT zulässt (vor dem Routing).
+        None = weiter; sonst der Ablehnungstext."""
+        if self._ist_lokal():
+            return None
+        return lan_ablehnung(methode, urlparse(self.path).path, daten)
 
     def _geraet_profil(self):
         """Profil des anfragenden Geräts: localhost = im UI gewählt (Query),
@@ -6938,7 +7100,7 @@ class Handler(BaseHTTPRequestHandler):
         verifiziertem Geräte-Token ODER dem Fernsteuerungs-Code (Riegel-
         PFLICHT, JB: Externe nur mit Zugangsdaten)."""
         ip = self.client_address[0] if self.client_address else ""
-        if ip in ("127.0.0.1", "::1"):
+        if self._ist_lokal():
             return True
         if not CFG.get("fernsteuerung"):             # S13: aus heißt aus, sofort und
             return False                             # auch für gekoppelte Geräte
@@ -6975,6 +7137,14 @@ class Handler(BaseHTTPRequestHandler):
                     and CFG.get("fernsteuerung")):   # S13: aus = auch keine Koppel-Seite
                 return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
             return _antwort(self, 403, {"fehler": "Kein Zugriff — Gerät nicht gekoppelt."})
+        q = parse_qs(urlparse(self.path).query)
+        ablehnung = self._lan_tor(self.command or "GET", {k: v[0] for k, v in q.items() if v})
+        if ablehnung:
+            return _antwort(self, 403, {"fehler": ablehnung, "nur_pc": True})
+        self._get_routen()
+
+    def _get_routen(self):
+        """Der GET-Router; Riegel und WLAN-Tor liegen davor in do_GET."""
         if urlparse(self.path).path == "/koppeln":       # Pairing-Seite direkt
             return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
         if urlparse(self.path).path == "/fernbedienung":  # Fake-Fernbedienung (JB 07.08.)
@@ -7131,15 +7301,11 @@ class Handler(BaseHTTPRequestHandler):
             t = profil_geraete.geraet_token_abholen(
                 (q.get("id") or [""])[0], (q.get("code") or [""])[0])
             _antwort(self, 200, t or {"wartet": True})
-        elif self.path.startswith("/api/geraete"):         # NUR PC: Geräte-Übersicht
-            if not self._ist_lokal():
-                return _antwort(self, 403, {"fehler": "nur am PC"})
+        elif self.path.startswith("/api/geraete"):         # NUR PC: Geräte-Übersicht (NUR_PC)
             _antwort(self, 200, {"items": profil_geraete.geraete_liste(),
                                  "url": f"http://{_lan_ip()}:{int(CFG.get('port', 8776))}/koppeln",
                                  "wlan": bool(CFG.get("fernsteuerung"))})
-        elif self.path.startswith("/api/geraet_qr"):       # NUR PC: QR zum Abfotografieren
-            if not self._ist_lokal():
-                return _antwort(self, 403, {"fehler": "nur am PC"})
+        elif self.path.startswith("/api/geraet_qr"):       # NUR PC: QR zum Abfotografieren (NUR_PC)
             try:
                 import io
                 import qrcode
@@ -7283,18 +7449,12 @@ class Handler(BaseHTTPRequestHandler):
             _antwort(self, 200, addon_update_info())
         elif self.path.startswith("/api/schaetzfaktoren"):   # MB/min je Qualitaet (Build 105)
             _antwort(self, 200, {q: _mb_pro_min(q) for q in QUALITAETEN})
-        elif self.path.startswith("/api/ordner_waehlen"):    # nativer Ordnerdialog (Build 108)
-            if self.client_address[0] != "127.0.0.1":        # nur vom eigenen PC (WLAN-Fernsteuerung nicht)
-                return _antwort(self, 403, {"fehler": "nur lokal"})
+        elif self.path.startswith("/api/ordner_waehlen"):    # nativer Ordnerdialog (Build 108), NUR_PC
             start = (parse_qs(urlparse(self.path).query).get("start") or [""])[0]
             _antwort(self, 200, ordner_waehlen(start))
-        elif self.path.startswith("/api/pfad_da"):      # Sync-Fenster-Failsafe (Build 109)
-            if self.client_address[0] != "127.0.0.1":
-                return _antwort(self, 403, {"fehler": "nur lokal"})
+        elif self.path.startswith("/api/pfad_da"):      # Sync-Fenster-Failsafe (Build 109), NUR_PC
             _antwort(self, 200, pfad_da((parse_qs(urlparse(self.path).query).get("pfad") or [""])[0]))
-        elif self.path.startswith("/api/migration_probelauf"):   # Umbenennen, NUR Auslese (Build 112/113)
-            if self.client_address[0] != "127.0.0.1":
-                return _antwort(self, 403, {"fehler": "nur lokal"})
+        elif self.path.startswith("/api/migration_probelauf"):   # Umbenennen, NUR Auslese (Build 112/113), NUR_PC
             q = parse_qs(urlparse(self.path).query)
             roh = (q.get("schema") or [""])[0]
             schema = [b for b in roh.split(",") if b in NAME_BAUSTEINE] or None
@@ -7394,14 +7554,20 @@ class Handler(BaseHTTPRequestHandler):
             daten = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
         except ValueError:
             return _antwort(self, 400, {"fehler": "kein JSON"})
+        ablehnung = self._lan_tor("POST", daten)
+        if ablehnung:
+            return _antwort(self, 403, {"fehler": ablehnung, "nur_pc": True})
+        self._post_routen(daten)
+
+    def _post_routen(self, daten):
+        """Der POST-Router; Riegel, Körper-Prüfung und WLAN-Tor liegen davor in do_POST."""
         try:
             if self.path == "/api/remote":            # Befehl vom Handy an den PC-Player
                 return _antwort(self, 200, remote_befehl(daten))
             if self.path == "/api/vlc":               # Gerät „VLC": Befehl an den VLC-Motor
                 # Nachtprüfung 06.08.: play mit BELIEBIGER url (lokale Datei,
-                # LAN-Adresse) und das Fenster-Handle setzt nur der PC selbst.
-                if not self._ist_lokal() and (daten.get("url") or daten.get("cmd") == "fenster"):
-                    return _antwort(self, 403, {"fehler": "nur lokal"})
+                # LAN-Adresse) und das Fenster-Handle setzt nur der PC selbst
+                # (Prüfer _lan_vlc im WLAN-Tor).
                 return _antwort(self, 200, vlc_kommando(daten))
             if self.path == "/api/wiedergabe":        # Grundeinstellungen: global/Playlist/Titel
                 return _antwort(self, 200, wiedergabe_setzen(daten))
@@ -7410,9 +7576,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/beenden":
                 # Sauberes Beenden aus der Suite (JB 14.07.2026: im Suite-Betrieb gibt es
                 # kein eigenes Tray mehr — Steuerung über SyncDashTray/Dashboard). Nur vom
-                # eigenen PC (bei aktiver Handy-Fernsteuerung lauscht der Server im WLAN).
-                if self.client_address[0] != "127.0.0.1":
-                    return _antwort(self, 403, {"fehler": "nur lokal"})
+                # eigenen PC (bei aktiver Handy-Fernsteuerung lauscht der Server im WLAN;
+                # NUR_PC im WLAN-Tor).
                 Q.speichern()
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return _antwort(self, 200, {"ok": True})
@@ -7421,9 +7586,7 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/action":
                 self._action(daten)
             elif self.path == "/api/config":
-                # Grundeinstellungen (Zielordner!) schreibt nur der PC selbst.
-                if not self._ist_lokal():
-                    return _antwort(self, 403, {"fehler": "nur lokal"})
+                # Grundeinstellungen (Zielordner!) schreibt nur der PC selbst (NUR_PC).
                 self._config(daten)
             elif self.path == "/api/js_fehler":      # Fehler-Rekorder der Oberfläche
                 try:
@@ -7461,9 +7624,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._biblio(daten)
             elif self.path == "/api/biblio_enrich":
                 threading.Thread(target=biblio_enrich_alle, daemon=True).start()
-            elif self.path == "/api/umbenennen":      # Namens-Baukasten anwenden/zurück (Build 113)
-                if self.client_address[0] != "127.0.0.1":
-                    return _antwort(self, 403, {"fehler": "nur lokal"})
+            elif self.path == "/api/umbenennen":      # Namens-Baukasten anwenden/zurück (Build 113), NUR_PC
                 if daten.get("art") == "undo":
                     _antwort(self, 200, migration_rueckgaengig())
                 else:
@@ -7490,9 +7651,7 @@ class Handler(BaseHTTPRequestHandler):
                 return _antwort(self, 200, abo_aktion(daten))
             elif self.path == "/api/clip":
                 return _antwort(self, 200, clip_erstellen(daten))
-            elif self.path == "/api/clip_favorit":         # Build 144k: Favorit wählen
-                if self.client_address[0] != "127.0.0.1":
-                    return _antwort(self, 403, {"fehler": "nur lokal"})
+            elif self.path == "/api/clip_favorit":         # Build 144k: Favorit wählen (NUR_PC)
                 return _antwort(self, 200, _clip_favorit_setzen(daten.get("id") or ""))
             elif self.path == "/api/untertitel_laden":
                 threading.Thread(target=untertitel_nachladen, args=(daten.get("id") or "",), daemon=True).start()
@@ -7528,14 +7687,10 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/geraet_anmelden":  # Pairing Schritt 1 (frei)
                 return _antwort(self, 200, profil_geraete.geraet_anmelden(
                     daten.get("name") or "") or {"fehler": "Anmeldung gerade nicht möglich"})
-            elif self.path == "/api/geraet_bestaetigen":   # NUR PC (Freigabe)
-                if not self._ist_lokal():
-                    return _antwort(self, 403, {"fehler": "nur am PC"})
+            elif self.path == "/api/geraet_bestaetigen":   # NUR PC (Freigabe, NUR_PC)
                 return _antwort(self, 200, {"ok": profil_geraete.geraet_bestaetigen(
                     daten.get("id") or "", daten.get("profil") or "standard")})
-            elif self.path == "/api/geraet_entfernen":     # NUR PC (Widerruf)
-                if not self._ist_lokal():
-                    return _antwort(self, 403, {"fehler": "nur am PC"})
+            elif self.path == "/api/geraet_entfernen":     # NUR PC (Widerruf, NUR_PC)
                 return _antwort(self, 200, {"ok": profil_geraete.geraet_entfernen(
                     daten.get("id") or "")})
             elif self.path == "/api/profil_anlegen":
@@ -7614,9 +7769,8 @@ class Handler(BaseHTTPRequestHandler):
     def _action(self, daten):
         art = daten.get("art")
         # Nachtprüfung 06.08.: Explorer-Fenster öffnet nur der PC selbst —
-        # eine LAN-Anfrage startet keine Prozesse auf JBs Rechner.
-        if art in ("ordner_offen", "ordner") and not self._ist_lokal():
-            return
+        # eine LAN-Anfrage startet keine Prozesse auf JBs Rechner (Prüfer
+        # _lan_action im WLAN-Tor, seit 25.09.2026 mit 403 statt still).
         if art == "ordner_offen":
             ordner_zeigen()
             return
@@ -7771,9 +7925,8 @@ class Handler(BaseHTTPRequestHandler):
             return herz_umschalten(key)
         # Nachtprüfung 06.08.: alles Verändernde (löschen/vergessen/bulk) und
         # alles, was Prozesse auf JBs PC startet (extern/ordner), bleibt dem
-        # PC selbst vorbehalten — ein LAN-Gerät hört und schaut nur.
-        if not self._ist_lokal():
-            return
+        # PC selbst vorbehalten (Prüfer _lan_biblio im WLAN-Tor: aus dem WLAN
+        # geht nur ❤, seit 25.09.2026 mit 403 statt still).
         if art == "bulk":                            # mehrere auf einmal (Mehrfachauswahl)
             op = daten.get("op")
             keys = [k for k in (daten.get("keys") or []) if k in _geladen]
