@@ -5366,7 +5366,7 @@ function dubBody(){
   return '<div class="sm-titel">⧉ Dubletten — '+gruppen.length+' Gruppe(n)</div>'+gruppen.map(g=>
     `<div class="dub-grp"><div class="dub-kopf">${esc(g.titel.slice(0,46))} <span class="dub-typ">· ${g.typ}</span></div>`+
     g.items.map(x=>`<div class="dub-item"><span class="dub-q">${esc(x.qualitaet)} · ${mb(x.groesse)}${x.vorhanden?'':' · verschoben'}</span>`+
-      `<button class="ib" title="In den Papierkorb" onclick="dubDelete('${x.id}')">🗑</button></div>`).join('')+`</div>`).join('');
+      `<button class="ib" title="In den Papierkorb" data-key="${esc(x.id)}" onclick="dubDelete(this.dataset.key)">🗑</button></div>`).join('')+`</div>`).join('');
 }
 async function ordnerImportieren(){
   plInfo('📥 Ordner wird durchsucht …', true);        // Fortschritt: bleibt
@@ -6476,7 +6476,7 @@ function kachelInfo(x){
 // Wenige, ruhige Icon-Knöpfe. Alles Weitere steckt im „⋯"-Menü (aufgeräumt).
 /* ❤ Lieblingssongs (JB 05.08.: „zu den lieblingssongs sollte ein herz sein") */
 function herzKnopf(x){
-  return `<button class="ib herz${x.herz?' an':''}" onclick="event.stopPropagation();herzToggle('${x.id}')" `+
+  return `<button class="ib herz${x.herz?' an':''}" data-key="${esc(x.id)}" onclick="event.stopPropagation();herzToggle(this.dataset.key)" `+
     `title="${x.herz?'❤ Lieblingssong — Herz entfernen':'Als Lieblingssong markieren'}">${x.herz?'♥':'♡'}</button>`;
 }
 async function herzToggle(id){
@@ -6491,15 +6491,15 @@ async function herzToggle(id){
 function aktBtnsKachel(x){
   let b='';
   if(x.vorhanden){
-    b+=`<button class="ib play" onclick="event.stopPropagation();playerPlay(['${x.id}'])" title="Abspielen">▶</button>`;
+    b+=`<button class="ib play" data-key="${esc(x.id)}" onclick="event.stopPropagation();playerPlay([this.dataset.key])" title="Abspielen">▶</button>`;
     b+=herzKnopf(x);
-    b+=`<button class="ib" onclick="plAddMenu(event,'${x.id}')" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
-    b+=`<button class="ib" onclick="event.stopPropagation();biblio('${x.id}','ordner')" title="Im Ordner zeigen">📁</button>`;
+    b+=`<button class="ib" data-key="${esc(x.id)}" onclick="plAddMenu(event,this.dataset.key)" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
+    b+=`<button class="ib" data-key="${esc(x.id)}" onclick="event.stopPropagation();biblio(this.dataset.key,'ordner')" title="Im Ordner zeigen">📁</button>`;
   }else{
-    b+=`<button class="ib" onclick="event.stopPropagation();biblioNeuladen('${x.id}')" title="Fehlende Datei erneut laden">⬇</button>`;
-    b+=`<button class="ib" onclick="plAddMenu(event,'${x.id}')" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
+    b+=`<button class="ib" data-key="${esc(x.id)}" onclick="event.stopPropagation();biblioNeuladen(this.dataset.key)" title="Fehlende Datei erneut laden">⬇</button>`;
+    b+=`<button class="ib" data-key="${esc(x.id)}" onclick="plAddMenu(event,this.dataset.key)" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
   }
-  b+=`<button class="ib" onclick="libItemMenu(event,'${x.id}')" title="Mehr… (auch per Rechtsklick)">⋯</button>`;
+  b+=`<button class="ib" data-key="${esc(x.id)}" onclick="libItemMenu(event,this.dataset.key)" title="Mehr… (auch per Rechtsklick)">⋯</button>`;
   return b;
 }
 /* ---- Menü-Werkzeuge (Explorer-Stil) ---- */
@@ -6849,11 +6849,13 @@ async function plvDrop(e,key){
   await plApi({art:'reorder',id:libPlaylistView,items});   // Backend speichert die Reihenfolge
   libMalen();
 }
-function dragAttrs(id){
+function dragAttrs(){
   // Titel sind IMMER ziehbar (in die Player-Playlist, JB 13.07.); in der
-  // Playlist-Ansicht zusätzlich als Umsortier-Ziel.
-  const basis=` draggable="true" ondragstart="libDragStart(event,'${id}')"`;
-  return basis+(libPlaylistView?` ondragover="plvDragOver(event)" ondrop="plvDrop(event,'${id}')"`:'');
+  // Playlist-Ansicht zusätzlich als Umsortier-Ziel. Den Schlüssel liest der
+  // Handler aus data-key DESSELBEN Elements (Kachel und Zeile setzen es) —
+  // nie roh im Handler (Gesamtprüfung S3: er ist nicht garantiert harmlos).
+  const basis=` draggable="true" ondragstart="libDragStart(event,this.dataset.key)"`;
+  return basis+(libPlaylistView?` ondragover="plvDragOver(event)" ondrop="plvDrop(event,this.dataset.key)"`:'');
 }
 function libDragStart(ev,id){
   try{ev.dataTransfer.setData('ytdl/key',id);}catch(e){}   // fürs Fallenlassen in der Player-Playlist
@@ -7014,8 +7016,8 @@ function kachel(x){
   // Ausführliche Details nur noch als Tooltip auf der Info-Zeile (Kachel bleibt ruhig).
   const det=[COLDEF.kategorie.t(x),COLDEF.qualitaet.t(x),technikText(x),mb(x.groesse),
              x.dauer?zeit(x.dauer):'',x.uploader||'',ytdatum(x.upload_date)].filter(Boolean).join('  ·  ');
-  return `<div class="kachel ${x.vorhanden?'':'weg'}${sel}" data-id="${x.id}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}>
-    <div class="thumbwrap ${quelle?'':'platzhalter'}" onclick="thumbClick(event,'${x.id}')" title="Abspielen">${thumb}${dauer}${weg}${schere}${herz}</div>
+  return `<div class="kachel ${x.vorhanden?'':'weg'}${sel}" data-id="${esc(x.id)}" data-key="${esc(x.id)}" onclick="kachelClick(event,this.dataset.key)" ondblclick="kachelDblClick(event,this.dataset.key)" oncontextmenu="return kachelKontext(event,this.dataset.key)"${dragAttrs()}>
+    <div class="thumbwrap ${quelle?'':'platzhalter'}" data-key="${esc(x.id)}" onclick="thumbClick(event,this.dataset.key)" title="Abspielen">${thumb}${dauer}${weg}${schere}${herz}</div>
     <div class="kbody">
       <div class="ktitel" title="${esc(x.titel)}">${esc(x.titel)}</div>
       <div class="kinfo" title="${esc(det)}">${kachelInfo(x)}</div>
@@ -7030,15 +7032,15 @@ function kacheln(arr){return '<div class="kacheln'+(libKompakt?' kompakt':'')+'"
 function aktBtnsListe(x){
   let b='<div class="lakt">';
   if(x.vorhanden){
-    b+=`<button class="ib play" onclick="event.stopPropagation();playerPlay(['${x.id}'])" title="Abspielen">▶</button>`;
+    b+=`<button class="ib play" data-key="${esc(x.id)}" onclick="event.stopPropagation();playerPlay([this.dataset.key])" title="Abspielen">▶</button>`;
     b+=herzKnopf(x);
-    b+=`<button class="ib" onclick="plAddMenu(event,'${x.id}')" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
-    b+=`<button class="ib" onclick="event.stopPropagation();biblio('${x.id}','ordner')" title="Im Ordner zeigen">📁</button>`;
+    b+=`<button class="ib" data-key="${esc(x.id)}" onclick="plAddMenu(event,this.dataset.key)" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
+    b+=`<button class="ib" data-key="${esc(x.id)}" onclick="event.stopPropagation();biblio(this.dataset.key,'ordner')" title="Im Ordner zeigen">📁</button>`;
   }else{
-    b+=`<button class="ib" onclick="event.stopPropagation();biblioNeuladen('${x.id}')" title="Erneut laden">⬇</button>`;
-    b+=`<button class="ib" onclick="plAddMenu(event,'${x.id}')" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
+    b+=`<button class="ib" data-key="${esc(x.id)}" onclick="event.stopPropagation();biblioNeuladen(this.dataset.key)" title="Erneut laden">⬇</button>`;
+    b+=`<button class="ib" data-key="${esc(x.id)}" onclick="plAddMenu(event,this.dataset.key)" title="Zu Playlist hinzufügen — Liste wählen">＋</button>`;
   }
-  b+=`<button class="ib" onclick="libItemMenu(event,'${x.id}')" title="Mehr…">⋯</button>`;
+  b+=`<button class="ib" data-key="${esc(x.id)}" onclick="libItemMenu(event,this.dataset.key)" title="Mehr…">⋯</button>`;
   return b+'</div>';
 }
 function listeTab(arr){
@@ -7046,13 +7048,13 @@ function listeTab(arr){
   const heads=`<th class="th-sort ${libsort.key==='titel'?'akt':''}" onclick="setSort('titel')">Titel${pfeil('titel')}</th>`+
     cols.map(k=>`<th class="th-sort ${libsort.key===k?'akt':''}" onclick="setSort('${k}')">${COLDEF[k].l}${pfeil(k)}</th>`).join('')+'<th></th>';
   const rows=arr.map(x=>{
-    const th=x.thumb?`<img class="lthumb" src="${esc(x.thumb)}" loading="lazy" draggable="false" style="cursor:pointer" onclick="event.stopPropagation();thumbClick(event,'${x.id}')" onerror="this.style.visibility='hidden'">`:'<span class="lthumb"></span>';
+    const th=x.thumb?`<img class="lthumb" src="${esc(x.thumb)}" loading="lazy" draggable="false" style="cursor:pointer" data-key="${esc(x.id)}" onclick="event.stopPropagation();thumbClick(event,this.dataset.key)" onerror="this.style.visibility='hidden'">`:'<span class="lthumb"></span>';
     const tds=cols.map(k=>{
       if(k==='status')return `<td class="lstatus ${x.vorhanden?'ok':'weg2'}">${x.vorhanden?'vorhanden':'verschoben'}</td>`;
       return `<td class="num">${esc(String(COLDEF[k].t(x)))}</td>`;
     }).join('');
     const sel=libAuswahl.has(x.id)?' sel':'';
-    return `<tr class="${x.vorhanden?'':'weg'}${sel}" data-id="${x.id}" onclick="kachelClick(event,'${x.id}')" ondblclick="kachelDblClick(event,'${x.id}')" oncontextmenu="return kachelKontext(event,'${x.id}')"${dragAttrs(x.id)}><td><div class="ltitel">${th}<span class="ltxt" title="${esc(x.titel)}">${esc(x.titel)}</span></div></td>${tds}<td class="num">${aktBtnsListe(x)}</td></tr>`;
+    return `<tr class="${x.vorhanden?'':'weg'}${sel}" data-id="${esc(x.id)}" data-key="${esc(x.id)}" onclick="kachelClick(event,this.dataset.key)" ondblclick="kachelDblClick(event,this.dataset.key)" oncontextmenu="return kachelKontext(event,this.dataset.key)"${dragAttrs()}><td><div class="ltitel">${th}<span class="ltxt" title="${esc(x.titel)}">${esc(x.titel)}</span></div></td>${tds}<td class="num">${aktBtnsListe(x)}</td></tr>`;
   }).join('');
   return `<div class="libwrap"><table class="libtab${libKompakt?' kompakt':''}"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -10296,8 +10298,8 @@ function eigenschaften(key){
     `<button class="ib" title="Schließen" onclick="this.closest('.modal').remove()">✕</button></div>`+
     `<div style="padding:14px 16px 18px">${cover}<table class="eig-tab">${rows}${yt}</table>`+
     `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;clear:both">`+
-      (x.vorhanden?`<button class="btn mini" onclick="biblio('${key}','ordner')">📁 Im Ordner zeigen</button>`:'')+
-      `<button class="btn mini" onclick="eigKopiere('${key}')">⧉ Titel kopieren</button>`+
+      (x.vorhanden?`<button class="btn mini" data-key="${esc(key)}" onclick="biblio(this.dataset.key,'ordner')">📁 Im Ordner zeigen</button>`:'')+
+      `<button class="btn mini" data-key="${esc(key)}" onclick="eigKopiere(this.dataset.key)">⧉ Titel kopieren</button>`+
     `</div></div></div>`;
   ov.onclick=e=>{if(e.target===ov)ov.remove();};
   document.body.appendChild(ov);
@@ -10542,7 +10544,7 @@ async function tsuchLauf(){
     const d=await r.json(); const tr=d.treffer||[];
     if(!tr.length){body.innerHTML='<div class="leer">Nichts gefunden. (Nur Videos mit heruntergeladenen Untertiteln/Transkripten werden durchsucht.)</div>';return;}
     body.innerHTML=tr.map(v=>`<div class="tsuche-treffer"><div class="tsuche-t-titel">${esc(v.titel)}</div>`+
-      v.treffer.map(t=>`<button class="tsuche-z" onclick="tsSpring('${v.key}',${t.zeit})"><span class="zt">${zeit(t.zeit)}</span>${tsMarkiere(t.text,q)}</button>`).join('')+
+      v.treffer.map(t=>`<button class="tsuche-z" data-key="${esc(v.key)}" onclick="tsSpring(this.dataset.key,${t.zeit})"><span class="zt">${zeit(t.zeit)}</span>${tsMarkiere(t.text,q)}</button>`).join('')+
       '</div>').join('');
   }catch(e){body.innerHTML='<div class="leer">Suche fehlgeschlagen.</div>';}
 }

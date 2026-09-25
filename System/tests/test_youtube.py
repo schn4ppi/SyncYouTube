@@ -2312,7 +2312,9 @@ def test_rahmenauswahl_in_der_bibliothek():
     k = quelle.index("function kachelClick")
     assert "libBandLief" in quelle[k:k + 400],         "kachelClick schluckt den nachlaufenden Klick nicht"
     # Die Elemente brauchen eine Kennung, damit der Rahmen sie treffen kann.
-    assert 'data-id="${x.id}"' in quelle, "Kacheln/Zeilen tragen keine data-id"
+    # Maskiert (Gesamtprüfung S3); dass der Wert unverfälscht ankommt, prüft
+    # test_schluessel_im_handler.py an den gerenderten Zeilen.
+    assert 'data-id="${esc(x.id)}"' in quelle, "Kacheln/Zeilen tragen keine data-id"
 
 
 def test_rahmen_in_der_playlist_startet_auch_auf_einer_zeile():

@@ -3525,8 +3525,25 @@ def _id_tag_schreiben(pfad, vid):
 
 def _id_tag_lesen(pfad):
     """Video-Id aus dem Datei-Tag ('' wenn keins) — erkennt auch Dateien,
-    die von einem ANDEREN PC stammen und die unsere DB nie gesehen hat."""
-    return _tag_lesen(pfad, _TAG_ID)
+    die von einem ANDEREN PC stammen und die unsere DB nie gesehen hat.
+    Nur eine plausible Id zählt (Gesamtprüfung S3): der Tag einer fremden
+    Datei wird sonst ungeprüft zum Bibliotheks-Schlüssel. Der Schreiber
+    (`_id_tag_schreiben`) prüft dasselbe."""
+    vid = _tag_lesen(pfad, _TAG_ID)
+    return vid if _plausible_id(vid) else ""
+
+
+_AUFFAELLIG = re.compile(r"['\"<>`\\\x00-\x1f]")
+
+
+def auffaellige_schluessel():
+    """Bibliotheks-Schlüssel mit Zeichen, die in HTML oder Skript Bedeutung
+    haben (Anführungszeichen, spitze Klammern, Backtick, Backslash) oder mit
+    Steuerzeichen. NUR melden (Gesamtprüfung S3): die Oberfläche übergibt
+    Schlüssel inzwischen nur noch als Daten, und ein Schlüssel ist die
+    Identität eines Downloads — umschreiben oder löschen hieße Bestand
+    verlieren."""
+    return [k for k in list(_geladen) if _AUFFAELLIG.search(k)]
 
 
 def _in_papierkorb(pfad):
@@ -7588,6 +7605,10 @@ def main():
     for schluessel, alt, neu in vorgaben_umstellung_festschreiben():
         _sag(f"Neue Vorgabe übernommen: {schluessel} {alt} → {neu} "
              f"(alter Stand liegt als config_vor_stand{VORGABEN_STAND}.json daneben)")
+    auffaellig = auffaellige_schluessel()            # S3: nur melden, nie umschreiben
+    if auffaellig:
+        _sag(f"Hinweis: {len(auffaellig)} Bibliotheks-Schlüssel mit Sonderzeichen "
+             f"(bleiben unverändert): {', '.join(repr(k) for k in auffaellig[:5])}")
     if not TESTMODUS:
         # Startmenü-Eintrag „SyncYouTube" mit derselben Kennung: darüber findet Windows
         # Namen und Symbol. Im Hintergrund, idempotent; eine fremde Verknüpfung

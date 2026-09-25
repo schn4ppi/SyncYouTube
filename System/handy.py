@@ -99,7 +99,10 @@ let CODE=localStorage.getItem('ytdl_code')||'';
 let dev=localStorage.getItem('ytdl_dev')||'pc';
 let daten=[], aktuell=null;
 
-function esc(t){const d=document.createElement('div');d.textContent=t||'';return d.innerHTML;}
+// esc wie in oberflaeche.py: maskiert auch Anführungszeichen, damit ein Wert
+// in einem Attribut (src, data-key) nie aus dem Attribut ausbricht (S3).
+function esc(t){const d=document.createElement('div');d.textContent=t||'';
+  return d.innerHTML.replaceAll('"','&quot;').replaceAll("'",'&#39;');}
 async function api(pfad,opt){opt=opt||{};opt.headers=Object.assign({'X-Code':CODE},opt.headers||{});return fetch(pfad,opt);}
 
 async function anmelden(){
@@ -128,7 +131,7 @@ function malen(){
   const q=(document.getElementById('suche').value||'').toLowerCase();
   const arr=daten.filter(x=>!q||(x.titel+' '+(x.uploader||'')).toLowerCase().includes(q)).slice(0,300);
   document.getElementById('liste').innerHTML=arr.map(x=>
-    `<div class="row" onclick="spiel('${x.id}')">`+
+    `<div class="row" data-key="${esc(x.id)}" onclick="spiel(this.dataset.key)">`+   // Schlüssel nie roh im Handler (S3)
     (x.thumb?`<img class="thumb" src="${esc(x.thumb)}" onerror="this.style.visibility='hidden'">`:'<span class="thumb"></span>')+
     `<div class="rt"><div class="rtt">${esc(x.titel)}</div><div class="rts">${esc(x.uploader||'')}</div></div></div>`).join('');
 }
