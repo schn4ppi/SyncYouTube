@@ -127,3 +127,20 @@ def test_gescheiterte_anlage_fuellt_keine_fremde_playlist(tmp_path):
                      " toasts:_toasts});")
     assert e1["sel"] == ""
     assert e2["adds"] == 0 and any("nicht anlegen" in t for t in e2["toasts"])
+
+
+# ------------------------------------------------------------------ F26
+
+def test_hilfe_zum_ansicht_menue_nennt_nur_vorhandene_eintraege():
+    """Die Hilfe nannte im ⚙-Ansicht-Menü noch „Ordner-Import“; den Menüpunkt
+    gibt es seit Build 122 nicht mehr (der Ordner-Blick läuft von selbst).
+    Geprüft wird jeder genannte Eintrag gegen das Menü (ohne Kommentare)."""
+    import re
+    q = _pc()
+    zeile = next(z for z in q.splitlines() if "<b>⚙ Ansicht</b> bündelt" in z)
+    genannt = re.sub(r"<[^>]+>", "", zeile.split("Darstellung:", 1)[1]).strip()
+    eintraege = [e.strip() for e in genannt.split(",")][1:]   # der erste sind die vier Knöpfe
+    menue = q[q.index('id="libansicht"'):q.index('id="libcolmenu"')]
+    menue = re.sub(r"<!--.*?-->", "", menue, flags=re.S)
+    fehlt = [e for e in eintraege if e not in menue]
+    assert eintraege and not fehlt, f"die Hilfe nennt, was es im Menü nicht gibt: {fehlt}"

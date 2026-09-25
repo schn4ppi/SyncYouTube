@@ -1651,7 +1651,7 @@ if(location.search.indexOf('embed=1')>=0 && window.top!==window.self)document.bo
       <div class="legrow"><b>Rechtsklick in den Player</b> = alles Weitere: Visualizer-Liste, Geschwindigkeit, Untertitel-Sprachen, Equalizer, Playlist, VLC …</div>
       <div class="legsec">📚 Bibliothek</div>
       <div class="legrow">Auf einer Kachel erscheinen beim <b>Überfahren</b>: <b>▶</b> abspielen · <b>＋</b> zu Playlist · <b>📁</b> im Ordner zeigen · <b>⋯</b> mehr (auf Touch stehen sie fest da)</div>
-      <div class="legrow"><b>⚙ Ansicht</b> bündelt alles zur Darstellung: <b>▪▪/⊞/▤/☰</b> Kompakt/Kacheln/Alben/Liste, Filter, Spalten, Archiv, Mehrfach-Auswahl, Dubletten, Auto-Tagging, Ordner-Import</div>
+      <div class="legrow"><b>⚙ Ansicht</b> bündelt alles zur Darstellung: <b>▪▪/⊞/▤/☰</b> Kompakt/Kacheln/Alben/Liste, Filter, Spalten, Archiv, Mehrfach-Auswahl, Dubletten, Auto-Tagging</div>
       <div class="legrow"><b>Suchen</b> durchsucht Titel/Künstler/Kanal — findet es nichts, sucht es von selbst im <b>gesprochenen Text</b> (Untertitel/Songtexte) weiter und zeigt die Treffer darunter</div>
       <div class="legrow"><b>📃 Öffnen</b> zeigt eine Playlist (Ziehen = Reihenfolge) · <b>🎛 Mixer</b> Endlos-Radio/Meistgespielt/Zuletzt/Smart · <b>🔎 Text</b> durchsucht die Untertitel/Transkripte ALLER Videos (Klick auf einen Treffer springt an die Stelle)</div>
       <div class="legsec">⬇ Downloads &amp; Abos</div>
