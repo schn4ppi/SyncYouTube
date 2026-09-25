@@ -258,5 +258,142 @@ def test_worker_start_ersetzt_tote_faeden(monkeypatch):
     assert _warten(lambda: len(starts) == 2, s=2), "ein toter Worker wird nie ersetzt"
 
 
+# ---------------------------------------------------------------- F2/F3: Auflösen
+
+class _YtdlpAttrappe:
+    """Statt YouTube: jeder Abruf wartet am Tor `frei` und zählt, wie viele
+    gleichzeitig laufen. `antwort(url)` liefert das Info-Dict."""
+
+    def __init__(self, antwort=None):
+        self.frei = threading.Event()
+        self.lock = threading.Lock()
+        self.laufend = 0
+        self.hoechstens = 0
+        self.urls = []
+        self.antwort = antwort or (lambda url: {"title": "Titel " + url[-4:], "webpage_url": url,
+                                                "duration": 60})
+
+    def ydl(self, opts):
+        import contextlib
+        attrappe = self
+
+        class Ydl:
+            def extract_info(self, url, download=False):
+                with attrappe.lock:
+                    attrappe.laufend += 1
+                    attrappe.hoechstens = max(attrappe.hoechstens, attrappe.laufend)
+                    attrappe.urls.append(url)
+                try:
+                    attrappe.frei.wait(20)
+                    return attrappe.antwort(url)
+                finally:
+                    with attrappe.lock:
+                        attrappe.laufend -= 1
+
+        @contextlib.contextmanager
+        def cm():
+            yield Ydl()
+        return cm()
+
+
+def _aufloesen_vorbereiten(monkeypatch, antwort=None):
+    attrappe = _YtdlpAttrappe(antwort)
+    monkeypatch.setattr(app, "_ydl", attrappe.ydl)
+    monkeypatch.setattr(app, "_liste_vermerken", lambda *a, **k: None)
+    monkeypatch.setattr(app, "fehler_merken", lambda *a, **k: None)
+    return attrappe
+
+
+def _sechs_minuten_spaeter_heilen(monkeypatch):
+    """Die Heilung einmal jetzt und einmal sechs Minuten später (sie misst ab
+    dem ersten Sehen bzw. ab dem Eintritt ins Auflösen)."""
+    app.queue_heilen()
+    echt = app.time.time
+    with monkeypatch.context() as m:
+        m.setattr(app.time, "time", lambda: echt() + 360)
+        app.queue_heilen()
+
+
+def _url(i):
+    return f"https://www.youtube.com/watch?v=vid{i:08d}"
+
+
+def test_aufloesen_hoechstens_zwei_zugleich_und_wartende_heilen_nicht(monkeypatch):
+    """Der Knopf „Alle (N)“ startet bis zu 5.000 Auflösungen auf einmal, jede
+    mit vollem yt-dlp-Abruf: genau das Muster, das YouTube sperrt (F2)."""
+    attrappe = _aufloesen_vorbereiten(monkeypatch)
+    faeden = [threading.Thread(target=app.aufloesen, args=(_url(i), "beste"), daemon=True)
+              for i in range(6)]
+    for f in faeden:
+        f.start()
+    try:
+        assert _warten(lambda: len(app.Q.items) == 6), "Platzhalter müssen sofort erscheinen"
+        assert all(it["status"] == "prueft" for it in app.Q.items)
+        assert _warten(lambda: attrappe.laufend >= 2)
+        threading.Event().wait(0.3)                  # den übrigen Zeit geben, sich vorzudrängeln
+        assert attrappe.hoechstens == 2, f"{attrappe.hoechstens} yt-dlp-Abrufe liefen gleichzeitig"
+        # Wer nur auf einen Platz wartet, hängt nicht: die 5-min-Heilung läuft
+        # erst ab dem Eintritt (vorher gab sie Wartende nach 300 s frei).
+        _sechs_minuten_spaeter_heilen(monkeypatch)
+        in_arbeit = {u for u in attrappe.urls}
+        wartende = [it for it in app.Q.items if it["url"] not in in_arbeit]
+        assert len(wartende) == 4 and all(it["status"] == "prueft" for it in wartende), \
+            [it["status"] for it in wartende]
+    finally:
+        attrappe.frei.set()
+        for f in faeden:
+            f.join(20)
+    assert attrappe.hoechstens == 2
+    assert sorted(attrappe.urls) == [_url(i) for i in range(6)]
+    assert all(it["status"] == "wartend" for it in app.Q.items), [it["status"] for it in app.Q.items]
+
+
+@pytest.mark.parametrize("art", ["video", "playlist"])
+def test_aufloesen_laesst_einen_schon_uebernommenen_eintrag_in_ruhe(monkeypatch, art):
+    """Hängt das Auflösen länger als 5 min, reiht die Heilung den Eintrag ein
+    und ein Worker lädt ihn. Kam das Auflösen danach doch zurück, setzte es den
+    Status blind auf „wartend“ (ein zweiter Worker lädt dasselbe) bzw. warf den
+    laufenden Eintrag aus der Liste (F3)."""
+    def antwort(url):
+        if art == "playlist":
+            return {"_type": "playlist", "title": "Liste",
+                    "entries": [{"id": "folge00001", "title": "Folge 1", "url": _url(90)}]}
+        return {"title": "Titel", "webpage_url": url, "duration": 60}
+    attrappe = _aufloesen_vorbereiten(monkeypatch, antwort)
+    faden = threading.Thread(target=app.aufloesen, args=(_url(1), "beste"), daemon=True)
+    faden.start()
+    try:
+        assert _warten(lambda: attrappe.laufend == 1)
+        platzhalter = app.Q.items[0]
+        _sechs_minuten_spaeter_heilen(monkeypatch)
+        assert platzhalter["status"] == "wartend", "die Heilung reiht den hängenden Eintrag ein"
+        assert app.Q.naechster() is platzhalter and platzhalter["status"] == "laeuft"
+    finally:
+        attrappe.frei.set()
+        faden.join(20)
+    assert platzhalter["status"] == "laeuft", "das späte Auflösen hat den Status überschrieben"
+    assert app.Q.items == [platzhalter], "das späte Auflösen hat die Liste umgebaut"
+
+
+def test_aufloesen_fragt_youtube_nicht_mehr_wenn_der_platzhalter_weg_ist(monkeypatch):
+    attrappe = _aufloesen_vorbereiten(monkeypatch)
+    faeden = [threading.Thread(target=app.aufloesen, args=(_url(i), "beste"), daemon=True)
+              for i in range(3)]
+    for f in faeden:
+        f.start()
+    try:
+        assert _warten(lambda: len(app.Q.items) == 3 and attrappe.laufend >= 2)
+        threading.Event().wait(0.1)
+        dritter = next((it for it in app.Q.items if it["url"] not in attrappe.urls), None)
+        assert dritter is not None, "alle drei fragten YouTube gleichzeitig"
+        with app.Q.lock:
+            app.Q.items.remove(dritter)              # JB entfernt ihn, solange er wartet
+    finally:
+        attrappe.frei.set()
+        for f in faeden:
+            f.join(20)
+    assert dritter["url"] not in attrappe.urls, "für einen entfernten Eintrag wurde YouTube gefragt"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

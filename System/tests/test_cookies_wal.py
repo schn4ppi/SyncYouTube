@@ -178,7 +178,9 @@ def _spion(monkeypatch):
 
 
 def _weg_aufloesen(tmp_path, monkeypatch):
-    monkeypatch.setattr(app.Q, "neu", lambda *a, **k: {})
+    # Der Platzhalter ist ein echter Eintrag der Warteschlange (die conftest legt
+    # Q je Test frisch an): seit F2 fragt aufloesen YouTube nur für einen
+    # Platzhalter, der noch in der Liste steht.
     monkeypatch.setattr(app.Q, "speichern", lambda *a, **k: None)
     monkeypatch.setattr(app, "FEHLER_LOG", str(tmp_path / "yt_fehler.jsonl"))
     app.aufloesen("https://www.youtube.com/watch?v=ABCdef12345", "720p")

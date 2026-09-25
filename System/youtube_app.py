@@ -959,6 +959,29 @@ def _liste_zuschneiden(eintraege, menge, richtung="neu"):
     return liste[:menge]
 
 
+# Höchstens zwei yt-dlp-Auflösungen gleichzeitig (Gesamtprüfung F2). Je Folge
+# oder Link startet ein eigener Faden, der Knopf „Alle (N)“ schickt bis zu 5.000
+# auf einmal — ungebremst ist das genau der Abruf-Sturm, den YouTube mit 429 und
+# der Bot-Abfrage beantwortet. Der Platzhalter erscheint weiter sofort; nur der
+# Abruf wartet auf einen Platz.
+_aufloese_plaetze = threading.BoundedSemaphore(2)
+
+
+def _info_abrufen(url, opts):
+    """Der yt-dlp-Abruf des Auflösens, samt Cookie-Heilung."""
+    try:
+        with _ydl(opts) as ydl:
+            return ydl.extract_info(url, download=False)
+    except Exception as e:                           # noqa: BLE001 — Cookie-Probleme heilen
+        # Sperre zuerst: die Bot-Meldung TRAEGT den Cookie-Hinweis in sich,
+        # ein Wegwerfen der Cookies laeuft direkt in den naechsten 403.
+        if _ist_sperre(e) or not _ist_cookie_fehler(e):
+            raise
+        opts.pop("cookiesfrombrowser", None)
+        with _ydl(opts) as ydl:
+            return ydl.extract_info(url, download=False)
+
+
 def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=None, ziel_playlist="",
               menge=None, richtung="neu", von=None, bis=None):
     """URL prüfen und in Queue-Einträge verwandeln (Playlist/Mix -> Einzelvideos).
@@ -967,57 +990,84 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
     limit: Wunsch-Anzahl fuer Mixe (Build 98, JB: einstellbar; 1..500).
     abo: Abo-Id — fertige Downloads landen dann in der Abo-Playlist;
     ersetzt: alte Bibliotheks-Keys, die NACH dem Erfolg in den Papierkorb gehen.
-    Läuft im Hintergrund-Thread, damit die Oberfläche nie blockiert."""
+    Läuft im Hintergrund-Thread, damit die Oberfläche nie blockiert.
+    Den Status ändert das Ergebnis nur, solange der Eintrag noch „prueft“
+    (Gesamtprüfung F3): hat ihn die Heilung derweil eingereiht und ein Worker
+    übernommen, bleibt er in Ruhe — sonst lüde ein zweiter Worker dasselbe."""
     platzhalter = Q.neu(url, None, qualitaet)
     if abo:
         platzhalter["abo"] = abo
     if ersetzt:
         platzhalter["abo_ersetzt"] = list(ersetzt)
-    platzhalter["status"] = "prueft"
-    Q.speichern()
-    opts = _ydl_basis_opts()
-    # Mixe (list=RD…) sind endlos — Wunsch-Anzahl (Build 98, Default 50),
-    # damit nicht tausende Einträge entstehen; echte Playlists laufen unbegrenzt.
-    # Von–bis-Bereich (v1.1.1, JB übers Addon: „von was bis was") — schneidet
-    # schon bei der Auslese. Review-Finding 4: bei Mixen geht auch `bis` durch
-    # die 1..500-Klemme (_mix_limit), sonst hebelte ein getipptes bis=99999
-    # genau den Deckel aus, den _mix_limit gegen endlose Listen aufstellt.
-    # Ohne bis, aber mit von: 50 Stück ab von (statt Start>Ende=leer).
-    if ganze_liste and _ist_mix(url):
-        opts["playlistend"] = _mix_limit(bis or ((von + 49) if von else None) or limit)
-    elif bis:
-        opts["playlistend"] = bis
-    if von:
-        opts["playliststart"] = von
-    opts.update({"extract_flat": "in_playlist", "skip_download": True,
-                 "noplaylist": (not ganze_liste) and ist_einzelvideo(url)})
+    with Q.lock:
+        platzhalter["status"] = "prueft"
+        _prueft_wartet.add(platzhalter["id"])        # wartet auf einen Platz: heilt nicht
     try:
-        try:
-            with _ydl(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-        except Exception as e:                       # noqa: BLE001 — Cookie-Probleme heilen
-            # Sperre zuerst: die Bot-Meldung TRAEGT den Cookie-Hinweis in sich,
-            # ein Wegwerfen der Cookies laeuft direkt in den naechsten 403.
-            if _ist_sperre(e) or not _ist_cookie_fehler(e):
-                raise
-            opts.pop("cookiesfrombrowser", None)
-            with _ydl(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-    except Exception as e:                           # noqa: BLE001 — Nutzer sieht den Text
-        voll = str(e)
-        platzhalter["fehler"] = _fehltext(e)
-        fehler_merken(url, voll, "aufloesen" + (" / sperre" if _ist_sperre(e) else ""))
-        if geo.ist_geo_fehler(voll) and CFG.get("geo_vpn"):
-            platzhalter["geo_laender"] = geo.laender_aus_fehler(voll)
-            platzhalter["status"] = "wartend"        # Worker übernimmt die Geo-Kette
-        else:
-            platzhalter["status"] = "fehler"
+        Q.speichern()
+        opts = _ydl_basis_opts()
+        # Mixe (list=RD…) sind endlos — Wunsch-Anzahl (Build 98, Default 50),
+        # damit nicht tausende Einträge entstehen; echte Playlists laufen unbegrenzt.
+        # Von–bis-Bereich (v1.1.1, JB übers Addon: „von was bis was") — schneidet
+        # schon bei der Auslese. Review-Finding 4: bei Mixen geht auch `bis` durch
+        # die 1..500-Klemme (_mix_limit), sonst hebelte ein getipptes bis=99999
+        # genau den Deckel aus, den _mix_limit gegen endlose Listen aufstellt.
+        # Ohne bis, aber mit von: 50 Stück ab von (statt Start>Ende=leer).
+        if ganze_liste and _ist_mix(url):
+            opts["playlistend"] = _mix_limit(bis or ((von + 49) if von else None) or limit)
+        elif bis:
+            opts["playlistend"] = bis
+        if von:
+            opts["playliststart"] = von
+        opts.update({"extract_flat": "in_playlist", "skip_download": True,
+                     "noplaylist": (not ganze_liste) and ist_einzelvideo(url)})
+        info, fehler = _aufloesen_abruf(platzhalter, url, opts)
+    finally:
+        with Q.lock:
+            _prueft_wartet.discard(platzhalter["id"])
+    if info is None and fehler is None:              # entfernt oder übernommen, bevor ein Platz frei war
+        return
+    if fehler is not None:
+        voll = str(fehler)
+        with Q.lock:
+            if platzhalter.get("status") != "prueft":    # F3: derweil übernommen
+                return
+            platzhalter["fehler"] = _fehltext(fehler)
+            if geo.ist_geo_fehler(voll) and CFG.get("geo_vpn"):
+                platzhalter["geo_laender"] = geo.laender_aus_fehler(voll)
+                platzhalter["status"] = "wartend"    # Worker übernimmt die Geo-Kette
+            else:
+                platzhalter["status"] = "fehler"
+        fehler_merken(url, voll, "aufloesen" + (" / sperre" if _ist_sperre(fehler) else ""))
         Q.speichern()
         return
+    _aufloesen_einreihen(platzhalter, info, url, qualitaet, ganze_liste, abo, ziel_playlist,
+                         menge, richtung, von, bis)
 
+
+def _aufloesen_abruf(platzhalter, url, opts):
+    """Auf einen Platz warten, dann yt-dlp fragen. Rückgabe (info, fehler);
+    (None, None), wenn der Platzhalter vorher entfernt oder übernommen wurde —
+    dann wird YouTube gar nicht gefragt."""
+    with _aufloese_plaetze:
+        with Q.lock:
+            _prueft_wartet.discard(platzhalter["id"])
+            if platzhalter not in Q.items or platzhalter.get("status") != "prueft":
+                return None, None
+            _prueft_seit[platzhalter["id"]] = time.time()   # die 5-min-Geduld beginnt jetzt
+        try:
+            return _info_abrufen(url, opts), None
+        except Exception as e:                       # noqa: BLE001 — Nutzer sieht den Text
+            return None, e
+
+
+def _aufloesen_einreihen(platzhalter, info, url, qualitaet, ganze_liste, abo, ziel_playlist,
+                         menge, richtung, von, bis):
+    """Das Ergebnis des Auflösens in die Warteschlange übernehmen."""
     eintraege = info.get("entries") if info.get("_type") == "playlist" else None
     with Q.lock:
         if platzhalter not in Q.items:               # Nutzer hat ihn derweil entfernt
+            return
+        if platzhalter.get("status") != "prueft":    # F3: Heilung + Worker haben übernommen
             return
         if eintraege is not None and not eintraege and (von or bis):
             # Review-Finding 7: ein leerer von/bis-Bereich verschwand STUMM —
@@ -6178,6 +6228,7 @@ _fehler_seit = {}   # item-id -> Zeitpunkt, seit dem der Eintrag „fehler" ist
 
 
 _prueft_seit = {}   # item-id -> Zeitpunkt, seit dem der Eintrag „prueft"
+_prueft_wartet = set()   # item-ids, deren Auflösen noch auf einen Platz wartet (F2)
 
 
 def queue_heilen():
@@ -6201,6 +6252,8 @@ def queue_heilen():
             _prueft_seit.pop(tot, None)               # nicht mehr „prueft" -> vergessen
         for it in Q.items:
             if it.get("status") != "prueft":
+                continue
+            if it["id"] in _prueft_wartet:            # F2: wartet auf einen Platz, hängt nicht
                 continue
             seit = _prueft_seit.setdefault(it["id"], jetzt)
             if jetzt - seit < 300:                    # 5 Minuten Geduld
