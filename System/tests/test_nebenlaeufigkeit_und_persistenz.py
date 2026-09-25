@@ -117,6 +117,51 @@ def test_cfg_schreiber_kommen_sich_nicht_in_die_quere():
         assert json.load(f) == json.loads(json.dumps(app.CFG)), "Datei und Speicher gehen auseinander"
 
 
+def test_cfg_speichern_und_wiedergabe_regel_warten_aufeinander(monkeypatch):
+    """Der Test oben wird nur mit dem alten festen tmp-Namen rot, nicht ohne
+    die gemeinsame Sperre (Gegenprobe der Abnahme). Hier läuft der Serialisierer
+    Schlüssel für Schlüssel über CFG und hält nach dem ersten an; genau dann
+    nimmt die Wiedergabe-Regel ohne Felder den Schlüssel `wiedergabe` heraus
+    (er steht in den Vorgaben). Ohne _cfg_lock ändert sich das Dict mitten im
+    Durchlauf, mit ihr wartet die Regel, bis gespeichert ist."""
+    assert "wiedergabe" in app.CFG
+    echt = app.fam.json_schreiben
+    im_lauf, weiter = threading.Event(), threading.Event()
+
+    def langsam(pfad, daten, *a, **k):
+        if pfad == app.CONFIG_PFAD and not im_lauf.is_set():
+            for i, _ in enumerate(daten):            # wie ein Serialisierer über das lebende Dict
+                if i == 0:
+                    im_lauf.set()
+                    weiter.wait(5)
+        return echt(pfad, daten, *a, **k)
+    monkeypatch.setattr(app.fam, "json_schreiben", langsam)
+    fehler = []
+
+    def einstellungen():
+        try:
+            app.Handler._config(None, {"metadaten": True})
+        except Exception as e:                       # noqa: BLE001
+            fehler.append("einstellungen: " + repr(e))
+
+    def wiedergabe():
+        try:
+            app.wiedergabe_setzen({"global": 1})     # keine Felder: Regel und Schlüssel raus
+        except Exception as e:                       # noqa: BLE001
+            fehler.append("wiedergabe: " + repr(e))
+    a = _im_faden(einstellungen)
+    assert im_lauf.wait(10)
+    b = _im_faden(wiedergabe)
+    b.join(0.5)                                      # ohne gemeinsame Sperre ist sie jetzt durch
+    weiter.set()
+    a.join(10)
+    b.join(10)
+    assert not fehler, fehler
+    assert "wiedergabe" not in app.CFG and app.CFG["metadaten"] is True
+    with open(app.CONFIG_PFAD, encoding="utf-8") as f:
+        assert json.load(f) == json.loads(json.dumps(app.CFG)), "Datei und Speicher gehen auseinander"
+
+
 # ---------------------------------------------------------------- F15: Rettungskopie
 
 def test_zweiter_defekt_ueberschreibt_die_erste_rettungskopie_nicht(tmp_path):
