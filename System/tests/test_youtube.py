@@ -3977,7 +3977,8 @@ def test_kachel_zeigt_album_cover():
     block = quelle[i:_funktionsende(quelle, i)]
     assert "x.cover_album?`/api/cover?id=" in block, \
         "Kachel fragt das echte Album-Cover nicht an"
-    assert "this.src='${esc(x.thumb)}'" in block, \
+    # Seit Gruppe 9 steht das Thumbnail in data-fb, der Handler liest es (S3).
+    assert 'data-fb="${esc(x.thumb)}"' in block and "this.src=this.dataset.fb" in block, \
         "Ohne Cover-Rueckfall bliebe die Kachel bei totem Cover leer"
     assert 'class="thumb"' in block
 

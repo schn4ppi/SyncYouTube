@@ -465,10 +465,13 @@ def test_download_zeile_ohne_ordner_im_wlan(tmp_path):
              "const f={id:'f1',status:'fehler',titel:'T',qualitaet:'beste',fehler:'x'};",
              "aus({u:reihe(u), f:reihe(f)}); NUR_FERN=true; aus({u:reihe(u), f:reihe(f)});"]
     (pc, fern) = _lauf(tmp_path, *teile)
-    assert "Trotzdem" in pc["u"] and "'ordner'" in pc["u"], pc["u"]
-    assert "Trotzdem" in fern["u"] and "'ordner'" not in fern["u"], fern["u"]
-    assert "'entfernen'" in fern["u"] and "Abspielen" in fern["u"]
-    assert "'weiter'" in fern["f"], "Weiter nach einem Fehler bleibt im WLAN"
+    # Die Aktion steht seit Gruppe 9 in data-a, der Handler liest sie von dort (S3).
+    for z in (pc["u"], fern["u"], fern["f"]):
+        assert "aktion(this.dataset.qid,this.dataset.a)" in z, z
+    assert "Trotzdem" in pc["u"] and 'data-a="ordner"' in pc["u"], pc["u"]
+    assert "Trotzdem" in fern["u"] and 'data-a="ordner"' not in fern["u"], fern["u"]
+    assert 'data-a="entfernen"' in fern["u"] and "Abspielen" in fern["u"]
+    assert 'data-a="weiter"' in fern["f"], "Weiter nach einem Fehler bleibt im WLAN"
 
 
 # Wiedergabe-Wahlen auf einem Gerät im WLAN (Abnahme 25.09.2026, offene Frage 3

@@ -79,7 +79,8 @@ _els['tvp-panel']={style:{display:'none'}, dataset:{}, innerHTML:''};
 function menueTempo(){                                // Tempo-Menü öffnen, markierten Knopf lesen
   const p=_els['tvp-panel']; p.style.display='none'; p.dataset.art='';
   tvpPanel('tempo');
-  const an=[...p.innerHTML.matchAll(/class="tvpp-knopf an" onclick="tvpRate\(([\d.]+)\)"/g)].map(m=>+m[1]);
+  // Der Wert steht seit Gruppe 9 in data-w, der Handler liest genau ihn (S3).
+  const an=[...p.innerHTML.matchAll(/class="tvpp-knopf an" data-w="([\d.]+)" onclick="tvpRate\(\+this\.dataset\.w\)"/g)].map(m=>+m[1]);
   p.style.display='none';
   return an.length===1?an[0]:an;
 }
