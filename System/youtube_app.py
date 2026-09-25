@@ -458,26 +458,70 @@ def _voruebergehend_gesperrt(e):
     return isinstance(e, PermissionError) or getattr(e, "winerror", None) in _SPERR_FEHLER
 
 
+# Dateien, deren Sperre beim Laden länger hielt als das kurze Wiederlesen
+# (Gesamtprüfung Gruppe 9): normierter Pfad -> Zahl der ausgelassenen
+# Speicherungen. Die App arbeitet mit der Vorgabe weiter, schreibt aber nicht
+# über die Datei, bis ein Laden wieder gelingt; sonst stünde beim nächsten
+# Speichern die leere Vorgabe in der vollen Bibliothek.
+_nicht_geladen = {}
+_nicht_geladen_lock = threading.Lock()
+
+
+def _datei_schluessel(pfad):
+    return os.path.normcase(os.path.abspath(pfad))
+
+
+def _sperre_melden(text):
+    sag = globals().get("_sag")                      # beim Import der App gibt es _sag noch nicht
+    if sag is not None:
+        sag(text, logging.WARNING)
+
+
+def _wieder_frei(pfad):
+    """Ein Laden hat den Stand der Datei geklärt: Speichern ist wieder erlaubt."""
+    with _nicht_geladen_lock:
+        ausgelassen = _nicht_geladen.pop(_datei_schluessel(pfad), None)
+    if ausgelassen is not None:
+        _sperre_melden(f"{os.path.basename(pfad)} ist wieder lesbar; Speichern wieder frei "
+                       f"({ausgelassen} Speicherung(en) waren ausgelassen).")
+
+
 def _json_laden(pfad, fallback):
     """JSON lesen; eine kaputte Datei wandert nach `<pfad>.<Zeitstempel>.defekt`
     und es gilt `fallback`. Ein Sperr-Fehler ist kein Defekt (Gesamtprüfung
     Gruppe 6): dann wird knapp 1 s lang erneut gelesen, erst danach gilt die
     Datei als unlesbar. Vorher legte schon eine kurze fremde Sperre die leere
-    Vorgabe an, die das nächste Speichern über die echte Datei schrieb."""
+    Vorgabe an, die das nächste Speichern über die echte Datei schrieb.
+    Hält die Sperre länger (Gruppe 9), bleibt die Datei, wo sie ist, und gilt
+    als nicht geladen: `_json_speichern` schreibt nicht über sie, bis ein Laden
+    wieder gelingt."""
+    gesperrt = False
     for versuch in range(10):
         try:
             with open(pfad, encoding="utf-8") as f:
-                return json.load(f)
+                daten = json.load(f)
+            _wieder_frei(pfad)
+            return daten
         except OSError as e:
-            if _voruebergehend_gesperrt(e) and versuch < 9:
-                time.sleep(0.05 * (versuch + 1) if versuch < 5 else 0.05)
-                continue
+            if _voruebergehend_gesperrt(e):
+                if versuch < 9:
+                    time.sleep(0.05 * (versuch + 1) if versuch < 5 else 0.05)
+                    continue
+                gesperrt = True
         except ValueError:
             pass
         break
+    if gesperrt:
+        with _nicht_geladen_lock:
+            _nicht_geladen.setdefault(_datei_schluessel(pfad), 0)
+        _sperre_melden(f"{os.path.basename(pfad)} ist gesperrt und wurde nicht geladen; "
+                       "Speichern darüber bleibt aus, bis sie wieder lesbar ist.")
+        return fallback
     # kaputte Datei nie verlieren (Suite-Regel: nicht-destruktiv)
     if os.path.exists(pfad):
         _defekt_beiseite(pfad)
+    if not os.path.exists(pfad):                     # nichts mehr an der Stelle, das zu schützen wäre
+        _wieder_frei(pfad)
     return fallback
 
 
@@ -506,7 +550,19 @@ def _json_speichern(pfad, daten):
     tmp-Name je Faden und ein kurzer Wiederholungs-Anlauf, solange ein Leser die
     Zieldatei offen hat. Vorher teilten sich alle Schreiber `<pfad>.tmp` und
     gaben beim ersten Freigabekonflikt auf. Der Vertrag bleibt: Scheitert das
-    Schreiben, kommt ein OSError."""
+    Schreiben, kommt ein OSError.
+    Eine Datei, die beim Laden gesperrt blieb (`_nicht_geladen`), wird nicht
+    überschrieben: das Speichern fällt aus, einmal im Protokoll gemeldet."""
+    with _nicht_geladen_lock:
+        schluessel = _datei_schluessel(pfad)
+        ausgelassen = _nicht_geladen.get(schluessel)
+        if ausgelassen is not None:
+            _nicht_geladen[schluessel] = ausgelassen + 1
+    if ausgelassen is not None:
+        if ausgelassen == 0:
+            _sperre_melden(f"{os.path.basename(pfad)} wurde nicht geladen (gesperrt): Speichern "
+                           "ausgelassen, damit die Datei nicht mit der Vorgabe überschrieben wird.")
+        return
     if not fam.json_schreiben(pfad, daten):
         raise OSError(f"{os.path.basename(pfad)} ließ sich nicht schreiben")
 

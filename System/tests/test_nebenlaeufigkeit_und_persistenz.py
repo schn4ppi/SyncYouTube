@@ -1279,9 +1279,10 @@ if __name__ == "__main__":
 # Vorgabe zurückgegeben, die das nächste Speichern über die echte Datei
 # schrieb. Jetzt liest es bei einem Sperr-Fehler kurz erneut.
 
-def _exklusiv_sperren(pfad):
+def _exklusiv_sperren(pfad, freigabe=0):
     """Die Datei so öffnen, wie es ein fremdes Programm tut: ohne Freigabe
-    (dwShareMode 0). Jeder andere Zugriff scheitert mit WinError 32."""
+    (dwShareMode 0). Jeder andere Zugriff scheitert mit WinError 32.
+    `freigabe=4` (FILE_SHARE_DELETE) erlaubt anderen nur Umbenennen/Löschen."""
     import ctypes
     from ctypes import wintypes
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -1289,7 +1290,7 @@ def _exklusiv_sperren(pfad):
                                 wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
     k32.CreateFileW.restype = wintypes.HANDLE
     k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    h = k32.CreateFileW(str(pfad), 0x80000000, 0, None, 3, 0x80, None)   # GENERIC_READ, OPEN_EXISTING
+    h = k32.CreateFileW(str(pfad), 0x80000000, freigabe, None, 3, 0x80, None)   # GENERIC_READ, OPEN_EXISTING
     assert h and h != wintypes.HANDLE(-1).value, ctypes.get_last_error()
     return lambda: k32.CloseHandle(h)
 
@@ -1330,6 +1331,82 @@ def test_json_laden_legt_eine_kaputte_datei_ohne_warten_beiseite(tmp_path):
     assert app._json_laden(str(pfad), {}) == {}
     assert time.monotonic() - start < 0.5
     assert any(p.name.endswith(".defekt") for p in tmp_path.iterdir())
+    app._json_speichern(str(pfad), {"neu": 1})       # die Rettungskopie ist da: Speichern bleibt frei
+    assert json.loads(pfad.read_text(encoding="utf-8")) == {"neu": 1}
+
+
+# Gruppe 9: Hält die Sperre länger als das kurze Wiederlesen, gilt die Datei als
+# NICHT GELADEN. Die App arbeitet mit der Vorgabe weiter, schreibt aber nicht
+# darüber: sonst stünde beim nächsten Speichern die leere Vorgabe in der vollen
+# Bibliothek (oder config.json, playlists.json, abos.json …). Der nächste
+# gelungene Ladeversuch hebt das auf.
+
+@pytest.fixture
+def meldungen(monkeypatch):
+    liste = []
+    monkeypatch.setattr(app, "_sag", lambda text, stufe=None: liste.append(text))
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)   # das kurze Wiederlesen ohne Warten
+    return liste
+
+
+def test_dauersperre_schuetzt_die_volle_datei_vor_der_leeren_vorgabe(tmp_path, meldungen):
+    pfad = tmp_path / "geladen_log.json"
+    voll = {"k|beste": {"name": "echt.mp4"}}
+    pfad.write_text(json.dumps(voll), encoding="utf-8")
+    freigeben = _exklusiv_sperren(pfad)
+    try:
+        assert app._json_laden(str(pfad), {}) == {}
+    finally:
+        freigeben()
+    app._json_speichern(str(pfad), {})                 # die App speichert ihre Vorgabe …
+    app._json_speichern(str(pfad), {"nur": "neu"})     # … und danach einen Stand ohne die alten Einträge
+    assert json.loads(pfad.read_text(encoding="utf-8")) == voll, "die volle Datei wurde überschrieben"
+    ausgelassen = [m for m in meldungen if "ausgelassen" in m]
+    assert len(ausgelassen) == 1 and "geladen_log.json" in ausgelassen[0], meldungen
+
+    anders = tmp_path / "playlists.json"               # nur DIESE Datei ist betroffen
+    app._json_speichern(str(anders), [1])
+    assert json.loads(anders.read_text(encoding="utf-8")) == [1]
+
+    assert app._json_laden(str(pfad), {}) == voll      # der nächste gelungene Ladeversuch …
+    app._json_speichern(str(pfad), {"neu": 1})         # … gibt das Speichern wieder frei
+    assert json.loads(pfad.read_text(encoding="utf-8")) == {"neu": 1}
+    assert any("wieder" in m for m in meldungen), meldungen
+
+
+def test_bibliothek_beim_start_gesperrt_wird_nicht_leer_gespeichert(meldungen, monkeypatch):
+    """Der Fall aus der Gesamtprüfung am echten Weg: die App lädt die Bibliothek
+    wie beim Import, die Datei ist gesperrt; ein fertiger Download trägt sich
+    ein und die Bibliothek wird gespeichert. Die volle Datei bleibt."""
+    voll = {f"id{i}|beste": {"name": f"lied{i}.mp4"} for i in range(50)}
+    with open(app.GELADEN_PFAD, "w", encoding="utf-8") as f:
+        json.dump(voll, f)
+    freigeben = _exklusiv_sperren(app.GELADEN_PFAD)
+    try:
+        monkeypatch.setattr(app, "_geladen", app._json_laden(app.GELADEN_PFAD, {}))
+    finally:
+        freigeben()
+    assert app._geladen == {}
+    app._geladen["neu|beste"] = {"name": "neu.mp4"}
+    app._geladen_speichern()
+    with open(app.GELADEN_PFAD, encoding="utf-8") as f:
+        assert json.load(f) == voll, "die Bibliothek wurde mit der Vorgabe überschrieben"
+
+
+def test_dauersperre_legt_die_datei_nicht_als_defekt_beiseite(tmp_path, meldungen):
+    """Ein Programm, das die Datei ohne Lesefreigabe, aber mit Löschfreigabe
+    offen hält, lässt das Umbenennen zu: vorher wanderte die volle Datei dann
+    als `.defekt` beiseite, der nächste Start fand keine Datei und speicherte
+    die leere Vorgabe an ihre Stelle. Eine Sperre ist kein Defekt."""
+    pfad = tmp_path / "abos.json"
+    pfad.write_text('[{"id": "a1"}]', encoding="utf-8")
+    freigeben = _exklusiv_sperren(pfad, freigabe=4)
+    try:
+        assert app._json_laden(str(pfad), []) == []
+    finally:
+        freigeben()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["abos.json"], "gesperrte Datei beiseitegelegt"
+    assert json.loads(pfad.read_text(encoding="utf-8")) == [{"id": "a1"}]
 
 
 # Befund der Abnahme 25.09.2026: test_aufloesen_hoechstens_zwei_… fiel in einer

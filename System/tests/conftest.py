@@ -583,6 +583,13 @@ def _aufloese_plaetze_frisch(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _nicht_geladen_frisch(monkeypatch):
+    """Welche Dateien beim Laden gesperrt blieben (Gruppe 9), ist Modul-Zustand:
+    jeder Test beginnt ohne gesperrte Datei."""
+    monkeypatch.setattr(youtube_app, "_nicht_geladen", {})
+
+
+@pytest.fixture(autouse=True)
 def _daten_wache(tmp_path, monkeypatch):
     """Eigene Daten je Test in tmp_path, leere Zustände; liefert die Liste der
     Funde (ein Test, der den Alarm selbst prüft, leert sie). Was die Wache
