@@ -1,5 +1,17 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 25.09.2026, nach der Gesamtprüfung)
 
+> **NACHTRAG 25.09.2026 (spät) — Struktur-Runde 4 angehalten (Kontingent), Firewall-Knopf entschieden.**
+> - **Runde 4 (Struktur, verhaltensgleich)** steht im Zweig `gesamtpruefung` (auf GitHub, NICHT in main):
+>   `links.py` (Y2), `musik_einstufung.py` (Y3), Routentabelle `ROUTEN` (Y7) samt Nacharbeit und
+>   Wächtern, Kopf-Karte/Banner (O2), `api()`- und Speicher-Helfer (O3). Die skeptische Abnahme der
+>   Oberflächen-Gruppe und meine eigene Abnahme fehlen; ungeprüfte Reste im Worktree
+>   (`System/oberflaeche.py` geändert, `System/tests/handler_scanner.py` neu, nicht committet).
+>   Nächster Schritt: Reste sichten, Gruppe 9 fertig bauen, Abnahme auf Prüfkopie, dann ff nach main.
+> - **Firewall-Freigabe (JB-Entscheid 25.09.):** Knopf „Im Heimnetz freigeben…“ am QR-Code (Erkennung
+>   ohne Adminrechte, Regel erst nach UAC-„Ja“: TCP-Port der App, nur Profil Privat, nur lokales
+>   Subnetz, nur das lauschende Programm); QR-Code erst, wenn der Server wirklich im WLAN lauscht;
+>   im späteren Benutzer-Setup ein abwählbarer Haken mit derselben Abfrage. Noch nicht gebaut.
+
 > **NACHTRAG 25.09.2026 (Abend) — Gesamtprüfung und drei Reparatur-Runden (Zweig `gesamtpruefung`, in main bis `785dd04`).**
 > JB-Wunsch: „den Spaghetticode bzw. das Programm prüfen und verbessern“. Erst eine lesende Prüfung (vier
 > Bereiche, je ein Gegenprüfer), dann drei Runden im eigenen Worktree, jede Gruppe mit Test zuerst,
