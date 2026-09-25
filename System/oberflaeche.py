@@ -6,29 +6,70 @@ nachgeladen (importlib.reload) — Änderungen hier erscheinen mit Browser-F5,
 ohne App-Neustart. Der sichtbare Baustand steht unten in der Layout-Leiste
 ("Build …") und wird bei jeder Änderung hochgezählt.
 
-AUFBAU (Banner mit ==== markieren die Hauptbereiche, ---- die Unterbereiche):
+KOPF-KARTE (Gesamtprüfung O2, 25.09.2026): welcher Bereich wo steht, in der
+Reihenfolge des Dokuments. Zeilennummern wandern, darum stehen hier die Titel
+der Banner zum Suchen. Ein Banner mit ==== markiert einen Hauptbereich des
+Hauptskripts, eines mit ---- einen Unterbereich. Ein Bereich kann zweimal
+vorkommen („Fortsetzung“), weil der Code dort gewachsen ist, wo er gebraucht
+wurde; verschoben wird erst mit dem Byte-Beweis (Plan O4).
+tests/test_oberflaeche_karte.py prüft, dass jedes ====-Banner des Skripts
+hier in derselben Reihenfolge steht, und umgekehrt.
 
+  <head>    Skin-Frühstart: setzt die Farbwelt vor dem ersten Bild (kein Aufblitzen).
   <style>   Farbwelt als CSS-Variablen (--akz/--panel/…; ein „Skin" tönt alles um)
-            · Command-Bar · Panels/Fenster · Modals · Warteschlange · Bibliothek
-            · Spalten-Menü · Player · Tag-Modus · Container-Queries (schmale Panels)
-
-  <body>    Command-Bar (Link->Download, Live-Queue, Now-Playing) · Layout-Leiste
-            · #canvas (die beweglichen Fenster) · Modals (Hilfe/Einstellungen/Geo)
-            · #stash mit den Views: add/queue/done/log/lib/player
-
-  <script>  Helfer (esc/mb/zeit) · Looks/Skins · Optionen-Zahnrad
-            · Panels/Docking/Snapping + Ansicht-Verlauf (Mausrad) + Layouts
-              (Vorlagen/Meine/↩ Vorheriges = Verlust-Schutz wie im Dashboard) + Mini
-            · Warteschlange/Status (laden/malen) · Fernsteuerung · Log
-            · Command-Bar-Logik + Drag&Drop-Link · Abos · Smart-Playlists · Dubletten
-            · Geo/VPN-Assistent · Bibliothek (Ansichten/Spalten/Auswahl/Alben)
-            · Abspielmodi/Radio/Sleep/Clip · Kontextmenüs (Explorer-Stil)
-            · Player (Speed/Untertitel+Karaoke/Kapitel/Visualizer/EQ/Übergänge/Canvas)
-            · Playlists (+Sync/.m3u) · Tastatur · Init (ganz unten)
+            · Command-Bar · TV-Bibliothek · Ausweich-Ordnung der Kopfleiste · Panels
+            · Assistent-Modal · Warteschlange · Bibliothek · Spalten-Menü · Player
+            · Vollbild-Overlay · Tag-Modus (hell) · Container-Queries (schmale Panels)
+  <body>    Einbettungs-Modus (Stil + Skript) · Command-Bar (Link-Feld, Live-Queue,
+            Now-Playing, Download-Fenster) · Layout-Leiste · #canvas (die beweglichen
+            Fenster) · Modals (Hilfe/Einstellungen/Geo) · #stash mit den Views
+  <script>  layout_kern.js zwischen LAYOUT_KERN_START und _END (vendort: nur im
+            Master SyncDashTray/System/layout_kern.js ändern)
+  <script>  das Hauptskript mit diesen Hauptbereichen:
+    ==== Helfer & globaler Zustand
+         esc/toast/mb/zeit · Looks/Skins · Bildschirm-Wächter · Optionen-Zahnrad
+    ==== Panels / Docking
+         Ansicht-Verlauf (Mausrad) · Verlust-Schutz · Layout-Vorlagen · eigene
+         Layouts · Mini-Player · ✏-Layout-Modus
+    ==== Warteschlange
+         Status laden/malen · Handy-Fernsteuerung · Log
+    ==== Command-Bar oben: Download, Live-Queue, Now-Playing, Zwischenablage
+         Ein Feld für alles · Mengen-Regler · Link ins Fenster ziehen
+    ==== Abos
+         Zustand und Server-Ruf (aboPost, aboLaden); die Karten folgen unten
+    ==== Filme
+         Film-Fundament · Film-Player-Screen · Medientasten im Film · Stelle und
+         „gesehen“ melden · Mindest-Sehzeit
+    ==== Abos, Fortsetzung
+         Karten · Regeln · Backkatalog-Flyout · Prüfen
+    ==== Smart-Playlists, Dubletten, Einstellungen speichern
+    ==== Geo/VPN-Assistent
+    ==== Bibliothek
+         Klick-Art · Rahmen-Auswahl · Abspielmodus · Browser-Zeichen · Radio ·
+         Sleep-Timer · Ausschnitt/Clip · Alben · Menü-Werkzeuge · Neues entdecken
+    ==== Player
+         Geschwindigkeit · Untertitel/Karaoke/Transkript · Kapitel · Visualizer ·
+         Equalizer · Übergänge · Steuerleiste · Springen · Spulen am Fernseher
+    ==== TV-Bibliothek
+         Fernbedienung · Geräte koppeln · Profile · Wünsche über Jellyseerr ·
+         Hero-Billboard und More-Info · Tasten im TV
+    ==== Player, Fortsetzung: Bild-in-Bild und Wiedergabe-Merker
+    ==== Gerät VLC
+         Wiedergabe-Grundeinstellungen · Medientasten der Tastatur
+    ==== Player-Anzeige und Ad-hoc-Playlist
+         Titel ins Bild setzen · Rahmen-Auswahl in der Playlist · Werkzeuge ·
+         Eigenschaften · Ziehen und Ablegen · Lieblingssongs · Playlist sichern ·
+         Transkript-Volltextsuche
+    ==== Playlists
+         Titel auf eine Playlist ziehen · Sync/.m3u · Namens-Baukasten · Hotkey-Editor
+    ==== Init (läuft einmal beim Seiten-Start)
+  <body>    Schwebende Flächen (Build 125): Ansicht-Menü, Spalten-Menü, TV-Overlay,
+            direkt unter <body>, damit kein Container sie einsperrt.
 
 WICHTIGE FALLE: Dies ist ein Python-Triple-String — ein \\ in JS/HTML muss
 verdoppelt werden (\\n, \\d, \\s), sonst frisst Python das Escape und das
-JavaScript ist kaputt (node --check nach jeder Änderung laufen lassen!)."""
+JavaScript ist kaputt. tests/test_oberflaeche_syntax.py übersetzt jeden
+Skript-Block mit deno und findet das."""
 
 from medien_session import einsetzen as _medien_einsetzen   # Media-Session-Baustein (mit handy.py geteilt)
 
@@ -3653,7 +3694,7 @@ function einstellungenOeffnen(){
 function settingsZu(){const m=document.getElementById('settingsmodal'); if(m)m.style.display='none';}
 function hilfeModal(an){const m=document.getElementById('hilfemodal'); if(m)m.style.display=an?'flex':'none';}
 
-/* ---- Command-Bar oben: Download, Live-Queue, Now-Playing, Zwischenablage ---- */
+/* ================= Command-Bar oben: Download, Live-Queue, Now-Playing, Zwischenablage ================= */
 function qualMerken(v){                               // Qualitätswahl fuer naechsten Start sichern
   if(!NUR_FERN)fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({standard_qualitaet:v})});   // Gerät im WLAN: gilt, solange die Seite offen ist
@@ -3961,6 +4002,7 @@ document.addEventListener('drop',async e=>{
   laden();
 });
 
+/* ================= Abos ================= */
 /* ---- Abos: Kanäle/Playlists abonnieren (neue Videos werden automatisch geholt).
    Abo-Fenster nach Sonarr-Muster: Karte je Abo mit Format-Wahl, Regeln (⚙) und
    Backkatalog (📜) — fehlende Folgen ausgegraut, per Doppelklick/Auswahl nachladbar. ---- */
@@ -3970,6 +4012,7 @@ async function aboPost(daten){
   return await r.json();
 }
 async function aboLaden(){try{const r=await fetch('/api/abos'); aboState=(await r.json()).items||[]; aboMalen();}catch(e){}}
+/* ================= Filme ================= */
 /* ---- Filme (Film-Fundament, Doku/SYNC_FILME_SPEC.md Etappe 7) --------------
    Anzeige-Minimum: die serverseitigen Reihen als Poster-Bänder, Klick spielt
    den Jellyfin-Strom im LOKALEN VLC. Das eigentliche TV-Design ist
@@ -4974,6 +5017,8 @@ async function filmeSync(){
     setTimeout(filmeLaden, 8000);
   }catch(e){toast('🎬 Abzug nicht erreichbar.');}
 }
+
+/* ================= Abos, Fortsetzung ================= */
 function aboVor(ts){
   if(!ts)return '';
   const m=Math.max(0,Math.round((Date.now()/1000-ts)/60));
@@ -5318,6 +5363,8 @@ async function aboPruefen(btn){
   if(btn){btn.disabled=false; btn.textContent=t;} aboLaden(); laden();
 }
 
+
+/* ================= Smart-Playlists, Dubletten, Einstellungen speichern ================= */
 /* ---- Smart-/Auto-Playlists: Regel-basiert, füllen sich selbst aus der Bibliothek ---- */
 let smartListen=[]; try{smartListen=JSON.parse(localStorage.getItem('ytdl_smart'))||[];}catch(e){}
 if(!Array.isArray(smartListen))smartListen=[];
@@ -8132,6 +8179,7 @@ function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
 function plbFullscreen(){const m=document.getElementById('pl-media'); if(!m)return;
   if(document.fullscreenElement)document.exitFullscreen();
   else if(m.requestFullscreen)m.requestFullscreen();}
+/* ================= TV-Bibliothek ================= */
 /* ---- TV-Bibliothek (Sync Teilprojekt 2 v1) --------------------------------
    JB: „erledige alle aufgaben von der roadmap" — der Fernsehmodus öffnet
    jetzt die eigene 10-Fuß-Ansicht: Menü-Schnitt A (Home · Filme · Serien ·
@@ -9249,6 +9297,8 @@ function tvKey(ev){
   else getan=false;
   if(getan){ev.preventDefault(); ev.stopPropagation(); tvFokusMalen();}
 }
+
+/* ================= Player, Fortsetzung: Bild-in-Bild und Wiedergabe-Merker ================= */
 function plbPip(){                                     // natives Bild-in-Bild (JB 21.07.)
   const el=document.getElementById('pl-el');
   if(!el||el.tagName!=='VIDEO'){toast('Bild-in-Bild geht nur bei Videos.');return;}
@@ -9340,6 +9390,7 @@ function plBarIdleInit(media,el){                      // Leiste ruht die Maus -
   wecken();
 }
 
+/* ================= Gerät VLC ================= */
 /* ---- Gerät „VLC" (Spec Punkt 5, Etappe B Stufe 1) ------------------------
    Spotify-Connect-Muster: die Oberfläche bleibt das Gehirn (Warteschlange,
    Weiterschalten, Abspielart), der Ton kommt aus einer ferngesteuerten
@@ -9814,6 +9865,8 @@ function medienNachFilm(){
   const el=document.getElementById('pl-el');
   if(el)medienZustand(el.paused?'paused':'playing');
 }
+
+/* ================= Player-Anzeige und Ad-hoc-Playlist ================= */
 function renderPlayerMedia(){
   const media=document.getElementById('pl-media'); if(!media)return;
   spulStopp();                                         // Titelwechsel beendet den Spul-Modus

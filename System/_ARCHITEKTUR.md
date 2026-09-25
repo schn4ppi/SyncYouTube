@@ -64,9 +64,12 @@ analog. So bleibt jedes Modul autark lauffähig, aber über EIN System gekoppelt
 1. **Saubere Basis** ← *hier sind wir*
    - [x] Test-Sicherheitsnetz angelegt (11 Tests grün).
    - [x] geo/vpn entkoppelt (Einbahn-Schichtung, live verifiziert).
-   - [ ] `oberflaeche.py` in klar kommentierte Abschnitte gliedern (der große
+   - [x] `oberflaeche.py` in klar kommentierte Abschnitte gliedern (der große
          JS-Block ist der eigentliche „Spaghetti"-Kandidat) — Verhalten erhalten,
-         durch das Netz + Browser-Tests abgesichert.
+         durch das Netz + Browser-Tests abgesichert. Erledigt 25.09.2026
+         (Gesamtprüfung O2): Kopf-Karte im Modul-Kopf, 17 Hauptbereiche mit
+         einheitlichem ====-Banner, Wächter `tests/test_oberflaeche_karte.py`.
+         Verschoben wird erst mit dem Byte-Beweis (Plan O4).
    - [ ] Optionen in Reiter-Gruppen, Bibliotheks-Leiste in ein „⚙ Ansicht"-Menü.
 2. **Standalone .exe** (PyInstaller, `bin/` mitbündeln) — erst kurz vor Beta.
 3. **GitHub** veröffentlichen (JBs GitHub-Desktop-Login, kein Token-Tippen).
