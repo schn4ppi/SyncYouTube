@@ -6943,7 +6943,7 @@ class Handler(BaseHTTPRequestHandler):
         if not CFG.get("fernsteuerung"):             # S13: aus heißt aus, sofort und
             return False                             # auch für gekoppelte Geräte
         pfad = urlparse(self.path).path
-        if pfad in ("/m", "/handy", "/koppeln", "/api/geraet_anmelden", "/api/geraet_status"):
+        if pfad in ("/m", "/koppeln", "/api/geraet_anmelden", "/api/geraet_status"):
             return True                              # Pairing muss VOR dem Token gehen
         q = parse_qs(urlparse(self.path).query)
         tok = (q.get("geraet") or [self.headers.get("X-Geraet", "")])[0]
@@ -6985,7 +6985,9 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:                            # noqa: BLE001
                 pass
             return _antwort(self, 200, fernbedienung.HTML.encode("utf-8"), "text/html")
-        if urlparse(self.path).path in ("/m", "/handy"):     # schlanke Handy-Oberfläche
+        # Der Alias /handy ist entfallen (JB-Entscheid 7a Punkt 8, 25.09.2026): kein
+        # Verweis, das README nennt nur /m.
+        if urlparse(self.path).path == "/m":                 # schlanke Handy-Oberfläche
             import importlib
             import handy
             import medien_session
