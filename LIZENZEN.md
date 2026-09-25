@@ -1,15 +1,16 @@
 # Lizenzen und Quellcode
 
-Diese Datei gilt für die **aktuelle Fassung v.1.2.6**. Ältere Fassungen bündelten andere
+Diese Datei gilt für die **aktuelle Fassung v.1.2.7**. Ältere Fassungen bündelten andere
 Stände; ihre Angabe steht im jeweiligen [Release](../../releases). Kurzfassung auf der
 Startseite: [README](README.md#lizenz). Die mit „ab dem nächsten Bau" markierten
-Bestandteile (pywinrt samt Visual-C++-Laufzeit) sind in v.1.2.6 noch nicht enthalten.
+Bestandteile (pywinrt samt Visual-C++-Laufzeit) sind ab v.1.2.7 enthalten; das Bau-Skript
+bricht ab, wenn sie in der Bauliste fehlen.
 
 Warum das hier steht und nicht auf der Startseite: die Aufzählung ist lang, ändert sich
 mit jedem Bau und interessiert niemanden, der die App nur benutzen will.
 
 **GPL-3.0-or-later** (siehe [LICENSE](LICENSE)). Diese Lizenz gilt für den eigenen Code
-in diesem Repo. Die ausgelieferte `SyncYouTube.exe` v1.2.6 packt zusätzlich fremde
+in diesem Repo. Die ausgelieferte `SyncYouTube.exe` v1.2.7 packt zusätzlich fremde
 Bibliotheken und drei fertige Programme ein; die Liste unten ist aus der Bauliste des
 Builds (`System/build/SyncYouTube/Analysis-00.toc`) und den Paket-Angaben der
 Python-Umgebung gemessen, nicht aus dem Gedächtnis geschrieben. Gemessen wurde sie am

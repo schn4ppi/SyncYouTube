@@ -47,7 +47,7 @@ import medien_smtc          # Windows-Medienanmeldung des VLC-Motors (pywinrt er
 import update
 import windows_kennung      # App-Kennung JBK.SyncYouTube + Startmenü-Eintrag (JB 24.09.2026)
 
-__version__ = "1.2.6"
+__version__ = "1.2.7"
 
 # Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
 # Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
