@@ -613,8 +613,10 @@ def test_cookie_fehler_versucht_es_weiter_ohne_cookies(youtube, tmp_path, art):
 
 @pytest.mark.parametrize("art", ["abo", "anreichern", "untertitel"])
 def test_netzfehler_ohne_zweitversuch(youtube, tmp_path, art):
-    """Kleine Änderung (JB-Entscheid 25.09.): ohne Cookies hilft bei einem
-    Netzfehler nicht, der Zweitversuch kostete nur einen weiteren Abruf."""
+    """Plan F4, „Kleine Änderung“ (Befundbericht Abschnitt 3; kein eigener
+    JB-Entscheid, in Abschnitt 7a nicht enthalten, als Frage an JB offen):
+    ohne Cookies hilft bei einem Netzfehler nicht, der Zweitversuch kostete
+    nur einen weiteren Abruf."""
     attrappe = youtube(NETZ)
     _nebenweg(art, tmp_path)()
     assert len(attrappe.abrufe) == 1
