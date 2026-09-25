@@ -1850,7 +1850,7 @@ socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
              Plus sein das für Hinzufügen steht. Ist intuitiv." — Genau hier
              steht es jetzt, direkt neben der Liste. Es zeigt dieselbe Auswahl
              wie das ＋ an jeder Kachel, nur für alles Markierte. -->
-        <button class="btn mini" id="plplus" onclick="bulkPlaylist(event)"
+        <button class="btn mini nur-pc" id="plplus" onclick="bulkPlaylist(event)"
                 title="Markierte Titel zu einer Playlist hinzufügen — auch zu einer neuen">＋</button>
         <button class="ib" id="plviewbtn" onclick="plView()" title="Titel dieser Playlist unten in der Bibliothek anzeigen (nochmal = zurück zur ganzen Bibliothek)">📃</button>
         <button class="ib" id="plwerkbtn" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
@@ -6608,6 +6608,7 @@ function menuGeradeZu(knopf){
 function aktionsMenu(ev,eintraege){                    // generisches Klick-Menü an einem Knopf
   ev.stopPropagation();
   if(menuGeradeZu(ev.currentTarget))return;            // 2. Klick = schließen (JB 05.08.)
+  eintraege=menuFuerGeraet(eintraege);                 // Gerät im WLAN: ohne nur-PC-Einträge
   document.querySelectorAll('.itemmenu').forEach(m=>m.remove());
   const m=document.createElement('div'); m.className='itemmenu';
   m.innerHTML=eintraege.map((e,i)=>`<button data-i="${i}">${e[0]}</button>`).join('');
@@ -6635,12 +6636,12 @@ function plWerkzeuge(ev){
   if(versteckt('.plbar .btn[onclick*="mixeMenu"]'))extra.push(['🎛 Mixer…', mixeMenu]);
   aktionsMenu(ev,extra.concat([
   ['📻 Neues entdecken', entdeckerOeffnen],
-  ['✎ Umbenennen', plRename],
-  ['🗑 Löschen', plDelete],
-  ['⇄ Sync einrichten…', plSyncConfig],
-  ['⇄ Jetzt synchronisieren', ()=>plSyncNow()],
+  nurPc(['✎ Umbenennen', plRename]),
+  nurPc(['🗑 Löschen', plDelete]),
+  nurPc(['⇄ Sync einrichten…', plSyncConfig]),
+  nurPc(['⇄ Jetzt synchronisieren', ()=>plSyncNow()]),
   ['⤓ Als .m3u exportieren', plExport],
-  ['⤒ .m3u importieren…', ()=>document.getElementById('m3ufile').click()]]));}
+  nurPc(['⤒ .m3u importieren…', ()=>document.getElementById('m3ufile').click()])]));}
 
 /* ---- 📻 Neues entdecken (Build 99, JB): Radio-Mixe zu Titeln der gewählten
    Playlist, alles Bekannte gefiltert — nur NEUE Songs, mit Anhören + Laden.
@@ -8039,7 +8040,7 @@ function plBarHTML(istVideo){
     // JB 05.08. (Netflix/YouTube-Muster): Untertitel + Lautstärke gehören zum
     // KERN — sie überleben jede Player-Größe (keine bo-Ausblende-Klasse).
     `<button class="pl-bsp" id="plb-sub" onclick="subMenu(event)" title="Untertitel: Modus, Sprache, Größe, Stil, Versatz (Taste S wechselt schnell den Modus)">💬</button>`+
-    `<button class="pl-bsp bo3 weg-im-vollbild" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
+    `<button class="pl-bsp bo3 weg-im-vollbild nur-pc" onclick="clipDialog(aktKey())" title="✂ Ausschnitt schneiden (wie ein Twitch-Clip)">✂</button>`+
     // JB 05.08.: am Fernseher (Vollbild) gehört ↻ (VLC neu verbinden) an die
     // Stelle der Schere — sichtbar nur am Gerät VLC.
     `<button class="pl-bsp nur-vollbild" onclick="vlcNeustart()" style="${plGeraet==='vlc'?'':'display:none'}" title="VLC neu verbinden: frisch starten und an der letzten Stelle weiterspielen">↻</button>`+
@@ -10306,19 +10307,19 @@ function plWerkzeugeImPlayer(ev){
      im herausgelösten Fenster, damit beide Wege nie auseinanderlaufen. */
   ev.stopPropagation();
   const eintraege=[['— Warteschlange —', ()=>{}]];
-  queueWerkzeugListe().forEach(o=>eintraege.push([o[0], o[2]]));
+  queueWerkzeugListe().forEach(o=>eintraege.push(Object.assign([o[0], o[2]],{nurPc:o.nurPc})));
   eintraege.push(['— Playlist —', ()=>{}]);
   eintraege.push(['📻 Neues entdecken', entdeckerOeffnen]);
-  eintraege.push(['✎ Umbenennen', plRename]);
-  eintraege.push(['🎚 Wiedergabe…', ()=>{                // Etappe C: Regeln je Playlist
+  eintraege.push(nurPc(['✎ Umbenennen', plRename]));
+  eintraege.push(nurPc(['🎚 Wiedergabe…', ()=>{          // Etappe C: Regeln je Playlist
     const id=(document.getElementById('plsel')||{}).value||playerState.plid;
     const p=plState.find(q=>q.id===id);
     if(p)wiedergabeDialog({plid:p.id}, 'Playlist „'+p.name+'"');
     else toast('Erst eine gespeicherte Playlist wählen/laden.');
-  }]);
-  eintraege.push(['⇄ Sync einrichten…', plSyncConfig]);
+  }]));
+  eintraege.push(nurPc(['⇄ Sync einrichten…', plSyncConfig]));
   eintraege.push(['⤓ Als .m3u exportieren', plExport]);
-  eintraege.push(['⤒ .m3u importieren…', ()=>document.getElementById('m3ufile').click()]);
+  eintraege.push(nurPc(['⤒ .m3u importieren…', ()=>document.getElementById('m3ufile').click()]));
   aktionsMenu(ev, eintraege);
 }
 /* Eigenschaften-Popup (JB 22.07., foobar „Properties"): alle Metadaten eines
@@ -11343,11 +11344,11 @@ setInterval(laden,1000);
         <label class="chk" style="padding:4px 6px"><input type="checkbox" id="libhidegray" checked onchange="libMalen()"> Ausgegraute ausblenden</label>
         <div class="msep"></div>
         <button class="mbtn" onclick="colMenuToggle(event)">⚙ Spalten wählen…</button>
-        <button class="mbtn" id="libenrich" onclick="libEnrich(this)">↻ Fehlende Infos nachladen</button>
+        <button class="mbtn nur-pc" id="libenrich" onclick="libEnrich(this)">↻ Fehlende Infos nachladen</button>
         <button class="mbtn" id="libarchivbtn" onclick="libArchivToggle()">🗄 Archiv anzeigen</button>
         <button class="mbtn" id="libselbtn" onclick="libSelectToggle()">☑ Mehrfach-Auswahl</button>
         <button class="mbtn" onclick="dublettenPopover(event);ansichtZu()">⧉ Dubletten finden…</button>
-        <button class="mbtn" onclick="autotagAlle();ansichtZu()">🏷 Auto-Tagging (MusicBrainz)…</button>
+        <button class="mbtn nur-pc" onclick="autotagAlle();ansichtZu()">🏷 Auto-Tagging (MusicBrainz)…</button>
         <!-- Build 122 (JB: „sollte selbstständig passieren"): der
              Ordner-Blick läuft jetzt von allein, sobald die Bibliothek
              angesehen wird (gedrosselt, im Hintergrund). Kein Menüpunkt

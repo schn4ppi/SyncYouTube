@@ -356,3 +356,63 @@ def test_download_box_ohne_nur_pc_aktionen_im_wlan(tmp_path):
     assert fern_q["knopf"] == "none"
     assert fern_abos["aktiv"] == "queue" and fern_abos["knopf"] == "none"
     assert fern_done["knopf"] == "" and "Aufräumen" in fern_done["text"]
+
+
+def test_playlist_werkzeuge_im_wlan_ohne_verwaltung(tmp_path):
+    """Die Playlist-Werkzeuge (⋯ an der Playlist und im Player) laufen über
+    einen dritten Menü-Motor (aktionsMenu): Umbenennen, Löschen, Sync, Import,
+    Wiedergabe-Regeln und „Als Playlist speichern“ gehen nur am PC."""
+    q = _pc()
+    for funktion, weg in (("plWerkzeuge", ("Umbenennen", "Löschen", "Sync einrichten",
+                                           "Jetzt synchronisieren", "importieren")),
+                          ("plWerkzeugeImPlayer", ("Umbenennen", "Sync einrichten", "importieren",
+                                                   "Wiedergabe", "Als Playlist speichern"))):
+        ergebnisse = []
+        for fern in (False, True):
+            teile = _menue_rendern(q, funktion, f"{funktion}({{stopPropagation(){{}},"
+                                   "currentTarget:{getBoundingClientRect(){return {};}}});", fern)
+            teile.insert(-2, _js_funktion(q, "aktionsMenu"))
+            teile.insert(-2, _js_funktion(q, "queueWerkzeugListe"))
+            teile.insert(-2, "function entdeckerOeffnen(){} function plRename(){} function plDelete(){}"
+                             " function plSyncConfig(){} function plSyncNow(){} function plExport(){}"
+                             " function queueAlsPlaylist(){} function queueUmkehren(){} function queueDuplikate(){}"
+                             " function queueLeeren(){} function mixeMenu(){} globalThis.getComputedStyle=()=>({});"
+                             " document.querySelector=()=>null;")
+            teile = [t.replace("function queueWerkzeugListe(){return [];}", "") for t in teile]
+            (e,) = _lauf(tmp_path, *teile)
+            ergebnisse.append(_labels(e["html"]))
+        pc, wlan = ergebnisse
+        for text in weg:
+            assert any(text in t for t in pc), (funktion, text, pc)
+            assert not any(text in t for t in wlan), (funktion, text, wlan)
+        assert any("exportieren" in t for t in wlan), "Lesen (Export) bleibt"
+
+
+def test_direkte_nur_pc_knoepfe_tragen_die_klasse(tmp_path):
+    """Knöpfe außerhalb der Menüs: ＋ (Titel in Playlist), ↻ Fehlende Infos
+    nachladen (schreibt Metadaten), 🏷 Auto-Tagging und ✂ in der Player-Leiste."""
+    from html.parser import HTMLParser
+    q = _pc()
+
+    class Knoepfe(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.gefunden = {}
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag == "button" and a.get("onclick"):
+                self.gefunden.setdefault(a["onclick"], (a.get("class") or "").split())
+
+    statisch = Knoepfe()
+    statisch.feed(q)
+    for onclick in ("bulkPlaylist(event)", "libEnrich(this)", "autotagAlle();ansichtZu()"):
+        assert "nur-pc" in statisch.gefunden.get(onclick, []), (onclick, statisch.gefunden.get(onclick))
+    for onclick in ("plView()", "plWerkzeuge(event)", "dublettenPopover(event);ansichtZu()"):
+        assert "nur-pc" not in statisch.gefunden.get(onclick, ["fehlt"]), onclick
+    (e,) = _lauf(tmp_path, "let plGeraet='browser', playSpeed=1, plVol=100; function ico(){return '';}",
+                 _js_funktion(q, "plBarHTML"), "aus({html:plBarHTML(true)});")
+    leiste = Knoepfe()
+    leiste.feed(e["html"])
+    assert "nur-pc" in leiste.gefunden.get("clipDialog(aktKey())", []), leiste.gefunden.get("clipDialog(aktKey())")
+    assert "nur-pc" not in leiste.gefunden.get("subMenu(event)", ["fehlt"])
