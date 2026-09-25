@@ -3878,7 +3878,8 @@ def playlist_sync(pl):
         return {"fehler": f"Zielordner nicht erreichbar: {e}"}
     ordner_norm = os.path.normcase(os.path.abspath(ordner))
     kopien = pl.get("sync_kopien") if isinstance(pl.get("sync_kopien"), dict) else {}
-    bisher = dict(kopien.get("dateien") or {}) if kopien.get("ordner") == ordner_norm else {}
+    bisher = kopien.get("dateien") if kopien.get("ordner") == ordner_norm else None
+    bisher = {str(k): str(n) for k, n in bisher.items()} if isinstance(bisher, dict) else {}
     alte_liste = pl.get("sync_manifest") if "sync_kopien" not in pl else None
     alte_namen = set(alte_liste) if isinstance(alte_liste, list) else set()
     items = list(pl.get("items", []))

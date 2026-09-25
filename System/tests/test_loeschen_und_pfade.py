@@ -778,3 +778,15 @@ def test_wireguard_land_bleibt_zwei_buchstaben(tmp_path, monkeypatch, land):
     r = app.Handler._geo_wireguard(None, {"land": land, "content": WG_NEU})
     assert r.get("fehler") and not any(ordner.iterdir())
     assert not (tmp_path / "x.conf").exists()
+
+
+@pytest.mark.parametrize("kaputt", [[["x", "y"]], "text", {"ordner": 5, "dateien": [1, 2]}])
+def test_playlist_sync_kaputtes_merkblatt_entfernt_nichts(tmp_path, monkeypatch, entfernt, kaputt):
+    """Ein beschädigtes Merkblatt zählt als leer: kein Absturz, nichts entfernt."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    stick.mkdir()
+    (stick / A).write_bytes(b"AAAA")
+    pl["items"] = [KB]
+    pl["sync_kopien"] = kaputt
+    r = app.playlist_sync(pl)
+    assert r["ok"] and r["geloescht"] == 0 and (stick / A).is_file() and not entfernt
