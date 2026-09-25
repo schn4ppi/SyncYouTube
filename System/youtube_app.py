@@ -2001,8 +2001,10 @@ def _cover_in_datei(key, e, bild):
     if not pfad.lower().endswith(".mp3"):
         # JB 05.08.: „Videos können Lieder sein" — Dateiart ist KEIN
         # Ausschluss. Remux wäre GB-teuer, darum Sidecar statt Einbetten.
+        sc = _cover_sidecar(key)
+        if not sc:
+            return                                   # Schlüssel ohne schlichte Id: kein Sidecar
         try:
-            sc = _cover_sidecar(key)
             os.makedirs(os.path.dirname(sc), exist_ok=True)
             with open(sc, "wb") as f:
                 f.write(bild)
@@ -2049,13 +2051,35 @@ def _cover_in_datei(key, e, bild):
                 pass
 
 
+_ID_NAME = re.compile(r"[\w-]{1,64}")                 # YouTube-Id, lokal-<hash>, [Id] aus dem Dateinamen
+
+
+def _id_datei(ordner, vid, endung):
+    """`<ordner>/<vid><endung>` für eine schlichte Id, sonst None (Gesamt-
+    prüfung S4). Die Id stammt aus der Anfrage (/api/cover, /api/untertitel):
+    `..`, eine Laufwerksangabe oder ein UNC-Pfad hätten den Ordner verlassen
+    bzw. Windows ein Netzlaufwerk anfragen lassen. Downloads, die nicht von
+    YouTube stammen (die ganze URL ist der Schlüssel), fallen hier heraus und
+    behalten ihren Rückfall über die Datei in der Bibliothek."""
+    if not _ID_NAME.fullmatch(vid or ""):
+        return None
+    wurzel = os.path.abspath(ordner)
+    pfad = os.path.join(wurzel, vid + endung)
+    try:
+        if os.path.commonpath([wurzel, os.path.abspath(pfad)]) != wurzel:
+            return None
+    except ValueError:                                # anderes Laufwerk
+        return None
+    return pfad
+
+
 def _cover_sidecar(key):
     """Sidecar-Pfad fürs Album-Cover eines VIDEOS (JB 05.08.: „Videos können
     Lieder sein" — die Dateiart ist kein Ausschluss). In die Videodatei
     remuxen wäre GB-teuer; das Bild liegt darum als `<video-id>.jpg` im
-    Cover-Ordner — magnetisch über die Id, wie die Untertitel."""
-    d = os.path.join(ziel_ordner(), "Cover")
-    return os.path.join(d, f"{key.split('|')[0]}.jpg")
+    Cover-Ordner — magnetisch über die Id, wie die Untertitel.
+    None für einen Schlüssel ohne schlichte Id (s. `_id_datei`)."""
+    return _id_datei(os.path.join(ziel_ordner(), "Cover"), key.split("|")[0], ".jpg")
 
 
 def cover_aus_datei(key):
@@ -2073,7 +2097,7 @@ def cover_aus_datei(key):
             pass
         return None
     sc = _cover_sidecar(key)
-    if os.path.isfile(sc):
+    if sc and os.path.isfile(sc):
         try:
             with open(sc, "rb") as f:
                 return f.read()
@@ -2246,9 +2270,14 @@ def untertitel_liste(key):
     """Alle .vtt-Dateien zu einem Bibliotheks-Key als [(pfad, sprache)], sortiert:
     ORIGINAL-Sprache (…-orig, fürs Karaoke) vor Deutsch vor Englisch vor Rest.
     Bevorzugt den Untertitel-Ordner (nach Video-ID); Altbestand neben dem Video
-    bleibt Rückfallebene, bis der Einsortier-Lauf ihn verschoben hat."""
+    bleibt Rückfallebene, bis der Einsortier-Lauf ihn verschoben hat.
+    Im Untertitel-Ordner wird nur mit einer schlichten Id gesucht (S4, s.
+    `_id_datei`); der Rückfall geht über die Bibliothek, nie über die Anfrage."""
     vid = key.split("|")[0]
-    dateien = glob.glob(os.path.join(glob.escape(untertitel_ordner()), glob.escape(vid) + ".*.vtt"))
+    ordner = untertitel_ordner()
+    dateien = []
+    if _id_datei(ordner, vid, ".vtt"):
+        dateien = glob.glob(os.path.join(glob.escape(ordner), glob.escape(vid) + ".*.vtt"))
     if not dateien:
         pfad = _pfad_zu_key(key)
         if pfad:
@@ -2424,9 +2453,10 @@ def untertitel_nachladen(key):
         return
     vid = key.split("|")[0]
     url = e.get("url") or (f"https://www.youtube.com/watch?v={vid}" if _plausible_id(vid) else "")
-    if not url:
+    ordner = untertitel_ordner()
+    if not (url and _id_datei(ordner, vid, "")):      # Ziel nur mit schlichter Id (S4)
         return
-    ziel = os.path.join(untertitel_ordner(), vid)     # -> Untertitel-Ordner, nach Video-ID
+    ziel = os.path.join(ordner, vid)                  # -> Untertitel-Ordner, nach Video-ID
     opts = _ydl_basis_opts()
     opts.update({"skip_download": True, "noplaylist": True,
                  "writesubtitles": True, "writeautomaticsub": True,
