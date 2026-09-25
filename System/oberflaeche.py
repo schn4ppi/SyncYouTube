@@ -3511,10 +3511,26 @@ function fernFenster(ev){
     (f.url?'<div class="mzeile"><span>Am Handy öffnen</span><b style="font-size:11.5px">'+esc(f.url)+'</b></div>'
           :'<div class="mzeile"><span style="font-size:11.5px">Handy-Link erscheint nach einem App-Neustart</span></div>')+
     '<div class="msep"></div>'+
+    '<button class="mbtn" onclick="document.getElementById(\\'fernfly\\').remove();fernCodeErneuern()">🔄 Code erneuern</button>'+
     '<button class="mbtn" onclick="document.getElementById(\\'fernfly\\').remove();fernToggle()">Fernsteuerung ausschalten</button>';
   document.body.appendChild(m);
   popoverBei(m, ev.currentTarget.getBoundingClientRect());
   menuSchliesser(m);
+}
+/* JB-Entscheid 7a Punkt 3 (25.09.2026): neuer, längerer Code auf Knopfdruck.
+   Der bisherige Code gilt bis zu diesem Klick (kein Zwangswechsel beim
+   Update); danach müssen Handys mit dem alten Code den neuen eingeben.
+   Gekoppelte Geräte (eigener Token) bleiben gekoppelt. */
+async function fernCodeErneuern(){
+  frageModal('Neuen Fernsteuerungs-Code erzeugen?\\n\\nHandys, die mit dem bisherigen Code verbunden sind, '+
+    'müssen danach den neuen eingeben. Gekoppelte Geräte (Fernseher) bleiben gekoppelt.', '🔄 Code erneuern',
+    async()=>{
+      let neu='';
+      try{const r=await fetch('/api/code_erneuern',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+          if(r.ok)neu=((await r.json())||{}).code||'';}catch(e){}
+      await laden(); fernInfoMalen();
+      toast(neu?('📱 Neuer Code: '+neu):'Code konnte nicht erneuert werden.');
+    });
 }
 function fernInfoMalen(){
   const b=document.getElementById('fernbtn'), info=document.getElementById('ferninfo');
@@ -3525,6 +3541,7 @@ function fernInfoMalen(){
   if(b)b.textContent=(f&&f.aktiv)?'An — ausschalten':'Aus — einschalten';
   if(info){
     if(f&&f.aktiv)info.innerHTML='Code: <b style="color:var(--akz2)">'+esc(f.code||'')+'</b>'+
+      ' <button class="btn mini" onclick="fernCodeErneuern()" title="Neuen, längeren Code erzeugen — der bisherige gilt bis zu diesem Klick">🔄 Code erneuern</button>'+
       (f.url?'<br>Handy-Link: <b>'+esc(f.url)+'</b> (im selben WLAN öffnen)':'<br>(nach App-Neustart erscheint hier der Handy-Link)');
     else info.textContent='Aus — nur dein PC hat Zugriff (127.0.0.1).';
   }

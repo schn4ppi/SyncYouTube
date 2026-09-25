@@ -209,6 +209,19 @@ def ist_loopback(ip):
     return adresse.is_loopback
 
 
+# Fernsteuerungs-Code (JB-Entscheid 7a Punkt 3, 25.09.2026): neue Codes haben 10
+# Zeichen aus einem gut lesbaren Alphabet (ohne 0/O und 1/I/L), gut 49 Bit
+# statt 24 (vorher 6 Hex-Zeichen). Ein vorhandener Code bleibt gültig, bis JB am
+# PC „Code erneuern“ klickt; kein Zwangswechsel beim Update.
+CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+CODE_LAENGE = 10
+
+
+def neuer_fernsteuerungs_code():
+    import secrets
+    return "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LAENGE))
+
+
 def zugriff_erlaubt(client_ip, aktiv, code_soll, code_ist):
     """Wer darf auf die App zugreifen? Der eigene PC (localhost) IMMER. Aus dem
     Heim-WLAN NUR, wenn die Fernsteuerung an ist UND der Zugangscode stimmt.
@@ -7108,6 +7121,7 @@ NUR_PC = {
     ("GET", "/api/pfad_da"): "prüft Pfade auf dem PC",
     ("GET", "/api/geo_status"): "Geo-Einstellungen (mit lokalen Pfaden)",
     ("POST", "/api/config"): "schreibt config.json",
+    ("POST", "/api/code_erneuern"): "neuer Fernsteuerungs-Code (config.json)",
     ("POST", "/api/wiedergabe"): "Wiedergabe-Regeln schreiben config.json",
     ("POST", "/api/beenden"): "beendet das Programm",
     ("GET", "/api/migration_probelauf"): "Umbenennen verschiebt Dateien",
@@ -7728,6 +7742,11 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/config":
                 # Grundeinstellungen (Zielordner!) schreibt nur der PC selbst (NUR_PC).
                 self._config(daten)
+            elif self.path == "/api/code_erneuern":   # Knopf „Code erneuern“ (7a Punkt 3, NUR_PC)
+                with _cfg_lock:
+                    CFG["fernsteuerung_code"] = neuer_fernsteuerungs_code()
+                    _cfg_speichern()
+                return _antwort(self, 200, fernsteuerung_info())
             elif self.path == "/api/js_fehler":      # Fehler-Rekorder der Oberfläche
                 try:
                     pfad = JS_FEHLER_LOG
@@ -8052,7 +8071,7 @@ class Handler(BaseHTTPRequestHandler):
             if isinstance(daten.get("fernsteuerung"), bool):
                 CFG["fernsteuerung"] = daten["fernsteuerung"]
                 if daten["fernsteuerung"] and not CFG.get("fernsteuerung_code"):
-                    CFG["fernsteuerung_code"] = uuid.uuid4().hex[:6].upper()   # Code beim Aktivieren erzeugen
+                    CFG["fernsteuerung_code"] = neuer_fernsteuerungs_code()   # Code beim Aktivieren erzeugen
             if isinstance(daten.get("parallel"), int) and 1 <= daten["parallel"] <= 3:
                 CFG["parallel"] = daten["parallel"]
                 _worker_start(CFG["parallel"])

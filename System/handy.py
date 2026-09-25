@@ -29,7 +29,7 @@ body{margin:0;background:#0b0f0b;color:#e7f0e7;font-family:system-ui,Segoe UI,sa
 .wrap{max-width:560px;margin:0 auto;padding:12px 12px 90px}
 h1{font-family:Consolas,monospace;color:#37f000;font-size:18px;letter-spacing:.06em;margin:6px 0 12px}
 #login{padding:24px 8px;text-align:center}
-#login input{font-size:22px;letter-spacing:.3em;text-align:center;width:180px;padding:10px;border-radius:10px;
+#login input{font-size:22px;letter-spacing:.18em;text-align:center;width:min(300px,100%);padding:10px;border-radius:10px;
   border:1px solid #234a23;background:#0e150e;color:#e7f0e7}
 .btn{background:#122a12;border:1px solid #37f000;color:#8dff6a;border-radius:10px;padding:10px 16px;
   font-size:15px;font-weight:700;cursor:pointer}
@@ -64,7 +64,7 @@ footer .ctrl{margin:0}
 
   <div id="login">
     <div style="margin-bottom:14px;color:#a9c8a9">Zugangscode eingeben<br><small style="color:#7fae7f">(steht am PC im ⚙ → Fernsteuerung)</small></div>
-    <input id="code" inputmode="latin" autocapitalize="characters" maxlength="6" placeholder="––––––">
+    <input id="code" inputmode="latin" autocapitalize="characters" autocomplete="off" maxlength="16" placeholder="––––––––––">
     <div style="margin-top:14px"><button class="btn" onclick="anmelden()">Verbinden</button></div>
     <div id="loginfehler" class="hint fehler"></div>
   </div>

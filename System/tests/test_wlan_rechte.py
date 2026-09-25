@@ -436,3 +436,103 @@ def test_pc_darf_fremde_links_wie_bisher(eingereiht, aufloesung, url):
 def test_pc_mehrere_zeilen_bleiben_erlaubt(eingereiht, aufloesung):
     st, _, _ = _add("https://www.youtube.com/watch?v=a\nhttp://127.1/x\nhttps://vimeo.com/1", ip="127.0.0.1")
     assert st == 200 and eingereiht == ["https://www.youtube.com/watch?v=a", "https://vimeo.com/1"]
+
+
+# ------------------------------------------------------------ 7a Punkt 3: längere Codes, „Code erneuern“
+
+LESBAR = set("ABCDEFGHJKMNPQRSTUVWXYZ23456789")        # ohne 0/O, 1/I/L
+PC = {"Host": "127.0.0.1:8776"}
+
+
+def test_neuer_code_ist_lang_und_gut_lesbar(monkeypatch):
+    """Vorher 6 Hex-Zeichen (16,8 Millionen Möglichkeiten, 0 und O verwechselbar)."""
+    monkeypatch.setitem(app.CFG, "fernsteuerung", False)
+    monkeypatch.setitem(app.CFG, "fernsteuerung_code", "")
+    st, _, _ = _anfrage("/api/config", methode="POST", kopf=PC, rumpf={"fernsteuerung": True})
+    code = app.CFG["fernsteuerung_code"]
+    assert st == 200 and len(code) >= 10 and set(code) <= LESBAR, code
+    codes = {app.neuer_fernsteuerungs_code() for _ in range(200)}
+    assert len(codes) == 200 and all(len(c) >= 10 for c in codes)
+    assert set("".join(codes)) == LESBAR, "das ganze lesbare Alphabet, nicht nur Hex"
+
+
+def test_bisheriger_code_bleibt_bis_zum_klick(monkeypatch):
+    """Kein Zwangswechsel beim Update: Aus- und Einschalten und andere
+    Einstellungen lassen einen vorhandenen (alten, kurzen) Code stehen."""
+    _fernsteuerung(monkeypatch)
+    for rumpf in ({"fernsteuerung": False}, {"fernsteuerung": True}, {"metadaten": True}):
+        assert _anfrage("/api/config", methode="POST", kopf=PC, rumpf=rumpf)[0] == 200
+    assert app.CFG["fernsteuerung_code"] == CODE
+    assert _senden("GET", "/api/status", kopf={"X-Code": CODE})[0] == 200
+
+
+def test_code_erneuern_am_pc(monkeypatch):
+    _fernsteuerung(monkeypatch)
+    st, _, koerper = _anfrage("/api/code_erneuern", methode="POST", kopf=PC, rumpf={})
+    neu = app.CFG["fernsteuerung_code"]
+    assert st == 200 and neu != CODE and len(neu) >= 10 and set(neu) <= LESBAR, neu
+    assert json.loads(koerper)["code"] == neu
+    with open(app.CONFIG_PFAD, encoding="utf-8") as f:
+        assert json.load(f)["fernsteuerung_code"] == neu, "der neue Code überlebt den Neustart"
+    assert _senden("GET", "/api/status", kopf={"X-Code": CODE})[0] == 403, "der alte Code gilt nicht mehr"
+    assert _senden("GET", "/api/status", kopf={"X-Code": neu})[0] == 200
+
+
+def test_code_erneuern_nicht_aus_dem_wlan(monkeypatch):
+    _fernsteuerung(monkeypatch)
+    st, _, _ = _senden("POST", "/api/code_erneuern", {}, kopf={"X-Code": CODE})
+    assert st == 403 and app.CFG["fernsteuerung_code"] == CODE
+
+
+def test_handy_nimmt_lange_codes_an():
+    """Das Eingabefeld der Handy-Seite schnitt nach 6 Zeichen ab."""
+    from html.parser import HTMLParser
+    import handy
+
+    class Feld(HTMLParser):
+        attrs = None
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "input" and dict(attrs).get("id") == "code":
+                Feld.attrs = dict(attrs)
+    Feld().feed(handy.HTML)
+    assert Feld.attrs is not None
+    assert int(Feld.attrs.get("maxlength") or 999) >= 10, Feld.attrs
+
+
+def test_knopf_code_erneuern_in_den_einstellungen(tmp_path):
+    from test_medientasten_verhalten import _js_funktion, _lauf, _pc
+    q = _pc()
+    (an, aus_) = _lauf(
+        tmp_path,
+        "function esc(t){return String(t==null?'':t);}",
+        "_els.fernbtn={textContent:''}; _els.ferninfo={innerHTML:'',textContent:''};",
+        "_els['fern-symbol']={style:{}};",
+        "let daten={fernsteuerung:{aktiv:true,code:'ABCDEFGHJK',url:'http://pc:8776/m'}};",
+        _js_funktion(q, "fernInfoMalen"),
+        "fernInfoMalen(); aus({html:_els.ferninfo.innerHTML});",
+        "daten={fernsteuerung:{aktiv:false,code:'',url:''}}; _els.ferninfo.innerHTML='';",
+        "fernInfoMalen(); aus({html:_els.ferninfo.innerHTML, text:_els.ferninfo.textContent});")
+    assert "ABCDEFGHJK" in an["html"] and "fernCodeErneuern()" in an["html"], an
+    assert "Code erneuern" in an["html"]
+    assert "fernCodeErneuern" not in aus_["html"], "ausgeschaltet gibt es keinen Code zu erneuern"
+
+
+def test_code_erneuern_fragt_und_holt_den_neuen_stand(tmp_path):
+    from test_medientasten_verhalten import _js_funktion, _lauf, _pc
+    q = _pc()
+    (e,) = _lauf(
+        tmp_path,
+        "const _spur=[]; let _jaSagen=true;",
+        "function frageModal(text,ja,onJa){_spur.push('frage'); if(_jaSagen)onJa();}",
+        "globalThis.fetch=async(url,opt)=>{_spur.push((opt&&opt.method||'GET')+' '+url);"
+        " return {ok:true,status:200,json:async()=>({code:'NEU2345678'})};};",
+        "async function laden(){_spur.push('laden');} function fernInfoMalen(){_spur.push('malen');}",
+        "function toast(t){_spur.push('toast:'+t);}",
+        _js_funktion(q, "fernCodeErneuern"),
+        "await fernCodeErneuern(); await new Promise(r=>setTimeout(r,0));",
+        "const nachJa=_spur.slice(); _spur.length=0; _jaSagen=false; await fernCodeErneuern();",
+        "aus({nachJa, nachNein:_spur.slice()});")
+    assert e["nachJa"][:2] == ["frage", "POST /api/code_erneuern"], e
+    assert "laden" in e["nachJa"] and any("NEU2345678" in s for s in e["nachJa"]), e
+    assert e["nachNein"] == ["frage"], "ohne Bestätigung ändert sich nichts"
