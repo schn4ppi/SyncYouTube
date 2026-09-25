@@ -86,7 +86,10 @@ allgemeiner Riegel im selben Hook: jede Verbindung, jeder urllib-Abruf und
 jede Namensauflösung nach draußen scheitert laut (live_tv ruft urlopen direkt
 und hat keine eigene Netz-Funktion), ebenso der Start eines VPN-Programms.
 Lokale Adressen bleiben erlaubt, ebenso ein UDP-connect (sendet nichts; so
-ermittelt `_lan_ip` die eigene Adresse).
+ermittelt `_lan_ip` die eigene Adresse). Lokal heißt auch 0.0.0.0 und jede
+Adresse der eigenen Schnittstellen (Nacharbeit 25.09.): mit Fernsteuerung
+lauscht die App dort, und ein Test über die LAN-Adresse verlässt den Rechner
+nicht.
 
 `tests/test_wachen.py` prüft die Wachen, `test_cookies_wal.py::test_i` die
 Firefox-Wache gegen die echte Suche.
@@ -170,6 +173,23 @@ _ZIEL_ARGS = {"os.rename": (0, 1), "shutil.move": (0, 1),          # os.replace 
               "os.utime": (0,), "os.chmod": (0,), "os.truncate": (0,)}
 _VPN_PROGRAMME = {"nordvpn.exe", "windscribe-cli.exe", "windscribe-cli", "wireguard.exe", "wg.exe"}
 _EIGENER_NAME = socket.gethostname().lower()
+
+
+def _eigene_adressen():
+    """0.0.0.0/:: und die Adressen aller eigenen Schnittstellen (auch die
+    LAN-Adresse, die die Handy-Seite zeigt): eine Verbindung dorthin verlässt
+    den Rechner nicht. Die Auflösung des eigenen Namens beantwortet Windows
+    selbst; vor dem Einhängen des Hooks gerufen."""
+    adressen = {"0.0.0.0", "::"}
+    try:
+        for *_rest, sockaddr in socket.getaddrinfo(_EIGENER_NAME, None):
+            adressen.add(str(sockaddr[0]).split("%")[0].lower())
+    except OSError:
+        pass
+    return frozenset(adressen)
+
+
+_EIGENE_ADRESSEN = _eigene_adressen()
 _BEACHTET = frozenset(_ZIEL_ARGS) | {"open", "sqlite3.connect", "socket.connect", "socket.sendto",
                                      "socket.getaddrinfo", "urllib.Request", "subprocess.Popen"}
 
@@ -213,7 +233,8 @@ def _lokal(host):
     if isinstance(host, bytes):
         host = host.decode("ascii", "replace")
     host = str(host or "").strip("[]").lower()
-    return host in ("", "localhost", "::1", "0:0:0:0:0:0:0:1") or host.startswith("127.")
+    return (host in ("", "localhost", "::1", "0:0:0:0:0:0:0:1") or host.startswith("127.")
+            or host.split("%")[0] in _EIGENE_ADRESSEN)
 
 
 def _wache(ereignis, args):

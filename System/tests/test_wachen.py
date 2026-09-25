@@ -370,6 +370,24 @@ def test_basetemp_im_programmordner_wird_vor_dem_lauf_abgelehnt(tmp_path):
     assert "basetemp" in aus and "außerhalb des Programmordners" in aus, aus[-2000:]
 
 
+def test_eigene_adressen_gelten_nicht_als_netz(request):
+    """Mit Fernsteuerung bindet die App an 0.0.0.0, und die Handy-Seite zeigt
+    die LAN-Adresse (`_lan_ip`). Der Riegel zählte nur localhost, 127.x und
+    ::1 als lokal: ein Test, der den eigenen Server über die LAN-Adresse
+    anspricht (Plan-Schritt Y1), wäre als Netzzugriff abgelehnt worden,
+    obwohl nichts den Rechner verlässt. Fremde Adressen bleiben gesperrt.
+    Geprüft am Ereignis, ohne eine Verbindung aufzubauen."""
+    import youtube_app as app
+    for adresse in ("0.0.0.0", app._lan_ip()):          # _lan_ip: UDP-connect, sendet nichts
+        sys.audit("socket.connect", None, (adresse, 8790))
+        sys.audit("socket.getaddrinfo", adresse, 8790, 0, 0, 0)
+    with pytest.raises(pytest.fail.Exception):
+        sys.audit("socket.connect", None, ("192.0.2.1", 8790))  # Dokumentations-Netz: fremd
+    zugriffe = request.getfixturevalue("_daten_wache")
+    assert len(zugriffe) == 1 and "192.0.2.1" in zugriffe[0], zugriffe
+    zugriffe.clear()                                       # der Alarm war hier gewollt
+
+
 def test_netz_ist_fuer_live_tv_geo_vpn_und_update_gesperrt(request):
     """Vorher sperrte die conftest nur das Netz des Film-Teils. live_tv,
     geo.freie_proxys, vpn (NordVPN-Status und das Umschalten der Verbindung)
