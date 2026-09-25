@@ -43,7 +43,7 @@
 | `firefox-addon/` | Firefox-spezifische Altfassung/Signier-Artefakte |
 | `abo_index/` | Index-Dateien der Kanal-/Playlist-Abos (Backkatalog, RSS-Puls) |
 | `lizenzen/` | Lizenztexte fremder Bestandteile, deren Paket keinen mitbringt (24.09.2026: `pywinrt_LICENSE.txt`, MIT, weil pywinrts dist-info keine LICENSE enthält); geht mit ins Quellstart-Paket, Übersicht in `../LIZENZEN.md` |
-| `bin/` | mitgelieferte Werkzeuge — **darin Deno**: yt-dlp braucht seit 2026 eine JS-Runtime für YouTubes n-Challenge, sonst „No video formats found" |
+| `bin/` | mitgelieferte Werkzeuge — **darin Deno**: yt-dlp braucht seit 2026 eine JS-Runtime für YouTubes n-Challenge, sonst „No video formats found"; die App setzt `DENO_NO_UPDATE_CHECK=1` (eine eigene Wahl in der Umgebung bleibt), damit deno nicht täglich im Netz nach Versionen fragt |
 | `build/`, `dist/`, `dist_exe/`, `build_tmp/` | PyInstaller-Bauwerk und Ergebnisse (nicht committen) |
 
 ## Daten (nicht committen, enthalten JBs Daten)

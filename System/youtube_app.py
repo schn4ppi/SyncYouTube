@@ -129,6 +129,10 @@ if getattr(sys, "frozen", False) and not os.path.isdir(BIN_DIR):
 # (Deno) für YouTubes n-Challenge — ohne sie fehlen Formate oder es kommt
 # "No video formats found" (mit Cookies).
 os.environ["PATH"] = BIN_DIR + os.pathsep + os.environ.get("PATH", "")
+# deno fragt sonst einmal am Tag im Netz nach einer neuen Version; yt-dlp
+# startet es als Kindprozess, der die Variable erbt (Gesamtprüfung Gruppe 6).
+# Eine eigene Wahl in der Umgebung bleibt stehen.
+os.environ.setdefault("DENO_NO_UPDATE_CHECK", "1")
 
 STANDARD_CONFIG = {
     "port": 8776,

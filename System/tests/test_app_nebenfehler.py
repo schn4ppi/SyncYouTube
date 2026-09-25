@@ -254,3 +254,27 @@ def test_dienst_abfrage_echt_und_lokal():
     import geo
     assert geo._dienst_da("EventLog") is True, "den Ereignisprotokoll-Dienst hat jedes Windows"
     assert geo._dienst_da("WireGuardTunnel$gibt-es-nicht-7f3a") is False
+
+
+# ------------------------------------------------------------------ deno ohne Versionsabfrage
+
+def test_app_setzt_deno_no_update_check_fuer_ihre_deno_aufrufe(tmp_path):
+    """yt-dlp startet deno als Kindprozess (JS-Runtime für YouTubes
+    n-Challenge). Ohne DENO_NO_UPDATE_CHECK fragt deno dabei einmal am Tag im
+    Netz nach einer neuen Version. Die App setzt die Variable beim Import, die
+    Kindprozesse erben sie. Geprüft in einem frischen Python ohne die Variable
+    (im Testprozess setzt sie schon die conftest) und im --testmodus, damit
+    der Import nur in tmp_path liest."""
+    import subprocess
+    umgebung = {k: v for k, v in os.environ.items() if k != "DENO_NO_UPDATE_CHECK"}
+    skript = ("import sys; sys.argv=['app', '--testmodus', sys.argv[1]]; "
+              "import youtube_app, os; print(os.environ.get('DENO_NO_UPDATE_CHECK'))")
+    lauf = subprocess.run([sys.executable, "-c", skript, str(tmp_path)], cwd=MODUL_DIR,
+                          env=umgebung, capture_output=True, text=True, timeout=120)
+    assert lauf.returncode == 0, lauf.stderr[-800:]
+    assert lauf.stdout.strip().splitlines()[-1] == "1", lauf.stdout[-300:]
+    # eine eigene Wahl des Nutzers bleibt stehen
+    lauf = subprocess.run([sys.executable, "-c", skript, str(tmp_path)], cwd=MODUL_DIR,
+                          env=dict(umgebung, DENO_NO_UPDATE_CHECK="0"), capture_output=True,
+                          text=True, timeout=120)
+    assert lauf.stdout.strip().splitlines()[-1] == "0", lauf.stdout[-300:]
