@@ -3,15 +3,17 @@
 
 Entfernt wurden: die Route `POST /api/importieren` samt `ordnerImportieren()`,
 der Zweig `art:'bulk'` in `_biblio` samt `_enrich_keys` und den fünf
-`bulk…`-Funktionen der Oberfläche und die übrigen toten Funktionen der
-Oberfläche.
+`bulk…`-Funktionen der Oberfläche, die übrigen toten Funktionen der Oberfläche,
+CSS ohne Element und Zugriffe auf IDs, die es nicht gibt.
 
 Die zwei Server-Befunde prüft je ein Verhaltenstest durch den echten Handler.
-Für die Oberfläche gibt es einen Wächter über das ERZEUGTE Skript
-(`oberflaeche.HTML`), mit Auto-Discovery statt Handliste: jede
-Top-Level-Funktion wird irgendwo genannt (im Seitentext ohne Kommentare oder
-in einem anderen Auslieferungs-Teil: Hülle, Handy-Seite, Fernbedienung,
-Server, Browser-Erweiterung).
+Für die Oberfläche gibt es Wächter über das ERZEUGTE Skript
+(`oberflaeche.HTML`), mit Auto-Discovery statt Handliste:
+  * jede Top-Level-Funktion wird irgendwo genannt (im Seitentext ohne
+    Kommentare oder in einem anderen Auslieferungs-Teil: Hülle, Handy-Seite,
+    Fernbedienung, Server, Browser-Erweiterung);
+  * jede ID, die das Skript per `getElementById('…')` holt, entsteht auch
+    irgendwo (`id="…"`, `.id='…'` oder über den Auswahl-Helfer `sel('…', …)`).
 Grenzen: Eine Funktion, die nur noch eine tote Funktion aufruft, zählt als
 genannt, bis der Aufrufer weg ist (dann schlägt der Wächter an). Python-Texte
 (Docstrings, HTML in Strings) zählen als Nennung, Python-Kommentare nicht.
@@ -133,3 +135,45 @@ def test_jede_funktion_der_oberflaeche_wird_genannt():
     tot = unbenannte_funktionen(oberflaeche.HTML, _andere_auslieferungs_teile())
     assert not tot, (f"Funktionen ohne Aufrufer im Skript der Oberfläche: {tot} — entfernen "
                      "(die git-Historie ist der Rückweg) oder den Aufruf wiederherstellen")
+
+
+# ------------------------------------------------------------ Oberfläche: IDs und CSS
+
+_GEHOLT = re.compile(r"getElementById\(\s*['\"]([\w-]+)['\"]\s*\)")
+_ENTSTEHT = (re.compile(r"\bid=[\\]?[\"']([\w-]+)"),               # Markup, auch in JS-Strings
+             re.compile(r"\.id\s*=\s*['\"]([\w-]+)['\"]"),           # el.id='…'
+             re.compile(r"\bsel\(\s*['\"]([\w-]+)['\"]\s*,"))         # Auswahl-Helfer der Smart-Playlists
+
+
+def ids_ohne_element(seite):
+    entstehen = set()
+    for muster in _ENTSTEHT:
+        entstehen |= set(muster.findall(seite))
+    return sorted(set(_GEHOLT.findall(seite)) - entstehen)
+
+
+def test_gegenprobe_id_ohne_element_wird_gefunden():
+    seite = ("<div id=\"a\"></div><script>getElementById('a');getElementById('b');"
+             "m.id='c';getElementById('c');x=sel('d',o);getElementById('d');</script>")
+    assert ids_ohne_element(seite) == ["b"]
+
+
+def test_jede_geholte_id_entsteht_auch():
+    """Vorher liefen `getElementById('sub')` und `('apitext')` jede Sekunde ins
+    Leere, `'pl-viz-btn'` bei jedem Visualizer-Wechsel (dort bleibt der
+    viz-an-Umschalter am Player)."""
+    import oberflaeche
+    assert ids_ohne_element(oberflaeche.HTML) == []
+
+
+def test_css_ohne_element_ist_weg():
+    """Die in der Gesamtprüfung bestätigten Klassen ohne Element (Abschnitt 5)
+    und die Körper-Klasse `hat-player`, die keine Regel und keinen Leser hatte."""
+    import oberflaeche
+    stil = "\n".join(re.findall(r"<style\b[^>]*>(.*?)</style\s*>", oberflaeche.HTML, re.S | re.I))
+    regeln = re.sub(r"/\*.*?\*/", " ", stil, flags=re.S)
+    for klasse in ("topbar", "sub", "apistat", "tools", "cmd-queue", "cmd-empty",
+                   "dlrow", "dlic", "dltitel", "dlbar", "dlpct", "dlx"):
+        assert not re.search(r"\." + re.escape(klasse) + r"(?![\w-])", regeln), klasse
+    assert "hat-player" not in oberflaeche.HTML
+    assert "viz-an" in oberflaeche.HTML, "der Visualizer-Umschalter am Player bleibt"

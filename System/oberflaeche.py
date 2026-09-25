@@ -62,10 +62,7 @@ html.theme-hacker h1,html.theme-hacker .card h2,html.theme-hacker .modal-head b{
 html{height:100%}
 body{font-family:system-ui,Segoe UI,sans-serif;margin:0;background:var(--bg);color:#eee;
   height:100vh;display:flex;flex-direction:column;overflow:hidden}
-.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px 6px}
 h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;letter-spacing:.05em}
-.sub{color:#8a7d74;font-size:12px}
-.apistat{display:flex;align-items:center;gap:6px;font-size:12px;color:#8a7d74;margin-top:4px}
 /* Build 133 (JB): Der Status-Punkt trägt jetzt das Zeichen des Browsers, in
    dem die Oberfläche läuft — Firefox die Erdkugel, Chrome den Ring, Edge den
    Bogen, Safari den Kompass. Der Kern in der Mitte ist der eigentliche
@@ -80,7 +77,6 @@ h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;le
 .apiring{fill:none;stroke:currentColor;opacity:.75}
 .apidot{color:#8a7d74}
 html.light .apidot{color:#a89a8e}
-.tools{display:flex;align-items:center;gap:8px;padding-top:6px;flex:none}
 .iconbtn{width:34px;height:34px;border-radius:9px;border:1px solid #3a332e;background:#171310;color:#eee;
   font-size:16px;cursor:pointer;line-height:1}
 .iconbtn:hover{border-color:var(--akz)}
@@ -536,20 +532,6 @@ html.light .cmd-nowtitel{color:#4a3f37}
 .cmd-count{color:#d7c7bd;white-space:nowrap;position:relative;cursor:default;font-size:12px;flex:none}
 .cmd-count b{color:var(--akz2);font-weight:700}
 .iconbtn.sm{width:28px;height:28px;font-size:14px;flex:none}
-/* Download-Liste (rechte Spalte): eine Zeile je Download, Klick = Pause/Fortsetzen */
-.cmd-queue{display:flex;flex-direction:column;gap:3px}
-.cmd-empty{color:#6a5c52;font-size:11px;padding:2px 0}
-.dlrow{display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 5px;border-radius:6px}
-.dlrow:hover{background:#0e0c0a}
-.dlrow.laeuft{background:rgba(255,255,255,.02)}
-.dlic{flex:none;font-size:11px}
-.dltitel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d7c7bd;font-size:11.5px}
-.dlbar{flex:none;width:90px;height:6px;background:#241f1b;border-radius:99px;overflow:hidden}
-.dlbar i{display:block;height:100%;background:var(--akz);border-radius:99px;transition:width .5s}
-.dlrow.fehler .dlbar i{background:#e08a6a}.dlrow.pausiert .dlbar i{background:#8a7d74}
-.dlpct{flex:none;color:#8a7d74;font-size:10.5px;min-width:44px;text-align:right}
-.dlx{flex:none;background:none;border:0;color:#6a5c52;cursor:pointer;font-size:11px;padding:0 3px;border-radius:4px}
-.dlx:hover{color:#e08a6a;background:#0e0c0a}
 .cmd-clip{margin-top:6px;align-items:center;gap:8px;font-size:11.5px;color:var(--akz2);
   background:var(--akzbg);border:1px solid var(--akz);border-radius:7px;padding:4px 9px;display:flex}
 .clipurl{color:#d7c7bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
@@ -586,9 +568,7 @@ html.light .cmd-nowtitel{color:#4a3f37}
 @media(max-width:520px){ .cmd-logo b{display:none} }
 html.light #cmdbar{background:#fff;border-color:#e6ddd3}
 html.light .cmd-url,html.light .cmd-qual{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
-html.light .dlrow:hover{background:#f3ede7}
-html.light .dltitel,html.light .cmd-count{color:#5a4f47}
-html.light .dlbar{background:#e6ddd3}
+html.light .cmd-count{color:#5a4f47}
 /* Layout-Werkzeuge-Leiste NUR im ✏-Modus (sonst kein toter Raum, JB 21.07.) */
 #layoutbar{display:none;flex:none;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 18px 8px;font-size:12px;color:#8a7d74}
 body.layoutedit #layoutbar{display:flex}
@@ -1459,7 +1439,7 @@ html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
 /* ---- Tag-Modus (hell) ---- */
 html.light body{background:#f4efe9;color:#2a2320}
 html.light h1,html.light .card h2{color:#b5502a}
-html.light .sub,html.light .info,html.light details.einst summary,html.light .apistat,
+html.light .info,html.light details.einst summary,
 html.light #layoutbar{color:#7a6e64}
 html.light .card,html.light .panel{background:#fff;border-color:#e6ddd3}
 html.light .panel-head{background:#f3ede7;border-color:#e6ddd3}
@@ -3369,8 +3349,6 @@ function malen(){
   cmdNowRender();                                      // „Now Playing"-Mini oben mitversorgen
   logDiff(items);                                      // Ereignisse in den Log schreiben
   autotagStatus();                                     // Auto-Tagging-Fortschritt anzeigen
-  const sub=document.getElementById('sub'); if(sub)sub.textContent=
-    `Zielordner: ${daten.ziel}`+(daten.ffmpeg?'':' · ⚠ ffmpeg fehlt — hohe Qualitäten eingeschränkt');
 }
 
 function apiStatus(ok){
@@ -3381,7 +3359,6 @@ function apiStatus(ok){
     d.title=(ok?'API verbunden · 127.0.0.1:8776':'API getrennt — läuft die App?')
             +' · Browser: '+browserName();
   }
-  const t=document.getElementById('apitext'); if(t)t.textContent=ok?'API verbunden · 127.0.0.1:8776':'API getrennt — läuft die App?';
   // Build 134: Das Geräte-Symbol hängt am Datenstand, nicht am ⚙-Menü —
   // sonst erschiene es erst, wenn jemand die Einstellungen öffnet.
   try{fernInfoMalen();}catch(e){}
@@ -3860,14 +3837,6 @@ function cmdNowRender(){
   // Build 117 (JB-Go): dieselben Transport-Knöpfe standen doppelt da — hier
   // UND im Player. Ist der Player offen, führt er; die Kopfleiste behält nur
   // Titel, Zeitleiste, Lautstärke und Radio (die hat der Player nicht).
-  // Build 120 (JB-Fund): NICHT auf das Audio-Element prüfen — das entsteht
-  // beim Abspielen auch ohne sichtbaren Player, dann verschwanden hier alle
-  // Knöpfe, obwohl es keinen Ersatz gab. Es zählt nur die wirklich SICHTBARE
-  // Player-Fläche.
-  const pmedia=document.getElementById('pl-media');
-  const playerSichtbar=!!(pmedia&&pmedia.getBoundingClientRect().height>40
-                          &&getComputedStyle(pmedia).display!=='none');
-  document.body.classList.toggle('hat-player', playerSichtbar);
   const k=playerState.queue[playerState.idx], x=k?libFind(k):null;
   el.classList.toggle('spielt', !!x);                  // Rahmen glimmt, wenn etwas läuft
   const sig=[k||'',x?x.titel:''].join('|');            // Play/Pause & Toggles zieht transportRender nach
@@ -7762,8 +7731,6 @@ function vizVerbinde(el){
   }catch(e){ vizAnalyser=null; }                        // Element spielt normal weiter
 }
 function vizModeRender(){
-  const m=VIZMODES.find(x=>x[0]===vizMode)||VIZMODES[0], b=document.getElementById('pl-viz-btn');
-  if(b){b.textContent=m[1]; b.title='Visualizer: '+m[2]+' (klicken zum Wechseln)'; b.classList.toggle('an',vizMode!=='aus');}
   const media=document.getElementById('pl-media'); if(media)media.classList.toggle('viz-an',vizMode!=='aus');
 }
 function vizStart(){ if(!vizRAF)vizLoop(); }
