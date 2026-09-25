@@ -18,6 +18,13 @@ Ergebnis mit einem HTML-Parser (wie der Browser: Attributwerte dekodiert):
     einem Attribut erzeugt sonst neue Attribute);
   * jedes Element, dessen Handler this.dataset.key liest, trägt data-key.
 Fehlt deno (System/bin ist gitignored), wird sichtbar übersprungen.
+
+Gruppe 9 (25./26.09.2026): Nicht nur Schlüssel, JEDER Wert gehört in ein
+data-Attribut. Der Wächter `test_kein_eingesetzter_wert_in_einem_handler`
+liest alle Seiten (Auto-Discovery über `handler_scanner.py`), die
+Gegenproben zeigen, dass er jede Schreibweise findet und über die ganze
+echte Seite im Takt bleibt. Dazu das maskierte Profil-Emoji und der
+Rückgängig-Knopf, der eine Funktion statt Quelltext bekommt.
 """
 import json
 import os
@@ -32,6 +39,8 @@ TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 if TESTS_DIR not in sys.path:
     sys.path.insert(0, TESTS_DIR)
 
+import handler_scanner as hs  # noqa: E402
+import pytest  # noqa: E402
 import youtube_app as app  # noqa: E402
 from test_medientasten_verhalten import _handy, _js_funktion, _lauf, _pc  # noqa: E402
 
@@ -287,3 +296,172 @@ def test_film_hoverkarte_nur_als_daten(tmp_path):
         "snippetAn(kachel); aus({karte:(_angehaengt[0]||{}).innerHTML||''});"]
     (e,) = _lauf(tmp_path, DOM, FILM_DOM, *_film_teile("snippetAn"), *lauf)
     _pruefen_arg(e["karte"], mindestens=3)
+
+
+# ------------------------------------ Gruppe 9: jeder Handler auf jeder Seite
+
+# Nach S3 standen noch rund 70 Handler mit eingesetzten Werten in der
+# Oberfläche (Warteschlange, Abos, Tempo, Spuren, Kapitel, Spalten …). Die
+# Stichproben oben rendern einzelne Bausteine; dieser Wächter liest ALLE
+# Seiten: jedes Modul in System/, dessen Quelltext <script enthält, jeden
+# Skript-Block, jedes String- und Template-Literal (Werkzeug:
+# handler_scanner.py). Ein Handler-Attribut darf nur festen Code tragen.
+
+def test_kein_eingesetzter_wert_in_einem_handler():
+    seiten = hs.seiten()
+    # Untergrenze gegen einen blinden Lauf: die vier Seiten dieses Programms.
+    assert {"oberflaeche", "handy", "fernbedienung", "profil_geraete"} <= set(seiten), sorted(seiten)
+    for name, bloecke in seiten.items():
+        assert bloecke, f"{name}: <script im Quelltext, aber kein Skript-Block gefunden"
+    funde = hs.alle_befunde()
+    assert not funde, ("Wert im Handler — über data-… und this.dataset führen:\n"
+                       + "\n".join(funde))
+
+
+@pytest.mark.parametrize("code, anzahl", [
+    # rot: ein Wert im Handler, in jeder Schreibweise
+    ("const a=`<b onclick=\"f('${x}')\">`;", 1),
+    ("const a=`<b onclick=\"f(${i})\">`;", 1),
+    ("const a='<b onclick=\"f(\\''+x+'\\')\">';", 1),
+    ("const a=`<img onerror=\"${fb}\">`;", 1),
+    ("const a=`${ok?`<b onclick=\"g('${y}')\">`:''}`;", 1),
+    ("const a=`<b onclick='f(${x})'>`;", 1),
+    ("const a=`<b onclick=\"f(${x})\" ondblclick=\"g(${x})\">`;", 2),
+    ("const a=`<b onclick=f(${x})>`;", 1),
+    ("const a='<b onclick=f('+x+')>';", 1),
+    # der Zerleger verliert nicht den Faden (Regex, Division, Kommentare)
+    ("const r=/[\"'`]/g; const a=`<b onclick=\"f(${x})\">`;", 1),
+    ("const q=a/2, w=b/3; const a=`<b onclick=\"f(${x})\">`;", 1),
+    ("// it's `x`\nconst a=`<b onclick=\"f(${x})\">`;", 1),
+    ("/* \"' ` */ const a=`<b onclick=\"f(${x})\">`;", 1),
+    # grün: fester Handler, Wert in data-… oder in einem gewöhnlichen Attribut
+    ("const a=`<b data-k=\"${esc(x)}\" onclick=\"f(this.dataset.k)\">`;", 0),
+    ("const a='<b data-v=\"'+esc(v)+'\" onclick=\"window.open(\\'u\\'+this.dataset.v)\">';", 0),
+    ("const a=`<b title=\"${t}\" onclick=\"f()\">`;", 0),
+    ("const a=`<b data-onclick=\"${x}\">`;", 0),
+    ("const a='<img onerror=\"this.onerror=null;this.src=this.dataset.fb\">';", 0),
+])
+def test_gegenprobe_scanner(code, anzahl):
+    funde = hs.befunde(code)
+    assert len(funde) == anzahl, funde
+
+
+def test_gegenprobe_am_echten_bestand():
+    """Der Scanner bleibt über die GANZE echte Seite im Takt: vor jede
+    Top-Level-Funktion jedes Blocks und ans Ende wird ein Handler mit Wert
+    gesetzt, und jeder muss gefunden werden. Verlöre der Zerleger unterwegs
+    den Faden (ein Regex, ein Kommentar, ein verschachteltes Loch), fehlten
+    alle Funde hinter der Stelle. Dazu das alte Muster an seiner echten
+    Stelle: qToggle mit roher Id."""
+    probe = "\n;const __probe=`<b onclick=\"f('${__x}')\">`;\n"
+    gesetzt = 0
+    for name, bloecke in hs.seiten().items():
+        for block in bloecke:
+            teile = re.split(r"(?m)^(?=(?:async )?function \w)", block)
+            neu = len(hs.befunde(probe.join(teile) + probe)) - len(hs.befunde(block))
+            assert neu == len(teile), f"{name}: {neu} von {len(teile)} Proben gefunden"
+            gesetzt += len(teile)
+    assert gesetzt > 600, f"nur {gesetzt} Proben: Funktionen nicht gefunden?"
+    alt = 'onclick="qToggle(this.dataset.qid)"'
+    block = next(b for b in hs.seiten()["oberflaeche"] if alt in b)
+    assert len(hs.befunde(block.replace(alt, "onclick=\"qToggle('${it.id}')\""))) == 1
+
+
+class _Text(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.text = [], ""
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.append(tag)
+
+    handle_startendtag = handle_starttag
+
+    def handle_data(self, data):
+        self.text += data
+
+
+def test_profil_emoji_wird_maskiert(tmp_path):
+    """Das Profil-Emoji kommt vom Server (bis zu vier Zeichen, frei gewählt
+    über /api/profil_anlegen) und stand roh im Markup: „<u>✓“ öffnete dort
+    ein Element. Jetzt läuft es wie der Name durch esc() — im Kopf des
+    Fernsehmodus, in „Wer schaut?“ und im Geräte-Dialog."""
+    boese = "<u>✓"
+    profile = [{"id": "p1", "name": "JB", "emoji": boese}]
+    geraete = {"items": [{"id": "g1", "name": "TV", "code": "C", "verifiziert": False},
+                         {"id": "g2", "name": "Handy", "verifiziert": True, "profil": "p1"}],
+               "url": "", "wlan": True}
+    lauf = [
+        "globalThis.setTimeout=()=>0; function tvProfilFokusMalen(){} let tvFokus=null, tvProfilModus=false;",
+        f"let tvProfile={json.dumps(profile)};",
+        "const TV_TABS=[['home','Start']]; let tvTab='home'; function tvProfil(){return 'p1';}",
+        "function filmWarnung(){return '';} let tvFilmZustand=null;",
+        "globalThis.fetch=async(u)=>({ok:true,json:async()=>(u==='/api/geraete'?"
+        f"{json.dumps(geraete)}:{{items:{json.dumps(profile)}}})}});",
+        "await geraeteMalen(); tvProfilWahl(); tvKopfMalen();",
+        "aus({geraete:_els['gerdlg-body'].innerHTML, wahl:_els['tv-inhalt'].innerHTML,"
+        " kopf:_els['tv-kopf'].innerHTML});"]
+    (e,) = _lauf(tmp_path, DOM, FILM_DOM,
+                 *_film_teile("geraeteMalen", "tvProfilWahl", "tvKopfMalen"), *lauf)
+    for teil, html in e.items():
+        p = _Text()
+        p.feed(html)
+        p.close()
+        assert "u" not in p.tags, f"{teil}: das Emoji öffnet ein Element: {html[:300]}"
+        assert p.text.count(boese) >= 1, f"{teil}: das Emoji fehlt als Text: {html[:300]}"
+
+
+def test_rueckgaengig_knopf_ruft_eine_funktion(tmp_path):
+    """toastMitZurueck bekam Quelltext ('plZurueck()') und setzte ihn in
+    onclick. Jetzt hängt eine Funktion am Knopf: ein Klick ruft sie genau
+    einmal und blendet den Hinweis aus; der Text läuft durch esc()."""
+    lauf = [
+        "const _t={_html:'', lastChild:null, classList:{_c:new Set(), add(c){this._c.add(c);},"
+        " remove(c){this._c.delete(c);}}, set innerHTML(v){this._html=String(v); this.lastChild={onclick:null};},"
+        " get innerHTML(){return this._html;}};",
+        "document.getElementById=id=>id==='toast'?_t:null;",
+        "globalThis.setTimeout=()=>0; globalThis.clearTimeout=()=>{};",
+        "let rufe=0; toastMitZurueck('3 Titel → <b>x</b>', ()=>{rufe++;});",
+        "const vorher=[..._t.classList._c]; try{_t.lastChild.onclick();}catch(e){}",
+        "aus({html:_t.innerHTML, rufe, vorher, nachher:[..._t.classList._c]});"]
+    (e,) = _lauf(tmp_path, DOM, *_pc_teile("esc", "toastMitZurueck"), *lauf)
+    assert e["rufe"] == 1, e
+    assert "an" in e["vorher"] and "an" not in e["nachher"], e
+    assert "&lt;b&gt;" in e["html"] and "onclick" not in e["html"], e["html"]
+
+
+def _argumente(q, i):
+    """Die Argumente eines Aufrufs ab der Stelle hinter „(“, auf oberster
+    Ebene am Komma getrennt (Zeichenketten und Klammern zählen nicht)."""
+    teile, tiefe, anfang = [], 0, i
+    while True:
+        c = q[i]
+        if c in "'\"`":
+            j = i + 1
+            while q[j] != c:
+                j += 2 if q[j] == "\\" else 1
+            i = j + 1
+            continue
+        if c in "([{":
+            tiefe += 1
+        elif c in ")]}":
+            if tiefe == 0:
+                teile.append(q[anfang:i])
+                return teile
+            tiefe -= 1
+        elif c == "," and tiefe == 0:
+            teile.append(q[anfang:i])
+            anfang = i + 1
+        i += 1
+
+
+def test_aufrufer_von_toast_mit_zurueck_uebergeben_eine_funktion():
+    """Ein Aufrufer, der noch Quelltext übergibt, hätte einen Rückgängig-Knopf,
+    der beim Klick nur einen TypeError wirft."""
+    q = _pc()
+    stellen = [m.end() for m in re.finditer(r"(?<!function )\btoastMitZurueck\(", q)]
+    assert len(stellen) >= 2, "Aufrufer nicht gefunden"
+    for i in stellen:
+        letzter = _argumente(q, i)[-1].strip()
+        assert re.fullmatch(r"[A-Za-z_$][\w$.]*|(?:async\s*)?\([^)]*\)\s*=>.*", letzter, re.S), \
+            f"toastMitZurueck bekommt {letzter!r} statt einer Funktion"

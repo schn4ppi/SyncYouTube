@@ -7,9 +7,13 @@ Ein Handler-Attribut (`onclick="…"`, `onerror="…"`, …) in einem JS-String
 darf nur statischen Code tragen. Werte kommen über `data-…`-Attribute und
 `this.dataset` hinein: der Browser dekodiert den Attributwert vor der
 Ausführung, ein ' oder " aus einem Wert wäre sonst Skript. Gefunden wird
-  * ein `${…}` innerhalb des Handler-Werts (Template-Loch) und
+  * ein `${…}` innerhalb des Handler-Werts (Template-Loch),
   * ein Handler-Wert, der am Ende des String-Literals noch offen ist
-    (Verkettung wie `'onclick="f(\\''+x+'\\')"'`).
+    (Verkettung wie `'onclick="f(\\''+x+'\\')"'`), und
+  * ein Handler-Attribut ohne Anführungszeichen (`<b onclick=f(${x})>`):
+    dort endet der Wert am ersten Leerzeichen, ein eingesetzter Wert öffnet
+    neue Attribute. Gezählt wird nur ein Attribut (Leerzeichen davor), nicht
+    `this.onerror=…` im Handler-Code.
 
 Dazu zerlegt `literale()` JavaScript in seine String- und Template-Literale
 (Kommentare, reguläre Ausdrücke und verschachtelte Löcher werden richtig
@@ -137,6 +141,7 @@ def literale(code, i=0, ende=None, aus=None):
 
 
 _HANDLER = re.compile(r"(?<![\w-])(on[a-z]+)\s*=\s*([\"'])")
+_OHNE_ANFUEHRUNG = re.compile(r"(?<=\s)(on[a-z]+)\s*=\s*(?![\"'\s])")
 
 
 def befunde(code):
@@ -155,6 +160,8 @@ def befunde(code):
                     funde.append((lit.start, m.group(1), "${…}", wert[m.start():][:80] + "${" + teile[nr + 1][1][:40] + "}"))
                 else:
                     funde.append((lit.start, m.group(1), "Verkettung", wert[m.start():][:120]))
+            for m in _OHNE_ANFUEHRUNG.finditer(wert):
+                funde.append((lit.start, m.group(1), "ohne Anführungszeichen", wert[m.start():][:120]))
     return funde
 
 
