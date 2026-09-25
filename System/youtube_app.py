@@ -932,6 +932,58 @@ def _ist_cookie_fehler(exc):
     return "cookie" in t or "could not copy" in t or "decrypt" in t or "browser" in t
 
 
+# Schutzschalter gegen YouTube-Sperren (Gesamtprüfung F4). Vorher warfen drei
+# Nebenwege (Untertitel, Abo-Blick, Anreichern) bei JEDER Ausnahme die Cookies
+# weg und fragten sofort erneut, ohne `_ist_sperre` und ohne Fehlereintrag;
+# Anreichern, Abo-Prüfung und Entdecken liefen während einer Sperre einfach
+# weiter. Jetzt setzt jede erkannte Sperre (Download, Auflösen, Nebenweg) den
+# Zeitstempel „gesperrt bis“, und jeder Nebenweg und jede Serien-Schleife
+# liest ihn vor dem nächsten Abruf.
+SPERRE_PAUSE_S = 30 * 60
+_youtube_gesperrt_bis = 0.0
+_youtube_sperre_lock = threading.Lock()
+
+
+def youtube_sperre_vermerken(exc):
+    """Ist `exc` eine YouTube-Sperre, pausieren die Nebenwege SPERRE_PAUSE_S
+    lang. True bei einer Sperre (erst `_ist_sperre`, dann der Zeitstempel)."""
+    global _youtube_gesperrt_bis
+    if not _ist_sperre(exc):
+        return False
+    with _youtube_sperre_lock:
+        _youtube_gesperrt_bis = max(_youtube_gesperrt_bis, time.time() + SPERRE_PAUSE_S)
+    return True
+
+
+def youtube_gesperrt():
+    """Restsekunden der Pause nach einer Sperre, sonst 0."""
+    return max(0.0, _youtube_gesperrt_bis - time.time())
+
+
+def _nebenweg_abruf(opts, url, wo, download=False):
+    """Der yt-dlp-Abruf der Nebenwege (Untertitel, Abo-Blick, Anreichern,
+    Entdecken). Während einer Sperre-Pause fragt er gar nicht. Eine Sperre wird
+    gemeldet und nicht wiederholt, die Cookies bleiben (ohne Cookies wählt
+    yt-dlp genau die Wege, gegen die YouTube sperrt). Nur ein Cookie-Fehler
+    bekommt einen Zweitversuch ohne Cookies; nach einem reinen Netzfehler
+    entfällt er. Rückgabe: das Info-Dict oder None."""
+    for versuch in (1, 2):
+        if youtube_gesperrt():
+            return None
+        try:
+            with _ydl(opts) as y:
+                return y.extract_info(url, download=download)
+        except Exception as e:                       # noqa: BLE001 — Nebenweg: None statt Absturz
+            if youtube_sperre_vermerken(e):          # vor dem Cookie-Test: die Bot-Meldung nennt Cookies
+                fehler_merken(url, str(e), "sperre-" + wo)
+                return None
+            if versuch == 1 and _ist_cookie_fehler(e):
+                opts.pop("cookiesfrombrowser", None)
+                continue
+            return None
+    return None
+
+
 def _ist_untertitel_fehler(exc):
     """Nur der Untertitel-Abruf ist gescheitert (z.B. drosselt YouTube die
     Untertitel-Endpoints gern mit HTTP 429) — das Video selbst wäre ladbar.
@@ -1037,7 +1089,7 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
                 platzhalter["status"] = "wartend"    # Worker übernimmt die Geo-Kette
             else:
                 platzhalter["status"] = "fehler"
-        fehler_merken(url, voll, "aufloesen" + (" / sperre" if _ist_sperre(fehler) else ""))
+        fehler_merken(url, voll, "aufloesen" + (" / sperre" if youtube_sperre_vermerken(fehler) else ""))
         Q.speichern()
         return
     _aufloesen_einreihen(platzhalter, info, url, qualitaet, ganze_liste, abo, ziel_playlist,
@@ -2663,13 +2715,7 @@ def untertitel_nachladen(key):
                  "writesubtitles": True, "writeautomaticsub": True,
                  "subtitleslangs": _untertitel_sprachen(), "subtitlesformat": "vtt/best",
                  "outtmpl": {"default": ziel + ".%(ext)s"}})   # .vtt landet im Untertitel-Ordner
-    for _ in (1, 2):
-        try:
-            with _ydl(opts) as y:
-                y.extract_info(url, download=True)             # skip_download: nur Untertitel
-            return
-        except Exception:                            # noqa: BLE001 — Cookie/Netz, 2. Versuch ohne Cookies
-            opts.pop("cookiesfrombrowser", None)
+    _nebenweg_abruf(opts, url, "untertitel", download=True)   # skip_download: nur Untertitel
 
 
 # ---- Synchronisierte Lyrics via LRCLIB (lrclib.net, kein API-Key) ----
@@ -4279,13 +4325,7 @@ def _abo_flach(url, limit=60):
     opts = _ydl_basis_opts()
     opts.update({"extract_flat": "in_playlist", "skip_download": True,
                  "playlistend": limit, "noplaylist": False})
-    for _ in (1, 2):
-        try:
-            with _ydl(opts) as y:
-                return y.extract_info(url, download=False) or {}
-        except Exception:                            # noqa: BLE001 — Cookie/Netz, 2. Versuch ohne Cookies
-            opts.pop("cookiesfrombrowser", None)
-    return {}
+    return _nebenweg_abruf(opts, url, "abo") or {}
 
 
 def _abo_ids(url, limit=60):
@@ -4373,6 +4413,10 @@ def entdecken(playlist_id, seeds=3, je_seed=25):
     oft Gespieltes (plays), hoechstens EIN Seed je Kuenstler (Vielfalt);
     Import-Dateien ohne echte YouTube-Id fallen raus. Titel aus MEHREREN
     Seed-Mixen zuerst; die Seeds laufen parallel."""
+    rest = youtube_gesperrt()
+    if rest:                                          # F4: während einer Sperre nicht fragen
+        return {"fehler": "YouTube bremst gerade (Sperre erkannt). Entdecken geht in etwa "
+                          f"{max(1, round(rest / 60))} Minuten wieder."}
     try:
         n_seeds = max(1, min(int(seeds), 5))
         n_je = max(5, min(int(je_seed), 100))
@@ -4767,6 +4811,8 @@ def abos_pruefen():
     flat-extract (Details für die Regeln)."""
     gesamt = 0
     for abo in list(_abos):
+        if youtube_gesperrt():                        # F4: Sperre -> Pause, der nächste Puls holt nach
+            break
         ok, geheilt = _abo_heilen(abo)
         if not ok or geheilt:
             continue                                  # Netz weg ⇒ naechster Puls; geheilt ⇒ Baseline ist sekundenfrisch
@@ -4976,14 +5022,7 @@ def _enrich_eintrag(key, e):
         return False
     opts = _ydl_basis_opts()
     opts.update({"skip_download": True, "noplaylist": True})
-    info = None
-    for _ in (1, 2):
-        try:
-            with _ydl(opts) as y:
-                info = y.extract_info(f"https://www.youtube.com/watch?v={vid}", download=False)
-            break
-        except Exception:                            # noqa: BLE001 — Cookie/Netz, 2. Versuch ohne Cookies
-            opts.pop("cookiesfrombrowser", None)
+    info = _nebenweg_abruf(opts, f"https://www.youtube.com/watch?v={vid}", "anreichern")
     if not info:
         return False
     e["titel"] = info.get("title") or e.get("titel", "")
@@ -5693,6 +5732,8 @@ def biblio_enrich_alle():
     _enrich_laeuft = True
     try:
         for k in [k for k, e in list(_geladen.items()) if not e.get("uploader")]:
+            if youtube_gesperrt():                    # F4: Sperre -> Pause, der nächste Lauf holt nach
+                break
             e = _geladen.get(k)
             if e and _enrich_eintrag(k, e):
                 with _io_lock:
@@ -5705,6 +5746,8 @@ def biblio_enrich_alle():
 def _enrich_keys(keys):
     """Metadaten für BESTIMMTE Einträge neu laden (Batch-Auswahl, erzwingt Nachladen)."""
     for k in list(keys):
+        if youtube_gesperrt():                        # F4: Sperre -> Pause
+            break
         e = _geladen.get(k)
         if e and _enrich_eintrag(k, e):
             with _io_lock:
@@ -6169,10 +6212,11 @@ def _download_lauf(item, erzwingen=False, mit_cookies=True, extra_opts=None, geo
             item["versuche"] -= 1                     # zählt nicht als Fehlversuch
             item["naechster_versuch"] = 0
             item["status"] = "wartend"                # nächster Lauf geht durch die Geo-Kette
-        elif _ist_sperre(voll):
+        elif youtube_sperre_vermerken(voll):
             # YouTube sperrt uns aus. Frueher lief so ein Eintrag bis zu
             # max_wiederholungen (Vorgabe 10) erneut los und machte aus der
-            # weichen Drossel eine harte Sperre. Jetzt: sofort stoppen.
+            # weichen Drossel eine harte Sperre. Jetzt: sofort stoppen, und
+            # die Nebenwege pausieren (F4).
             item["status"] = "fehler"
             fehler_merken(item.get("url"), voll, "sperre", item.get("titel") or "")
         elif any(s in item["fehler"].lower() for s in DAUERHAFT):

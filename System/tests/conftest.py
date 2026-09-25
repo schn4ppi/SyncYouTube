@@ -539,6 +539,13 @@ def _daten_der_sitzung(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _youtube_sperre_frei(monkeypatch):
+    """Der Schutzschalter gegen YouTube-Sperren (F4) ist Modul-Zustand: ein
+    Test, der eine Sperre auslöst, pausierte sonst die Abrufe der folgenden."""
+    monkeypatch.setattr(youtube_app, "_youtube_gesperrt_bis", 0.0)
+
+
+@pytest.fixture(autouse=True)
 def _daten_wache(tmp_path, monkeypatch):
     """Eigene Daten je Test in tmp_path, leere Zustände; liefert die Liste der
     Funde (ein Test, der den Alarm selbst prüft, leert sie). Was die Wache

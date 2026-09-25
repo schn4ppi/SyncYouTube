@@ -395,5 +395,129 @@ def test_aufloesen_fragt_youtube_nicht_mehr_wenn_der_platzhalter_weg_ist(monkeyp
     assert dritter["url"] not in attrappe.urls, "für einen entfernten Eintrag wurde YouTube gefragt"
 
 
+# ---------------------------------------------------------------- F4: YouTube-Sperre
+
+BOT = ("ERROR: [youtube] abc: Sign in to confirm you're not a bot. Use --cookies-from-browser "
+       "or --cookies for the authentication.")
+COOKIE = "ERROR: Could not copy Chrome cookie database."
+NETZ = "ERROR: Unable to download webpage: <urlopen error [Errno 11001] getaddrinfo failed>"
+
+
+class _YoutubeAttrappe:
+    """Statt yt-dlp: jede Anfrage wird mit ihren Cookies notiert und bekommt
+    die nächste Antwort aus `antworten` (Text = Ausnahme, dict = Info)."""
+
+    def __init__(self, *antworten):
+        self.antworten = list(antworten)
+        self.abrufe = []
+
+    def ydl(self, opts):
+        import contextlib
+        attrappe = self
+
+        class Ydl:
+            def extract_info(self, url, download=False):
+                attrappe.abrufe.append({"url": url, "cookies": "cookiesfrombrowser" in opts})
+                antwort = attrappe.antworten.pop(0) if attrappe.antworten else {"title": "ok"}
+                if isinstance(antwort, str):
+                    raise Exception(antwort)
+                return antwort
+
+        @contextlib.contextmanager
+        def cm():
+            yield Ydl()
+        return cm()
+
+
+@pytest.fixture
+def youtube(monkeypatch):
+    """Liefert eine Fabrik: youtube(*antworten) setzt die Attrappe ein. Dazu
+    ein Fehlerkanal zum Mitlesen und eine Uhr, die sich vorstellen lässt."""
+    fehler = []
+    monkeypatch.setattr(app, "fehler_merken", lambda url, text, art="", *a, **k: fehler.append(art))
+    monkeypatch.setitem(app.CFG, "cookies_browser", "firefox")
+
+    def setzen(*antworten):
+        attrappe = _YoutubeAttrappe(*antworten)
+        monkeypatch.setattr(app, "_ydl", attrappe.ydl)
+        attrappe.fehler = fehler
+        return attrappe
+    return setzen
+
+
+def _uhr_vor(monkeypatch, sekunden):
+    echt = app.time.time
+    monkeypatch.setattr(app.time, "time", lambda: echt() + sekunden)
+
+
+def _eintrag(tmp_path, vid="abcdefghijk"):
+    datei = tmp_path / f"Titel [{vid}].mp3"
+    datei.write_bytes(b"x")
+    key = f"{vid}|audio"
+    app._geladen[key] = {"pfad": str(datei), "url": f"https://www.youtube.com/watch?v={vid}",
+                         "titel": "Titel", "name": datei.name}
+    return key
+
+
+def _nebenweg(art, tmp_path):
+    """Die drei Nebenwege, die YouTube außerhalb des Downloads fragen."""
+    if art == "abo":
+        return lambda: app._abo_flach("https://www.youtube.com/@probe/videos")
+    key = _eintrag(tmp_path)
+    if art == "anreichern":
+        return lambda: app._enrich_eintrag(key, app._geladen[key])
+    return lambda: app.untertitel_nachladen(key)
+
+
+@pytest.mark.parametrize("art", ["abo", "anreichern", "untertitel"])
+def test_sperre_behaelt_die_cookies_fragt_nicht_nochmal_und_wird_gemeldet(youtube, tmp_path, art):
+    """Vorher warfen die drei Nebenwege bei jeder Ausnahme die Cookies weg und
+    fragten sofort erneut — bei einer Sperre genau der Weg in die nächste."""
+    attrappe = youtube(BOT)
+    _nebenweg(art, tmp_path)()
+    assert len(attrappe.abrufe) == 1, attrappe.abrufe
+    assert attrappe.abrufe[0]["cookies"] is True
+    assert any("sperre" in a for a in attrappe.fehler), f"keine Spur im Fehlerkanal: {attrappe.fehler}"
+
+
+@pytest.mark.parametrize("art", ["abo", "anreichern", "untertitel"])
+def test_cookie_fehler_versucht_es_weiter_ohne_cookies(youtube, tmp_path, art):
+    attrappe = youtube(COOKIE, {"title": "Titel", "uploader": "Kanal", "entries": []})
+    _nebenweg(art, tmp_path)()
+    assert [a["cookies"] for a in attrappe.abrufe] == [True, False]
+
+
+@pytest.mark.parametrize("art", ["abo", "anreichern", "untertitel"])
+def test_netzfehler_ohne_zweitversuch(youtube, tmp_path, art):
+    """Kleine Änderung (JB-Entscheid 25.09.): ohne Cookies hilft bei einem
+    Netzfehler nicht, der Zweitversuch kostete nur einen weiteren Abruf."""
+    attrappe = youtube(NETZ)
+    _nebenweg(art, tmp_path)()
+    assert len(attrappe.abrufe) == 1
+
+
+def test_nach_einer_sperre_pausieren_die_serien_schleifen_eine_halbe_stunde(youtube, tmp_path, monkeypatch):
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)       # die 0,4-s-Pausen der Schleife
+    attrappe = youtube(BOT)
+    for i in range(3):
+        _eintrag(tmp_path, f"vid{i:08d}")
+    app.biblio_enrich_alle()                         # erster Abruf: Sperre, die anderen warten
+    assert len(attrappe.abrufe) == 1, f"{len(attrappe.abrufe)} Abrufe trotz Sperre"
+    app._abo_flach("https://www.youtube.com/@probe/videos")
+    assert app.entdecken("").get("fehler"), "Entdecken muss die Pause melden"
+    assert len(attrappe.abrufe) == 1, "Abo-Blick und Entdecken fragten trotz Sperre"
+    _uhr_vor(monkeypatch, 31 * 60)
+    app._abo_flach("https://www.youtube.com/@probe/videos")
+    assert len(attrappe.abrufe) == 2, "nach der Pause muss es weitergehen"
+
+
+def test_eine_sperre_beim_aufloesen_pausiert_die_nebenwege(youtube, tmp_path):
+    attrappe = youtube(BOT)
+    app.aufloesen("https://www.youtube.com/watch?v=abcdefghijk", "beste")
+    assert app.Q.items[0]["status"] == "fehler"
+    app._abo_flach("https://www.youtube.com/@probe/videos")
+    assert len(attrappe.abrufe) == 1, "der Abo-Blick fragte gleich nach der Sperre wieder"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
