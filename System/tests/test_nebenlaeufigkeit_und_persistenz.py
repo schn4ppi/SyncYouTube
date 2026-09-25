@@ -1032,6 +1032,88 @@ def test_autotag_holt_auch_einen_angefragten_voll_lauf_nach(monkeypatch):
     assert "Zweites Lied" in gesucht, f"der Voll-Lauf ging verloren: {gesucht}"
 
 
+def test_autotag_wiederholt_einen_voll_lauf_nicht_fuer_einen_zweiten_voll_klick(monkeypatch):
+    """Ein Voll-Klick während eines Voll-Laufs ist schon abgedeckt: der Lauf
+    nimmt alles, was ohne Album ist, und was danach fertig wird, kommt als
+    Schlüssel nach. Nachgeholt wird ein Voll-Lauf nur hinter einem
+    Schlüssel-Lauf (sonst sucht jeder weiter unauffindbare Titel noch einmal
+    bei MusicBrainz, je 1,5 bis 3 s)."""
+    _musik("Erstes Lied", "Zweites Lied")
+    gesucht, frei, erste = _musicbrainz_mit_tor(monkeypatch)
+    lauf = _im_faden(app.autotag_lauf)               # „alle taggen“
+    try:
+        assert erste.wait(10)
+        app.autotag_lauf()                           # derselbe Knopf noch einmal
+    finally:
+        frei.set()
+        lauf.join(20)
+    assert _warten(lambda: not app._autotag["laeuft"])
+    assert sorted(gesucht) == ["Erstes Lied", "Zweites Lied"], f"der Voll-Lauf lief doppelt: {gesucht}"
+
+
+def test_autotag_gibt_den_merker_am_ende_nur_einmal_frei(monkeypatch):
+    """autotag_lauf setzte den Merker am Ende zweimal zurück: unter der Sperre
+    vor dem return und danach im finally noch einmal. Startete genau dazwischen
+    ein neuer Lauf, verlor er seinen Merker, und ein dritter Anstoß lief
+    parallel: zwei Läufe fragten MusicBrainz gleichzeitig (Regel: höchstens
+    eine Anfrage pro Sekunde)."""
+    k1, k2, k3 = _musik("Erstes Lied", "Zweites Lied", "Drittes Lied")
+    zaehler_lock, aktiv, gesucht, frei = threading.Lock(), [0, 0], [], threading.Event()
+
+    def mb_suche(ku, ti, timeout=10, live_hinweis=None):
+        with zaehler_lock:
+            aktiv[0] += 1
+            aktiv[1] = max(aktiv[1], aktiv[0])
+            gesucht.append(ti)
+        try:
+            if ti != "Erstes Lied":
+                frei.wait(20)
+            return None
+        finally:
+            with zaehler_lock:
+                aktiv[0] -= 1
+    monkeypatch.setattr(app, "_mb_suche", mb_suche)
+    monkeypatch.setattr(app, "_itunes_suche", lambda *a, **k: None)
+    monkeypatch.setattr(app, "_tag_kandidat", lambda e: ("Kanal", e.get("titel", "")))
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)
+    lauf_a = threading.Thread(target=app.autotag_lauf, args=([k1],), daemon=True)
+    haelt, weiter = threading.Event(), threading.Event()
+    echt = app._autotag_lock
+
+    class Sperre:
+        """Hält Lauf A an, wenn er nach getaner Arbeit und schon freigegebenem
+        Merker noch einmal nach der Sperre greift."""
+        def __enter__(self):
+            if (threading.current_thread() is lauf_a and "Erstes Lied" in gesucht
+                    and not app._autotag["laeuft"] and not haelt.is_set()):
+                haelt.set()
+                weiter.wait(20)
+            return echt.__enter__()
+
+        def __exit__(self, *a):
+            return echt.__exit__(*a)
+    monkeypatch.setattr(app, "_autotag_lock", Sperre())
+    lauf_a.start()
+    faeden = [lauf_a]
+    try:
+        assert _warten(lambda: haelt.is_set() or not lauf_a.is_alive())
+        faeden.append(_im_faden(app.autotag_lauf, [k2]))       # Lauf B startet genau jetzt
+        assert _warten(lambda: "Zweites Lied" in gesucht)
+        weiter.set()
+        lauf_a.join(10)
+        faeden.append(_im_faden(app.autotag_lauf, [k3]))       # Anstoß C, während B läuft
+        _warten(lambda: "Drittes Lied" in gesucht or not faeden[-1].is_alive())
+        parallel = aktiv[1]
+    finally:
+        weiter.set()
+        frei.set()
+        for f in faeden:
+            f.join(20)
+    assert parallel == 1, f"{parallel} Auto-Tag-Läufe fragten MusicBrainz gleichzeitig"
+    assert _warten(lambda: not app._autotag["laeuft"])
+    assert "Drittes Lied" in gesucht, "C wurde weder nachgeholt noch gestartet"
+
+
 # ---------------------------------------------------------------- Läuft-schon-Merker
 
 def _unguenstigste_verzahnung(n):

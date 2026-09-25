@@ -2499,7 +2499,10 @@ _autotag_lock = threading.Lock()
 # Was während eines Laufs angefragt wird (Gesamtprüfung F8): vorher verwarf
 # autotag_lauf den Auftrag still, ein Download, der während des Taggens fertig
 # wurde, blieb ungetaggt. Jetzt arbeitet der laufende Lauf das am Ende ab.
-_autotag_nachholen = {"keys": set(), "voll": False}
+# Einen Voll-Lauf holt er nur hinter einem Schlüssel-Durchgang nach: während
+# eines Voll-Durchgangs ist ein weiterer Voll-Klick schon abgedeckt, was danach
+# fertig wird, kommt als Schlüssel (`jetzt_voll` sagt, welcher Durchgang läuft).
+_autotag_nachholen = {"keys": set(), "voll": False, "jetzt_voll": False}
 
 
 def autotag_lauf(keys=None):
@@ -2508,12 +2511,14 @@ def autotag_lauf(keys=None):
     Läuft schon einer, merkt er sich den Auftrag und holt ihn am Ende nach (F8)."""
     with _autotag_lock:
         if _autotag.get("laeuft"):
-            if keys is None:
-                _autotag_nachholen["voll"] = True
-            else:
+            if keys is not None:
                 _autotag_nachholen["keys"].update(keys)
+            elif not _autotag_nachholen["jetzt_voll"]:
+                _autotag_nachholen["voll"] = True
             return
         _autotag.update({"laeuft": True, "gesamt": 0, "erledigt": 0, "getaggt": 0})
+        _autotag_nachholen["jetzt_voll"] = keys is None
+    sauber_beendet = False
     try:
         while True:                                  # ein Durchgang je Auftrag, Nachgeholtes danach
             # Ohne keys zwei Gruppen: (1) Musik ohne Album -> volle MB-Suche;
@@ -2626,10 +2631,15 @@ def autotag_lauf(keys=None):
                     _autotag_nachholen["voll"] = False
                 else:
                     _autotag["laeuft"] = False       # im selben Schritt wie die letzte Prüfung
+                    sauber_beendet = True
                     return
+                _autotag_nachholen["jetzt_voll"] = keys is None
     finally:
-        with _autotag_lock:
-            _autotag["laeuft"] = False
+        # Nur nach einer Ausnahme: am normalen Ende ist der Merker schon frei,
+        # und ein zweites Freigeben nähme ihn einem inzwischen gestarteten Lauf.
+        if not sauber_beendet:
+            with _autotag_lock:
+                _autotag["laeuft"] = False
 
 
 def _untertitel_sprachen():
