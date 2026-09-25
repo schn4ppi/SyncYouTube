@@ -3,8 +3,13 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = [('bin', 'bin')]
-hiddenimports = ['oberflaeche', 'handy', 'geo', 'vpn', 'update', 'medien_smtc', 'windows_kennung',
-                 'cookie_kopie']
+# Die Seiten aus youtube_app.HEISSE_SEITEN samt Bausteinen (oberflaeche, handy,
+# fernbedienung, medien_session) lädt der Router über ihren NAMEN
+# (importlib.import_module in _seite_frisch); kein Import-Scanner sieht sie.
+# Ohne diese Einträge fehlte fernbedienung in der exe (Nacharbeit Gruppe 7,
+# 25.09.2026; Wächter test_exe_nimmt_jede_heisse_seite_mit).
+hiddenimports = ['oberflaeche', 'handy', 'fernbedienung', 'medien_session',
+                 'geo', 'vpn', 'update', 'medien_smtc', 'windows_kennung', 'cookie_kopie']
 tmp_ret = collect_all('yt_dlp')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('yt_dlp_ejs')

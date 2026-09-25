@@ -14,6 +14,7 @@ KEIN echter Bau, KEIN Signieren: PyInstaller und signieren sind Attrappen.
 import ast
 import importlib.util
 import os
+import re
 import sys
 import types
 
@@ -308,3 +309,59 @@ def test_schnittstellen_waechter_schlaegt_an(tmp_path):
     p.write_text(passend.replace("def zertifikate", "def zertifikat_liste")
                  .replace("beschreibung=None", "titel=None"), encoding="utf-8")
     assert _abweichungen(str(p), _nutzung_im_bau()) == ["signiere_pflicht(beschreibung=)", "zertifikate"]
+
+
+# ------------------------------------------ heiß nachgeladene Seiten in der exe
+# Nacharbeit Gruppe 7 (25.09.2026): `_seite_frisch` in youtube_app.py lädt die
+# Seiten aus HEISSE_SEITEN über ihren NAMEN (importlib.import_module). Den sieht
+# der Import-Scanner von PyInstaller nicht; gemessen mit PyInstaller 6.21: vorher
+# stand `import fernbedienung` im Rumpf von do_GET und war sichtbar, danach nicht
+# mehr. Ohne hiddenimports fehlte fernbedienung in der exe, und /fernbedienung
+# endete dort mit ModuleNotFoundError. Der Wächter liest die Namen aus der
+# Tabelle selbst (Auto-Discovery) und fragt das ERGEBNIS der Bauvorschrift ab
+# (ausgeführt mit Attrappen für PyInstaller), nicht ihre Schreibweise.
+
+def _spec_hiddenimports(monkeypatch, spec_text):
+    """Die Bauvorschrift mit Attrappen für PyInstaller ausführen; ihre hiddenimports."""
+    hooks = types.ModuleType("PyInstaller.utils.hooks")
+    hooks.collect_all = lambda name: ([], [], [])
+    for name, mod in (("PyInstaller", types.ModuleType("PyInstaller")),
+                      ("PyInstaller.utils", types.ModuleType("PyInstaller.utils")),
+                      ("PyInstaller.utils.hooks", hooks)):
+        monkeypatch.setitem(sys.modules, name, mod)
+    analyse = {}
+
+    def Analysis(skripte, **kw):
+        analyse.update(kw)
+        return types.SimpleNamespace(pure=[], scripts=[], binaries=[], datas=[])
+    g = {"__name__": "__spec__", "Analysis": Analysis,
+         "PYZ": lambda *a, **k: None, "EXE": lambda *a, **k: None}
+    exec(compile(spec_text, "SyncYouTube.spec", "exec"), g)
+    return analyse["hiddenimports"]
+
+
+def _fehlende_heisse_seiten(hiddenimports):
+    """Seiten und Bausteine aus youtube_app.HEISSE_SEITEN, die nicht in den
+    hiddenimports stehen (sortiert; leer = alle kommen in die exe)."""
+    import youtube_app
+    erwartet = {m for seite, bausteine in youtube_app.HEISSE_SEITEN.items()
+                for m in (seite, *bausteine)}
+    assert "fernbedienung" in erwartet, "HEISSE_SEITEN ohne fernbedienung — der Wächter wäre blind"
+    return sorted(erwartet - set(hiddenimports))
+
+
+def _spec_text():
+    with open(os.path.join(MODUL_DIR, "SyncYouTube.spec"), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_exe_nimmt_jede_heisse_seite_mit(monkeypatch):
+    fehlend = _fehlende_heisse_seiten(_spec_hiddenimports(monkeypatch, _spec_text()))
+    assert not fehlend, f"in der exe fehlten diese per Name geladenen Seiten: {fehlend}"
+
+
+def test_gegenprobe_spec_ohne_fernbedienung_wird_gemeldet(monkeypatch):
+    spec = _spec_text()
+    ohne = re.sub(r"""['"]fernbedienung['"],?\s*""", "", spec)
+    assert ohne != spec, "fernbedienung steht nicht in der spec — die Gegenprobe wäre blind"
+    assert _fehlende_heisse_seiten(_spec_hiddenimports(monkeypatch, ohne)) == ["fernbedienung"]
