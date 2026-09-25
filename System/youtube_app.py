@@ -4058,9 +4058,20 @@ def _datei_loeschen(key):
     """Datei zu einem Key rückholbar entfernen (Papierkorb, Rückfall
     `_Papierkorb`, s. _rueckholbar_entfernen) + aus allen Playlists nehmen.
     Der Aufrufer entfernt den DB-Eintrag selbst."""
+    _datei_rueckholbar_entfernen(key)
+    _aus_playlists_nehmen(key)
+
+
+def _datei_rueckholbar_entfernen(key):
+    """Nur die Datei (Pfadsuche samt Ordnerlauf, dann Papierkorb). Braucht
+    keine Sperre: die Einzel-Löschung ruft es ohne _io_lock (F7)."""
     pfad = _pfad_zu_key(key)
     if pfad and os.path.isfile(pfad):
         _rueckholbar_entfernen(pfad)
+
+
+def _aus_playlists_nehmen(key):
+    """Den Key aus allen Playlists nehmen (unter _io_lock rufen)."""
     for pl in _playlists:
         pl["items"] = [x for x in pl.get("items", []) if x != key]
 
@@ -7791,15 +7802,26 @@ class Handler(BaseHTTPRequestHandler):
                 pfad = _datei_aus(_datei_index().get(vid), key.partition("|")[2])
             ordner_zeigen(pfad if (pfad and os.path.exists(pfad)) else None)
             return
+        if art == "extern":                          # in VLC / Standardplayer öffnen
+            pfad = _pfad_zu_key(key)                 # F7: Ordnerlauf + Player-Start ohne Sperre
+            if pfad:
+                extern_abspielen(pfad)
+            return
+        if art == "loeschen":                        # Datei in den Papierkorb + aus Liste
+            e = _geladen.get(key)                    # F7: Ordnerlauf + Papierkorb ohne Sperre
+            if not e:
+                return
+            _datei_rueckholbar_entfernen(key)
+            with _io_lock:
+                _aus_playlists_nehmen(key)
+                if _geladen.get(key) is e:           # derweil frisch geladen? Der Eintrag bleibt
+                    _geladen.pop(key, None)
+                _geladen_speichern()
+                _json_speichern(PLAYLIST_PFAD, _playlists)
+            return
         with _io_lock:
             e = _geladen.get(key)
             if not e:
-                return
-            if art == "loeschen":                    # Datei in den Papierkorb + aus Liste
-                _datei_loeschen(key)
-                _geladen.pop(key, None)
-                _geladen_speichern()
-                _json_speichern(PLAYLIST_PFAD, _playlists)
                 return
             if art == "neuladen":                    # verschobenen/gelöschten Titel neu holen
                 vid = key.split("|")[0]
@@ -7808,11 +7830,6 @@ class Handler(BaseHTTPRequestHandler):
                 quali = e.get("qualitaet") or (key.split("|", 1)[1] if "|" in key else "beste")
                 if url:
                     threading.Thread(target=aufloesen, args=(url, quali), daemon=True).start()
-                return
-            if art == "extern":                      # in VLC / Standardplayer öffnen
-                pfad = _pfad_zu_key(key)
-                if pfad:
-                    extern_abspielen(pfad)
                 return
             if art == "archiv":
                 e["archiviert"] = True

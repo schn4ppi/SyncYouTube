@@ -871,6 +871,64 @@ def test_explorer_start_haelt_weder_worker_noch_bibliothek_auf(tmp_path, monkeyp
         faden.join(20)
 
 
+def test_extern_abspielen_sucht_die_datei_ohne_sperre(tmp_path, monkeypatch):
+    """„Extern abspielen“ sucht eine verschobene Datei per Ordnerlauf und
+    startet VLC oder den Standardplayer; beides lief unter _io_lock."""
+    monkeypatch.setattr(app, "_auto_import_anstossen", lambda *a, **k: None)
+    gestartet = []
+    monkeypatch.setattr(app, "extern_abspielen", gestartet.append)
+    _download_fertig(tmp_path, 0)
+    key = "neu00000000|beste"
+    datei = app._geladen[key]["pfad"]
+    app._geladen[key]["pfad"] = str(tmp_path / "verschoben.bin")   # Datei liegt woanders
+    im_lauf, weiter = threading.Event(), threading.Event()
+
+    def langsamer_index():
+        im_lauf.set()
+        weiter.wait(20)
+        return {"neu00000000": [datei]}
+    monkeypatch.setattr(app, "_datei_index", langsamer_index)
+    faden = _im_faden(_handler()._biblio, {"art": "extern", "id": key})
+    try:
+        assert im_lauf.wait(10)
+        assert _kommt_durch(_download_fertig, tmp_path, 1),             "ein fertiger Download wartet auf den Ordnerlauf von „extern abspielen“"
+    finally:
+        weiter.set()
+        faden.join(20)
+    assert gestartet == [datei], "der Player muss die gefundene Datei bekommen"
+
+
+def test_loeschen_haelt_downloads_nicht_auf_und_laesst_einen_neuen_eintrag_stehen(tmp_path, monkeypatch):
+    """Die Papierkorb-Bewegung lief unter _io_lock: ein langsamer Papierkorb
+    (großes Video, Netzlaufwerk) hielt jeden fertigen Download an."""
+    monkeypatch.setattr(app, "_auto_import_anstossen", lambda *a, **k: None)
+    _download_fertig(tmp_path, 0)
+    key = "neu00000000|beste"
+    pl = {"id": "pl000001", "name": "Liste", "items": [key], "ts": 0}
+    app._playlists.append(pl)
+    bewegt, im_lauf, weiter = [], threading.Event(), threading.Event()
+
+    def langsamer_papierkorb(pfad):
+        bewegt.append(pfad)
+        im_lauf.set()
+        weiter.wait(20)
+        return "papierkorb"
+    monkeypatch.setattr(app, "_rueckholbar_entfernen", langsamer_papierkorb)
+    alt = app._geladen[key]
+    faden = _im_faden(_handler()._biblio, {"art": "loeschen", "id": key})
+    try:
+        assert im_lauf.wait(10)
+        assert _kommt_durch(_download_fertig, tmp_path, 1), "ein fertiger Download wartet auf den Papierkorb"
+        assert _kommt_durch(_download_fertig, tmp_path, 0), "derselbe Titel, frisch geladen, wartet"
+    finally:
+        weiter.set()
+        faden.join(20)
+    assert bewegt == [alt["pfad"]]
+    assert key in app._geladen and app._geladen[key] is not alt, "der frische Eintrag ging verloren"
+    assert "neu00000001|beste" in app._geladen
+    assert pl["items"] == [], "der gelöschte Titel steht noch in der Playlist"
+
+
 # ---------------------------------------------------------------- F8: Auto-Tag holt nach
 
 def _musik(*titel):
