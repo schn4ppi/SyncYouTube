@@ -263,11 +263,13 @@ def test_worker_start_ersetzt_tote_faeden(monkeypatch):
 # ---------------------------------------------------------------- F2/F3: Auflösen
 
 class _YtdlpAttrappe:
-    """Statt YouTube: jeder Abruf wartet am Tor `frei` und zählt, wie viele
-    gleichzeitig laufen. `antwort(url)` liefert das Info-Dict."""
+    """Statt YouTube: jeder Abruf wartet am Tor `frei` (oder an seinem eigenen
+    Tor `tore[url]`) und zählt, wie viele gleichzeitig laufen. `antwort(url)`
+    liefert das Info-Dict."""
 
     def __init__(self, antwort=None):
         self.frei = threading.Event()
+        self.tore = {}
         self.lock = threading.Lock()
         self.laufend = 0
         self.hoechstens = 0
@@ -286,7 +288,7 @@ class _YtdlpAttrappe:
                     attrappe.hoechstens = max(attrappe.hoechstens, attrappe.laufend)
                     attrappe.urls.append(url)
                 try:
-                    attrappe.frei.wait(20)
+                    attrappe.tore.get(url, attrappe.frei).wait(20)
                     return attrappe.antwort(url)
                 finally:
                     with attrappe.lock:
@@ -322,32 +324,84 @@ def _url(i):
 
 def test_aufloesen_hoechstens_zwei_zugleich_und_wartende_heilen_nicht(monkeypatch):
     """Der Knopf „Alle (N)“ startet bis zu 5.000 Auflösungen auf einmal, jede
-    mit vollem yt-dlp-Abruf: genau das Muster, das YouTube sperrt (F2)."""
+    mit vollem yt-dlp-Abruf: genau das Muster, das YouTube sperrt (F2). Wer nur
+    auf einen Platz wartet, hängt nicht: die 5-min-Heilung misst ab dem Eintritt
+    (vorher gab sie Wartende nach 300 s frei, auch wenn die Plätze arbeiteten)."""
     attrappe = _aufloesen_vorbereiten(monkeypatch)
-    faeden = [threading.Thread(target=app.aufloesen, args=(_url(i), "beste"), daemon=True)
-              for i in range(6)]
-    for f in faeden:
-        f.start()
+    for i in range(6):
+        attrappe.tore[_url(i)] = threading.Event()
+    uhr = _stellbare_uhr(monkeypatch)
+    faeden = [_im_faden(app.aufloesen, _url(i), "beste") for i in range(6)]
     try:
         assert _warten(lambda: len(app.Q.items) == 6), "Platzhalter müssen sofort erscheinen"
         assert all(it["status"] == "prueft" for it in app.Q.items)
         assert _warten(lambda: attrappe.laufend >= 2)
         threading.Event().wait(0.3)                  # den übrigen Zeit geben, sich vorzudrängeln
         assert attrappe.hoechstens == 2, f"{attrappe.hoechstens} yt-dlp-Abrufe liefen gleichzeitig"
-        # Wer nur auf einen Platz wartet, hängt nicht: die 5-min-Heilung läuft
-        # erst ab dem Eintritt (vorher gab sie Wartende nach 300 s frei).
-        _sechs_minuten_spaeter_heilen(monkeypatch)
-        in_arbeit = {u for u in attrappe.urls}
-        wartende = [it for it in app.Q.items if it["url"] not in in_arbeit]
-        assert len(wartende) == 4 and all(it["status"] == "prueft" for it in wartende), \
-            [it["status"] for it in wartende]
+        app.queue_heilen()                           # sieht alle sechs zum ersten Mal
+        uhr["plus"] = 4 * 60                         # nach 4 min sind die ersten beiden fertig
+        for u in list(attrappe.urls):
+            attrappe.tore[u].set()
+        assert _warten(lambda: len(attrappe.urls) == 4 and attrappe.laufend == 2)
+        uhr["plus"] = 8 * 60                         # zwei warten seit 8 min, die Plätze arbeiten seit 4
+        app.queue_heilen()
+        threading.Event().wait(0.3)
+        wartende = [it for it in app.Q.items if it["url"] not in attrappe.urls]
+        assert len(wartende) == 2 and all(it["status"] == "prueft" for it in wartende),             [it["status"] for it in wartende]
+        assert attrappe.hoechstens == 2, f"{attrappe.hoechstens} yt-dlp-Abrufe liefen gleichzeitig"
     finally:
         attrappe.frei.set()
+        for tor in attrappe.tore.values():
+            tor.set()
         for f in faeden:
             f.join(20)
     assert attrappe.hoechstens == 2
     assert sorted(attrappe.urls) == [_url(i) for i in range(6)]
     assert all(it["status"] == "wartend" for it in app.Q.items), [it["status"] for it in app.Q.items]
+
+
+def _stellbare_uhr(monkeypatch):
+    """time.time der App plus `uhr["plus"]` Sekunden."""
+    echt = app.time.time
+    uhr = {"plus": 0}
+    monkeypatch.setattr(app.time, "time", lambda: echt() + uhr["plus"])
+    return uhr
+
+
+def _stand(url):
+    return next((it["status"] for it in app.Q.items if it["url"] == url), None)
+
+
+def test_zwei_haengende_abrufe_sperren_neue_links_nicht_aus(monkeypatch):
+    """Zwei Auflösungen hängen (eine Verbindung, die nie antwortet). Die
+    Heilung reiht ihre Einträge nach 5 min wieder ein, ihr Faden steckt aber
+    weiter in yt-dlp. Vorher hielten sie damit beide Plätze für immer, und
+    jeder weitere Link (Addon, SyncFindus, Handy, Oberfläche) stand für immer
+    auf „prueft“: genau der Fall, für den es die Heilung gibt."""
+    attrappe = _aufloesen_vorbereiten(monkeypatch)
+    for i in (2, 3):
+        attrappe.tore[_url(i)] = threading.Event()
+        attrappe.tore[_url(i)].set()                 # nur die ersten beiden hängen
+    uhr = _stellbare_uhr(monkeypatch)
+    faeden = [_im_faden(app.aufloesen, _url(i), "beste") for i in (0, 1)]
+    try:
+        assert _warten(lambda: attrappe.laufend == 2)
+        faeden.append(_im_faden(app.aufloesen, _url(2), "beste"))
+        assert _warten(lambda: _stand(_url(2)) == "prueft")
+        app.queue_heilen()
+        uhr["plus"] = 6 * 60
+        app.queue_heilen()
+        assert _stand(_url(0)) == _stand(_url(1)) == "wartend", "die Heilung reiht die Hänger ein"
+        assert _warten(lambda: _stand(_url(2)) == "wartend"), \
+            f"nach 6 min steht der dritte Link noch auf prueft: {[(u[-4:], _stand(u)) for u in map(_url, range(3))]}"
+        # Ein Link, der danach kommt, wird gleich geprüft, nicht erst nach der nächsten Heilung.
+        faeden.append(_im_faden(app.aufloesen, _url(3), "beste"))
+        assert _warten(lambda: _stand(_url(3)) == "wartend", s=5), "ein neuer Link wartet auf die Hänger"
+    finally:
+        attrappe.frei.set()
+        for f in faeden:
+            f.join(20)
+    assert sorted(attrappe.urls) == [_url(i) for i in range(4)], "jeder Link fragt YouTube genau einmal"
 
 
 @pytest.mark.parametrize("art", ["video", "playlist"])

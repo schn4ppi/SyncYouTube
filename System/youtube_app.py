@@ -1051,7 +1051,58 @@ def _liste_zuschneiden(eintraege, menge, richtung="neu"):
 # auf einmal — ungebremst ist das genau der Abruf-Sturm, den YouTube mit 429 und
 # der Bot-Abfrage beantwortet. Der Platzhalter erscheint weiter sofort; nur der
 # Abruf wartet auf einen Platz.
-_aufloese_plaetze = threading.BoundedSemaphore(2)
+AUFLOESEN_GEDULD_S = 300    # so lange darf ein Auflösen dauern, dann gilt es als hängend
+
+
+class _AufloesePlaetze:
+    """Die Plätze für das Auflösen. Wer länger als AUFLOESEN_GEDULD_S auf
+    seinem Platz sitzt, gilt als hängend und zählt nicht mehr mit: genau dann
+    reiht `queue_heilen` seinen Eintrag wieder ein. Sein Faden steckt weiter in
+    yt-dlp, der Platz geht aber an den nächsten Link. Eine BoundedSemaphore
+    hielten zwei hängende Abrufe für immer, und jeder weitere Link stand
+    danach auf „prueft“ (Nacharbeit F2)."""
+
+    def __init__(self, anzahl):
+        self.anzahl = anzahl
+        self._bed = threading.Condition(threading.Lock())
+        self._inhaber = {}                            # Marke -> Eintrittszeit (nur nicht hängende)
+
+    def _haenger_abschreiben(self):
+        """Hängende Inhaber zählen nicht mehr. True, wenn einer dazukam."""
+        grenze = time.time() - AUFLOESEN_GEDULD_S
+        alt = [m for m, t in self._inhaber.items() if t <= grenze]
+        for m in alt:
+            self._inhaber.pop(m)
+        return bool(alt)
+
+    @contextlib.contextmanager
+    def platz(self):
+        marke = object()
+        with self._bed:
+            while True:
+                self._haenger_abschreiben()
+                if len(self._inhaber) < self.anzahl:
+                    break
+                # Geweckt wird bei jeder Freigabe und aus der Heilung; spätestens
+                # dann, wenn der älteste Inhaber zum Hänger wird.
+                rest = min(self._inhaber.values()) + AUFLOESEN_GEDULD_S - time.time()
+                self._bed.wait(min(max(rest, 0.5), AUFLOESEN_GEDULD_S))
+            self._inhaber[marke] = time.time()
+        try:
+            yield
+        finally:
+            with self._bed:
+                if self._inhaber.pop(marke, None) is not None:
+                    self._bed.notify()               # ein Hänger gab seinen Platz schon ab
+
+    def haenger_freigeben(self):
+        """Aus `queue_heilen`: die Plätze hängender Abrufe an Wartende geben."""
+        with self._bed:
+            if self._haenger_abschreiben():
+                self._bed.notify_all()
+
+
+_aufloese_plaetze = _AufloesePlaetze(2)
 
 
 def _info_abrufen(url, opts):
@@ -1135,7 +1186,7 @@ def _aufloesen_abruf(platzhalter, url, opts):
     """Auf einen Platz warten, dann yt-dlp fragen. Rückgabe (info, fehler);
     (None, None), wenn der Platzhalter vorher entfernt oder übernommen wurde —
     dann wird YouTube gar nicht gefragt."""
-    with _aufloese_plaetze:
+    with _aufloese_plaetze.platz():
         with Q.lock:
             _prueft_wartet.discard(platzhalter["id"])
             if platzhalter not in Q.items or platzhalter.get("status") != "prueft":
@@ -6394,7 +6445,7 @@ def queue_heilen():
             if it["id"] in _prueft_wartet:            # F2: wartet auf einen Platz, hängt nicht
                 continue
             seit = _prueft_seit.setdefault(it["id"], jetzt)
-            if jetzt - seit < 300:                    # 5 Minuten Geduld
+            if jetzt - seit < AUFLOESEN_GEDULD_S:     # 5 Minuten Geduld
                 continue
             it["status"] = "wartend"
             it["naechster_versuch"] = 0
@@ -6402,6 +6453,7 @@ def queue_heilen():
             _prueft_seit.pop(it["id"], None)
             _sag(f"Warteschlange geheilt: „{(it.get('titel') or it.get('url') or '')[:60]}" + "“ "
                  "hing beim Auflösen und wurde wieder eingereiht.")
+    _aufloese_plaetze.haenger_freigeben()             # ihr Platz geht an den nächsten Link
     Q.speichern()
 
 
