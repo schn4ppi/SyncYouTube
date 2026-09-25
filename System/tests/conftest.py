@@ -103,7 +103,8 @@ Verweis ersetzt, träfe keinen Aufrufer: er liefe still ins Echte. Darum muss
 am Ende jedes Tests jeder Verweis noch das Original sein; ersetzt wird
 `links.X`. Die Verweise stehen im Quelltext der App (VERWEISE), nicht in
 einer Handliste. `tests/test_struktur_module.py` prüft dazu die Quelltexte
-aller Tests (auch Ersatz mit eigenem Rückweg im finally) und der App.
+aller Tests (auch Ersatz mit eigenem Rückweg im finally und über
+unittest.mock) und der App.
 
 `tests/test_wachen.py` prüft die Wachen, `test_cookies_wal.py::test_i` die
 Firefox-Wache gegen die echte Suche.

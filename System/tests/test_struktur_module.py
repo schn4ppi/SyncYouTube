@@ -12,8 +12,10 @@ Teile von youtube_app.py wandern in eigene Module (links, musik_einstufung,
    Test (an `modul.X`) jeden Aufrufer, in der App wie im Modul selbst.
 4. Kein Test ersetzt einen Verweis (`app.X`): der Ersatz träfe keinen
    Aufrufer, und der Test liefe still ins Echte. Hier am Quelltext aller
-   Tests geprüft (setattr, Zuweisung, auch mit eigenem Rückweg im finally);
-   die conftest prüft es zusätzlich am Ende jedes Tests zur Laufzeit.
+   Tests geprüft (setattr, Zuweisung, auch mit eigenem Rückweg im finally,
+   und unittest.mock: patch, patch.object, patch.multiple); die conftest
+   prüft es zusätzlich am Ende jedes Tests zur Laufzeit. Ein mock-Ersatz im
+   with-Block ist dann schon zurückgesetzt, ihn sieht nur der Quelltext.
 
 Welche Module ausgelagert sind, steht im Quelltext der App (`from M import …`
 mit M als Datei in System\\, `conftest.VERWEISE`), nicht in einer Handliste.
@@ -113,18 +115,56 @@ def test_gegenprobe_nackter_verweis_wird_gefunden():
     assert nackte_verweise(quelle, {"_video_id": "links"}) == [(4, "_video_id")]
 
 
+def _mock_ersatz(k, aliase, patch_namen):
+    """(Zeile, Name) für einen unittest.mock-Aufruf an youtube_app:
+    `patch("youtube_app.X")`, `patch.object(app, "X")` und
+    `patch.multiple(app, X=…)`, gleich ob über `mock.patch`,
+    `unittest.mock.patch` oder ein importiertes `patch` (auch umbenannt)."""
+    def ist_patch(ausdruck):
+        return ((isinstance(ausdruck, ast.Name) and ausdruck.id in patch_namen)
+                or (isinstance(ausdruck, ast.Attribute) and ausdruck.attr == "patch"))
+
+    def argument(nr, *namen):
+        if len(k.args) > nr:
+            return k.args[nr]
+        return next((w.value for w in k.keywords if w.arg in namen), None)
+
+    def text(ausdruck):
+        return ausdruck.value if isinstance(ausdruck, ast.Constant) and isinstance(ausdruck.value, str) else None
+
+    def ist_app(ausdruck):
+        return ((isinstance(ausdruck, ast.Name) and ausdruck.id in aliase)
+                or text(ausdruck) == "youtube_app")
+    if ist_patch(k.func):
+        ziel = text(argument(0, "target")) or ""
+        return [(k.lineno, ziel.split(".", 1)[1])] if ziel.startswith("youtube_app.") else []
+    if isinstance(k.func, ast.Attribute) and ist_patch(k.func.value):
+        if k.func.attr == "object" and ist_app(argument(0, "target")):
+            name = text(argument(1, "attribute"))
+            return [(k.lineno, name)] if name else []
+        if k.func.attr == "multiple" and ist_app(argument(0, "target")):
+            return [(k.lineno, w.arg) for w in k.keywords if w.arg and w.arg != "target"]
+    return []
+
+
 def ersatz_an_der_app(quelltext):
     """(Zeile, Name) jedes Ersatzes an youtube_app in einem Test-Quelltext:
     `setattr(app, "X", …)` (auch monkeypatch.setattr/delattr), die Textform
-    `setattr("youtube_app.X", …)` und die Zuweisung `app.X = …`. `app` ist
-    jeder Name, unter dem die Datei youtube_app importiert."""
+    `setattr("youtube_app.X", …)`, die Zuweisung `app.X = …` und unittest.mock
+    (`patch("youtube_app.X")`, `patch.object(app, "X")`, `patch.multiple`;
+    Nacharbeit Y7). `app` ist jeder Name, unter dem die Datei youtube_app
+    importiert."""
     baum = ast.parse(quelltext)
-    aliase = set()
+    aliase, patch_namen = set(), set()
     for k in ast.walk(baum):
         if isinstance(k, ast.Import):
             aliase.update(a.asname or a.name for a in k.names if a.name == "youtube_app")
+        elif isinstance(k, ast.ImportFrom) and k.module in ("unittest.mock", "mock"):
+            patch_namen.update(a.asname or a.name for a in k.names if a.name == "patch")
     funde = []
     for k in ast.walk(baum):
+        if isinstance(k, ast.Call):
+            funde += _mock_ersatz(k, aliase, patch_namen)
         if isinstance(k, ast.Call) and isinstance(k.func, (ast.Attribute, ast.Name)):
             name = k.func.attr if isinstance(k.func, ast.Attribute) else k.func.id
             if name not in ("setattr", "delattr") or not k.args:
@@ -169,6 +209,39 @@ def test_gegenprobe_ersatz_an_der_app_wird_gefunden():
               "    app._ist_mix = lambda u: True\n"
               "    monkeypatch.setattr(links, '_mix_limit', int)\n")
     assert ersatz_an_der_app(quelle) == [(4, "_video_id"), (5, "_kanal_url"), (6, "_ist_mix")]
+
+
+def test_gegenprobe_ersatz_ueber_mock_wird_gefunden():
+    """Nacharbeit Y7 (Abnahme M12): auch unittest.mock ersetzt an der App, im
+    with-Block oder als Dekorator. Der Ersatz ist vor dem Testende schon
+    zurückgesetzt, die Laufzeit-Wache der conftest sähe ihn nie."""
+    quelle = ("import unittest.mock\n"
+              "from unittest import mock\n"
+              "from unittest.mock import patch\n"
+              "from unittest.mock import patch as flicken\n"
+              "import youtube_app as app\n"
+              "import links\n"
+              "def test_x():\n"
+              "    with mock.patch.object(app, '_ist_mix', lambda u: True):\n"
+              "        pass\n"
+              "    with patch('youtube_app._video_id'):\n"
+              "        pass\n"
+              "    with unittest.mock.patch.object(app, '_kanal_url'):\n"
+              "        pass\n"
+              "    with flicken.object(app, '_mix_limit'):\n"
+              "        pass\n"
+              "    with mock.patch.multiple(app, link_zeilen=str, ist_einzelvideo=bool):\n"
+              "        pass\n"
+              "    with flicken(target='youtube_app.ist_youtube_link'):\n"
+              "        pass\n"
+              "    with mock.patch.object(links, '_ist_mix'), patch('links._video_id'):\n"
+              "        pass\n"
+              "@mock.patch('youtube_app.link_deuten')\n"
+              "def test_y(m):\n"
+              "    pass\n")
+    assert ersatz_an_der_app(quelle) == [
+        (8, "_ist_mix"), (10, "_video_id"), (12, "_kanal_url"), (14, "_mix_limit"),
+        (16, "ist_einzelvideo"), (16, "link_zeilen"), (18, "ist_youtube_link"), (22, "link_deuten")]
 
 
 def test_gegenprobe_laufzeit_wache(monkeypatch):
