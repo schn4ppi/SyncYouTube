@@ -3410,7 +3410,9 @@ function apiStatus(ok){
 
 let cfgInit=false;
 function configFuellen(){
-  if(cfgInit||!daten)return; cfgInit=true;
+  // cfgInit erst nach Erfolg (F9): ein Fehler mitten im Füllen sperrte das
+  // Formular bisher für immer, auch nach der nächsten guten Antwort.
+  if(cfgInit||!daten||!daten.config)return;
   document.getElementById('cfg_ziel').value=daten.config.ziel_ordner||daten.ziel;
   document.getElementById('cfg_ordner').value=daten.config.unterordner?'1':'0';
   document.getElementById('cfg_meta').value=daten.config.metadaten?'1':'0';
@@ -3433,11 +3435,13 @@ function configFuellen(){
   document.getElementById('cfg_autoupdate').value=daten.config.auto_update?'1':'0';
   document.getElementById('qual').value=daten.config.standard_qualitaet;
   const cq=document.getElementById('cmd-qual'); if(cq)cq.value=daten.config.standard_qualitaet;
+  cfgInit=true;
 }
 
 async function laden(){
   try{
     const r=await fetch('/api/status');
+    if(!r.ok)throw new Error('HTTP '+r.status);        // F9: eine Fehlerantwort (etwa 403) wird nie zum Stand
     daten=await r.json();
     apiStatus(true); configFuellen(); malen();
     remoteAusfuehren(daten.remote);                    // Befehle vom Handy ausführen
