@@ -220,3 +220,82 @@ def test_reihen_eicht_weiter_acht_je_laden(tmp_path, monkeypatch):
     filme.reihen()
     assert len(rufe) == 16 and len(set(rufe)) == 16
     assert len(_meta()["tmdb_stimmen"]) == 16
+
+
+# ------------------------------------------------------------------ F19
+# Liegengebliebene Meldungen („gesehen“, Stellen) gingen nur am Ende eines
+# erfolgreichen Katalog-Abzugs raus. Scheitert der Abzug tagelang (Renés
+# Server sperrte mit 403), blieben sie liegen, obwohl einzelne Meldungen längst
+# wieder ankamen. Jetzt reicht eine angekommene Meldung gedrosselt nach.
+
+def _queue(eintraege):
+    with open(filme._pfade["queue"], "w", encoding="utf-8") as f:
+        json.dump(eintraege, f)
+
+
+def _queue_jetzt():
+    try:
+        with open(filme._pfade["queue"], encoding="utf-8") as f:
+            return json.load(f)
+    except OSError:
+        return []
+
+
+def _jellyfin_ok(mitschrift):
+    return _fake_http([("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+                       ("Sessions/Playing", 204, {}), ("UserPlayedItems", 200, {})],
+                      mitschrift=mitschrift)
+
+
+def _sofort(monkeypatch):
+    """Den Hintergrund-Faden des Nachreichens sofort im Test laufen lassen."""
+    monkeypatch.setattr(filme, "_im_hintergrund", lambda f: f(), raising=False)
+
+
+def test_angekommene_meldung_reicht_liegengebliebene_nach(tmp_path, monkeypatch):
+    _einrichten(tmp_path, monkeypatch)
+    _sofort(monkeypatch)
+    _queue([{"item": "f9", "position_s": 0, "gesehen": True, "ts": time.time() - 3600}])
+    rufe = []
+    monkeypatch.setattr(filme, "_http", _jellyfin_ok(rufe))
+    assert filme.fortschritt("f1", 100) is True
+    assert any("UserPlayedItems/f9" in url for url, _ in rufe), "das liegengebliebene „gesehen“ ging nicht raus"
+    assert _queue_jetzt() == []
+
+
+def test_nachreichen_ist_gedrosselt(tmp_path, monkeypatch):
+    _einrichten(tmp_path, monkeypatch)
+    _sofort(monkeypatch)
+    rufe = []
+    monkeypatch.setattr(filme, "_http", _jellyfin_ok(rufe))
+    _queue([{"item": "f9", "position_s": 0, "gesehen": True, "ts": time.time() - 3600}])
+    filme.fortschritt("f1", 100)
+    _queue([{"item": "f8", "position_s": 0, "gesehen": True, "ts": time.time() - 60}])
+    filme.fortschritt("f1", 200)
+    assert not any("UserPlayedItems/f8" in url for url, _ in rufe), \
+        "binnen zehn Minuten ein zweites Nachreichen"
+    assert _queue_jetzt()[0]["item"] == "f8"
+
+
+def test_nachreich_fehler_wird_vermerkt_und_die_meldung_gilt(tmp_path, monkeypatch):
+    _einrichten(tmp_path, monkeypatch)
+    _sofort(monkeypatch)
+    monkeypatch.setattr(filme, "_http", _jellyfin_ok([]))
+    _queue([{"item": "f9", "position_s": 0, "gesehen": True, "ts": time.time() - 3600}])
+
+    def kaputt():
+        raise RuntimeError("Warteschlange unlesbar")
+    monkeypatch.setattr(filme, "fortschritt_nachreichen", kaputt)
+    assert filme.fortschritt("f1", 100) is True
+    d = json.load(open(filme._pfade["zustand"], encoding="utf-8"))
+    assert "Warteschlange unlesbar" in d.get("nachreichen_fehler", ""), d
+
+
+def test_ohne_offene_meldung_kein_nachreichen(tmp_path, monkeypatch):
+    _einrichten(tmp_path, monkeypatch)
+    laeufe = []
+    monkeypatch.setattr(filme, "_im_hintergrund", lambda f: laeufe.append(f), raising=False)
+    monkeypatch.setattr(filme, "_http", _jellyfin_ok([]))
+    _queue([{"item": "f9", "position_s": 5, "gesehen": False, "ts": 1, "abgewiesen": True}])
+    assert filme.fortschritt("f1", 100) is True
+    assert laeufe == [], "abgewiesene Einträge allein lösen kein Nachreichen aus"

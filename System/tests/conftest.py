@@ -388,6 +388,15 @@ def _film_schluessel_und_netz_gesperrt():
 
 
 @pytest.fixture(autouse=True)
+def _film_nachreichen_sofort(monkeypatch):
+    """Das gedrosselte Nachreichen nach einer angekommenen Meldung (F19,
+    25.09.2026) läuft im Test sofort im Faden des Tests. Ein echter
+    Hintergrundfaden sendete sonst nach dem Test gegen die Sperren oder
+    zugleich mit einem ausdrücklichen fortschritt_nachreichen() des Tests."""
+    monkeypatch.setattr(filme, "_im_hintergrund", lambda aufgabe: aufgabe())
+
+
+@pytest.fixture(autouse=True)
 def _film_pfade_im_tmp(tmp_path):
     """Eigene Film-Pfade je Test; liefert die Liste der gesperrten Zugriffe
     (ein Test, der den Alarm selbst prüft, leert sie). Setzt die Sperren vor

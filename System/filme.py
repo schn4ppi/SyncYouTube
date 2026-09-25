@@ -40,6 +40,9 @@ EICHEN_VERSUCHE = 8                        # TMDB-Stimmen: Versuche je reihen() 
 EICHEN_PAUSE_S = 3600                      # nach Netz-/Serverfehler ruht das Eichen
 EICHEN_FEHL_RUHE_S = 24 * 3600             # ein unbekannter Titel (404) ruht einen Tag
 OMDB_TAGES_DECKEL = 950                    # Free-Key: 1.000/Tag — Puffer lassen
+NACHREICHEN_ABSTAND_S = 600                # nach einer angekommenen Meldung (F19)
+_nachreichen_lock = threading.Lock()       # EIN Nachreichen zur Zeit (Abzug oder Meldung)
+_nachreichen_ts = 0.0                      # letzter Anstoß durch eine Meldung
 GERAET_KOPF = ('MediaBrowser Client="Sync", Device="SyncYouTube", '
                'DeviceId="sync-jb", Version="1.0"')
 USER_AGENT = "SyncYouTube/1.0 (Sync-Familie, Film-Fundament)"
@@ -134,6 +137,8 @@ def einrichten(daten_dir):
     _pfade["merk"] = os.path.join(daten_dir, "filme_merkliste.json")
     _pfade["snippets"] = os.path.join(daten_dir, "filme_snippets")
     _pfade["zustand"] = os.path.join(daten_dir, "filme_zustand.json")
+    global _nachreichen_ts
+    _nachreichen_ts = 0.0                  # neue Warteschlange: die Drossel beginnt frisch
 
 
 # ---------------------------------------------------------------- Zugang/Netz
@@ -689,10 +694,7 @@ def _katalog_abzug():
             "stand": time.time(), "server_version": version,
             "eintraege": eintraege})
     _fehlversuch_ts = 0.0                  # Erfolg löst den Backoff
-    try:
-        fortschritt_nachreichen()          # liegengebliebene Meldungen mitnehmen
-    except Exception:                      # noqa: BLE001 — der Abzug selbst ist gelungen
-        pass
+    _nachreichen_sicher()                  # liegengebliebene Meldungen mitnehmen
     return {"ok": True, "anzahl": len(eintraege), "fehler": "", "server_version": version}
 
 
@@ -1493,6 +1495,7 @@ def fortschritt(item_id, position_s, gesehen=False):
             _spiegel_nachziehen(item_id, position_s, gesehen)
         except Exception:                  # noqa: BLE001 — die Meldung selbst ist angekommen
             pass
+        _nachreichen_anstossen()
         return True
     neu = {"item": item_id, "position_s": int(position_s),
            "gesehen": bool(gesehen), "ts": ts}
@@ -1500,6 +1503,61 @@ def fortschritt(item_id, position_s, gesehen=False):
         neu["abgewiesen"] = True
     _json_aendern(_pfade["queue"], lambda q: (q or []) + [neu], standard=[])
     return False
+
+
+def _im_hintergrund(aufgabe):
+    threading.Thread(target=aufgabe, daemon=True, name="filme-nachreichen").start()
+
+
+def _nachreichen_anstossen():
+    """Nach einer angekommenen Meldung liegengebliebene nachreichen (F19):
+    höchstens alle NACHREICHEN_ABSTAND_S, im Hintergrund, und nur, wenn die
+    Warteschlange Offenes hat. Vorher gingen sie nur am Ende eines gelungenen
+    Katalog-Abzugs raus; scheiterte der tagelang, blieben sie liegen."""
+    global _nachreichen_ts
+    jetzt = time.time()
+    if jetzt - _nachreichen_ts < NACHREICHEN_ABSTAND_S:
+        return
+    if not any(isinstance(m, dict) and m.get("item") and not m.get("abgewiesen")
+               for m in _queue_lesen()):
+        return
+    _nachreichen_ts = jetzt
+    _im_hintergrund(_nachreichen_sicher)
+
+
+def _nachreichen_sicher():
+    """fortschritt_nachreichen, einer zur Zeit und ohne Ausnahme nach außen.
+    Eine Ausnahme steht danach als `nachreichen_fehler` in filme_zustand.json
+    (F19: vorher still verschluckt), ein gelungener Lauf nimmt den Vermerk
+    wieder heraus. Rückgabe: Zahl der nachgereichten Titel."""
+    if not _nachreichen_lock.acquire(blocking=False):
+        return 0                           # läuft schon (Abzug oder Meldung)
+    fehler = ""
+    try:
+        return fortschritt_nachreichen()
+    except Exception as e:                 # noqa: BLE001 — Melden darf nichts kippen
+        fehler = f"{type(e).__name__}: {e}"
+        return 0
+    finally:
+        _nachreichen_lock.release()
+        _nachreich_vermerk(fehler)
+
+
+def _nachreich_vermerk(fehler):
+    if not fehler and not _zustand_lesen().get("nachreichen_fehler"):
+        return                             # der Normalfall: nichts zu schreiben
+
+    def _setzen(d):
+        if fehler:
+            d["nachreichen_fehler"] = fehler
+            d["nachreichen_fehler_ts"] = time.time()
+        else:
+            d.pop("nachreichen_fehler", None)
+            d.pop("nachreichen_fehler_ts", None)
+    try:
+        _json_aendern(_pfade["zustand"], _setzen, standard={})
+    except (OSError, ValueError):
+        pass
 
 
 class _SpiegelUnveraendert(Exception):

@@ -842,6 +842,9 @@ def test_direkter_erfolg_raeumt_aeltere_meldungen_desselben_titels_ab(tmp_path, 
                    {"item": "s1", "position_s": 50, "gesehen": False, "ts": 1.5}])
     jf = JellyfinAttrappe("12")
     monkeypatch.setattr(filme, "_http", jf)
+    # Das Nachreichen nach einer angekommenen Meldung (F19) bleibt hier aus:
+    # geprüft wird allein, was der direkte Erfolg aus der Warteschlange nimmt.
+    monkeypatch.setattr(filme, "_im_hintergrund", lambda aufgabe: None)
     assert filme.fortschritt("f1", 1200) is True
     assert [m["item"] for m in _queue()] == ["s1"], _queue()
     jf.rufe.clear()
@@ -873,13 +876,17 @@ def test_aelteres_gesehen_geht_nicht_verloren(tmp_path, monkeypatch):
     jf.rufe.clear()
     assert filme.fortschritt_nachreichen() == 1
     assert _meldungen(jf) == [("gesehen", "f1", None)], _meldungen(jf)
-    # Die jüngere Stelle gelingt direkt, das ältere „gesehen" liegt noch.
+    # Die jüngere Stelle gelingt direkt, das ältere „gesehen" liegt noch. Seit
+    # F19 (25.09.2026) reicht die angekommene Meldung es gleich nach (die
+    # conftest lässt den Hintergrundfaden sofort laufen): erst die Stelle,
+    # dann „gesehen" und die Stelle noch einmal dahinter.
     _queue_setzen([{"item": "f1", "position_s": 2350, "gesehen": True, "ts": 1.0}])
-    assert filme.fortschritt("f1", 40) is True
     jf.rufe.clear()
-    assert filme.fortschritt_nachreichen() == 1
-    assert _meldungen(jf) == [("gesehen", "f1", None), ("progress", "f1", 40)], _meldungen(jf)
+    assert filme.fortschritt("f1", 40) is True
+    assert _meldungen(jf) == [("progress", "f1", 40), ("gesehen", "f1", None),
+                              ("progress", "f1", 40)], _meldungen(jf)
     assert _queue() == []
+    assert filme.fortschritt_nachreichen() == 0
     # „gesehen" scheitert (500): nichts ist erledigt, alles bleibt liegen.
     eintraege = [{"item": "f1", "position_s": 2350, "gesehen": True, "ts": 1.0},
                  {"item": "f1", "position_s": 40, "gesehen": False, "ts": 2.0}]
