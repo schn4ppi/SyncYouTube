@@ -3880,10 +3880,16 @@ def test_vlc_ansicht_identisch_zum_player():
     assert "pl-vizwrap" in block, "VLC-Cover nutzt nicht den normalen Wrap"
     assert "spielt über VLC" not in block, "Der Info-Text sollte weg sein (Tooltip reicht)"
     assert "pl-vlcbar" not in quelle, "Die alte Sonder-Leiste lebt noch"
-    for fn in ("plbTick", "posMerkerMalen", "plbSpringen", "plbSeekEnd"):
+    # F11 (25.09.2026): Stelle und Spulen stehen fuer beide Leisten in
+    # spulStand/spulenAuf; das Verhalten am Geraet VLC pruefen die deno-Tests
+    # in test_oberflaeche_nebenfehler.py.
+    for fn in ("spulStand", "posMerkerMalen", "plbSpringen", "spulenAuf"):
         i = quelle.index("function " + fn)
         assert "vlc" in quelle[i:_funktionsende(quelle, i)].lower(), \
             f"{fn} kennt das Geraet VLC nicht - die Leiste waere dort tot"
+    for fn, helfer in (("plbTick", "spulStand()"), ("plbSeekEnd", "spulenAuf(")):
+        i = quelle.index("function " + fn)
+        assert helfer in quelle[i:_funktionsende(quelle, i)], f"{fn} geht nicht ueber {helfer}"
 
 
 def test_untertitel_panel_im_player():

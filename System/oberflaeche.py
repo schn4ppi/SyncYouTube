@@ -3941,24 +3941,38 @@ function cmdNowRender(){
     `<span class="cmd-time" id="cmd-t1">0:00</span></div>`;
   transportRender(); cmdSeekTick();
 }
+/* Stelle und Dauer des laufenden Titels, im Browser oder am Gerät VLC, und
+   das Spulen dorthin (F11): Kopfleiste und Player-Leiste nutzen dieselben
+   Helfer. Am Gerät VLC kommen die Werte aus dem 1-s-Status (vlcTick). */
+function spulStand(){
+  if(vlcAktiv())return {pos:vlcPosLetzte, dauer:vlcDauerLetzte||0};
+  const el=document.getElementById('pl-el');
+  return {pos:el?el.currentTime:0, dauer:(el&&el.duration)||0};
+}
+function spulenAuf(v){                                 // v: Promille der Dauer
+  if(vlcAktiv()){
+    if(vlcDauerLetzte){vlcPosLetzte=v/1000*vlcDauerLetzte; vlcBefehl('seek',{wert:vlcPosLetzte});}
+    return;
+  }
+  const el=document.getElementById('pl-el');
+  if(el&&el.duration)el.currentTime=v/1000*el.duration;
+}
 function cmdSeekDrag(v){                               // beim Ziehen läuft nur die Zeitanzeige mit
-  const pe=document.getElementById('pl-el');
-  const t0=document.getElementById('cmd-t0');
-  if(pe&&pe.duration&&t0)t0.textContent=zeit(v/1000*pe.duration);
+  const t0=document.getElementById('cmd-t0'), d=spulStand().dauer;
+  if(d&&t0)t0.textContent=zeit(v/1000*d);
 }
 function cmdSeekEnd(v){                                // losgelassen -> wirklich spulen
-  const pe=document.getElementById('pl-el');
-  if(pe&&pe.duration)pe.currentTime=v/1000*pe.duration;
+  spulenAuf(v);
   cmdSeekAktiv=false;
 }
 function cmdSeekTick(){                                // Position/Zeiten nachführen (auch via setInterval)
   const s=document.getElementById('cmd-seek'), t0=document.getElementById('cmd-t0'),
-        t1=document.getElementById('cmd-t1'), pe=document.getElementById('pl-el');
+        t1=document.getElementById('cmd-t1'), st=spulStand();
   if(!s||!t0||!t1)return;
-  if(!pe||!pe.duration){s.value=0;s.disabled=true;t0.textContent='0:00';t1.textContent='0:00';return;}
+  if(!st.dauer){s.value=0;s.disabled=true;t0.textContent='0:00';t1.textContent='0:00';return;}
   s.disabled=false;
-  if(!cmdSeekAktiv){s.value=Math.round(pe.currentTime/pe.duration*1000);t0.textContent=zeit(pe.currentTime);}
-  t1.textContent=zeit(pe.duration);
+  if(!cmdSeekAktiv){s.value=Math.round(st.pos/st.dauer*1000);t0.textContent=zeit(st.pos);}
+  t1.textContent=zeit(st.dauer);
 }
 setInterval(cmdSeekTick,500);
 function cmdPlayPause(){
@@ -8222,16 +8236,9 @@ function seitenverhaeltnisAnwenden(){                  // beim Aufbau des Player
   let v='16/9'; try{v=localStorage.getItem('ytdl_ar')||'16/9';}catch(e){}
   const m=document.getElementById('pl-media'); if(m)arAnlegen(m,v);
 }
-function plbSeekDrag(v){const el=document.getElementById('pl-el'), t=document.getElementById('plb-t0');
-  const d=vlcAktiv()?vlcDauerLetzte:(el&&el.duration);
+function plbSeekDrag(v){const t=document.getElementById('plb-t0'), d=spulStand().dauer;
   if(d&&t)t.textContent=zeit(v/1000*d);}
-function plbSeekEnd(v){
-  if(vlcAktiv()){
-    if(vlcDauerLetzte){vlcPosLetzte=v/1000*vlcDauerLetzte; vlcBefehl('seek',{wert:vlcPosLetzte});}
-    plbSeekAktiv=false; return;
-  }
-  const el=document.getElementById('pl-el');
-  if(el&&el.duration)el.currentTime=v/1000*el.duration; plbSeekAktiv=false;}
+function plbSeekEnd(v){spulenAuf(v); plbSeekAktiv=false;}
 function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
   try{localStorage.setItem('ytdl_vol',plVol);}catch(e){}
   if(vlcAktiv())vlcBefehl('vol',{wert:plVol});   // Gerät VLC hört auf dieselbe Lautstärke
@@ -9421,20 +9428,15 @@ function posMerkerMalen(){
   m.title='Zuletzt warst du hier: '+zeit(eintrag.t)+' — Klick springt hin';
 }
 function plbTick(){                                    // Position/Zeit der Leiste nachführen
-  const el=document.getElementById('pl-el'), s=document.getElementById('plb-seek'),
+  const s=document.getElementById('plb-seek'),
         t0=document.getElementById('plb-t0'), t1=document.getElementById('plb-t1');
   if(!s||!t0||!t1)return;
   if(Date.now()-_posMerkTs>5000){_posMerkTs=Date.now(); posMerken();}   // Merker-Takt (Build 102)
   posMerkerMalen();
-  if(vlcAktiv()){                                     // Gerät VLC: Werte aus dem 1-s-Status
-    if(!vlcDauerLetzte){s.value=0;t0.textContent='0:00';t1.textContent='0:00';return;}
-    if(!plbSeekAktiv){s.value=Math.round(vlcPosLetzte/vlcDauerLetzte*1000);t0.textContent=zeit(vlcPosLetzte);}
-    t1.textContent=zeit(vlcDauerLetzte);
-    return;
-  }
-  if(!el||!el.duration){s.value=0;t0.textContent='0:00';t1.textContent='0:00';return;}
-  if(!plbSeekAktiv){s.value=Math.round(el.currentTime/el.duration*1000);t0.textContent=zeit(el.currentTime);}
-  t1.textContent=zeit(el.duration);
+  const st=spulStand();                               // Browser oder Gerät VLC (1-s-Status)
+  if(!st.dauer){s.value=0;t0.textContent='0:00';t1.textContent='0:00';return;}
+  if(!plbSeekAktiv){s.value=Math.round(st.pos/st.dauer*1000);t0.textContent=zeit(st.pos);}
+  t1.textContent=zeit(st.dauer);
 }
 setInterval(plbTick,500);
 function speedMenu(ev){                                // Geschwindigkeit als Liste (Haken = aktiv)
