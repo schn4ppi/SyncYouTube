@@ -4656,7 +4656,7 @@ def test_player_settings_und_huellen_maus():
     # Alte Tabs erneuern sich selbst (JB testete tagelang mit altem Stand).
     assert '"ui_stand"' in src and "getmtime" in src
     q2 = _oberflaeche_html()
-    i = q2.index("function uiStandPruefen")
+    i = q2.index("function uiNeuLaden")               # F10: das Neuladen selbst steht dort
     b2 = q2[i:_funktionsende(q2, i)]
     assert "location.reload()" in b2 and "tvpOffen" in b2, \
         "Selbst-Erneuerung: nur sanft (nie im Film/Dialog/beim Tippen)"
