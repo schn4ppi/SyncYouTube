@@ -250,6 +250,87 @@ def test_wlan_kann_keine_einstellungen_abos_und_profile_aendern(monkeypatch):
     assert st == 403 and len(pg.profil_liste()) == vorher
 
 
+# JB-Entscheid 7a Punkt 2 als Verhaltensanker (Abnahme 25.09.2026). Die Tests
+# oben prüfen, dass der Handler SEINER Tabelle folgt; ob die Tabelle zum
+# Entscheid passt, prüften sie nicht: fünf Routen von NUR_PC nach LAN_ERLAUBT
+# verschoben, und die Suite blieb grün. Hier steht je Kategorie des Entscheids
+# eine feste Route mit typischem Rumpf. Sie läuft durch den ECHTEN Router
+# (ohne Zeugen); ein Fühler ersetzt nur die Funktion, die die Wirkung hätte.
+# Aus dem WLAN mit gültigem Code: 403 und der Fühler bleibt stumm. Vom PC: der
+# Fühler schlägt an (Gegenprobe: er hängt wirklich an dieser Route).
+JB_NUR_PC = [
+    # (Kategorie des JB-Entscheids, Methode, Pfad, Rumpf bzw. Anfrage, (Ort, Fühler))
+    ("Dateien verschieben: Umbenennen", "POST", "/api/umbenennen", {"go": True}, ("app", "migration_anwenden")),
+    ("Dateien löschen: Bibliothek", "POST", "/api/biblio", {"art": "loeschen", "id": "k"}, ("handler", "_biblio")),
+    ("Dateien löschen: Abo samt Videos", "POST", "/api/abo",
+     {"art": "entfernen", "id": "a", "mit_videos": True}, ("app", "abo_aktion")),
+    ("Dateien aufnehmen", "POST", "/api/importieren", {}, ("app", "ordner_importieren")),
+    ("Programm beenden", "POST", "/api/beenden", {}, ("server", "shutdown")),
+    ("WireGuard-Dateien ablegen", "POST", "/api/geo_wireguard",
+     {"land": "DE", "content": "[Interface]\nPrivateKey = x\n"}, ("handler", "_geo_wireguard")),
+    ("VPN-Test starten", "POST", "/api/geo_test", {}, ("handler", "_geo_test_start")),
+    ("Playlists ändern", "POST", "/api/playlist", {"art": "neu", "name": "X"}, ("app", "playlist_aktion")),
+    ("Playlists anlegen", "POST", "/api/playlist_import", {"name": "X", "m3u": "#EXTM3U"},
+     ("app", "playlist_import_m3u")),
+    ("Tags schreiben", "POST", "/api/autotag", {"keys": ["k"]}, ("app", "autotag_lauf")),
+    ("Clips erzeugen", "POST", "/api/clip", {"id": "k", "von": 1, "bis": 2}, ("app", "clip_erstellen")),
+    ("Bibliothek ändern: Clip-Favorit", "POST", "/api/clip_favorit", {"id": "k"}, ("app", "_clip_favorit_setzen")),
+    ("Metadaten schreiben", "POST", "/api/biblio_enrich", {}, ("app", "biblio_enrich_alle")),
+    ("Pfade setzen: config.json", "POST", "/api/config", {"ziel_ordner": "C:\\Fremd"}, ("handler", "_config")),
+    ("Pfade setzen: Ordnerdialog", "GET", "/api/ordner_waehlen", {"start": "C:\\"}, ("app", "ordner_waehlen")),
+    ("config.json: Wiedergabe-Regeln", "POST", "/api/wiedergabe", {"global": 1, "merge": 1, "sub": "an"},
+     ("app", "wiedergabe_setzen")),
+    ("config.json: neuer Code", "POST", "/api/code_erneuern", {}, ("app", "neuer_fernsteuerungs_code")),
+    ("profile.json: Profil anlegen", "POST", "/api/profil_anlegen", {"name": "X"}, ("pg", "profil_anlegen")),
+    ("profile.json: Gerät freigeben", "POST", "/api/geraet_bestaetigen", {"id": "g"}, ("pg", "geraet_bestaetigen")),
+    ("profile.json: Gerät trennen", "POST", "/api/geraet_entfernen", {"id": "g"}, ("pg", "geraet_entfernen")),
+    ("Prozesse am PC: Explorer", "POST", "/api/action", {"art": "ordner_offen"}, ("app", "ordner_zeigen")),
+]
+
+
+@pytest.fixture
+def fuehler(monkeypatch):
+    """Setzt den Fühler einer JB_NUR_PC-Zeile; liefert die Liste seiner Aufrufe.
+    Hintergrundfäden laufen sofort (wie in `eingereiht`), damit auch eine
+    Wirkung im Faden (Tags, Metadaten, Beenden) ohne Warten sichtbar ist."""
+    import threading
+    import types
+
+    import profil_geraete as pg
+    monkeypatch.setattr(app, "threading", types.SimpleNamespace(**dict(vars(threading), Thread=_SofortFaden)))
+
+    def setzen(ort, name):
+        aufrufe = []
+
+        def spur(*a, **k):
+            aufrufe.append(name)
+            return {"ok": True}
+        if ort == "server":
+            monkeypatch.setattr(app.Handler, "server", types.SimpleNamespace(shutdown=spur), raising=False)
+        elif ort == "handler":
+            monkeypatch.setattr(app.Handler, name, spur)
+        else:
+            monkeypatch.setattr({"app": app, "pg": pg}[ort], name, spur)
+        return aufrufe
+    return setzen
+
+
+def _durch_den_router(methode, pfad, daten, ip):
+    kopf = {"X-Code": CODE} if ip == LAN else {}
+    return _senden(methode, pfad, daten, ip=ip, kopf=kopf)
+
+
+@pytest.mark.parametrize("kategorie,methode,pfad,daten,sitz", JB_NUR_PC, ids=[z[0] for z in JB_NUR_PC])
+def test_jb_entscheid_diese_wirkungen_nur_am_pc(monkeypatch, fuehler, kategorie, methode, pfad, daten, sitz):
+    _fernsteuerung(monkeypatch)
+    aufrufe = fuehler(*sitz)
+    st, _, koerper = _durch_den_router(methode, pfad, daten, LAN)
+    assert st == 403 and json.loads(koerper).get("nur_pc") is True, (kategorie, st, koerper[:120])
+    assert aufrufe == [], f"{kategorie}: aus dem WLAN erreichte {pfad} die Wirkung"
+    st, _, koerper = _durch_den_router(methode, pfad, daten, "127.0.0.1")
+    assert aufrufe == [sitz[1]], f"Gegenprobe: vom PC muss {pfad} den Fühler {sitz[1]} erreichen ({st}, {koerper[:120]})"
+
+
 def test_fernsteuern_aus_dem_wlan_geht_weiter(monkeypatch):
     _fernsteuerung(monkeypatch)
     st, _, _ = _anfrage("/api/remote", methode="POST", ip=LAN,
