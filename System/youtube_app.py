@@ -6327,6 +6327,67 @@ def ticker_schleife():
 
 # ---------------------------------------------------------------- HTTP-Server
 
+# Vertrauen in Anfragen (Gesamtprüfung S2, 25.09.2026). „Kommt von 127.0.0.1"
+# heißt nicht „kommt von JB": jede offene Webseite im Browser schickt von dort.
+# Zwei Kopf-Prüfungen vor jedem Riegel:
+#  * Host: nur IP-Literale, localhost und der eigene Rechnername (erstes Label,
+#    z. B. jb-pc.fritz.box). Eine Seite, deren Name per DNS-Rebinding auf
+#    127.0.0.1 zeigt, trägt ihren EIGENEN Namen im Host-Kopf und prallt ab.
+#  * Origin: fehlt er (urllib aus Tray, SyncFindus, Hülle), ist das kein
+#    Browser-Querzugriff. Sonst nur der eigene Ursprung (Host:Port wie im
+#    Host-Kopf) oder eine Browser-Erweiterung (das Addon).
+# Bewusst KEINE Content-Type-Pflicht: das Addon sendet ohne (background.js).
+ERWEITERUNGS_SCHEMATA = ("moz-extension", "chrome-extension", "ms-browser-extension")
+# Das Dashboard (Tray-Server, SyncDashTray settings_server.PORT) bettet
+# /?embed=1 im Rahmen ein; sonst darf nur die App selbst sich einbetten.
+DASHBOARD_URSPRUNG = "http://127.0.0.1:8765"
+EINBETTEN_CSP = f"frame-ancestors 'self' {DASHBOARD_URSPRUNG}"
+_HOST_MUSTER = re.compile(r"(?:\[(?P<v6>[0-9a-f:.]+)\]|(?P<name>[a-z0-9_.-]+))(?::(?P<port>\d{1,5}))?")
+
+
+def host_erlaubt(host_kopf):
+    """Host-Kopf einer Anfrage prüfen (S2). Kein Kopf = kein Browser (HTTP/1.0,
+    Werkzeuge) und damit kein Rebinding-Weg."""
+    import ipaddress
+    host = (host_kopf or "").strip().lower()
+    if not host:
+        return True
+    m = _HOST_MUSTER.fullmatch(host)
+    if not m:
+        return False
+    if m.group("v6"):
+        try:
+            ipaddress.IPv6Address(m.group("v6"))
+            return True
+        except ValueError:
+            return False
+    name = m.group("name").rstrip(".")
+    try:
+        ipaddress.IPv4Address(name)
+        return True
+    except ValueError:
+        pass
+    if name == "localhost":
+        return True
+    rechner = (socket.gethostname() or "").strip().lower().split(".")[0]
+    return bool(rechner) and name.split(".")[0] == rechner
+
+
+def origin_erlaubt(origin, host_kopf):
+    """Origin-Kopf prüfen (S2): fehlt er, erlaubt; sonst der eigene Ursprung
+    (Host:Port wie im Host-Kopf) oder eine Browser-Erweiterung."""
+    origin = (origin or "").strip()
+    if not origin:
+        return True
+    teile = urlparse(origin)
+    schema = teile.scheme.lower()
+    if schema in ERWEITERUNGS_SCHEMATA:
+        return True
+    if schema not in ("http", "https") or not host_kopf:
+        return False                                  # "null", file:, data: …
+    return teile.netloc.lower() == host_kopf.strip().lower()
+
+
 def _cors(handler):
     """CORS nur für Browser-Erweiterungen freigeben (nie für beliebige Webseiten —
     der Server lauscht ohnehin nur auf 127.0.0.1). Erlaubt das Firefox-Addon,
@@ -6354,7 +6415,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):                        # Konsole ruhig halten
         pass
 
+    def end_headers(self):
+        # S2: einbetten darf nur das Dashboard (und die App selbst) — für JEDE
+        # Antwort, auch die direkt geschriebenen (Medien, Proxy, Export).
+        self.send_header("Content-Security-Policy", EINBETTEN_CSP)
+        super().end_headers()
+
+    def _anfrage_vertraut(self):
+        """S2: Host- und Origin-Kopf, vor jedem Riegel und jeder Route."""
+        host = self.headers.get("Host", "")
+        return host_erlaubt(host) and origin_erlaubt(self.headers.get("Origin"), host)
+
     def do_OPTIONS(self):                             # CORS-Preflight des Addons
+        if not self._anfrage_vertraut():
+            return _antwort(self, 403, {"fehler": "Anfrage von fremder Seite abgelehnt."})
         self.send_response(204)
         _cors(self)
         self.send_header("Content-Length", "0")
@@ -6394,6 +6468,8 @@ class Handler(BaseHTTPRequestHandler):
         return zugriff_erlaubt(ip, CFG.get("fernsteuerung"), CFG.get("fernsteuerung_code") or "", code)
 
     def do_GET(self):
+        if not self._anfrage_vertraut():
+            return _antwort(self, 403, {"fehler": "Anfrage von fremder Seite abgelehnt."})
         if not self._hat_zugriff():
             # Nicht gekoppeltes LAN-Gerät auf der Startseite? Dann die
             # Pairing-Seite statt einer kalten 403 (Teilprojekt 3).
@@ -6782,6 +6858,8 @@ class Handler(BaseHTTPRequestHandler):
             _antwort(self, 404, {"fehler": "unbekannt"})
 
     def do_POST(self):
+        if not self._anfrage_vertraut():
+            return _antwort(self, 403, {"fehler": "Anfrage von fremder Seite abgelehnt."})
         if not self._hat_zugriff():
             return _antwort(self, 403, {"fehler": "Kein Zugriff — Fernsteuerung aus oder falscher Code."})
         n = int(self.headers.get("Content-Length") or 0)
