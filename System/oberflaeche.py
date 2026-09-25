@@ -3536,9 +3536,10 @@ function uiNeuLaden(){
   if(!uiNeuVorgemerkt)return false;
   const tippt=document.activeElement&&['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
   if(tvpOffen||tvInfoOffen||tvDialogOffen||tippt)return false;
-  const letzter=+sessionStorage.getItem('ui_reload_ts')||0;
+  let letzter=0;
+  try{letzter=+sessionStorage.getItem('ui_reload_ts')||0;}catch(e){}   // gesperrter Speicher (F27)
   if(Date.now()-letzter<60000)return false;
-  sessionStorage.setItem('ui_reload_ts',String(Date.now()));
+  try{sessionStorage.setItem('ui_reload_ts',String(Date.now()));}catch(e){}
   location.reload();
   return true;
 }
@@ -9460,7 +9461,7 @@ function plBarIdleInit(media,el){                      // Leiste ruht die Maus -
    VLC-Instanz auf dem PC (/api/vlc → python-vlc). Titelende meldet der
    1-s-Status-Takt, dann greift dieselbe playerAdvance-Logik wie im Browser.
    VLC nicht installiert ⇒ Hinweis (toast) + Browser-Player als Rückfall. */
-let plGeraet=localStorage.getItem('ytdl_geraet')||'browser';
+let plGeraet='browser'; try{plGeraet=localStorage.getItem('ytdl_geraet')||'browser';}catch(e){}   // gesperrter Speicher (F27)
 let vlcTimer=null, vlcEndeFuer='', vlcRateLetzte=1;
 /* DIE eine Wahrheit „spielt gerade über VLC?" (JB 05.08.): Gerät VLC gewählt
    UND der aktuelle Titel läuft dort wirklich — Videos OHNE Hülle spielen im

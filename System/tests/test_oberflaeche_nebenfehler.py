@@ -144,3 +144,33 @@ def test_hilfe_zum_ansicht_menue_nennt_nur_vorhandene_eintraege():
     menue = re.sub(r"<!--.*?-->", "", menue, flags=re.S)
     fehlt = [e for e in eintraege if e not in menue]
     assert eintraege and not fehlt, f"die Hilfe nennt, was es im Menü nicht gibt: {fehlt}"
+
+
+# ------------------------------------------------------------------ F27
+# Der einzige ungeschützte localStorage-Zugriff auf oberster Ebene: ist der
+# Speicher gesperrt (Browser-Einstellung, Datenschutzmodus), wirft schon der
+# Zugriff, und das ganze Skript der Seite bricht ab.
+
+GESPERRT = ("Object.defineProperty(globalThis, 'localStorage', {configurable:true,"
+            " get(){throw new Error('SecurityError: Speicher gesperrt');}});"
+            "Object.defineProperty(globalThis, 'sessionStorage', {configurable:true,"
+            " get(){throw new Error('SecurityError: Speicher gesperrt');}});")
+
+
+def test_geraete_wahl_ueberlebt_gesperrten_speicher(tmp_path):
+    from test_medientasten_verhalten import _js_zeile
+    (e,) = _lauf(tmp_path, GESPERRT, _js_zeile(_pc(), "let plGeraet"),
+                 "aus({plGeraet});")
+    assert e == {"plGeraet": "browser"}
+
+
+def test_neuladen_ueberlebt_gesperrten_speicher(tmp_path):
+    """Seit F10 fragt auch das Titelende uiNeuLaden(); wirft dort der gesperrte
+    Sitzungsspeicher, bliebe die Musik am Titelende stehen."""
+    from test_oberflaeche_laden import _neuladen_teile
+    teile = [t for t in _neuladen_teile(_pc()) if not t.startswith("const _ss=")]   # ohne Speicher-Attrappe
+    (e,) = _lauf(tmp_path, GESPERRT, *teile,
+                 "const el=fakeMedia({id:'pl-el', paused:false}); _els['pl-el']=el;",
+                 "uiStandPruefen('a'); uiStandPruefen('b');",
+                 "el.paused=true; el.ended=true; plTitelEnde({target:el}); aus({log:_log.slice()});")
+    assert e["log"] == ["reload"], e
