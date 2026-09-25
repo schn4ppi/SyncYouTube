@@ -5,6 +5,7 @@ keine Platte außer tmp_path; alle Antworten sind Attrappen (Muster test_filme).
 F12: Ein kurzer TMDB- oder OMDb-Ausfall (auch eine 429-Antwort) ließ die
 Detailseite 14 Tage leer, und der OMDb-Tageszähler wurde nie gespeichert, der
 Deckel griff also nie.
+F13: reihen() fragte TMDB bei Fehlschlägen ohne wirksamen Deckel.
 """
 import json
 import os
@@ -133,3 +134,89 @@ def test_omdb_deckel_greift_und_holt_morgen_nach(tmp_path, monkeypatch):
         ("api.themoviedb.org", 200, FAKE_TMDB), ("omdbapi.com", 200, FAKE_OMDB), _technik()]))
     assert filme.detail("f1")["imdb_rating"] == "8.0"
     assert _meta()["omdb_zaehler"] == 1 and _meta()["omdb_tag"] == heute
+
+
+# ------------------------------------------------------------------ F13
+# reihen() versprach „kein Netz“, fragte aber TMDB synchron. Der Deckel „8“
+# zählte nur Erfolge: scheiterten die Abrufe, liefen bis zu 120 mit je 15 s
+# Zeitlimit, und jede Fehlantwort wurde bei jedem Laden erneut gefragt.
+
+def _reihen_katalog(tmp_path, monkeypatch, n=30):
+    _einrichten(tmp_path, monkeypatch)
+    items = {"Items": [
+        {"Id": f"m{i:02d}", "Name": f"Film {i}", "Type": "Movie", "CommunityRating": 9.0 - i * 0.01,
+         "Genres": ["Drama"], "ProviderIds": {"Tmdb": f"{1000 + i}"}, "ImageTags": {},
+         "UserData": {"Played": False}} for i in range(n)]}
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, items)]))
+    filme.katalog_abzug()
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "K", "omdb": ""})
+
+
+def _tmdb_zaehler(monkeypatch, antwort):
+    rufe = []
+
+    def http(url, **kw):
+        assert "themoviedb.org" in url, url
+        rufe.append(url)
+        if isinstance(antwort, Exception):
+            raise antwort
+        return antwort
+    monkeypatch.setattr(filme, "_http", http)
+    return rufe
+
+
+def test_reihen_deckelt_versuche_nicht_erfolge(tmp_path, monkeypatch):
+    # 404: TMDB kennt den Titel nicht. Das ist eine Antwort, kein Ausfall.
+    _reihen_katalog(tmp_path, monkeypatch)
+    rufe = _tmdb_zaehler(monkeypatch, (404, b"{}"))
+    filme.reihen()
+    assert len(rufe) == 8, f"{len(rufe)} TMDB-Abrufe in einem Laden (Deckel 8 Versuche)"
+    filme.reihen()
+    assert len(rufe) == 16
+    assert not set(rufe[:8]) & set(rufe[8:]), "eine Fehlantwort wurde beim nächsten Laden erneut gefragt"
+
+
+def test_reihen_serverfehler_pausiert_das_eichen(tmp_path, monkeypatch):
+    for antwort in ((500, b"{}"), (429, b"{}"), (401, b"{}")):
+        _reihen_katalog(tmp_path / str(antwort[0]), monkeypatch)
+        rufe = _tmdb_zaehler(monkeypatch, antwort)
+        filme.reihen()
+        filme.reihen()
+        assert len(rufe) == 1, f"{antwort[0]}: nach dem ersten Fehlschlag {len(rufe) - 1} weitere Abrufe"
+
+
+def test_reihen_netzfehler_pausiert_das_eichen(tmp_path, monkeypatch):
+    _reihen_katalog(tmp_path, monkeypatch)
+    rufe = _tmdb_zaehler(monkeypatch, OSError("Zeitüberschreitung"))
+    r = filme.reihen()
+    assert len(rufe) == 1, f"nach einem Netzfehler noch {len(rufe) - 1} weitere Abrufe"
+    assert r["top"], "die Reihen stehen trotzdem"
+    filme.reihen()
+    assert len(rufe) == 1, "binnen der Pause fragt reihen() TMDB nicht erneut"
+
+
+def test_reihen_fehlschlag_ruht_einen_tag(tmp_path, monkeypatch):
+    _reihen_katalog(tmp_path, monkeypatch, n=3)
+    rufe = _tmdb_zaehler(monkeypatch, (404, b"{}"))
+    filme.reihen()
+    assert len(rufe) == 3
+    filme.reihen()
+    assert len(rufe) == 3, "binnen eines Tages keine neue Frage nach denselben Titeln"
+    d = _meta()
+    d["tmdb_stimmen_fehl"] = {k: v - 86401 for k, v in d["tmdb_stimmen_fehl"].items()}
+    with open(filme._pfade["meta"], "w", encoding="utf-8") as f:
+        json.dump(d, f)
+    filme.reihen()
+    assert len(rufe) == 6, "nach einem Tag wird erneut gefragt"
+
+
+def test_reihen_eicht_weiter_acht_je_laden(tmp_path, monkeypatch):
+    _reihen_katalog(tmp_path, monkeypatch)
+    rufe = _tmdb_zaehler(monkeypatch, (200, json.dumps({"vote_count": 900, "vote_average": 7.5}).encode()))
+    filme.reihen()
+    assert len(rufe) == 8
+    filme.reihen()
+    assert len(rufe) == 16 and len(set(rufe)) == 16
+    assert len(_meta()["tmdb_stimmen"]) == 16

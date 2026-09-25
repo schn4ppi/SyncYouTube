@@ -36,6 +36,9 @@ FEHL_BACKOFF_S = 30 * 60                   # nach Fehlschlag frühestens in 30 m
 FEHL_BACKOFF_MAX_S = 6 * 3600              # Staffel 30 min, 1 h, 2 h, 4 h, dann 6 h
 META_HALTBAR_S = 14 * 24 * 3600            # Ratings altern langsam (Spec)
 META_UNVOLLSTAENDIG_S = 3600               # nach einem Ausfall von TMDB/OMDb (F12)
+EICHEN_VERSUCHE = 8                        # TMDB-Stimmen: Versuche je reihen() (F13)
+EICHEN_PAUSE_S = 3600                      # nach Netz-/Serverfehler ruht das Eichen
+EICHEN_FEHL_RUHE_S = 24 * 3600             # ein unbekannter Titel (404) ruht einen Tag
 OMDB_TAGES_DECKEL = 950                    # Free-Key: 1.000/Tag — Puffer lassen
 GERAET_KOPF = ('MediaBrowser Client="Sync", Device="SyncYouTube", '
                'DeviceId="sync-jb", Version="1.0"')
@@ -1035,28 +1038,37 @@ def merkliste_toggle(item_id, profil="standard"):
 # ---------------------------------------------------------------- Reihen
 
 def reihen(profil="standard"):
-    """Home-Reihen rein aus dem Spiegel — kein Netz, damit die Anzeige auch
-    bei Renés Ausfall steht (Spec „Ausfall-Verhalten")."""
+    """Home-Reihen aus dem Spiegel, damit die Anzeige auch bei Renés Ausfall
+    steht (Spec „Ausfall-Verhalten"). Einziger Netzweg: das Eichen der Top-
+    Kandidaten mit TMDB-Stimmen, gedeckelt auf EICHEN_VERSUCHE Abrufe je Aufruf
+    (Versuche, nicht Erfolge; F13). Nach einem Netz- oder Serverfehler ruht es
+    EICHEN_PAUSE_S, ein bei TMDB unbekannter Titel EICHEN_FEHL_RUHE_S."""
     alle = katalog_lesen()["eintraege"]
     weiter = [e for e in alle if e["position_s"] > 0 and not e["gesehen"]]
     # Top als BAYES-SCORE (JB-Go): Jellyfin hat keinen Vote-Count, darum
     # holen wir TMDB-Stimmen für die Roh-Kandidaten (einmalig gecacht, max 8
-    # neue Abrufe je Lauf — Top wird über wenige Aufrufe komplett geeicht).
+    # Abrufe je Lauf — Top wird über wenige Aufrufe komplett geeicht).
     # score = v/(v+m)*R + m/(v+m)*C  (m=500 Prior-Stimmen, C=6.8 Prior-Note);
     # ohne Stimmen kommt keiner über den Prior — Ein-Stimmen-★10 sind tot.
     cache = _meta_cache()
     stimmen = cache.get("tmdb_stimmen") or {}
+    fehl = dict(cache.get("tmdb_stimmen_fehl") or {})
     keys = _meta_keys()
     # 120 Kandidaten, damit nach dem Filme/Serien-Filter der Tabs (JB 06.08.:
     # „Filme und Serien sind ihren eigenen tabs eigen zu listen") je Seite
     # noch 10 übrig bleiben; geeicht wird weiter mit 8 Abrufen je Lauf.
     kand = sorted((e for e in alle if e.get("rating") and not e["gesehen"]),
                   key=lambda e: e["rating"], reverse=True)[:120]
-    neu = 0
-    for e in kand:
+    jetzt = time.time()
+    neu, versuche, pause = 0, 0, 0.0
+    offen = keys.get("tmdb") and jetzt >= (cache.get("tmdb_stimmen_pause") or 0)
+    for e in (kand if offen else ()):
         t = e.get("tmdb")
-        if not t or t in stimmen or not keys.get("tmdb") or neu >= 8:
+        if not t or t in stimmen or jetzt - (fehl.get(t) or 0) < EICHEN_FEHL_RUHE_S:
             continue
+        if versuche >= EICHEN_VERSUCHE:
+            break
+        versuche += 1
         art = "tv" if e["typ"] == "serie" else "movie"
         try:
             st, roh = _http(f"https://api.themoviedb.org/3/{art}/{t}"
@@ -1064,14 +1076,25 @@ def reihen(profil="standard"):
             if st == 200:
                 d2 = json.loads(roh)
                 stimmen[t] = [d2.get("vote_count") or 0, d2.get("vote_average") or 0]
+                fehl.pop(t, None)
                 neu += 1
-        except Exception:                  # noqa: BLE001 — nächster Lauf holt nach
-            pass
-    if neu:
+            elif st == 404:                # TMDB kennt den Titel nicht: einen Tag Ruhe
+                fehl[t] = jetzt
+            else:                          # 401, 429, 5xx: TMDB hat gerade ein Problem
+                pause = jetzt + EICHEN_PAUSE_S
+                break
+        except Exception:                  # noqa: BLE001 — Netz weg: eine Stunde Ruhe
+            pause = jetzt + EICHEN_PAUSE_S
+            break
+    if versuche:
         def _mischen(d):
             alt = d.get("tmdb_stimmen") or {}
             alt.update(stimmen)
             d["tmdb_stimmen"] = alt
+            d["tmdb_stimmen_fehl"] = {k: v for k, v in fehl.items()
+                                      if jetzt - v < EICHEN_FEHL_RUHE_S and k not in alt}
+            if pause:
+                d["tmdb_stimmen_pause"] = pause
         _json_aendern(_pfade["meta"], _mischen, standard={})
 
     def _score(e):
