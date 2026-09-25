@@ -135,9 +135,13 @@ def _pakete_holen(lib):
 def _wird_ausgeliefert(rel):
     """Gehört diese versionierte Datei (Pfad wie git ls-files) ins Nutzerpaket?
 
-    Ausschlussliste statt Positivliste (Gegenprüfung 24.09.): layout_kern.js und die
-    heiß nachgeladenen Oberflächen werden per Pfad geladen, nicht per import — eine
-    Positivliste „was youtube_app importiert" verlöre sie still."""
+    Ausschlussliste statt Positivliste (Gegenprüfung 24.09.): Die heiß nachgeladenen
+    Seiten (oberflaeche, handy, fernbedienung, medien_session) importiert der Router
+    erst im Funktionsrumpf — eine Positivliste „was youtube_app oben importiert"
+    verlöre sie still. layout_kern.js lädt kein Code: Die Oberfläche trägt eine
+    Inline-Kopie, die Familien-Wache vendor_kern hält die Datei byte-gleich mit dem
+    Master (berichtigt in der Gesamtprüfung Gruppe 7; vorher stand hier, sie werde
+    per Pfad geladen). Sie geht als versionierte Datei trotzdem mit."""
     rel = rel.replace("\\", "/")
     teile = rel.split("/")
     if rel in WERKSTATT_DATEIEN or "tests" in teile[:-1]:

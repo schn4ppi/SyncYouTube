@@ -747,7 +747,8 @@ def test_snippet_baecker(tmp_path, monkeypatch):
         rufe.append(cmd)
         with open(cmd[-1], "wb") as f:               # letztes Arg = tmp-Datei
             f.write(b"0" * 20000)
-        class R: pass
+        class R:
+            pass
         return R()
     import subprocess
     monkeypatch.setattr(subprocess, "run", fake_run)
