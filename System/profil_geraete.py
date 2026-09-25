@@ -293,11 +293,16 @@ async function koppeln(){
   if(location.search.indexOf('geraet=')>=0)history.replaceState(null,'',location.pathname);   // widerrufener Token: raus aus der Adresse
   /* SameSite=Strict: kam die Seite aus einer fremden App (QR-Scanner), fehlte
      das Cookie womöglich nur beim ersten Laden. Ein Abruf aus der Seite trägt
-     es; gilt der Zugang schon, einmal zurück zur Startseite statt neu koppeln. */
+     es; gilt der Zugang schon, zurück zur Startseite statt neu koppeln.
+     Schleifenwache über die Zeit (Abnahme 25.09.2026): landet der Tab binnen
+     30 s wieder hier, ist es eine Schleife, und das Gerät meldet sich an.
+     Vorher galt die Wache für die ganze Browser-Sitzung, und ein zweites
+     Öffnen aus dem TV-Starter legte am PC eine überflüssige Anfrage an. */
   let schonDa=false;
-  try{schonDa=!sessionStorage.getItem('ytdl_koppeln_zurueck')&&(await fetch('/api/status')).ok;}catch(e){}
+  try{const zuletzt=Number(sessionStorage.getItem('ytdl_koppeln_zurueck'))||0;
+      schonDa=Date.now()-zuletzt>30000&&(await fetch('/api/status')).ok;}catch(e){}
   if(schonDa){
-    try{sessionStorage.setItem('ytdl_koppeln_zurueck','1');}catch(e){}
+    try{sessionStorage.setItem('ytdl_koppeln_zurueck',String(Date.now()));}catch(e){}
     location.replace('/'); return;
   }
   const name=(navigator.userAgent.match(/Android TV|SmartTV|Silk|Android|iPhone|iPad/)||['Browser'])[0]+' '+

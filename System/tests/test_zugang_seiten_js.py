@@ -79,21 +79,46 @@ def test_koppelseite_eines_gekoppelten_geraets_meldet_es_nicht_neu_an(tmp_path):
     """SameSite=Strict: öffnet eine fremde App (QR-Scanner) die Seite, schickt
     der Browser das Cookie beim ersten Laden womöglich nicht mit, und ein
     gekoppeltes Gerät sähe die Kopplungsseite. Ein Abruf AUS der Seite trägt
-    es: gilt der Zugang, geht es einmal zurück auf die Startseite statt in eine
-    neue Anmeldung. Ein zweites Mal in derselben Sitzung nicht (keine Schleife)."""
+    es: gilt der Zugang, geht es zurück auf die Startseite statt in eine neue
+    Anmeldung. Die Schleifenwache entscheidet über die Zeit (Abnahme
+    25.09.2026): landet das Gerät binnen 30 s wieder hier, ist es eine Schleife
+    und es wird angemeldet; öffnet der TV-Starter denselben Tab später noch
+    einmal, geht es wieder zurück (vorher nur einmal je Browser-Sitzung, und
+    am PC erschien eine überflüssige Kopplungsanfrage)."""
     q = _koppel_skript()
-    (e1, e2) = _lauf(
+    (e1, e2, e3, e4) = _lauf(
         tmp_path, SPEICHER,
-        "const _sitzung={}; Object.defineProperty(globalThis,'sessionStorage',{configurable:true,writable:true,"
+        "let _sitzung={}; Object.defineProperty(globalThis,'sessionStorage',{configurable:true,writable:true,"
         " value:{getItem:k=>_sitzung[k]||null, setItem:(k,v)=>{_sitzung[k]=String(v);}}});",
+        "let _uhr=1790000000000; Date.now=()=>_uhr;",
         "_els.code={textContent:''}; globalThis.setInterval=()=>1;",
         "globalThis.fetch=async(u)=>{_spur.push('fetch:'+u); return {ok:u==='/api/status',status:200,"
         " json:async()=>(u.startsWith('/api/geraet_anmelden')?{geraet_id:'g',code:'C'}:{})};};",
         _js_funktion(q, "koppeln"),
         "await koppeln(); aus({spur:_spur.slice()}); _spur.length=0;",
-        "await koppeln(); aus({spur:_spur.slice()});")
+        "_uhr+=2000; await koppeln(); aus({spur:_spur.slice()}); _spur.length=0;",
+        "_sitzung={}; _uhr+=600000; await koppeln(); aus({spur:_spur.slice()}); _spur.length=0;",
+        "_uhr+=60000; await koppeln(); aus({spur:_spur.slice()});")
     assert e1["spur"] == ["fetch:/api/status", "replace:/"], e1
-    assert "fetch:/api/geraet_anmelden" in e2["spur"] and "replace:/" not in e2["spur"], e2
+    assert "fetch:/api/geraet_anmelden" in e2["spur"] and "replace:/" not in e2["spur"], \
+        f"nach 2 s ist es eine Schleife: {e2}"
+    assert e3["spur"] == ["fetch:/api/status", "replace:/"], e3
+    assert e4["spur"] == ["fetch:/api/status", "replace:/"], f"nach 60 s wieder zurück, keine neue Anfrage: {e4}"
+
+
+def test_koppelseite_nimmt_den_merker_der_alten_fassung(tmp_path):
+    """Die alte Fassung merkte '1' statt einer Zeit: kein Hindernis für den Rücksprung."""
+    q = _koppel_skript()
+    (e,) = _lauf(
+        tmp_path, SPEICHER,
+        "const _sitzung={ytdl_koppeln_zurueck:'1'}; Object.defineProperty(globalThis,'sessionStorage',"
+        "{configurable:true,writable:true,value:{getItem:k=>_sitzung[k]||null, setItem:(k,v)=>{_sitzung[k]=String(v);}}});",
+        "_els.code={textContent:''}; globalThis.setInterval=()=>1;",
+        "globalThis.fetch=async(u)=>{_spur.push('fetch:'+u); return {ok:u==='/api/status',status:200,"
+        " json:async()=>({})};};",
+        _js_funktion(q, "koppeln"), "await koppeln(); aus({spur:_spur.slice(), merker:_sitzung.ytdl_koppeln_zurueck});")
+    assert e["spur"] == ["fetch:/api/status", "replace:/"], e
+    assert int(e["merker"]) > 1_000_000_000_000, "gemerkt wird die Zeit des Sprungs"
 
 
 # ------------------------------------------------------------ Handy-Seite
