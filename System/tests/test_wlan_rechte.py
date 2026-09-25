@@ -5,7 +5,6 @@ Wie in test_zugang_und_vertrauen.py läuft jede Anfrage durch den ECHTEN
 Handler samt echtem Riegel, ohne Server und ohne Socket. Die Helfer und die
 Fixture `rechner` (Rechnername `JB-PC`, leere Versuchsbremse) kommen von dort.
 """
-import ast
 import json
 import os
 import sys
@@ -42,56 +41,15 @@ def test_alias_handy_ist_weg_und_m_bleibt(monkeypatch):
 
 
 # ------------------------------------------------------------ 7a Punkt 2: WLAN-Rechte (S10)
-# Die Routen kommen aus dem Syntaxbaum des Routers, nicht aus einer Handliste:
-# eine neue Route ohne Einordnung macht den Test rot, eine verwaiste Einordnung
-# ebenso. Welche Route wohin gehört, steht nur in LAN_ERLAUBT und NUR_PC.
+# Die Routen kommen aus der Routentabelle des Routers (app.ROUTEN, Gesamtprüfung
+# Y7), nicht aus einer Handliste: eine neue Route ohne Einordnung macht den
+# Test rot, eine verwaiste Einordnung ebenso. Welche Route wohin gehört, steht
+# nur in LAN_ERLAUBT und NUR_PC. Dass der Router wirklich nach dieser Tabelle
+# verteilt (und nach nichts sonst), prüft tests/test_routen.py. Vorher las
+# diese Datei die Pfade aus dem Syntaxbaum der if/elif-Ketten; über den
+# alten Stand ergab das dieselben 77 Routen wie die Tabelle.
 
-def _ist_pfad_ausdruck(k, namen=frozenset()):
-    """`self.path`, `urlparse(self.path).path` oder ein lokaler Name, der
-    diesen Wert trägt (`pfad = urlparse(self.path).path`)."""
-    if isinstance(k, ast.Name):
-        return k.id in namen
-    if isinstance(k, ast.Attribute) and k.attr == "path":
-        if isinstance(k.value, ast.Name) and k.value.id == "self":
-            return True
-        return bool(isinstance(k.value, ast.Call) and isinstance(k.value.func, ast.Name)
-                    and k.value.func.id == "urlparse" and k.value.args
-                    and _ist_pfad_ausdruck(k.value.args[0]))
-    return False
-
-
-def _routen_aus_dem_code():
-    """(Methode, Pfad) jeder Route, wie der Router sie vergleicht: `==`, `in (…)`
-    und `.startswith(…)` auf dem Pfad in Handler._get_routen/_post_routen."""
-    with open(app.__file__, encoding="utf-8") as f:
-        baum = ast.parse(f.read())
-    handler = next(k for k in baum.body if isinstance(k, ast.ClassDef) and k.name == "Handler")
-    methoden = {f.name: f for f in handler.body if isinstance(f, ast.FunctionDef)}
-    routen = set()
-    for name, methode in (("_get_routen", "GET"), ("_post_routen", "POST")):
-        if name not in methoden:                     # alter Stand ohne getrennten Router
-            continue
-        namen = frozenset(z.id for k in ast.walk(methoden[name]) if isinstance(k, ast.Assign)
-                          and _ist_pfad_ausdruck(k.value)
-                          for z in k.targets if isinstance(z, ast.Name))
-        for k in ast.walk(methoden[name]):
-            werte = []
-            if isinstance(k, ast.Compare) and _ist_pfad_ausdruck(k.left, namen):
-                for op, rechts in zip(k.ops, k.comparators):
-                    if isinstance(op, ast.Eq):
-                        werte.append(rechts)
-                    elif isinstance(op, ast.In) and isinstance(rechts, (ast.Tuple, ast.List, ast.Set)):
-                        werte.extend(rechts.elts)
-            elif (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute)
-                  and k.func.attr == "startswith" and _ist_pfad_ausdruck(k.func.value, namen)):
-                werte.extend(k.args)
-            for w in werte:
-                if isinstance(w, ast.Constant) and isinstance(w.value, str):
-                    routen.add((methode, w.value))
-    return routen
-
-
-ROUTEN = sorted(_routen_aus_dem_code())
+ROUTEN = sorted(app.ROUTEN)
 
 # Routen mit Prüfer: eine Probe, die aus dem WLAN durchgeht, und Proben, die
 # nur am PC gehen. Jede Route mit Prüfer MUSS hier Proben haben.

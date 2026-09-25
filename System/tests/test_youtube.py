@@ -4720,8 +4720,10 @@ def test_browser_player_und_bild_kette():
     i = quelle.index("function tvpIdleTick")
     assert "vlc_standbild" in quelle[i:_funktionsende(quelle, i)]
     src = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
-    i = src.index('route == "/api/filme/direkt"')       # GET-Router seit Gruppe 6: genauer Pfad
-    b = src[i:src.index('elif route == "/api/filme/bild"', i)]
+    # Seit Gesamtprüfung Y7: die Route hat eigene Methoden (Routentabelle ROUTEN).
+    import inspect
+    b = "".join(inspect.getsource(getattr(app.Handler, n)) for n in (
+        app.ROUTEN[("GET", "/api/filme/direkt")], "_film_transkodiert_senden", "_film_strom_durchreichen"))
     assert "filme.stream_url" in b and '"Range"' in b and "_letzter_stream" in b, \
         "Proxy: Token am PC, Range durchreichen, Neustart-Ruhe pflegen"
     assert '"standbild"' in src and "video_take_snapshot" in src

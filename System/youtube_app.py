@@ -6969,6 +6969,94 @@ NUR_PC = {
 }
 
 
+# Routentabelle (Gesamtprüfung Y7, 25.09.2026): (Methode, Pfad) -> Name der
+# Handler-Methode, die antwortet. Verglichen wird genau mit dem Pfad ohne
+# Anfrageteil (urlparse(self.path).path), wie im WLAN-Tor; HEAD folgt GET.
+# Vorher zwei if/elif-Ketten, in denen die Reihenfolge zählen konnte. Die
+# Rechte stehen weiter nur in LAN_ERLAUBT und NUR_PC: jede Route steht in
+# genau einer der beiden, jeder Eintrag dort hat eine Route (Wächter
+# tests/test_wlan_rechte.py, abgeleitet aus dieser Tabelle).
+ROUTEN = {
+    ("GET", "/koppeln"): "_get_koppeln",
+    ("GET", "/fernbedienung"): "_get_fernbedienung",
+    ("GET", "/m"): "_get_handy",
+    ("GET", "/"): "_get_oberflaeche",
+    ("GET", "/index.html"): "_get_oberflaeche",
+    ("GET", "/api/status"): "_get_status",
+    ("GET", "/addon.xpi"): "_get_addon_xpi",
+    ("GET", "/api/bibliothek"): "_get_bibliothek",
+    ("GET", "/api/playlists"): "_get_playlists",
+    ("GET", "/api/abos"): "_get_abos",
+    ("GET", "/api/kanal_info"): "_get_kanal_info",
+    ("GET", "/api/cover"): "_get_cover",
+    ("GET", "/api/filme/katalog"): "_get_filme_katalog",
+    ("GET", "/api/filme/zustand"): "_get_filme_zustand",
+    ("GET", "/api/filme/reihen"): "_get_filme_reihen",
+    ("GET", "/api/filme/detail"): "_get_filme_detail",
+    ("GET", "/api/profile"): "_get_profile",
+    ("GET", "/api/geraet_status"): "_get_geraet_status",
+    ("GET", "/api/geraete"): "_get_geraete",
+    ("GET", "/api/geraet_qr"): "_get_geraet_qr",
+    ("GET", "/api/filme/snippet"): "_get_filme_snippet",
+    ("GET", "/api/live"): "_get_live",
+    ("GET", "/api/filme/wuenschen"): "_get_filme_wuenschen",
+    ("GET", "/api/filme/anfragen"): "_get_filme_anfragen",
+    ("GET", "/api/filme/episoden"): "_get_filme_episoden",
+    ("GET", "/api/filme/mehrwie"): "_get_filme_mehrwie",
+    ("GET", "/api/vlc_standbild"): "_get_vlc_standbild",
+    ("GET", "/api/filme/direkt"): "_get_filme_direkt",
+    ("GET", "/api/filme/bild"): "_get_filme_bild",
+    ("GET", "/api/addon_hab_liste"): "_get_addon_hab_liste",
+    ("GET", "/api/addon_hab"): "_get_addon_hab",
+    ("GET", "/api/addon_update"): "_get_addon_update",
+    ("GET", "/api/schaetzfaktoren"): "_get_schaetzfaktoren",
+    ("GET", "/api/ordner_waehlen"): "_get_ordner_waehlen",
+    ("GET", "/api/pfad_da"): "_get_pfad_da",
+    ("GET", "/api/migration_probelauf"): "_get_migration_probelauf",
+    ("GET", "/api/entdecken"): "_get_entdecken",
+    ("GET", "/api/playlist_export"): "_get_playlist_export",
+    ("GET", "/api/geo_status"): "_get_geo_status",
+    ("GET", "/api/lyrics"): "_get_lyrics",
+    ("GET", "/api/transkript_suche"): "_get_transkript_suche",
+    ("GET", "/api/untertitel"): "_get_untertitel",
+    ("GET", "/media"): "_get_media",
+    ("POST", "/api/remote"): "_post_remote",
+    ("POST", "/api/vlc"): "_post_vlc",
+    ("POST", "/api/wiedergabe"): "_post_wiedergabe",
+    ("POST", "/api/addon_nachschub"): "_post_addon_nachschub",
+    ("POST", "/api/beenden"): "_post_beenden",
+    ("POST", "/api/add"): "_post_add",
+    ("POST", "/api/action"): "_post_action",
+    ("POST", "/api/config"): "_post_config",
+    ("POST", "/api/code_erneuern"): "_post_code_erneuern",
+    ("POST", "/api/js_fehler"): "_post_js_fehler",
+    ("POST", "/api/played"): "_post_played",
+    ("POST", "/api/biblio"): "_post_biblio",
+    ("POST", "/api/biblio_enrich"): "_post_biblio_enrich",
+    ("POST", "/api/umbenennen"): "_post_umbenennen",
+    ("POST", "/api/playlist"): "_post_playlist",
+    ("POST", "/api/geo_wireguard"): "_post_geo_wireguard",
+    ("POST", "/api/geo_test"): "_post_geo_test",
+    ("POST", "/api/playlist_import"): "_post_playlist_import",
+    ("POST", "/api/link_deuten"): "_post_link_deuten",
+    ("POST", "/api/abo"): "_post_abo",
+    ("POST", "/api/clip"): "_post_clip",
+    ("POST", "/api/clip_favorit"): "_post_clip_favorit",
+    ("POST", "/api/untertitel_laden"): "_post_untertitel_laden",
+    ("POST", "/api/autotag"): "_post_autotag",
+    ("POST", "/api/filme/sync"): "_post_filme_sync",
+    ("POST", "/api/filme/play"): "_post_filme_play",
+    ("POST", "/api/filme/merk"): "_post_filme_merk",
+    ("POST", "/api/geraet_anmelden"): "_post_geraet_anmelden",
+    ("POST", "/api/geraet_bestaetigen"): "_post_geraet_bestaetigen",
+    ("POST", "/api/geraet_entfernen"): "_post_geraet_entfernen",
+    ("POST", "/api/profil_anlegen"): "_post_profil_anlegen",
+    ("POST", "/api/filme/anfragen"): "_post_filme_anfragen",
+    ("POST", "/api/live/play"): "_post_live_play",
+    ("POST", "/api/filme/fortschritt"): "_post_filme_fortschritt",
+}
+
+
 def lan_ablehnung(methode, pfad, daten):
     """Ablehnungstext für eine Anfrage aus dem WLAN, oder None, wenn sie darf."""
     methode = "GET" if methode == "HEAD" else methode
@@ -7188,367 +7276,443 @@ class Handler(BaseHTTPRequestHandler):
         self._get_routen()
 
     def _get_routen(self):
-        """Der GET-Router; Riegel und WLAN-Tor liegen davor in do_GET. Verglichen
-        wird wie im Tor und im POST-Router der Pfad ohne Anfrageteil, genau
-        (Gruppe 6: vorher teils self.path samt Anfrageteil, teils nur der Anfang)."""
-        route = urlparse(self.path).path
-        if route == "/koppeln":       # Pairing-Seite direkt
-            return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
-        if route == "/fernbedienung":  # Fake-Fernbedienung (JB 07.08.), heiß wie die Oberfläche
-            return _antwort(self, 200, _seite_frisch("fernbedienung").encode("utf-8"), "text/html")
-        # Der Alias /handy ist entfallen (JB-Entscheid 7a Punkt 8, 25.09.2026): kein
-        # Verweis, das README nennt nur /m.
-        if route == "/m":                 # schlanke Handy-Oberfläche
-            return _antwort(self, 200, _seite_frisch("handy").encode("utf-8"), "text/html")
-        if route in ("/", "/index.html"):
-            # Query ignorieren (JB 21.07.: Dashboard lädt „/?embed=1" -> Einbettungs-Modus).
-            # Oberfläche bei jedem Aufruf FRISCH laden (sonst cacht Python das Modul
-            # und Änderungen an oberflaeche.py erscheinen erst nach App-Neustart —
-            # ein Browser-Refresh reicht jetzt).
-            _antwort(self, 200, _seite_frisch("oberflaeche").encode("utf-8"), "text/html")
-        elif route == "/api/status":
-            lokal = self._ist_lokal()
-            # Nachtprüfung 06.08. (Riegel-Regel „Externe nur mit Zugangsdaten"):
-            # der volle Status verriet aus dem LAN den Fernsteuerungs-Code
-            # (Widerruf damit wirkungslos) und die ganze Config (Pfade,
-            # Proxys). Nicht-lokal bekommt nur, was die Handy-UI braucht.
-            # ui_stand: mtime der Oberfläche samt Baustein (_ui_stand).
-            ui_stand = _ui_stand()
-            # F7: unter Q.lock nur der Schnappschuss der Liste; Platte, Statistik
-            # und das Senden (ein langsamer Client im WLAN) laufen ohne Sperre.
-            with Q.lock:
-                items = [dict(it) for it in Q.items]
-            # „lokal“ (7a Punkt 1): die Oberfläche blendet auf Geräten im WLAN
-            # die Einstellungen und alle nur-PC-Aktionen aus.
-            if lokal:
-                _antwort(self, 200, {"items": items, "config": CFG, "lokal": True,
-                                     "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_exe()),
-                                     "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
-                                     "remote": _remote, "fernsteuerung": fernsteuerung_info(),
-                                     "addon_nachschub": _addon_nachschub,
-                                     "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
-                                     "ui_stand": ui_stand, "jetzt": time.time()})
-            else:
-                # „wiedergabe“ (Untertitel-Größe, Tempo je Titel) seit 25.09.2026:
-                # ein gekoppelter Fernseher spielt mit JBs Wiedergabe-Regeln.
-                harmlos = {k: CFG.get(k) for k in
-                           ("standard_qualitaet", "unterordner", "metadaten",
-                            "untertitel", "parallel", "wiedergabe")}
-                _antwort(self, 200, {"items": items, "config": harmlos, "lokal": False,
-                                     "ffmpeg": bool(_ffmpeg_exe()),
-                                     "db": db_statistik(),
-                                     "ui_stand": ui_stand, "jetzt": time.time()})
-        elif route == "/addon.xpi":
-            # Signierte Firefox-Erweiterung direkt aus der App installieren —
-            # richtiger MIME-Typ, damit Firefox den Installations-Dialog zeigt.
-            p = _addon_xpi_pfad()
-            if not p:
-                return _antwort(self, 404, {"fehler": "Keine signierte Erweiterung da "
-                                            "(browser-addon/dist/*.xpi fehlt)."})
-            with open(p, "rb") as f:
-                body = f.read()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/x-xpinstall")
-            self.send_header("Content-Length", str(len(body)))
-            _cors(self)
-            self.end_headers()
-            self.wfile.write(body)
-        elif route == "/api/bibliothek":
-            # Build 122 (JB: „Dateien aus dem Ordner aufnehmen sollte
-            # selbstständig passieren — merkt man das nicht?"): Wer die
-            # Bibliothek ansieht, bekommt sie frisch. Der Ordner-Blick läuft
-            # dafür kurz vorher, höchstens einmal pro Minute und im
-            # Hintergrund — KEIN Dauerprozess, kein neuer Zeitplan
-            # (Last-Budget-Regel), aber in der Praxis merkt man es sofort.
-            _auto_import_anstossen()
-            # F7: bibliothek_liste arbeitet auf einem Schnappschuss (F6); der
-            # Ordnerlauf (_datei_index) und das Senden halten keine Sperre.
-            _antwort(self, 200, {"items": bibliothek_liste()})
-        elif route == "/api/playlists":
-            with _io_lock:                            # F7: Text unter der Sperre, Senden danach
-                body = json.dumps({"items": _playlists}, ensure_ascii=False).encode("utf-8")
-            _antwort(self, 200, body)
-        elif route == "/api/abos":
-            with _io_lock:
-                body = json.dumps({"items": _abos}, ensure_ascii=False).encode("utf-8")
-            _antwort(self, 200, body)
-        elif route == "/api/kanal_info":   # ganzen Kanal aufloesen (Name + Videozahl)
-            q = parse_qs(urlparse(self.path).query)
-            url = (q.get("url") or [""])[0]
-            _antwort(self, 200, kanal_info(url, limit=(q.get("limit") or [None])[0]))
-        elif route == "/api/cover":       # eingebettetes Album-Cover (Etappe A)
-            key = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            bild = cover_aus_datei(key)
-            if bild:
-                # 1 h Browser-Cache: die Bibliothek malt sich oft neu, das
-                # Cover in der Datei ändert sich praktisch nie (JB 05.08.:
-                # Kacheln zeigen jetzt das echte Cover — ohne Cache läse der
-                # Server bei jedem Filter/Sortieren alle MP3s neu).
-                _antwort(self, 200, bild, "image/jpeg", cache=3600)
-            else:
-                _antwort(self, 404, {"fehler": "kein eingebettetes Cover"})
-        # ---- Film-Fundament (Doku/SYNC_FILME_SPEC.md): nur gemappte Felder
-        # und lokal gecachte Bilder gehen raus — nie Token/Server-Adresse.
-        elif route == "/api/filme/katalog":
-            _antwort(self, 200, filme.katalog_lesen())
-        elif route == "/api/filme/zustand":
-            # Damit ein Ausfall SICHTBAR wird: der 403 vom 06.08. lief sieben
-            # Tage, ohne dass irgendetwas davon erzählt hat — auch vom Sofa aus
-            # muss man das sehen, die Route ist deshalb nicht lokal-only.
-            # ABER: der rohe Fehlertext kann eine urllib-Ausnahme MIT Renés
-            # Server-Adresse enthalten. Fremde Geräte im WLAN bekommen deshalb
-            # nur die Tatsache, nicht den Wortlaut.
-            # Seit 24.09. mit Fehlerart: fremde Geräte bekommen einen Kurztext je
-            # Art (ohne Adresse, ohne Rohtext) statt pauschal „nicht erreichbar"
-            # — der Ausfall vom 23.09. war erreichbar, er lehnte die Anmeldeform ab.
-            z = filme.zustand()
-            if not self._ist_lokal() and z.get("fehler"):
-                z["fehler"] = filme.FEHLER_ART_TEXT.get(z.get("fehler_art"),
-                                                        "Server nicht erreichbar")
-            _antwort(self, 200, z)
-        elif route == "/api/filme/reihen":
-            _antwort(self, 200, filme.reihen(self._geraet_profil()))
-        elif route == "/api/filme/detail":
-            fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            d = filme.detail(fid, self._geraet_profil())
-            if d:
-                _antwort(self, 200, d)
-            else:
-                _antwort(self, 404, {"fehler": "unbekannter Film"})
-        # ---- Teilprojekt 3: Profile + Geräte -------------------------------
-        elif route == "/api/profile":
-            _antwort(self, 200, {"items": profil_geraete.profil_liste(),
-                                 "aktiv": self._geraet_profil()})
-        elif route == "/api/geraet_status":   # Pairing-Poll (frei)
-            q = parse_qs(urlparse(self.path).query)
-            t = profil_geraete.geraet_token_abholen(
-                (q.get("id") or [""])[0], (q.get("code") or [""])[0])
-            _antwort(self, 200, t or {"wartet": True})
-        elif route == "/api/geraete":         # NUR PC: Geräte-Übersicht (NUR_PC)
-            _antwort(self, 200, {"items": profil_geraete.geraete_liste(),
-                                 "url": f"http://{_lan_ip()}:{int(CFG.get('port', 8776))}/koppeln",
-                                 "wlan": bool(CFG.get("fernsteuerung"))})
-        elif route == "/api/geraet_qr":       # NUR PC: QR zum Abfotografieren (NUR_PC)
-            try:
-                import io
-                import qrcode
-                img = qrcode.make(f"http://{_lan_ip()}:{int(CFG.get('port', 8776))}/koppeln")
-                b = io.BytesIO()
-                img.save(b, "PNG")
-                _antwort(self, 200, b.getvalue(), "image/png")
-            except Exception as e:                   # noqa: BLE001 — Link steht daneben
-                _antwort(self, 500, {"fehler": f"QR: {e}"})
-        elif route == "/api/filme/snippet":   # Hover-Szene (6 s, stumm)
-            fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            clip = filme.snippet_lesen(fid)
-            if clip:
-                _antwort(self, 200, clip, "video/mp4", cache=86400)
-            else:                                     # noch nicht gebacken ⇒ anstoßen
-                threading.Thread(target=filme.snippet_backen, args=(fid,),
-                                 daemon=True).start()
-                _antwort(self, 404, {"wartet": True})
-        elif route == "/api/live":           # 📡 Live-Kanäle (kodinerds)
-            _antwort(self, 200, {"items": live_tv.kanaele(), "status": live_tv.status()})
-        elif route == "/api/filme/wuenschen":  # Seerr-Suche (Teilprojekt 4)
-            q = (parse_qs(urlparse(self.path).query).get("q") or [""])[0]
-            _antwort(self, 200, {"items": filme.seerr_suche(q)})
-        elif route == "/api/filme/anfragen":   # meine Wünsche + Stand
-            _antwort(self, 200, {"items": filme.seerr_meine()})
-        elif route == "/api/filme/episoden":  # Serien: Staffeln + Folgen
-            fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            # Additiv (24.09.): bei gestörtem Zugang zusätzlich fehler 'zugang'|
-            # 'netz' — sonst sah ein 401 aus wie eine Serie ohne Folgen.
-            items, fehler = filme.episoden_mit_grund(fid)
-            _antwort(self, 200, {"items": items, "fehler": fehler} if fehler
-                     else {"items": items})
-        elif route == "/api/filme/mehrwie":   # TMDB-Empfehlungen ∩ Katalog
-            fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            _antwort(self, 200, {"items": filme.mehr_wie(fid)})
-        elif route == "/api/vlc_standbild":
-            try:
-                with open(os.path.join(DATEN_DIR, "vlc_standbild.png"), "rb") as f:
-                    _antwort(self, 200, f.read(), "image/png")
-            except OSError:
-                _antwort(self, 404, {"fehler": "kein Standbild"})
-        elif route == "/api/filme/direkt":
-            # Browser-Player (JB 06.08.: „Ich will wie bei netflix das im
-            # Browser öffnen"): der Server PROXYT den Jellyfin-Strom mit
-            # Range-Durchreichung — der Token bleibt auf diesem PC, der
-            # Client sieht nur diese Adresse. Mit tc=1 (JB-Go: „Geh das
-            # serverseitige Transcoding an") wandelt ffmpeg unterwegs:
-            # Video bleibt Kopie, wenn der Browser es kann (vcopy=1, z. B.
-            # h264+AC3 → nur der Ton wird AAC), sonst libx264; Container
-            # wird fragmentiertes MP4 — das spielt jedes <video>.
-            q = parse_qs(urlparse(self.path).query)
-            # JBs Druck (der Film läuft, weil er ▶ gedrückt hat): durch die
-            # Merkmal-Ruhe, höchstens eine Anmeldung je Ruhe (Prüfung Runde 2).
-            url = filme.stream_url((q.get("id") or [""])[0], druck=True)
-            if not url:
-                return _antwort(self, 503, {"fehler": "Anmeldung bei Jellyfin "
-                                            "gescheitert — heilt sich nach dem "
-                                            "Anmelde-Backoff von selbst."})
-            globals()["_letzter_stream"] = time.time()   # Selbst-Neustart wartet
-            if (q.get("tc") or ["0"])[0] == "1":
-                if not _ffmpeg_exe():
-                    return _antwort(self, 503, {"fehler": "ffmpeg fehlt"})
-                abgelehnt = _strom_vorprobe(url)
-                if abgelehnt:                            # ehrlich wie der Direkt-Zweig; ffmpeg startet nicht
-                    return _antwort(self, *abgelehnt)
-                try:
-                    start = max(0, int(float((q.get("start") or ["0"])[0])))
-                except (TypeError, ValueError):
-                    start = 0
-                cmd = _transcode_befehl(
-                    url, start, (q.get("vcopy") or ["0"])[0] == "1")
-                proz = _tc_starten(cmd)
-                self.send_response(200)
-                self.send_header("Content-Type", "video/mp4")
-                self.send_header("Accept-Ranges", "none")
-                self.end_headers()
-                _schreib_zeitlimit_aufheben(self)        # S14: Pause darf den Strom nicht töten
-                try:
-                    while True:
-                        stueck = proz.stdout.read(262144)
-                        if not stueck:
-                            break
-                        self.wfile.write(stueck)
-                        globals()["_letzter_stream"] = time.time()
-                except (OSError, ConnectionError):
-                    pass                                 # Client weg — ffmpeg stirbt mit
-                finally:
-                    try:
-                        proz.kill()
-                    except OSError:
-                        pass
-                return
-            kopf = {}
-            if self.headers.get("Range"):
-                kopf["Range"] = self.headers["Range"]
-            try:
-                req = urllib.request.Request(url, headers=kopf)
-                try:
-                    r = urllib.request.urlopen(req, timeout=30)
-                except urllib.request.HTTPError as e:
-                    # Ehrlich statt still (Gegenprüfung 24.09.): HTTPError ist ein
-                    # OSError und landete im stillen except unten — es ging GAR
-                    # KEINE Antwort raus, der Browser sah nur einen abgebrochenen
-                    # Strom. Jetzt Jellyfins Status und ein kurzer Text; nie die
-                    # Adresse (sie trägt das Token).
-                    e.close()
-                    return _antwort(self, *_strom_fehler(e))
-                except OSError:                          # URLError, Zeitüberschreitung
-                    return _antwort(self, *_strom_fehler())
-                with r:
-                    self.send_response(r.status)
-                    for h in ("Content-Type", "Content-Length",
-                              "Content-Range", "Accept-Ranges"):
-                        if r.headers.get(h):
-                            self.send_header(h, r.headers[h])
-                    self.end_headers()
-                    _schreib_zeitlimit_aufheben(self)    # S14: Pause darf den Strom nicht töten
-                    while True:
-                        stueck = r.read(262144)
-                        if not stueck:
-                            break
-                        self.wfile.write(stueck)
-                        globals()["_letzter_stream"] = time.time()
-            except (OSError, ConnectionError):
-                pass                                     # Client weg / Netz — still
-        elif route == "/api/filme/bild":
-            q = parse_qs(urlparse(self.path).query)
-            bild = filme.bild_holen((q.get("id") or [""])[0],
-                                    (q.get("art") or ["Primary"])[0])
-            if bild:
-                _antwort(self, 200, bild, "image/jpeg", cache=86400)
-            else:
-                _antwort(self, 404, {"fehler": "kein Bild"})
-        elif route == "/api/addon_hab_liste":  # Erweiterung: Playlist schon eingereiht? (v1.1.2)
-            lid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            _antwort(self, 200, addon_hab_liste(lid))
-        elif route == "/api/addon_hab":    # Erweiterung: Video schon in der Bibliothek? (Build 98)
-            vid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            _antwort(self, 200, addon_hab(vid))
-        elif route == "/api/addon_update":  # Erweiterung: neueste Kanal-Version (v1.1.1)
-            _antwort(self, 200, addon_update_info())
-        elif route == "/api/schaetzfaktoren":   # MB/min je Qualitaet (Build 105)
-            _antwort(self, 200, {q: _mb_pro_min(q) for q in QUALITAETEN})
-        elif route == "/api/ordner_waehlen":    # nativer Ordnerdialog (Build 108), NUR_PC
-            start = (parse_qs(urlparse(self.path).query).get("start") or [""])[0]
-            _antwort(self, 200, ordner_waehlen(start))
-        elif route == "/api/pfad_da":      # Sync-Fenster-Failsafe (Build 109), NUR_PC
-            _antwort(self, 200, pfad_da((parse_qs(urlparse(self.path).query).get("pfad") or [""])[0]))
-        elif route == "/api/migration_probelauf":   # Umbenennen, NUR Auslese (Build 112/113), NUR_PC
-            q = parse_qs(urlparse(self.path).query)
-            roh = (q.get("schema") or [""])[0]
-            schema = [b for b in roh.split(",") if b in NAME_BAUSTEINE] or None
-            plan = migration_probelauf(schema)
-            _antwort(self, 200, {"eintraege": plan[:400],
-                                 "gesamt": len(plan),
-                                 "bereit": sum(1 for x in plan if not x["konflikt"]),
-                                 "konflikte": sum(1 for x in plan if x["konflikt"]),
-                                 "laeufe": migration_laeufe()[-5:]})
-        elif route == "/api/entdecken":    # 📻 Neues entdecken (Build 99)
-            q = parse_qs(urlparse(self.path).query)
-            _antwort(self, 200, entdecken((q.get("pl") or [""])[0],
-                                          seeds=(q.get("seeds") or [3])[0],
-                                          je_seed=(q.get("je") or [25])[0]))
-        elif route == "/api/playlist_export":
-            pid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            pl = next((p for p in _playlists if p.get("id") == pid), None)
-            if not pl:
-                return _antwort(self, 404, {"fehler": "Playlist unbekannt"})
-            body = playlist_m3u(pl).encode("utf-8")
-            fn = re.sub(r"[^\w .-]", "_", pl.get("name", "playlist"))[:60] or "playlist"
-            self.send_response(200)
-            self.send_header("Content-Type", "audio/x-mpegurl; charset=utf-8")
-            self.send_header("Content-Disposition", f'attachment; filename="{fn}.m3u"')
-            self.send_header("Content-Length", str(len(body)))
-            _cors(self)
-            self.end_headers()
-            self.wfile.write(body)
-        elif route == "/api/geo_status":
-            st = geo.status(CFG)
-            st["config"] = {k: CFG.get(k) for k in ("geo_vpn", "geo_gratis_proxy")}
-            st["proxy_anzahl"] = len(CFG.get("geo_proxies") or [])
-            st["test"] = _geo_test
-            _antwort(self, 200, st)
-        elif route == "/api/lyrics":
-            q = parse_qs(urlparse(self.path).query)
-            key = (q.get("id") or [""])[0]
-            lrc = lyrics_holen(key)
-            _antwort(self, 200, {"lrc": lrc, "quelle": "lrclib" if lrc else ""})
-        elif route == "/api/transkript_suche":
-            q = parse_qs(urlparse(self.path).query)
-            _antwort(self, 200, {"treffer": transkript_suche((q.get("q") or [""])[0])})
-        elif route == "/api/untertitel":
-            q = parse_qs(urlparse(self.path).query)
-            key = (q.get("id") or [""])[0]
-            wunsch = (q.get("lang") or [""])[0]
-            romaji = (q.get("romaji") or ["0"])[0] == "1"
-            f, lang = untertitel_datei(key, wunsch or None)
-            if not f:
-                return _antwort(self, 404, {"fehler": "keine Untertitel auf der Platte"})
-            try:
-                with open(f, encoding="utf-8", errors="replace") as fh:
-                    text = fh.read()
-                # Romaji nur für Japanisch/Original-Spuren (Latein-Texte laufen eh durch)
-                if romaji and (lang.lower().startswith("ja") or lang.lower().endswith("-orig")):
-                    text = _romaji(text)
-                else:
-                    romaji = False
-                _antwort(self, 200, {"lang": lang, "vtt": text, "romaji": romaji,
-                                     "sprachen": [s for _, s in untertitel_liste(key)]})
-            except OSError:
-                _antwort(self, 404, {"fehler": "Untertitel-Datei nicht lesbar"})
-        elif route == "/media":
-            key = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            pfad = _pfad_zu_key(key)
-            if pfad and os.path.isfile(pfad):
-                _stream_datei(self, pfad)
-            else:
-                _antwort(self, 404, {"fehler": "Datei nicht gefunden"})
+        """Der GET-Router (HEAD folgt ihm); Riegel und WLAN-Tor liegen davor in
+        do_GET. Ein Nachschlag in ROUTEN mit dem Pfad ohne Anfrageteil, genau
+        wie im Tor und im POST-Router (Gesamtprüfung Y7; vorher eine
+        if/elif-Kette, seit Gruppe 6 schon mit genauem Vergleich)."""
+        methode = ROUTEN.get(("GET", urlparse(self.path).path))
+        if methode is None:
+            return _antwort(self, 404, {"fehler": "unbekannt"})
+        return getattr(self, methode)()
+
+    def _get_koppeln(self):
+        # Pairing-Seite direkt
+        return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
+
+    def _get_fernbedienung(self):
+        # Fake-Fernbedienung (JB 07.08.), heiß wie die Oberfläche
+        return _antwort(self, 200, _seite_frisch("fernbedienung").encode("utf-8"), "text/html")
+
+    # Der Alias /handy ist entfallen (JB-Entscheid 7a Punkt 8, 25.09.2026): kein
+    # Verweis, das README nennt nur /m.
+    def _get_handy(self):
+        # schlanke Handy-Oberfläche
+        return _antwort(self, 200, _seite_frisch("handy").encode("utf-8"), "text/html")
+
+    def _get_oberflaeche(self):
+        # Query ignorieren (JB 21.07.: Dashboard lädt „/?embed=1" -> Einbettungs-Modus).
+        # Oberfläche bei jedem Aufruf FRISCH laden (sonst cacht Python das Modul
+        # und Änderungen an oberflaeche.py erscheinen erst nach App-Neustart —
+        # ein Browser-Refresh reicht jetzt).
+        _antwort(self, 200, _seite_frisch("oberflaeche").encode("utf-8"), "text/html")
+
+    def _get_status(self):
+        lokal = self._ist_lokal()
+        # Nachtprüfung 06.08. (Riegel-Regel „Externe nur mit Zugangsdaten"):
+        # der volle Status verriet aus dem LAN den Fernsteuerungs-Code
+        # (Widerruf damit wirkungslos) und die ganze Config (Pfade,
+        # Proxys). Nicht-lokal bekommt nur, was die Handy-UI braucht.
+        # ui_stand: mtime der Oberfläche samt Baustein (_ui_stand).
+        ui_stand = _ui_stand()
+        # F7: unter Q.lock nur der Schnappschuss der Liste; Platte, Statistik
+        # und das Senden (ein langsamer Client im WLAN) laufen ohne Sperre.
+        with Q.lock:
+            items = [dict(it) for it in Q.items]
+        # „lokal“ (7a Punkt 1): die Oberfläche blendet auf Geräten im WLAN
+        # die Einstellungen und alle nur-PC-Aktionen aus.
+        if lokal:
+            _antwort(self, 200, {"items": items, "config": CFG, "lokal": True,
+                                 "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_exe()),
+                                 "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
+                                 "remote": _remote, "fernsteuerung": fernsteuerung_info(),
+                                 "addon_nachschub": _addon_nachschub,
+                                 "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
+                                 "ui_stand": ui_stand, "jetzt": time.time()})
         else:
-            _antwort(self, 404, {"fehler": "unbekannt"})
+            # „wiedergabe“ (Untertitel-Größe, Tempo je Titel) seit 25.09.2026:
+            # ein gekoppelter Fernseher spielt mit JBs Wiedergabe-Regeln.
+            harmlos = {k: CFG.get(k) for k in
+                       ("standard_qualitaet", "unterordner", "metadaten",
+                        "untertitel", "parallel", "wiedergabe")}
+            _antwort(self, 200, {"items": items, "config": harmlos, "lokal": False,
+                                 "ffmpeg": bool(_ffmpeg_exe()),
+                                 "db": db_statistik(),
+                                 "ui_stand": ui_stand, "jetzt": time.time()})
+
+    def _get_addon_xpi(self):
+        # Signierte Firefox-Erweiterung direkt aus der App installieren —
+        # richtiger MIME-Typ, damit Firefox den Installations-Dialog zeigt.
+        p = _addon_xpi_pfad()
+        if not p:
+            return _antwort(self, 404, {"fehler": "Keine signierte Erweiterung da "
+                                        "(browser-addon/dist/*.xpi fehlt)."})
+        with open(p, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-xpinstall")
+        self.send_header("Content-Length", str(len(body)))
+        _cors(self)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _get_bibliothek(self):
+        # Build 122 (JB: „Dateien aus dem Ordner aufnehmen sollte
+        # selbstständig passieren — merkt man das nicht?"): Wer die
+        # Bibliothek ansieht, bekommt sie frisch. Der Ordner-Blick läuft
+        # dafür kurz vorher, höchstens einmal pro Minute und im
+        # Hintergrund — KEIN Dauerprozess, kein neuer Zeitplan
+        # (Last-Budget-Regel), aber in der Praxis merkt man es sofort.
+        _auto_import_anstossen()
+        # F7: bibliothek_liste arbeitet auf einem Schnappschuss (F6); der
+        # Ordnerlauf (_datei_index) und das Senden halten keine Sperre.
+        _antwort(self, 200, {"items": bibliothek_liste()})
+
+    def _get_playlists(self):
+        with _io_lock:                            # F7: Text unter der Sperre, Senden danach
+            body = json.dumps({"items": _playlists}, ensure_ascii=False).encode("utf-8")
+        _antwort(self, 200, body)
+
+    def _get_abos(self):
+        with _io_lock:
+            body = json.dumps({"items": _abos}, ensure_ascii=False).encode("utf-8")
+        _antwort(self, 200, body)
+
+    def _get_kanal_info(self):
+        # ganzen Kanal aufloesen (Name + Videozahl)
+        q = parse_qs(urlparse(self.path).query)
+        url = (q.get("url") or [""])[0]
+        _antwort(self, 200, kanal_info(url, limit=(q.get("limit") or [None])[0]))
+
+    def _get_cover(self):
+        # eingebettetes Album-Cover (Etappe A)
+        key = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+        bild = cover_aus_datei(key)
+        if bild:
+            # 1 h Browser-Cache: die Bibliothek malt sich oft neu, das
+            # Cover in der Datei ändert sich praktisch nie (JB 05.08.:
+            # Kacheln zeigen jetzt das echte Cover — ohne Cache läse der
+            # Server bei jedem Filter/Sortieren alle MP3s neu).
+            _antwort(self, 200, bild, "image/jpeg", cache=3600)
+        else:
+            _antwort(self, 404, {"fehler": "kein eingebettetes Cover"})
+
+    # ---- Film-Fundament (Doku/SYNC_FILME_SPEC.md): nur gemappte Felder
+    # und lokal gecachte Bilder gehen raus — nie Token/Server-Adresse.
+    def _get_filme_katalog(self):
+        _antwort(self, 200, filme.katalog_lesen())
+
+    def _get_filme_zustand(self):
+        # Damit ein Ausfall SICHTBAR wird: der 403 vom 06.08. lief sieben
+        # Tage, ohne dass irgendetwas davon erzählt hat — auch vom Sofa aus
+        # muss man das sehen, die Route ist deshalb nicht lokal-only.
+        # ABER: der rohe Fehlertext kann eine urllib-Ausnahme MIT Renés
+        # Server-Adresse enthalten. Fremde Geräte im WLAN bekommen deshalb
+        # nur die Tatsache, nicht den Wortlaut.
+        # Seit 24.09. mit Fehlerart: fremde Geräte bekommen einen Kurztext je
+        # Art (ohne Adresse, ohne Rohtext) statt pauschal „nicht erreichbar"
+        # — der Ausfall vom 23.09. war erreichbar, er lehnte die Anmeldeform ab.
+        z = filme.zustand()
+        if not self._ist_lokal() and z.get("fehler"):
+            z["fehler"] = filme.FEHLER_ART_TEXT.get(z.get("fehler_art"),
+                                                    "Server nicht erreichbar")
+        _antwort(self, 200, z)
+
+    def _get_filme_reihen(self):
+        _antwort(self, 200, filme.reihen(self._geraet_profil()))
+
+    def _get_filme_detail(self):
+        fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+        d = filme.detail(fid, self._geraet_profil())
+        if d:
+            _antwort(self, 200, d)
+        else:
+            _antwort(self, 404, {"fehler": "unbekannter Film"})
+
+    # ---- Teilprojekt 3: Profile + Geräte -------------------------------
+    def _get_profile(self):
+        _antwort(self, 200, {"items": profil_geraete.profil_liste(),
+                             "aktiv": self._geraet_profil()})
+
+    def _get_geraet_status(self):
+        # Pairing-Poll (frei)
+        q = parse_qs(urlparse(self.path).query)
+        t = profil_geraete.geraet_token_abholen(
+            (q.get("id") or [""])[0], (q.get("code") or [""])[0])
+        _antwort(self, 200, t or {"wartet": True})
+
+    def _get_geraete(self):
+        # NUR PC: Geräte-Übersicht (NUR_PC)
+        _antwort(self, 200, {"items": profil_geraete.geraete_liste(),
+                             "url": f"http://{_lan_ip()}:{int(CFG.get('port', 8776))}/koppeln",
+                             "wlan": bool(CFG.get("fernsteuerung"))})
+
+    def _get_geraet_qr(self):
+        # NUR PC: QR zum Abfotografieren (NUR_PC)
+        try:
+            import io
+            import qrcode
+            img = qrcode.make(f"http://{_lan_ip()}:{int(CFG.get('port', 8776))}/koppeln")
+            b = io.BytesIO()
+            img.save(b, "PNG")
+            _antwort(self, 200, b.getvalue(), "image/png")
+        except Exception as e:                   # noqa: BLE001 — Link steht daneben
+            _antwort(self, 500, {"fehler": f"QR: {e}"})
+
+    def _get_filme_snippet(self):
+        # Hover-Szene (6 s, stumm)
+        fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+        clip = filme.snippet_lesen(fid)
+        if clip:
+            _antwort(self, 200, clip, "video/mp4", cache=86400)
+        else:                                     # noch nicht gebacken ⇒ anstoßen
+            threading.Thread(target=filme.snippet_backen, args=(fid,),
+                             daemon=True).start()
+            _antwort(self, 404, {"wartet": True})
+
+    def _get_live(self):
+        # 📡 Live-Kanäle (kodinerds)
+        _antwort(self, 200, {"items": live_tv.kanaele(), "status": live_tv.status()})
+
+    def _get_filme_wuenschen(self):
+        # Seerr-Suche (Teilprojekt 4)
+        q = (parse_qs(urlparse(self.path).query).get("q") or [""])[0]
+        _antwort(self, 200, {"items": filme.seerr_suche(q)})
+
+    def _get_filme_anfragen(self):
+        # meine Wünsche + Stand
+        _antwort(self, 200, {"items": filme.seerr_meine()})
+
+    def _get_filme_episoden(self):
+        # Serien: Staffeln + Folgen
+        fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+        # Additiv (24.09.): bei gestörtem Zugang zusätzlich fehler 'zugang'|
+        # 'netz' — sonst sah ein 401 aus wie eine Serie ohne Folgen.
+        items, fehler = filme.episoden_mit_grund(fid)
+        _antwort(self, 200, {"items": items, "fehler": fehler} if fehler
+                 else {"items": items})
+
+    def _get_filme_mehrwie(self):
+        # TMDB-Empfehlungen ∩ Katalog
+        fid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+        _antwort(self, 200, {"items": filme.mehr_wie(fid)})
+
+    def _get_vlc_standbild(self):
+        try:
+            with open(os.path.join(DATEN_DIR, "vlc_standbild.png"), "rb") as f:
+                _antwort(self, 200, f.read(), "image/png")
+        except OSError:
+            _antwort(self, 404, {"fehler": "kein Standbild"})
+
+    def _get_filme_direkt(self):
+        # Browser-Player (JB 06.08.: „Ich will wie bei netflix das im
+        # Browser öffnen"): der Server PROXYT den Jellyfin-Strom mit
+        # Range-Durchreichung — der Token bleibt auf diesem PC, der
+        # Client sieht nur diese Adresse. Mit tc=1 (JB-Go: „Geh das
+        # serverseitige Transcoding an") wandelt ffmpeg unterwegs:
+        # Video bleibt Kopie, wenn der Browser es kann (vcopy=1, z. B.
+        # h264+AC3 → nur der Ton wird AAC), sonst libx264; Container
+        # wird fragmentiertes MP4 — das spielt jedes <video>.
+        q = parse_qs(urlparse(self.path).query)
+        # JBs Druck (der Film läuft, weil er ▶ gedrückt hat): durch die
+        # Merkmal-Ruhe, höchstens eine Anmeldung je Ruhe (Prüfung Runde 2).
+        url = filme.stream_url((q.get("id") or [""])[0], druck=True)
+        if not url:
+            return _antwort(self, 503, {"fehler": "Anmeldung bei Jellyfin "
+                                        "gescheitert — heilt sich nach dem "
+                                        "Anmelde-Backoff von selbst."})
+        globals()["_letzter_stream"] = time.time()   # Selbst-Neustart wartet
+        if (q.get("tc") or ["0"])[0] == "1":
+            return self._film_transkodiert_senden(url, q)
+        self._film_strom_durchreichen(url)
+
+    def _film_transkodiert_senden(self, url, q):
+        """tc=1 am Film-Strom: ffmpeg wandelt unterwegs in fragmentiertes MP4
+        (Video bleibt Kopie, wenn vcopy=1). Ohne ffmpeg oder bei abgelehntem
+        Strom eine ehrliche Antwort statt eines Starts."""
+        if not _ffmpeg_exe():
+            return _antwort(self, 503, {"fehler": "ffmpeg fehlt"})
+        abgelehnt = _strom_vorprobe(url)
+        if abgelehnt:                            # ehrlich wie der Direkt-Zweig; ffmpeg startet nicht
+            return _antwort(self, *abgelehnt)
+        try:
+            start = max(0, int(float((q.get("start") or ["0"])[0])))
+        except (TypeError, ValueError):
+            start = 0
+        cmd = _transcode_befehl(
+            url, start, (q.get("vcopy") or ["0"])[0] == "1")
+        proz = _tc_starten(cmd)
+        self.send_response(200)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Accept-Ranges", "none")
+        self.end_headers()
+        _schreib_zeitlimit_aufheben(self)        # S14: Pause darf den Strom nicht töten
+        try:
+            while True:
+                stueck = proz.stdout.read(262144)
+                if not stueck:
+                    break
+                self.wfile.write(stueck)
+                globals()["_letzter_stream"] = time.time()
+        except (OSError, ConnectionError):
+            pass                                 # Client weg — ffmpeg stirbt mit
+        finally:
+            try:
+                proz.kill()
+            except OSError:
+                pass
+
+    def _film_strom_durchreichen(self, url):
+        """Den Jellyfin-Strom mit Range-Durchreichung weitergeben; der Token
+        bleibt auf diesem PC, der Client sieht nur diese Adresse."""
+        kopf = {}
+        if self.headers.get("Range"):
+            kopf["Range"] = self.headers["Range"]
+        try:
+            req = urllib.request.Request(url, headers=kopf)
+            try:
+                r = urllib.request.urlopen(req, timeout=30)
+            except urllib.request.HTTPError as e:
+                # Ehrlich statt still (Gegenprüfung 24.09.): HTTPError ist ein
+                # OSError und landete im stillen except unten — es ging GAR
+                # KEINE Antwort raus, der Browser sah nur einen abgebrochenen
+                # Strom. Jetzt Jellyfins Status und ein kurzer Text; nie die
+                # Adresse (sie trägt das Token).
+                e.close()
+                return _antwort(self, *_strom_fehler(e))
+            except OSError:                          # URLError, Zeitüberschreitung
+                return _antwort(self, *_strom_fehler())
+            with r:
+                self.send_response(r.status)
+                for h in ("Content-Type", "Content-Length",
+                          "Content-Range", "Accept-Ranges"):
+                    if r.headers.get(h):
+                        self.send_header(h, r.headers[h])
+                self.end_headers()
+                _schreib_zeitlimit_aufheben(self)    # S14: Pause darf den Strom nicht töten
+                while True:
+                    stueck = r.read(262144)
+                    if not stueck:
+                        break
+                    self.wfile.write(stueck)
+                    globals()["_letzter_stream"] = time.time()
+        except (OSError, ConnectionError):
+            pass                                     # Client weg / Netz — still
+
+    def _get_filme_bild(self):
+        q = parse_qs(urlparse(self.path).query)
+        bild = filme.bild_holen((q.get("id") or [""])[0],
+                                (q.get("art") or ["Primary"])[0])
+        if bild:
+            _antwort(self, 200, bild, "image/jpeg", cache=86400)
+        else:
+            _antwort(self, 404, {"fehler": "kein Bild"})
+
+    def _get_addon_hab_liste(self):
+        # Erweiterung: Playlist schon eingereiht? (v1.1.2)
+        lid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+        _antwort(self, 200, addon_hab_liste(lid))
+
+    def _get_addon_hab(self):
+        # Erweiterung: Video schon in der Bibliothek? (Build 98)
+        vid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+        _antwort(self, 200, addon_hab(vid))
+
+    def _get_addon_update(self):
+        # Erweiterung: neueste Kanal-Version (v1.1.1)
+        _antwort(self, 200, addon_update_info())
+
+    def _get_schaetzfaktoren(self):
+        # MB/min je Qualitaet (Build 105)
+        _antwort(self, 200, {q: _mb_pro_min(q) for q in QUALITAETEN})
+
+    def _get_ordner_waehlen(self):
+        # nativer Ordnerdialog (Build 108), NUR_PC
+        start = (parse_qs(urlparse(self.path).query).get("start") or [""])[0]
+        _antwort(self, 200, ordner_waehlen(start))
+
+    def _get_pfad_da(self):
+        # Sync-Fenster-Failsafe (Build 109), NUR_PC
+        _antwort(self, 200, pfad_da((parse_qs(urlparse(self.path).query).get("pfad") or [""])[0]))
+
+    def _get_migration_probelauf(self):
+        # Umbenennen, NUR Auslese (Build 112/113), NUR_PC
+        q = parse_qs(urlparse(self.path).query)
+        roh = (q.get("schema") or [""])[0]
+        schema = [b for b in roh.split(",") if b in NAME_BAUSTEINE] or None
+        plan = migration_probelauf(schema)
+        _antwort(self, 200, {"eintraege": plan[:400],
+                             "gesamt": len(plan),
+                             "bereit": sum(1 for x in plan if not x["konflikt"]),
+                             "konflikte": sum(1 for x in plan if x["konflikt"]),
+                             "laeufe": migration_laeufe()[-5:]})
+
+    def _get_entdecken(self):
+        # 📻 Neues entdecken (Build 99)
+        q = parse_qs(urlparse(self.path).query)
+        _antwort(self, 200, entdecken((q.get("pl") or [""])[0],
+                                      seeds=(q.get("seeds") or [3])[0],
+                                      je_seed=(q.get("je") or [25])[0]))
+
+    def _get_playlist_export(self):
+        pid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+        pl = next((p for p in _playlists if p.get("id") == pid), None)
+        if not pl:
+            return _antwort(self, 404, {"fehler": "Playlist unbekannt"})
+        body = playlist_m3u(pl).encode("utf-8")
+        fn = re.sub(r"[^\w .-]", "_", pl.get("name", "playlist"))[:60] or "playlist"
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/x-mpegurl; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{fn}.m3u"')
+        self.send_header("Content-Length", str(len(body)))
+        _cors(self)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _get_geo_status(self):
+        st = geo.status(CFG)
+        st["config"] = {k: CFG.get(k) for k in ("geo_vpn", "geo_gratis_proxy")}
+        st["proxy_anzahl"] = len(CFG.get("geo_proxies") or [])
+        st["test"] = _geo_test
+        _antwort(self, 200, st)
+
+    def _get_lyrics(self):
+        q = parse_qs(urlparse(self.path).query)
+        key = (q.get("id") or [""])[0]
+        lrc = lyrics_holen(key)
+        _antwort(self, 200, {"lrc": lrc, "quelle": "lrclib" if lrc else ""})
+
+    def _get_transkript_suche(self):
+        q = parse_qs(urlparse(self.path).query)
+        _antwort(self, 200, {"treffer": transkript_suche((q.get("q") or [""])[0])})
+
+    def _get_untertitel(self):
+        q = parse_qs(urlparse(self.path).query)
+        key = (q.get("id") or [""])[0]
+        wunsch = (q.get("lang") or [""])[0]
+        romaji = (q.get("romaji") or ["0"])[0] == "1"
+        f, lang = untertitel_datei(key, wunsch or None)
+        if not f:
+            return _antwort(self, 404, {"fehler": "keine Untertitel auf der Platte"})
+        try:
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+            # Romaji nur für Japanisch/Original-Spuren (Latein-Texte laufen eh durch)
+            if romaji and (lang.lower().startswith("ja") or lang.lower().endswith("-orig")):
+                text = _romaji(text)
+            else:
+                romaji = False
+            _antwort(self, 200, {"lang": lang, "vtt": text, "romaji": romaji,
+                                 "sprachen": [s for _, s in untertitel_liste(key)]})
+        except OSError:
+            _antwort(self, 404, {"fehler": "Untertitel-Datei nicht lesbar"})
+
+    def _get_media(self):
+        key = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+        pfad = _pfad_zu_key(key)
+        if pfad and os.path.isfile(pfad):
+            _stream_datei(self, pfad)
+        else:
+            _antwort(self, 404, {"fehler": "Datei nicht gefunden"})
 
     def do_POST(self):
         # Abgewiesen wird ohne den Körper zu lesen; die Verbindung schließt
@@ -7585,162 +7749,235 @@ class Handler(BaseHTTPRequestHandler):
         self._post_routen(daten)
 
     def _post_routen(self, daten):
-        """Der POST-Router; Riegel, Körper-Prüfung und WLAN-Tor liegen davor in do_POST.
-        Verglichen wird der Pfad ohne Anfrageteil, wie im WLAN-Tor (Abnahme
-        25.09.2026): vorher lief POST /api/filme/merk?profil=… auf 404."""
+        """Der POST-Router; Riegel, Körper-Prüfung und WLAN-Tor liegen davor in
+        do_POST. Nachschlag in ROUTEN mit dem Pfad ohne Anfrageteil, wie im
+        WLAN-Tor (Abnahme 25.09.2026: vorher lief POST /api/filme/merk?profil=…
+        auf 404). Jede Route antwortet selbst, die ohne eigene Meldung über
+        `_ok()` (vorher das Ende der Kette). Eine Ausnahme wird 500."""
         pfad = urlparse(self.path).path
         try:
-            if pfad == "/api/remote":            # Befehl vom Handy an den PC-Player
-                return _antwort(self, 200, remote_befehl(daten))
-            if pfad == "/api/vlc":               # Gerät „VLC": Befehl an den VLC-Motor
-                # Nachtprüfung 06.08.: play mit BELIEBIGER url (lokale Datei,
-                # LAN-Adresse) und das Fenster-Handle setzt nur der PC selbst
-                # (Prüfer _lan_vlc im WLAN-Tor).
-                return _antwort(self, 200, vlc_kommando(daten))
-            if pfad == "/api/wiedergabe":        # Grundeinstellungen: global/Playlist/Titel
-                return _antwort(self, 200, wiedergabe_setzen(daten))
-            if pfad == "/api/addon_nachschub":   # Addon reicht Vorgemerktes nach (v1.2.0)
-                return _antwort(self, 200, addon_nachschub(daten))
-            if pfad == "/api/beenden":
-                # Sauberes Beenden aus der Suite (JB 14.07.2026: im Suite-Betrieb gibt es
-                # kein eigenes Tray mehr — Steuerung über SyncDashTray/Dashboard). Nur vom
-                # eigenen PC (bei aktiver Handy-Fernsteuerung lauscht der Server im WLAN;
-                # NUR_PC im WLAN-Tor).
-                Q.speichern()
-                threading.Thread(target=self.server.shutdown, daemon=True).start()
-                return _antwort(self, 200, {"ok": True})
-            if pfad == "/api/add":
-                self._add(daten)
-            elif pfad == "/api/action":
-                self._action(daten)
-            elif pfad == "/api/config":
-                # Grundeinstellungen (Zielordner!) schreibt nur der PC selbst (NUR_PC).
-                self._config(daten)
-            elif pfad == "/api/code_erneuern":   # Knopf „Code erneuern“ (7a Punkt 3, NUR_PC)
-                with _cfg_lock:
-                    CFG["fernsteuerung_code"] = neuer_fernsteuerungs_code()
-                    _cfg_speichern()
-                return _antwort(self, 200, fernsteuerung_info())
-            elif pfad == "/api/js_fehler":      # Fehler-Rekorder der Oberfläche
-                # Derselbe Schreiber wie der Fehlerkanal: Sperre, Deckel 200 KB.
-                _zeile_anhaengen(JS_FEHLER_LOG, {"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-                                                 "text": str(daten.get("text") or "")[:400],
-                                                 "quelle": str(daten.get("quelle") or "")[:80],
-                                                 "zeile": daten.get("zeile") or 0,
-                                                 # 06.09.: Promise-Fehler kamen ohne Ort an (P8)
-                                                 "stack": str(daten.get("stack") or "")[:600]})
-                return _antwort(self, 200, {"ok": True})
-            elif pfad == "/api/played":         # ein Titel wurde abgespielt
-                with _io_lock:
-                    e = _geladen.get(daten.get("id") or "")
-                    if e:
-                        e["plays"] = int(e.get("plays", 0)) + 1
-                        e["last_play"] = time.time()  # für „Zuletzt gespielt"
-                        _geladen_speichern()
-            elif pfad == "/api/biblio":
-                self._biblio(daten)
-            elif pfad == "/api/biblio_enrich":
-                threading.Thread(target=biblio_enrich_alle, daemon=True).start()
-            elif pfad == "/api/umbenennen":      # Namens-Baukasten anwenden/zurück (Build 113), NUR_PC
-                if daten.get("art") == "undo":
-                    _antwort(self, 200, migration_rueckgaengig())
-                else:
-                    schema = [b for b in (daten.get("schema") or []) if b in NAME_BAUSTEINE] or None
-                    _antwort(self, 200, migration_anwenden(go=bool(daten.get("go")), schema=schema,
-                                                           keys=daten.get("keys") or None))
-            elif pfad == "/api/playlist":
-                if daten.get("art") == "sync":
-                    pl = next((p for p in _playlists if p.get("id") == daten.get("id")), None)
-                    return _antwort(self, 200, playlist_sync(pl))
-                neu_id = playlist_aktion(daten)
-                if isinstance(neu_id, dict):          # abgelehnte Sync-Einrichtung
-                    return _antwort(self, 200, neu_id)
-                if neu_id:
-                    return _antwort(self, 200, {"ok": True, "id": neu_id})
-            elif pfad == "/api/geo_wireguard":
-                return _antwort(self, 200, self._geo_wireguard(daten))
-            elif pfad == "/api/geo_test":
-                return _antwort(self, 200, self._geo_test_start(daten))
-            elif pfad == "/api/playlist_import":
-                return _antwort(self, 200, playlist_import_m3u(daten.get("name"), daten.get("m3u")))
-            elif pfad == "/api/link_deuten":      # Build 126: „ein Feld für alles"
-                return _antwort(self, 200, links.link_deuten(daten.get("url") or ""))
-            elif pfad == "/api/abo":
-                return _antwort(self, 200, abo_aktion(daten))
-            elif pfad == "/api/clip":
-                return _antwort(self, 200, clip_erstellen(daten))
-            elif pfad == "/api/clip_favorit":         # Build 144k: Favorit wählen (NUR_PC)
-                return _antwort(self, 200, _clip_favorit_setzen(daten.get("id") or ""))
-            elif pfad == "/api/untertitel_laden":
-                threading.Thread(target=untertitel_nachladen, args=(daten.get("id") or "",), daemon=True).start()
-            elif pfad == "/api/autotag":
-                threading.Thread(target=autotag_lauf, args=(daten.get("keys"),), daemon=True).start()
-            elif pfad == "/api/filme/sync":       # manueller Katalog-Abzug
-                # Unter DERSELBEN Sperre wie der 6-h-Ticker. Ohne sie liefen zwei
-                # Voll-Abzüge parallel gegen Renés Server — bei 4885 Titeln zehn
-                # 1000er-Seiten gleichzeitig — und beide endeten mit
-                # `fortschritt_nachreichen()`, das jede Meldung doppelt schickte.
-                if not _filme_abzug_anstossen(von_hand=True):
-                    return _antwort(self, 200, {"gestartet": False,
-                                                "hinweis": "Ein Abzug läuft bereits."})
-                return _antwort(self, 200, {"gestartet": True})
-            elif pfad == "/api/filme/play":       # Jellyfin-Strom in den LOKALEN VLC
-                strom = filme.stream_url(daten.get("id") or "", druck=True)   # JBs Druck
-                if not strom:
-                    return _antwort(self, 503, {"fehler": "Jellyfin nicht erreichbar "
-                                                          "(Zugang/Netz pruefen)."})
-                return _antwort(self, 200, vlc_kommando(
-                    {"cmd": "play", "url": strom,
-                     "key": "film:" + (daten.get("id") or ""),
-                     "vol": daten.get("vol"),
-                     "pos": daten.get("pos"),          # Weiterschauen ab Spot
-                     "vollbild": True,                 # Filme = Kino (JB 05.08.)
-                     # globale Sprach-Präferenz (Optionen → Wiedergabe-Standard);
-                     # film:-Keys haben keine Titel-Ebene, global genügt.
-                     "ton": (CFG.get("wiedergabe") or {}).get("ton")}))
-            elif pfad == "/api/filme/merk":       # 🎞 Film-Watchlist an/aus (je Profil)
-                return _antwort(self, 200, {"an": filme.merkliste_toggle(
-                    daten.get("id") or "", self._geraet_profil())})
-            # ---- Teilprojekt 3: Profile + Geräte ---------------------------
-            elif pfad == "/api/geraet_anmelden":  # Pairing Schritt 1 (frei)
-                return _antwort(self, 200, profil_geraete.geraet_anmelden(
-                    daten.get("name") or "") or {"fehler": "Anmeldung gerade nicht möglich"})
-            elif pfad == "/api/geraet_bestaetigen":   # NUR PC (Freigabe, NUR_PC)
-                return _antwort(self, 200, {"ok": profil_geraete.geraet_bestaetigen(
-                    daten.get("id") or "", daten.get("profil") or "standard")})
-            elif pfad == "/api/geraet_entfernen":     # NUR PC (Widerruf, NUR_PC)
-                return _antwort(self, 200, {"ok": profil_geraete.geraet_entfernen(
-                    daten.get("id") or "")})
-            elif pfad == "/api/profil_anlegen":
-                p = profil_geraete.profil_anlegen(daten.get("name") or "",
-                                                  daten.get("emoji") or "")
-                return _antwort(self, 200, p or {"fehler": "Name fehlt"})
-            elif pfad == "/api/filme/anfragen":   # Wunsch stellen (Teilprojekt 4)
-                return _antwort(self, 200, filme.seerr_anfragen(
-                    daten.get("tmdb") or 0, daten.get("typ") or "film"))
-            elif pfad == "/api/live/play":        # Live-Kanal in den VLC
-                # Nachtprüfung 06.08. (SSRF): die URL kommt NICHT vom Client,
-                # sondern wird über die Kanal-Liste nachgeschlagen — gespielt
-                # wird nur, was die kodinerds-Liste wirklich kennt.
-                gewuenscht = daten.get("url") or ""
-                if not any(k.get("url") == gewuenscht for k in live_tv.kanaele()):
-                    return _antwort(self, 403, {"fehler": "unbekannter Kanal"})
-                return _antwort(self, 200, vlc_kommando(
-                    {"cmd": "play", "url": gewuenscht,
-                     "key": "live:" + (daten.get("name") or ""),
-                     "vol": daten.get("vol"), "vollbild": True}))
-            elif pfad == "/api/filme/fortschritt":
-                # Vor dem Senden merken: ein wartender Hüllen-Rückfall für diesen
-                # Film schweigt dann (_film_stelle_melden, Nacharbeit Runde 3).
-                _seiten_meldung_merken(str(daten.get("id") or ""))
-                return _antwort(self, 200, {"ok": filme.fortschritt(
-                    daten.get("id") or "", daten.get("position_s") or 0,
-                    bool(daten.get("gesehen")))})
-            else:
+            methode = ROUTEN.get(("POST", pfad))
+            if methode is None:
                 return _antwort(self, 404, {"fehler": "unbekannt"})
-            _antwort(self, 200, {"ok": True})
+            getattr(self, methode)(daten)
         except Exception as e:                       # noqa: BLE001
             _antwort(self, 500, {"fehler": _fehltext(e)})
+
+    def _ok(self):
+        """Antwort der POST-Routen ohne eigene Meldung (vorher das Ende der
+        if/elif-Kette in _post_routen)."""
+        _antwort(self, 200, {"ok": True})
+
+    def _post_remote(self, daten):
+        # Befehl vom Handy an den PC-Player
+        return _antwort(self, 200, remote_befehl(daten))
+
+    def _post_vlc(self, daten):
+        # Gerät „VLC": Befehl an den VLC-Motor
+        # Nachtprüfung 06.08.: play mit BELIEBIGER url (lokale Datei,
+        # LAN-Adresse) und das Fenster-Handle setzt nur der PC selbst
+        # (Prüfer _lan_vlc im WLAN-Tor).
+        return _antwort(self, 200, vlc_kommando(daten))
+
+    def _post_wiedergabe(self, daten):
+        # Grundeinstellungen: global/Playlist/Titel
+        return _antwort(self, 200, wiedergabe_setzen(daten))
+
+    def _post_addon_nachschub(self, daten):
+        # Addon reicht Vorgemerktes nach (v1.2.0)
+        return _antwort(self, 200, addon_nachschub(daten))
+
+    def _post_beenden(self, daten):
+        # Sauberes Beenden aus der Suite (JB 14.07.2026: im Suite-Betrieb gibt es
+        # kein eigenes Tray mehr — Steuerung über SyncDashTray/Dashboard). Nur vom
+        # eigenen PC (bei aktiver Handy-Fernsteuerung lauscht der Server im WLAN;
+        # NUR_PC im WLAN-Tor).
+        Q.speichern()
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+        return _antwort(self, 200, {"ok": True})
+
+    def _post_add(self, daten):
+        self._add(daten)
+        self._ok()
+
+    def _post_action(self, daten):
+        self._action(daten)
+        self._ok()
+
+    def _post_config(self, daten):
+        # Grundeinstellungen (Zielordner!) schreibt nur der PC selbst (NUR_PC).
+        self._config(daten)
+        self._ok()
+
+    def _post_code_erneuern(self, daten):
+        # Knopf „Code erneuern“ (7a Punkt 3, NUR_PC)
+        with _cfg_lock:
+            CFG["fernsteuerung_code"] = neuer_fernsteuerungs_code()
+            _cfg_speichern()
+        return _antwort(self, 200, fernsteuerung_info())
+
+    def _post_js_fehler(self, daten):
+        # Fehler-Rekorder der Oberfläche
+        # Derselbe Schreiber wie der Fehlerkanal: Sperre, Deckel 200 KB.
+        _zeile_anhaengen(JS_FEHLER_LOG, {"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                         "text": str(daten.get("text") or "")[:400],
+                                         "quelle": str(daten.get("quelle") or "")[:80],
+                                         "zeile": daten.get("zeile") or 0,
+                                         # 06.09.: Promise-Fehler kamen ohne Ort an (P8)
+                                         "stack": str(daten.get("stack") or "")[:600]})
+        return _antwort(self, 200, {"ok": True})
+
+    def _post_played(self, daten):
+        # ein Titel wurde abgespielt
+        with _io_lock:
+            e = _geladen.get(daten.get("id") or "")
+            if e:
+                e["plays"] = int(e.get("plays", 0)) + 1
+                e["last_play"] = time.time()  # für „Zuletzt gespielt"
+                _geladen_speichern()
+        self._ok()
+
+    def _post_biblio(self, daten):
+        self._biblio(daten)
+        self._ok()
+
+    def _post_biblio_enrich(self, daten):
+        threading.Thread(target=biblio_enrich_alle, daemon=True).start()
+        self._ok()
+
+    def _post_umbenennen(self, daten):
+        # Namens-Baukasten anwenden/zurück (Build 113), NUR_PC
+        if daten.get("art") == "undo":
+            _antwort(self, 200, migration_rueckgaengig())
+        else:
+            schema = [b for b in (daten.get("schema") or []) if b in NAME_BAUSTEINE] or None
+            _antwort(self, 200, migration_anwenden(go=bool(daten.get("go")), schema=schema,
+                                                   keys=daten.get("keys") or None))
+        # Altlast der alten Kette, verhaltensgleich übernommen (Gruppe 8): nach der
+        # Antwort oben folgt eine zweite. Offen als Nebenbefund; ein Client, der
+        # nach Content-Length liest, sieht nur die erste.
+        self._ok()
+
+    def _post_playlist(self, daten):
+        if daten.get("art") == "sync":
+            pl = next((p for p in _playlists if p.get("id") == daten.get("id")), None)
+            return _antwort(self, 200, playlist_sync(pl))
+        neu_id = playlist_aktion(daten)
+        if isinstance(neu_id, dict):          # abgelehnte Sync-Einrichtung
+            return _antwort(self, 200, neu_id)
+        if neu_id:
+            return _antwort(self, 200, {"ok": True, "id": neu_id})
+        self._ok()
+
+    def _post_geo_wireguard(self, daten):
+        return _antwort(self, 200, self._geo_wireguard(daten))
+
+    def _post_geo_test(self, daten):
+        return _antwort(self, 200, self._geo_test_start(daten))
+
+    def _post_playlist_import(self, daten):
+        return _antwort(self, 200, playlist_import_m3u(daten.get("name"), daten.get("m3u")))
+
+    def _post_link_deuten(self, daten):
+        # Build 126: „ein Feld für alles"
+        return _antwort(self, 200, links.link_deuten(daten.get("url") or ""))
+
+    def _post_abo(self, daten):
+        return _antwort(self, 200, abo_aktion(daten))
+
+    def _post_clip(self, daten):
+        return _antwort(self, 200, clip_erstellen(daten))
+
+    def _post_clip_favorit(self, daten):
+        # Build 144k: Favorit wählen (NUR_PC)
+        return _antwort(self, 200, _clip_favorit_setzen(daten.get("id") or ""))
+
+    def _post_untertitel_laden(self, daten):
+        threading.Thread(target=untertitel_nachladen, args=(daten.get("id") or "",), daemon=True).start()
+        self._ok()
+
+    def _post_autotag(self, daten):
+        threading.Thread(target=autotag_lauf, args=(daten.get("keys"),), daemon=True).start()
+        self._ok()
+
+    def _post_filme_sync(self, daten):
+        # manueller Katalog-Abzug
+        # Unter DERSELBEN Sperre wie der 6-h-Ticker. Ohne sie liefen zwei
+        # Voll-Abzüge parallel gegen Renés Server — bei 4885 Titeln zehn
+        # 1000er-Seiten gleichzeitig — und beide endeten mit
+        # `fortschritt_nachreichen()`, das jede Meldung doppelt schickte.
+        if not _filme_abzug_anstossen(von_hand=True):
+            return _antwort(self, 200, {"gestartet": False,
+                                        "hinweis": "Ein Abzug läuft bereits."})
+        return _antwort(self, 200, {"gestartet": True})
+
+    def _post_filme_play(self, daten):
+        # Jellyfin-Strom in den LOKALEN VLC
+        strom = filme.stream_url(daten.get("id") or "", druck=True)   # JBs Druck
+        if not strom:
+            return _antwort(self, 503, {"fehler": "Jellyfin nicht erreichbar "
+                                                  "(Zugang/Netz pruefen)."})
+        return _antwort(self, 200, vlc_kommando(
+            {"cmd": "play", "url": strom,
+             "key": "film:" + (daten.get("id") or ""),
+             "vol": daten.get("vol"),
+             "pos": daten.get("pos"),          # Weiterschauen ab Spot
+             "vollbild": True,                 # Filme = Kino (JB 05.08.)
+             # globale Sprach-Präferenz (Optionen → Wiedergabe-Standard);
+             # film:-Keys haben keine Titel-Ebene, global genügt.
+             "ton": (CFG.get("wiedergabe") or {}).get("ton")}))
+
+    def _post_filme_merk(self, daten):
+        # 🎞 Film-Watchlist an/aus (je Profil)
+        return _antwort(self, 200, {"an": filme.merkliste_toggle(
+            daten.get("id") or "", self._geraet_profil())})
+
+    # ---- Teilprojekt 3: Profile + Geräte ---------------------------
+    def _post_geraet_anmelden(self, daten):
+        # Pairing Schritt 1 (frei)
+        return _antwort(self, 200, profil_geraete.geraet_anmelden(
+            daten.get("name") or "") or {"fehler": "Anmeldung gerade nicht möglich"})
+
+    def _post_geraet_bestaetigen(self, daten):
+        # NUR PC (Freigabe, NUR_PC)
+        return _antwort(self, 200, {"ok": profil_geraete.geraet_bestaetigen(
+            daten.get("id") or "", daten.get("profil") or "standard")})
+
+    def _post_geraet_entfernen(self, daten):
+        # NUR PC (Widerruf, NUR_PC)
+        return _antwort(self, 200, {"ok": profil_geraete.geraet_entfernen(
+            daten.get("id") or "")})
+
+    def _post_profil_anlegen(self, daten):
+        p = profil_geraete.profil_anlegen(daten.get("name") or "",
+                                          daten.get("emoji") or "")
+        return _antwort(self, 200, p or {"fehler": "Name fehlt"})
+
+    def _post_filme_anfragen(self, daten):
+        # Wunsch stellen (Teilprojekt 4)
+        return _antwort(self, 200, filme.seerr_anfragen(
+            daten.get("tmdb") or 0, daten.get("typ") or "film"))
+
+    def _post_live_play(self, daten):
+        # Live-Kanal in den VLC
+        # Nachtprüfung 06.08. (SSRF): die URL kommt NICHT vom Client,
+        # sondern wird über die Kanal-Liste nachgeschlagen — gespielt
+        # wird nur, was die kodinerds-Liste wirklich kennt.
+        gewuenscht = daten.get("url") or ""
+        if not any(k.get("url") == gewuenscht for k in live_tv.kanaele()):
+            return _antwort(self, 403, {"fehler": "unbekannter Kanal"})
+        return _antwort(self, 200, vlc_kommando(
+            {"cmd": "play", "url": gewuenscht,
+             "key": "live:" + (daten.get("name") or ""),
+             "vol": daten.get("vol"), "vollbild": True}))
+
+    def _post_filme_fortschritt(self, daten):
+        # Vor dem Senden merken: ein wartender Hüllen-Rückfall für diesen
+        # Film schweigt dann (_film_stelle_melden, Nacharbeit Runde 3).
+        _seiten_meldung_merken(str(daten.get("id") or ""))
+        return _antwort(self, 200, {"ok": filme.fortschritt(
+            daten.get("id") or "", daten.get("position_s") or 0,
+            bool(daten.get("gesehen")))})
 
     def _add(self, daten):
         qualitaet = daten.get("qualitaet") or CFG["standard_qualitaet"]
