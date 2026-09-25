@@ -238,3 +238,73 @@ def test_mit_token_signiert_und_kopiert(br, monkeypatch, tmp_path):
     br.main()
     assert signiert == [str(exe)]
     assert sorted(os.listdir(oben)) == ["SyncYouTube.exe", "SyncYouTube.exe.sha256"]
+
+
+# ------------------------------------------ Schnittstelle zu signieren.py der Familie
+# Die Bau-Tests ersetzen `signieren` durch ein leeres Modul (es fasst den Token
+# an). Drifteten Namen oder Parameter der Familien-Datei, blieben sie alle grün,
+# während der echte Bau mit AttributeError oder TypeError abbräche. Dieser
+# Wächter liest beide Seiten nur als Syntaxbaum: was build_release.py von
+# `signieren` nutzt (Auto-Discovery), muss dort oben stehen, und jedes
+# Schlüsselwort eines Aufrufs muss ein Parameter der gerufenen Funktion sein.
+
+def _nutzung_im_bau():
+    """{Name: {genutzte Schlüsselwörter}} aller `signieren.<Name>` in build_release.py."""
+    baum = ast.parse(open(os.path.join(MODUL_DIR, "build_release.py"), encoding="utf-8").read())
+    nutzung = {}
+    for n in ast.walk(baum):
+        if (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                and n.value.id == "signieren"):
+            nutzung.setdefault(n.attr, set())
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and isinstance(n.func.value, ast.Name) and n.func.value.id == "signieren"):
+            nutzung.setdefault(n.func.attr, set()).update(k.arg for k in n.keywords if k.arg)
+    return nutzung
+
+
+def _abweichungen(signieren_pfad, nutzung):
+    """Liste der Namen/Schlüsselwörter, die build_release.py nutzt, die aber in
+    `signieren_pfad` fehlen (leer = Schnittstelle passt)."""
+    baum = ast.parse(open(signieren_pfad, encoding="utf-8").read())
+    oben = {}
+    for n in baum.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            a = n.args
+            oben[n.name] = (None if a.kwarg else
+                            {p.arg for p in a.posonlyargs + a.args + a.kwonlyargs})
+        elif isinstance(n, ast.ClassDef):
+            oben[n.name] = None
+        elif isinstance(n, ast.Assign):
+            oben.update({t.id: None for t in n.targets if isinstance(t, ast.Name)})
+    fehlt = []
+    for name, schluessel in sorted(nutzung.items()):
+        if name not in oben:
+            fehlt.append(name)
+        elif oben[name] is not None:
+            fehlt += [f"{name}({s}=)" for s in sorted(schluessel - oben[name])]
+    return fehlt
+
+
+def test_signieren_der_familie_passt_zum_bau(br):
+    nutzung = _nutzung_im_bau()
+    assert "signiere_pflicht" in nutzung and nutzung["signiere_pflicht"], \
+        "Auto-Discovery findet den Signier-Aufruf nicht — der Wächter wäre blind"
+    pfad = os.path.join(br.FAMILIE, "signieren.py")
+    if not os.path.exists(pfad):
+        pytest.skip(f"{pfad} fehlt (Repo allein ausgecheckt, ohne die Familie)")
+    assert _abweichungen(pfad, nutzung) == [], "signieren.py der Familie passt nicht mehr zu build_release.py"
+
+
+def test_schnittstellen_waechter_schlaegt_an(tmp_path):
+    """Gegenprobe an einer gedrifteten Fassung: fehlender Name und fehlendes
+    Schlüsselwort werden gemeldet, eine passende Fassung nicht."""
+    passend = ("class SignierFehler(RuntimeError):\n    pass\n\n"
+               "def signtool_pfad():\n    return ''\n\n"
+               "def zertifikate():\n    return []\n\n"
+               "def signiere_pflicht(*dateien, beschreibung=None):\n    return ''\n")
+    p = tmp_path / "signieren.py"
+    p.write_text(passend, encoding="utf-8")
+    assert _abweichungen(str(p), _nutzung_im_bau()) == []
+    p.write_text(passend.replace("def zertifikate", "def zertifikat_liste")
+                 .replace("beschreibung=None", "titel=None"), encoding="utf-8")
+    assert _abweichungen(str(p), _nutzung_im_bau()) == ["signiere_pflicht(beschreibung=)", "zertifikate"]
