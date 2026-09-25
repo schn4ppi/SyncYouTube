@@ -269,16 +269,20 @@ def test_testmodus_tauscht_niemals_eine_exe():
         "Seit die Vorgabe AN ist, wuerde eine Probe sonst die echte exe tauschen")
 
 
-def test_selbst_tausch_wartet_auf_den_leerlauf():
-    """Der Tausch beendet den Prozess hart - nicht mitten im Download."""
+def test_selbst_tausch_wartet_auf_den_leerlauf(monkeypatch):
+    """Der Tausch beendet den Prozess hart - nicht mitten im Download. Seit F14
+    (25.09.2026) gilt dafuer der Leerlauf des Selbst-Neustarts; die Wiedergabe
+    pruefen die Tests in test_app_nebenfehler.py."""
+    monkeypatch.setattr(app, "_vlc_haelt_neustart_auf", lambda: False)
+    monkeypatch.setattr(app, "_letzter_stream", 0.0)
     with app.Q.lock:
         gemerkt = list(app.Q.items)
         app.Q.items[:] = [{"id": "x", "status": "laeuft"}]
     try:
-        assert app._downloads_aktiv() is True
+        assert app._code_leerlauf() is False
         with app.Q.lock:
             app.Q.items[:] = [{"id": "x", "status": "fertig"}]
-        assert app._downloads_aktiv() is False
+        assert app._code_leerlauf() is True
     finally:
         with app.Q.lock:
             app.Q.items[:] = gemerkt

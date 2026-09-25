@@ -8387,12 +8387,6 @@ def update_lauf(icon=None):
 _tray_ref = []                                       # [icon] sobald der Tray läuft (für Notizen)
 
 
-def _downloads_aktiv():
-    """Läuft gerade ein Download oder eine Auflösung?"""
-    with Q.lock:
-        return any(it.get("status") in ("laeuft", "prueft") for it in Q.items)
-
-
 def _update_hintergrund():
     """Auto-Update (Vorgabe AN seit 08.09.2026): kurz nach Start, danach täglich.
 
@@ -8403,12 +8397,14 @@ def _update_hintergrund():
     überlebt zwar (beim Start werden „läuft“/„prüft“ wieder zu „wartend“ und
     yt-dlp setzt an der .part-Datei fort), aber ein Abbruch ohne Not bleibt
     ein Abbruch. Ist etwas in Arbeit, wird der Versuch um eine halbe Stunde
-    verschoben — kein neuer Zeitplan, derselbe Faden schläft nur kürzer."""
+    verschoben — kein neuer Zeitplan, derselbe Faden schläft nur kürzer.
+    „Leerlauf“ heißt dasselbe wie beim Selbst-Neustart (`_code_leerlauf`, F14):
+    kein Download, keine Auflösung, keine Wiedergabe im Browser oder am VLC."""
     time.sleep(90)
     while True:
         wartezeit = 24 * 3600
         if CFG.get("auto_update") and update.frozen_exe():
-            if _downloads_aktiv():
+            if not _code_leerlauf():
                 wartezeit = 1800                     # beschäftigt — später nochmal
             else:
                 try:
