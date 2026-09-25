@@ -3334,9 +3334,9 @@ function reihe(it){
   else if(it.status==='prueft')rechts='…';
   // Fertig-Zeilen sind abspielbar (JB 22.07.): Doppelklick spielt, Klick fokussiert
   // (tabindex) -> Enter spielt, Entf entfernt den Eintrag (Datei bleibt).
-  const fx=fertigartig?` tabindex="0" data-fid="${it.id}" ondblclick="fertigPlay('${it.id}')"`:'';
+  const fx=fertigartig?` tabindex="0" data-fid="${esc(it.id)}" ondblclick="fertigPlay(this.dataset.fid)"`:'';
   const tip=fertigartig?'Doppelklick/Enter = abspielen · Entf = Eintrag entfernen (Datei bleibt) · Klick = Details':esc(it.titel);
-  const zeile=`<div class="qline ${it.status}"${fx} onclick="qToggle('${it.id}')" title="${tip}">`+
+  const zeile=`<div class="qline ${it.status}" data-qid="${esc(it.id)}"${fx} onclick="qToggle(this.dataset.qid)" title="${tip}">`+
     `<span class="qtri">${auf?'▾':'▸'}</span>`+
     `<span class="qbar">[${balkenAscii(proz)}]</span>`+
     `<span class="qtitel">${esc(it.titel)}</span>`+
@@ -3352,8 +3352,8 @@ function reihe(it){
   if(it.status==='uebersprungen')k.push(['weiter','▶ Trotzdem']);
   if(fertigartig&&!NUR_FERN)k.push(['ordner','📂 Ordner']);
   k.push(['entfernen','✖ Entfernen']);               // geht auch bei Laufenden: bricht ab + nimmt raus
-  let knoepfe=k.map(([a,t])=>`<button class="btn mini" onclick="event.stopPropagation();aktion('${it.id}','${a}')">${t}</button>`).join('');
-  if(fertigartig)knoepfe=`<button class="btn mini" onclick="event.stopPropagation();fertigPlay('${it.id}')" title="Im Player abspielen">▶ Abspielen</button>`+knoepfe;
+  let knoepfe=k.map(([a,t])=>`<button class="btn mini" data-qid="${esc(it.id)}" data-a="${a}" onclick="event.stopPropagation();aktion(this.dataset.qid,this.dataset.a)">${t}</button>`).join('');
+  if(fertigartig)knoepfe=`<button class="btn mini" data-qid="${esc(it.id)}" onclick="event.stopPropagation();fertigPlay(this.dataset.qid)" title="Im Player abspielen">▶ Abspielen</button>`+knoepfe;
   let det='';
   if(it.status==='laeuft')det=`${mb(it.geladen)} / ${mb(it.gesamt)}`+(it.phase?' · '+esc(it.phase):'');
   else if(it.status==='fehler')det=`<span class="fehltext">${esc(it.fehler||'unbekannter Fehler')}</span>`;
@@ -4437,7 +4437,7 @@ async function tvpPanel(art){
   if(art==='tempo'){
     p.innerHTML='<div class="tvpp-titel">Wiedergabetempo</div><div class="tvpp-reihe">'+
       [0.5,0.75,1,1.25,1.5].map(x=>`<button class="tvpp-knopf${Math.abs(x-tvpRateWert)<0.01?' an':''}"`+
-        ` onclick="tvpRate(${x})">${x===1?'1x (Normal)':x+'x'}</button>`).join('')+'</div>';
+        ` data-w="${x}" onclick="tvpRate(+this.dataset.w)">${x===1?'1x (Normal)':x+'x'}</button>`).join('')+'</div>';
   }else{
     p.innerHTML='<div class="tvpp-titel">Lädt …</div>'; p.style.display='block';
     let s={}; try{s=await tvpBefehl('spuren')||{};}catch(e){}
@@ -4446,7 +4446,7 @@ async function tvpPanel(art){
     if(p.dataset.art!=='spuren'||p.style.display==='none')return;
     tvpRateWert=s.rate||tvpRateWert;
     const li=(arr,aktiv,art2)=>(arr||[]).filter(t=>art2==='sub'||t.id>=0).map(t=>
-      `<button class="tvpp-knopf${t.id===aktiv?' an':''}" onclick="tvpSpur('${art2}',${t.id})">`+
+      `<button class="tvpp-knopf${t.id===aktiv?' an':''}" data-art="${art2}" data-id="${t.id}" onclick="tvpSpur(this.dataset.art,+this.dataset.id)">`+
       esc(art2==='sub'&&t.id<0?'Aus':(t.name||('Spur '+t.id)))+'</button>').join('');
     p.innerHTML='<div class="tvpp-spalten">'+
       `<div><div class="tvpp-titel">Ton</div>${li(s.ton,s.ton_aktiv,'ton')||'<span class="tvpp-leer">keine Spuren</span>'}</div>`+
@@ -5061,17 +5061,17 @@ function aboMalen(){
 }
 function aboKarteHTML(a){
   const o=aboOffen[a.id]||{};
-  const qsel=`<select class="abo-qsel" title="Download-Format dieses Abos (gilt ab der nächsten Prüfung; Bisheriges unter ⚙ erneuerbar)" onchange="aboQualitaet('${a.id}',this.value)">`+
+  const qsel=`<select class="abo-qsel" title="Download-Format dieses Abos (gilt ab der nächsten Prüfung; Bisheriges unter ⚙ erneuerbar)" data-abo="${esc(a.id)}" onchange="aboQualitaet(this.dataset.abo,this.value)">`+
     Object.keys(ABO_Q).map(q=>`<option value="${q}" ${q===a.qualitaet?'selected':''}>${ABO_Q[q]}</option>`).join('')+'</select>';
-  return `<div class="abo-card" data-abo="${a.id}">
+  return `<div class="abo-card" data-abo="${esc(a.id)}">
     <div class="abo-kopf">
       <span class="abo-name" title="${esc(a.url)}">📡 ${esc(a.name||a.url)}</span>
       ${qsel}
       <span class="abo-meta">${a.neu?('+'+a.neu+' geholt · '):''}${a.geprueft?('geprüft '+aboVor(a.geprueft)):''}</span>
-      <button class="ib" title="Abo-Playlist im Player abspielen" onclick="aboAbspielen('${a.id}')">▶</button>
-      <button class="ib ${o.auf?'an':''}" title="Backkatalog: alle Folgen des Kanals als eigenes Fenster — Ausgegrautes ist noch nicht geladen" onclick="aboFolgenToggle('${a.id}',event)">📜</button>
-      <button class="ib ${o.regeln?'an':''}" title="Regeln: Titel-Filter, Stichtag, Shorts/Streams, Auto-Löschen, Format-Erneuern" onclick="aboRegelnToggle('${a.id}')">⚙</button>
-      <button class="ib" title="Abo entfernen — mit oder ohne die geladenen Videos" onclick="aboDelete('${a.id}',event)">🗑</button>
+      <button class="ib" title="Abo-Playlist im Player abspielen" data-abo="${esc(a.id)}" onclick="aboAbspielen(this.dataset.abo)">▶</button>
+      <button class="ib ${o.auf?'an':''}" title="Backkatalog: alle Folgen des Kanals als eigenes Fenster — Ausgegrautes ist noch nicht geladen" data-abo="${esc(a.id)}" onclick="aboFolgenToggle(this.dataset.abo,event)">📜</button>
+      <button class="ib ${o.regeln?'an':''}" title="Regeln: Titel-Filter, Stichtag, Shorts/Streams, Auto-Löschen, Format-Erneuern" data-abo="${esc(a.id)}" onclick="aboRegelnToggle(this.dataset.abo)">⚙</button>
+      <button class="ib" title="Abo entfernen — mit oder ohne die geladenen Videos" data-abo="${esc(a.id)}" onclick="aboDelete(this.dataset.abo,event)">🗑</button>
     </div>
     ${o.regeln?aboRegelnHTML(a):''}
   </div>`;
@@ -5079,20 +5079,20 @@ function aboKarteHTML(a){
 function aboRegelnHTML(a){
   return `<div class="abo-regeln">
     <label title="Nur Videos laden, deren Titel diesen Text enthält (leer = alle)">Titel enthält
-      <input type="text" value="${esc(a.filter_titel||'')}" onchange="aboRegel('${a.id}','filter_titel',this.value)"></label>
+      <input type="text" value="${esc(a.filter_titel||'')}" data-abo="${esc(a.id)}" onchange="aboRegel(this.dataset.abo,'filter_titel',this.value)"></label>
     <label title="Nur Videos ab diesem Datum laden (leer = alle)">ab
-      <input type="date" value="${esc(a.ab_datum||'')}" onchange="aboRegel('${a.id}','ab_datum',this.value)"></label>
+      <input type="date" value="${esc(a.ab_datum||'')}" data-abo="${esc(a.id)}" onchange="aboRegel(this.dataset.abo,'ab_datum',this.value)"></label>
     <label title="Kurzvideos (≤ 62 s) überspringen"><input type="checkbox" ${a.ohne_shorts?'checked':''}
-      onchange="aboRegel('${a.id}','ohne_shorts',this.checked)"> keine Shorts</label>
+      data-abo="${esc(a.id)}" onchange="aboRegel(this.dataset.abo,'ohne_shorts',this.checked)"> keine Shorts</label>
     <label title="Livestreams und Premieren überspringen"><input type="checkbox" ${a.ohne_streams?'checked':''}
-      onchange="aboRegel('${a.id}','ohne_streams',this.checked)"> keine Streams</label>
+      data-abo="${esc(a.id)}" onchange="aboRegel(this.dataset.abo,'ohne_streams',this.checked)"> keine Streams</label>
     <label title="Folgen der Abo-Playlist nach X Tagen automatisch in den Papierkorb (0 = aus)">löschen nach
       <input type="number" min="0" max="3650" style="width:58px" value="${a.loeschen_nach_tagen||0}"
-        onchange="aboRegel('${a.id}','loeschen_nach_tagen',parseInt(this.value,10)||0)"> Tagen</label>
+        data-abo="${esc(a.id)}" onchange="aboRegel(this.dataset.abo,'loeschen_nach_tagen',parseInt(this.value,10)||0)"> Tagen</label>
     <span class="spacer"></span>
-    <button class="btn mini" onclick="aboErneuern('${a.id}',false)"
+    <button class="btn mini" data-abo="${esc(a.id)}" onclick="aboErneuern(this.dataset.abo,false)"
       title="Alles bereits Geladene zusätzlich im aktuellen Abo-Format holen — alte Dateien bleiben">🔁 Erneuern (behalten)</button>
-    <button class="btn mini" onclick="aboErneuern('${a.id}',true)"
+    <button class="btn mini" data-abo="${esc(a.id)}" onclick="aboErneuern(this.dataset.abo,true)"
       title="…und die alte Datei im anderen Format NACH dem Erfolg in den Papierkorb legen">🔁 Erneuern (ersetzen)</button>
   </div>`;
 }
@@ -5206,40 +5206,40 @@ function aboFolgenMalen(id){
     const badge=x.geladen?(x.passend
       ?`<span class="abo-b ok" title="im Abo-Format geladen">✓ ${x.formate.map(fq).join('·')}</span>`
       :`<span class="abo-b anders" title="in ANDEREM Format geladen — ⚙ → Erneuern holt das Abo-Format">≠ ${x.formate.map(fq).join('·')}</span>`):'';
-    return `<div class="abo-f ${x.geladen?'':'fehlt'} ${o.sel.has(x.id)?'sel':''}" data-vid="${x.id}"
-      onclick="aboFolgeKlick(event,'${id}','${x.id}')" ondblclick="aboFolgenHolen('${id}',['${x.id}'])"
-      oncontextmenu="return aboFolgeKontext(event,'${id}','${x.id}')"
+    return `<div class="abo-f ${x.geladen?'':'fehlt'} ${o.sel.has(x.id)?'sel':''}" data-abo="${esc(id)}" data-vid="${esc(x.id)}"
+      onclick="aboFolgeKlick(event,this.dataset.abo,this.dataset.vid)" ondblclick="aboFolgenHolen(this.dataset.abo,[this.dataset.vid])"
+      oncontextmenu="return aboFolgeKontext(event,this.dataset.abo,this.dataset.vid)"
       title="Folge ${x.nr} von ${alle.length}${x.geladen?' — geladen, Doppelklick lädt ggf. im Abo-Format nach':' — noch nicht geladen, Doppelklick lädt im Abo-Format'}">
       <span class="abo-nr" title="Folge ${x.nr} (älteste = 1, neueste = ${alle.length})">#${x.nr}</span>
       <span class="abo-ft">${esc(x.titel)}</span>${x.dauer?'<span class="abo-fd">'+zeit(x.dauer)+'</span>':''}${badge}</div>`;
   }).join('');
   const fehltSicht=liste.filter(x=>!x.geladen).length;
   const staffel=[10,25,50,100].map(n=>
-    `<button class="btn mini" onclick="aboFehlendeLaden('${id}',${n})" ${fehltSicht?'':'disabled'}
+    `<button class="btn mini" data-abo="${esc(id)}" data-n="${n}" onclick="aboFehlendeLaden(this.dataset.abo,+this.dataset.n)" ${fehltSicht?'':'disabled'}
        title="Die ${o.richtung==='neu'?'neuesten':'ältesten'} ${n} noch fehlenden Folgen der aktuellen Sicht laden">${n}</button>`).join('');
   box.innerHTML=`<div class="abo-fkopf">
       <input type="text" placeholder="Folgen durchsuchen…" value="${esc(o.filter||'')}"
-        oninput="aboOffen['${id}'].filter=this.value;aboOffen['${id}'].zeige=300;aboFolgenMalen('${id}')">
-      <select onchange="aboOffen['${id}'].nur=this.value;aboFolgenMalen('${id}')" title="Anzeige filtern">
+        data-abo="${esc(id)}" oninput="const a=this.dataset.abo;aboOffen[a].filter=this.value;aboOffen[a].zeige=300;aboFolgenMalen(a)">
+      <select data-abo="${esc(id)}" onchange="aboOffen[this.dataset.abo].nur=this.value;aboFolgenMalen(this.dataset.abo)" title="Anzeige filtern">
         <option value="">alle (${alle.length})</option>
         <option value="fehlt" ${o.nur==='fehlt'?'selected':''}>fehlende (${fehlen})</option>
         <option value="da" ${o.nur==='da'?'selected':''}>geladene (${alle.length-fehlen})</option></select>
-      <button class="btn mini" onclick="aboAuswahlLaden('${id}')" ${o.sel.size?'':'disabled'}
+      <button class="btn mini" data-abo="${esc(id)}" onclick="aboAuswahlLaden(this.dataset.abo)" ${o.sel.size?'':'disabled'}
         title="Markierte Folgen im Abo-Format in die Warteschlange (Klick = diese, Strg+Klick = dazu/weg, Shift = Bereich, Strg+A = alle, Rahmen aufziehen = viele)">⬇ Auswahl (${o.sel.size})</button>
-      <button class="ib" title="Folgen-Liste frisch vom Kanal holen${o.ts?' (Stand '+aboVor(o.ts)+')':''}" onclick="aboFolgenLaden('${id}',true)">🔄</button>
+      <button class="ib" title="Folgen-Liste frisch vom Kanal holen${o.ts?' (Stand '+aboVor(o.ts)+')':''}" data-abo="${esc(id)}" onclick="aboFolgenLaden(this.dataset.abo,true)">🔄</button>
     </div>
     <div class="abo-staffel">⬇ Fehlende laden: ${staffel}
-      <button class="btn mini" onclick="aboAlleFehlenden('${id}')" ${fehltSicht?'':'disabled'}
+      <button class="btn mini" data-abo="${esc(id)}" onclick="aboAlleFehlenden(this.dataset.abo)" ${fehltSicht?'':'disabled'}
         title="ALLE noch fehlenden Folgen der aktuellen Sicht laden">Alle (${fehltSicht})</button>
-      <button class="btn mini" onclick="aboOffen['${id}'].richtung=aboOffen['${id}'].richtung==='neu'?'alt':'neu';aboFolgenMalen('${id}')"
+      <button class="btn mini" data-abo="${esc(id)}" onclick="const o=aboOffen[this.dataset.abo];o.richtung=o.richtung==='neu'?'alt':'neu';aboFolgenMalen(this.dataset.abo)"
         title="Reihenfolge der Mengen-Knöpfe umschalten">${o.richtung==='neu'?'⏭ neueste zuerst':'⏮ älteste zuerst'}</button>
     </div>
-    <div class="abo-fliste" onpointerdown="aboBandStart(event,'${id}')">${zeilen||'<div class="leer">nichts gefunden</div>'}</div>
-    ${liste.length>o.zeige?`<button class="btn mini" style="margin-top:4px" onclick="aboOffen['${id}'].zeige+=600;aboFolgenMalen('${id}')">… mehr anzeigen (${liste.length-o.zeige} weitere)</button>`:''}
+    <div class="abo-fliste" data-abo="${esc(id)}" onpointerdown="aboBandStart(event,this.dataset.abo)">${zeilen||'<div class="leer">nichts gefunden</div>'}</div>
+    ${liste.length>o.zeige?`<button class="btn mini" style="margin-top:4px" data-abo="${esc(id)}" onclick="aboOffen[this.dataset.abo].zeige+=600;aboFolgenMalen(this.dataset.abo)">… mehr anzeigen (${liste.length-o.zeige} weitere)</button>`:''}
     ${o.sel.size?`<div class="abo-selbar">🎯 <b>${o.sel.size}</b> markiert
       <span class="spacer"></span>
-      <button class="btn mini" onclick="aboAuswahlLaden('${id}')" title="Die markierten Folgen im Abo-Format in die Warteschlange">⬇ ${o.sel.size} laden</button>
-      <button class="btn mini" onclick="aboOffen['${id}'].sel.clear();aboFolgenMalen('${id}')" title="Auswahl aufheben (Esc)">✕</button></div>`:''}`;
+      <button class="btn mini" data-abo="${esc(id)}" onclick="aboAuswahlLaden(this.dataset.abo)" title="Die markierten Folgen im Abo-Format in die Warteschlange">⬇ ${o.sel.size} laden</button>
+      <button class="btn mini" data-abo="${esc(id)}" onclick="aboOffen[this.dataset.abo].sel.clear();aboFolgenMalen(this.dataset.abo)" title="Auswahl aufheben (Esc)">✕</button></div>`:''}`;
 }
 function aboFolgeKlick(ev,id,vid){
   // Windows-Semantik (Build 93, JB-Entscheid): Klick = NUR diese, Strg+Klick =
@@ -5433,9 +5433,9 @@ function smartPopover(ev,neuzeichnen){
   const sortO=[['neu','neueste zuerst'],['plays','meistgespielt'],['last_play','zuletzt gespielt']];
   const sel=(id,opts)=>`<select id="${id}" class="sm-sel">`+opts.map(o=>`<option value="${o[0]}">${o[1]}</option>`).join('')+`</select>`;
   const liste=smartListen.length?smartListen.map(s=>
-    `<div class="sm-row"><button class="sm-play" onclick="smartPlay('${s.id}')" title="Abspielen">▶ ${esc(s.name)}</button>`+
+    `<div class="sm-row"><button class="sm-play" data-id="${esc(s.id)}" onclick="smartPlay(this.dataset.id)" title="Abspielen">▶ ${esc(s.name)}</button>`+
     `<span class="sm-cnt">${smartBerechnen(s.rules).length}</span>`+
-    `<button class="ib" onclick="smartLoeschen('${s.id}')" title="Löschen">🗑</button></div>`).join(''):
+    `<button class="ib" data-id="${esc(s.id)}" onclick="smartLoeschen(this.dataset.id)" title="Löschen">🗑</button></div>`).join(''):
     '<div class="sm-leer">Noch keine Smart-Playlist.</div>';
   m.innerHTML=`<div class="sm-titel">✨ Smart-Playlists</div>${liste}<div class="sm-sep"></div>`+
     `<div class="sm-form"><input id="sm-name" class="sm-name" placeholder="Name…">`+
@@ -5790,7 +5790,7 @@ function bulkPlaylist(ev){
     for(const k of keys)await plApi({art:'add',id,key:k});
     plLetzterWurf={id,vorher,plNeu:false};
     toastMitZurueck(keys.length+' Titel → „'+((plState.find(x=>x.id===id)||{}).name||'Playlist')+'"',
-                    'plZurueck()');
+                    plZurueck);
   };
   const opt=plState.map(p=>[p.name+' ('+p.items.length+')', false, ()=>rein(p.id)]);
   opt.push(['＋ Neue Playlist…', false, async()=>{
@@ -6416,9 +6416,9 @@ function colMenuMalen(){
   const m=document.getElementById('libcolmenu');
   m.innerHTML='<div class="colmenu-titel">Spalten — Häkchen = anzeigen, Pfeile = Reihenfolge.<br>Klick auf eine Spaltenüberschrift sortiert danach.</div>'+
     libcols.map((c,i)=>`<div class="colrow">
-      <button class="colmv" onclick="colMove(${i},-1)" ${i===0?'disabled':''}>▲</button>
-      <button class="colmv" onclick="colMove(${i},1)" ${i===libcols.length-1?'disabled':''}>▼</button>
-      <label><input type="checkbox" ${c.sichtbar?'checked':''} onchange="colToggle('${c.key}')"> ${COLDEF[c.key].l}</label>
+      <button class="colmv" data-i="${i}" onclick="colMove(+this.dataset.i,-1)" ${i===0?'disabled':''}>▲</button>
+      <button class="colmv" data-i="${i}" onclick="colMove(+this.dataset.i,1)" ${i===libcols.length-1?'disabled':''}>▼</button>
+      <label><input type="checkbox" ${c.sichtbar?'checked':''} data-col="${esc(c.key)}" onchange="colToggle(this.dataset.col)"> ${COLDEF[c.key].l}</label>
     </div>`).join('');
 }
 function colMove(i,d){const j=i+d; if(j<0||j>=libcols.length)return; const t=libcols[i]; libcols[i]=libcols[j]; libcols[j]=t; saveCols(); colMenuMalen(); libMalen();}
@@ -6507,7 +6507,7 @@ function albenHTML(arr){
   [...gr.entries()].sort((a,b)=>a[0].localeCompare(b[0])).forEach(([k,g])=>{
     const i=_albGruppen.push(g)-1, teile=k.split('|||');
     h+=`<div class="albgrp"><div class="albkopf">`+
-      `<button class="ib play" onclick="albPlay(${i})" title="Album abspielen">▶</button>`+
+      `<button class="ib play" data-i="${i}" onclick="albPlay(+this.dataset.i)" title="Album abspielen">▶</button>`+
       `<span class="albtitel">${esc(teile[1])}</span><span class="albku">${esc(teile[0])}</span>`+
       `<span class="albn">${g.length} Titel${g[0].jahr?' · '+esc(g[0].jahr):''}</span></div>`+kacheln(g)+`</div>`;
   });
@@ -6687,8 +6687,8 @@ async function entdeckerLaden(){
     (f.score>1?'<span class="abo-nr" title="Kam in '+f.score+' der '+d.seeds+' Radios vor — starkes Signal">'+f.score+'×</span>':'<span class="abo-nr"></span>')+
     '<span class="abo-ft">'+esc(f.titel)+(f.kanal?' <span style="opacity:.55">· '+esc(f.kanal)+'</span>':'')+'</span>'+
     (f.dauer?'<span class="abo-fd">'+zeit(f.dauer)+'</span>':'')+
-    '<button class="ib" title="Auf YouTube anhören" onclick="window.open(\\'https://www.youtube.com/watch?v='+f.id+'\\',\\'_blank\\',\\'noreferrer\\')">▶</button>'+
-    '<button class="ib" title="In die Warteschlange laden" onclick="entdeckerHolen(this,\\''+f.id+'\\')">⬇</button>'+
+    '<button class="ib" title="Auf YouTube anhören" data-vid="'+esc(f.id)+'" onclick="window.open(\\'https://www.youtube.com/watch?v=\\'+this.dataset.vid,\\'_blank\\',\\'noreferrer\\')">▶</button>'+
+    '<button class="ib" title="In die Warteschlange laden" data-vid="'+esc(f.id)+'" onclick="entdeckerHolen(this,this.dataset.vid)">⬇</button>'+
     '</div>').join('');
   box.innerHTML='<div class="abo-staffel" title="'+esc(quelleText.trim())+'">'+d.funde.length+' neue Titel aus '+d.seeds+' Radios — nichts davon ist in deiner Bibliothek.'+
     '<span class="spacer"></span>'+
@@ -7066,12 +7066,11 @@ function kachel(x){
   // thumbnail von youtube als Bild. Warum nicht das Albumcover?" — Kacheln
   // zeigen das ECHTE Album-Cover (/api/cover), sobald eins getaggt ist;
   // scheitert der Abruf, fällt das Bild aufs Thumbnail zurück (Player-Muster).
-  const kaputt="this.style.display='none';this.parentNode.classList.add('platzhalter')";
-  const rueckfall=(x.cover_album&&x.thumb)
-    ?`this.onerror=function(){${kaputt}};this.src='${esc(x.thumb)}'`
-    :kaputt;
+  // Rückfall aufs Thumbnail über data-fb (S3): der Handler bleibt fester Code.
   const quelle=x.cover_album?`/api/cover?id=${encodeURIComponent(x.id)}`:(x.thumb?esc(x.thumb):'');
-  const thumb=quelle?`<img class="thumb" src="${quelle}" loading="lazy" draggable="false" onerror="${rueckfall}">`:'';
+  const thumb=!quelle?'':(x.cover_album&&x.thumb)
+    ?`<img class="thumb" src="${quelle}" loading="lazy" draggable="false" data-fb="${esc(x.thumb)}" onerror="this.onerror=function(){this.style.display='none';this.parentNode.classList.add('platzhalter')};this.src=this.dataset.fb">`
+    :`<img class="thumb" src="${quelle}" loading="lazy" draggable="false" onerror="this.style.display='none';this.parentNode.classList.add('platzhalter')">`;
   // Build 144o (JB): kleine ✂ oben rechts, wenn diese Kachel ein Ausschnitt ist
   // (der Hauptsong liegt dann im Rechtsklick) — damit man es auf einen Blick sieht.
   const schere=x.clip?'<span class="clip-schere" title="Ausschnitt — der Hauptsong liegt im Rechtsklick">✂</span>':'';
@@ -7110,7 +7109,7 @@ function aktBtnsListe(x){
 function listeTab(arr){
   const cols=sichtbareCols();
   const heads=`<th class="th-sort ${libsort.key==='titel'?'akt':''}" onclick="setSort('titel')">Titel${pfeil('titel')}</th>`+
-    cols.map(k=>`<th class="th-sort ${libsort.key===k?'akt':''}" onclick="setSort('${k}')">${COLDEF[k].l}${pfeil(k)}</th>`).join('')+'<th></th>';
+    cols.map(k=>`<th class="th-sort ${libsort.key===k?'akt':''}" data-k="${esc(k)}" onclick="setSort(this.dataset.k)">${COLDEF[k].l}${pfeil(k)}</th>`).join('')+'<th></th>';
   const rows=arr.map(x=>{
     const th=x.thumb?`<img class="lthumb" src="${esc(x.thumb)}" loading="lazy" draggable="false" style="cursor:pointer" data-key="${esc(x.id)}" onclick="event.stopPropagation();thumbClick(event,this.dataset.key)" onerror="this.style.visibility='hidden'">`:'<span class="lthumb"></span>';
     const tds=cols.map(k=>{
@@ -7563,7 +7562,7 @@ function subAnzeigen(){
     if(subCues&&subMode==='transkript'){
       ly.style.display='';
       ly.innerHTML='<div class="kap-titel">📜 Transkript'+(subLang?' · '+subLang:'')+'</div>'+
-        subCues.map((c,i)=>`<div class="lyr" data-i="${i}" onclick="kapSpring(${c.start})"><span class="kap-z">${zeit(c.start)}</span>${esc(c.text)}</div>`).join('');
+        subCues.map((c,i)=>`<div class="lyr" data-i="${i}" data-t="${c.start}" onclick="kapSpring(+this.dataset.t)"><span class="kap-z">${zeit(c.start)}</span>${esc(c.text)}</div>`).join('');
     }else{ly.style.display='none'; ly.innerHTML='';}
   }
   subIdx=-1;
@@ -7721,7 +7720,7 @@ function renderKapitel(x){
   if(!k.length){el.style.display='none'; el.innerHTML=''; return;}
   el.style.display='';
   el.innerHTML='<div class="kap-titel">📖 Kapitel</div>'+k.map(c=>
-    `<div class="kap" onclick="kapSpring(${c.start})"><span class="kap-z">${zeit(c.start)}</span> ${esc(c.titel||'')}</div>`).join('');
+    `<div class="kap" data-t="${c.start}" onclick="kapSpring(+this.dataset.t)"><span class="kap-z">${zeit(c.start)}</span> ${esc(c.titel||'')}</div>`).join('');
 }
 function kapSpring(s){const el=document.getElementById('pl-el'); if(el){el.currentTime=s; el.play();}}
 
@@ -7755,9 +7754,9 @@ function eqPopover(ev){
   const m=document.createElement('div'); m.className='panelmenu'; m.id='eqpop'; m.style.minWidth='240px';
   m.innerHTML='<div class="sm-titel">🎚 Equalizer</div><div class="eq-row">'+
     EQ_BANDS.map((f,i)=>`<div class="eq-band"><span class="eq-val" id="eqval${i}">${(eqWerte[i]>0?'+':'')+(eqWerte[i]||0)}</span>`+
-      `<input id="eqsl${i}" class="eq-sl" type="range" min="-12" max="12" step="1" value="${eqWerte[i]||0}" oninput="eqSetzen(${i},this.value)">`+
+      `<input id="eqsl${i}" class="eq-sl" type="range" min="-12" max="12" step="1" value="${eqWerte[i]||0}" data-i="${i}" oninput="eqSetzen(+this.dataset.i,this.value)">`+
       `<span class="eq-lab">${EQ_LABELS[i]} Hz</span></div>`).join('')+
-    '</div><div class="eq-presets">'+Object.keys(EQ_PRESETS).map(n=>`<button class="btn mini" onclick="eqPreset('${n}')">${n}</button>`).join('')+'</div>'+
+    '</div><div class="eq-presets">'+Object.keys(EQ_PRESETS).map(n=>`<button class="btn mini" data-n="${esc(n)}" onclick="eqPreset(this.dataset.n)">${n}</button>`).join('')+'</div>'+
     '<label class="eq-norm"><input type="checkbox" '+(normAn?'checked':'')+' onchange="normSetzen(this.checked)"> 🔊 Lautstärke angleichen (Titel gleich laut)</label>';
   document.body.appendChild(m);
   const r=ev.currentTarget.getBoundingClientRect();
@@ -8346,13 +8345,12 @@ function snippetAn(kachel){
     kt.innerHTML=
       `<div class="hk-bild"><img src="/api/filme/bild?id=${fi}&art=Thumb" `+
         `data-fb1="${esc('/api/filme/bild?id='+fi+'&art=Backdrop')}" data-fb2="${esc('/api/filme/bild?id='+fi)}" `+
-        `onerror="if(!this.dataset.s){this.dataset.s=1;this.src=this.dataset.fb1}`+
-        `else{this.onerror=null;this.src=this.dataset.fb2}">`+
+        `onerror="if(!this.dataset.s){this.dataset.s=1;this.src=this.dataset.fb1}else{this.onerror=null;this.src=this.dataset.fb2}">`+
       `<video class="tv-snip" muted loop playsinline data-snip="${fi}" `+
         `onerror="this.remove()"></video>`+
       `<div class="hk-titel">${esc(e.name||'')}</div></div>`+
       `<div class="hk-zeile">`+
-      `<button class="hk-ib hk-play" data-arg="${esc(fid)}" onclick="event.stopPropagation();snippetAus();filmePlay(this.dataset.arg,${+e.pos||0})" title="Abspielen">${ico('play')}</button>`+
+      `<button class="hk-ib hk-play" data-arg="${esc(fid)}" data-pos="${+e.pos||0}" onclick="event.stopPropagation();snippetAus();filmePlay(this.dataset.arg,+this.dataset.pos)" title="Abspielen">${ico('play')}</button>`+
       `<button class="hk-ib" data-arg="${esc(fid)}" onclick="event.stopPropagation();tvMerk(this.dataset.arg)" title="Zur Liste">${ico('plus')}</button>`+
       `<button class="hk-ib hk-rechts" data-arg="${esc(fid)}" onclick="event.stopPropagation();snippetAus();tvInfo(this.dataset.arg)" title="Mehr Infos">${ico('chevron')}</button></div>`+
       (proz?`<div class="hk-balken"><div class="hk-spur"><div style="width:${proz}%"></div></div>`+
@@ -8457,8 +8455,8 @@ function tvKopfMalen(){
   const k=document.getElementById('tv-kopf');
   const p=(tvProfile||[]).find(x=>x.id===tvProfil())||{emoji:'👤',name:''};
   k.innerHTML=TV_TABS.map(([id,name])=>
-    `<button class="tvtab${tvTab===id?' akt':''}" data-tv="${id}" onclick="tvTabWahl('${id}')">${name}</button>`).join('')+
-    `<button class="tvzu" onclick="tvProfilWahl()" title="Profil wechseln — ${esc(p.name)}" style="margin-left:auto">${p.emoji}</button>`+
+    `<button class="tvtab${tvTab===id?' akt':''}" data-tv="${id}" onclick="tvTabWahl(this.dataset.tv)">${name}</button>`).join('')+
+    `<button class="tvzu" onclick="tvProfilWahl()" title="Profil wechseln — ${esc(p.name)}" style="margin-left:auto">${esc(p.emoji)}</button>`+
     `<button class="tvzu" style="margin-left:0" onclick="fernbedienungOeffnen()" title="Fernbedienung in einem kleinen Fenster öffnen">🎮</button>`+
     `<button class="tvzu" style="margin-left:0" onclick="tvZu()" title="Fernsehmodus verlassen (Esc)">✕</button>`;
   const warn=filmWarnung(tvFilmZustand);
@@ -8492,7 +8490,7 @@ async function geraeteMalen(){
   try{d=await (await fetch('/api/geraete')).json();}catch(e){}
   let profile=[];
   try{profile=((await (await fetch('/api/profile')).json())||{}).items||[];}catch(e){}
-  const optionen=profile.map(p=>`<option value="${esc(p.id)}">${p.emoji} ${esc(p.name)}</option>`).join('');
+  const optionen=profile.map(p=>`<option value="${esc(p.id)}">${esc(p.emoji)} ${esc(p.name)}</option>`).join('');
   const wartend=d.items.filter(g=>!g.verifiziert), fest=d.items.filter(g=>g.verifiziert);
   body.innerHTML=
     (d.wlan
@@ -8506,7 +8504,7 @@ async function geraeteMalen(){
       `<button class="btn mini" data-arg="${esc(g.id)}" onclick="geraetFreigeben(this.dataset.arg)">✓ Freigeben</button></span></div>`).join(''):'')+
     (fest.length?'<div class="sm-titel" style="margin-top:8px">Gekoppelt</div>'+fest.map(g=>{
       const p=profile.find(x=>x.id===g.profil)||{emoji:'👤',name:g.profil};
-      return `<div class="optrow"><span>${esc(g.name)} · ${p.emoji} ${esc(p.name)}</span>`+
+      return `<div class="optrow"><span>${esc(g.name)} · ${esc(p.emoji)} ${esc(p.name)}</span>`+
       `<button class="btn mini" data-arg="${esc(g.id)}" onclick="geraetTrennen(this.dataset.arg)">🗑 Trennen</button></div>`;}).join(''):'')+
     (!wartend.length&&!fest.length&&d.wlan?'<div style="font-size:13px;color:var(--gedaempft);padding:6px 2px">Noch kein Gerät angemeldet — sobald eines die Adresse öffnet, erscheint es hier mit seinem Code.</div>':'');
   if(wartend.length)setTimeout(geraeteMalen,4000);     // frisch halten, solange gewartet wird
@@ -8538,7 +8536,7 @@ function tvProfilWahl(){
   inhalt.innerHTML=`<div class="tv-werschaut"><div class="tv-rtitel" style="font-size:34px;text-align:center;margin-top:8vh">Wer schaut?</div>`+
     `<div class="tv-band" style="justify-content:center;margin-top:30px">`+
     (tvProfile||[]).map((p,i)=>`<div class="tv-kachel tv-profil" data-pr="${i}" data-arg="${esc(p.id)}" onclick="tvProfilSetzen(this.dataset.arg)">`+
-      `<div class="tv-pemoji">${p.emoji}</div><div class="tv-ktitel" style="font-size:18px">${esc(p.name)}</div></div>`).join('')+
+      `<div class="tv-pemoji">${esc(p.emoji)}</div><div class="tv-ktitel" style="font-size:18px">${esc(p.name)}</div></div>`).join('')+
     `<div class="tv-kachel tv-profil" data-pr="${(tvProfile||[]).length}" onclick="tvProfilNeu()">`+
       `<div class="tv-pemoji">＋</div><div class="tv-ktitel" style="font-size:18px">Neues Profil</div></div>`+
     `</div></div>`;
@@ -8569,7 +8567,7 @@ function tvProfilNeu(){
   el.innerHTML=`<div class="dlg"><div class="tv-rtitel" style="margin-top:0">Neues Profil</div>`+
     `<input id="tv-dlg-name" placeholder="Name" maxlength="24" autocomplete="off">`+
     `<div class="emojis">${TV_EMOJIS.map((e,i)=>
-      `<button class="emo${e===tvDlgEmoji?' akt':''}" data-emo="${i}" onclick="tvDlgEmojiWahl(${i})">${e}</button>`).join('')}</div>`+
+      `<button class="emo${e===tvDlgEmoji?' akt':''}" data-emo="${i}" onclick="tvDlgEmojiWahl(+this.dataset.emo)">${e}</button>`).join('')}</div>`+
     `<div class="info-btns" style="justify-content:center">`+
       `<button class="tv-btn" data-dlg="0" onclick="tvDlgAnlegen()">✓ Anlegen</button>`+
       `<button class="tv-btn zart" data-dlg="1" onclick="tvDialogZu()">✕ Abbrechen</button>`+
@@ -8773,13 +8771,11 @@ function tvMalen(opt){                                 // opt.vorschau===false: 
         // Netflix-Referenz (JB 06.08.): 16:9-Cover-Kette Thumb→Backdrop→
         // Poster, Fortschrittsbalken unter angefangenen Titeln.
         const fb=film&&e.bild2
-          ?` onerror="if(!this.dataset.s){this.dataset.s=1;this.src='${e.bild2}'}`+
-           `else if(this.dataset.s==1){this.dataset.s=2;this.src='${e.bild3}'}`+
-           `else this.style.visibility='hidden'"`
+          ?` data-fb1="${esc(e.bild2)}" data-fb2="${esc(e.bild3)}" onerror="if(!this.dataset.s){this.dataset.s=1;this.src=this.dataset.fb1}else if(this.dataset.s==1){this.dataset.s=2;this.src=this.dataset.fb2}else this.style.visibility='hidden'"`
           :` onerror="this.style.visibility='hidden'"`;
         const balken=(film&&e.pos>30&&e.dauer)
           ?`<div class="tv-kbalken"><div style="width:${Math.min(99,Math.round(e.pos/(e.dauer*60)*100))}%"></div></div>`:'';
-        return `<div class="tv-kachel${e.quer?' quer':''}${film?' f16':''}" data-r="${r}" data-i="${i}"${film?` data-fid="${esc(e.id)}"`:''} onclick="tvKachelKlick(event,${r},${i})">`+
+        return `<div class="tv-kachel${e.quer?' quer':''}${film?' f16':''}" data-r="${r}" data-i="${i}"${film?` data-fid="${esc(e.id)}"`:''} onclick="tvKachelKlick(event,+this.dataset.r,+this.dataset.i)">`+
         (e.bild?`<img loading="lazy" src="${e.bild}"${fb}>`:'<img>')+balken+
         `<div class="tv-ktitel">${esc(e.name)}</div></div>`;}).join('')+`</div>${pfeile}</div>`;}).join('');
   }
@@ -9040,7 +9036,7 @@ function tvInfoMalen(){
   const knoepfe=(d.typ==='serie'
     ?`<button class="tv-btn" data-info="0" onclick="tvSerienPlay()">▶ Weiterschauen</button>`
     :(d.position_s>30
-      ?`<button class="tv-btn" data-info="0" data-arg="${esc(id)}" onclick="filmePlay(this.dataset.arg,${+d.position_s||0})">▶ Weiterschauen</button>`+
+      ?`<button class="tv-btn" data-info="0" data-arg="${esc(id)}" data-pos="${+d.position_s||0}" onclick="filmePlay(this.dataset.arg,+this.dataset.pos)">▶ Weiterschauen</button>`+
        `<button class="tv-btn zart" data-info="1" data-arg="${esc(id)}" onclick="filmePlay(this.dataset.arg,0)">↻ Von vorne</button>`
       :`<button class="tv-btn" data-info="0" data-arg="${esc(id)}" onclick="filmePlay(this.dataset.arg)">▶ Abspielen</button>`))+
     `<button class="tv-btn zart" data-info="2" data-arg="${esc(id)}" onclick="tvMerk(this.dataset.arg)">${d.gemerkt?'✓ Gemerkt':'＋ Meine Liste'}</button>`;
@@ -9069,9 +9065,9 @@ function tvInfoMalen(){
         (subs?`<div class="info-neben"><b>Untertitel:</b> ${esc(subs)}</div>`:'')+
       `</div></div>`+
       (staffeln.length?`<div class="tv-rtitel" style="margin-top:14px">Staffeln</div><div class="tv-band">`+
-        staffeln.map(n=>`<button class="tv-btn zart${n===tvInfoStaffel?' akt':''}" data-st="${+n||0}" onclick="tvStaffel(${+n||0})">Staffel ${esc(n||'?')}</button>`).join('')+`</div>`+
+        staffeln.map(n=>`<button class="tv-btn zart${n===tvInfoStaffel?' akt':''}" data-st="${+n||0}" onclick="tvStaffel(+this.dataset.st)">Staffel ${esc(n||'?')}</button>`).join('')+`</div>`+
         `<div class="tv-band">`+folgen.map((e,i)=>
-          `<div class="tv-kachel quer" data-ep="${i}" data-arg="${esc(e.id)}" onclick="filmePlay(this.dataset.arg,${e.position_s>30&&!e.gesehen?(+e.position_s||0):0})" title="${esc(e.titel)}">`+
+          `<div class="tv-kachel quer" data-ep="${i}" data-arg="${esc(e.id)}" data-pos="${e.position_s>30&&!e.gesehen?(+e.position_s||0):0}" onclick="filmePlay(this.dataset.arg,+this.dataset.pos)" title="${esc(e.titel)}">`+
           `<img loading="lazy" src="/api/filme/bild?id=${encodeURIComponent(e.id)}" onerror="this.style.visibility='hidden'">`+
           `<div class="tv-ktitel">${e.gesehen?'✓ ':''}F${e.folge} · ${esc(e.titel)}${e.position_s>0&&!e.gesehen?' ⏸':''}</div></div>`).join('')+`</div>`
         :(epsFehler?`<div class="tv-rtitel" style="margin-top:14px">Staffeln</div>`+
@@ -9483,9 +9479,9 @@ function renderPlayerVlc(media,x,k){
   // VLC. Kein Hinweistext (der Tooltip am 🖥-VLC-Knopf erklärt es). Die
   // Leisten-Funktionen (Seek/Zeit/±10s/Merker/Play-Symbol) sind VLC-fähig
   // und lesen den 1-s-Status statt des <audio>-Elements.
-  const fb=x.thumb?`this.onerror=function(){this.style.display='none'};this.src='${esc(x.thumb)}'`
-                  :`this.style.display='none'`;
-  const t=`<img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" style="cursor:pointer" onerror="${fb}">`;
+  const t=x.thumb
+    ?`<img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" style="cursor:pointer" data-fb="${esc(x.thumb)}" onerror="this.onerror=function(){this.style.display='none'};this.src=this.dataset.fb">`
+    :`<img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" style="cursor:pointer" onerror="this.style.display='none'">`;
   media.innerHTML=`<canvas id="pl-viz" class="pl-viz"></canvas><div class="pl-vizwrap">${t}</div>`+
     `<div class="pl-subzeile" id="pl-sub-anzeige" style="display:none"></div>`+plBarHTML(false);
   media.classList.remove('viz-an');
@@ -9918,9 +9914,9 @@ function renderPlayerMedia(){
     // Etappe A (Spec Punkt 5): erst das ECHTE eingebettete Album-Cover
     // (/api/cover); gibt es keins (404), fällt das Bild aufs YouTube-Thumbnail
     // zurück — und erst wenn auch das fehlt, verschwindet es.
-    const fb=x.thumb?`this.onerror=function(){this.style.display='none'};this.src='${esc(x.thumb)}'`
-                    :`this.style.display='none'`;
-    const t=`<img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" style="cursor:pointer" onerror="${fb}">`;
+    const t=x.thumb
+      ?`<img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" style="cursor:pointer" data-fb="${esc(x.thumb)}" onerror="this.onerror=function(){this.style.display='none'};this.src=this.dataset.fb">`
+      :`<img class="pl-cover" src="/api/cover?id=${encodeURIComponent(k)}" style="cursor:pointer" onerror="this.style.display='none'">`;
     media.innerHTML=`<canvas id="pl-viz" class="pl-viz"></canvas><div class="pl-vizwrap">${t}</div>`+
       `<div class="pl-subzeile" id="pl-sub-anzeige" style="display:none"></div>`+plBarHTML(false)+
       (uebernahme?'':`<audio id="pl-el" autoplay src="${src}"></audio>`);
@@ -10347,9 +10343,10 @@ function eigenschaften(key){
   const rows=zeilen.map(z=>`<tr><td class="k">${esc(z[0])}</td><td class="v">${esc(String(z[1]))}</td></tr>`).join('');
   const yt=x.url?`<tr><td class="k">YouTube</td><td class="v"><a href="${esc(x.url)}" target="_blank" rel="noreferrer">${esc(x.url)}</a></td></tr>`:'';
   // Erst das ECHTE Album-Cover (/api/cover), Thumbnail nur als Rückfall.
-  const cfb=x.thumb?`this.onerror=function(){this.style.display='none'};this.src='${esc(x.thumb)}'`
-                   :`this.style.display='none'`;
-  const cover=`<img src="/api/cover?id=${encodeURIComponent(key)}" style="max-width:190px;width:40%;border-radius:8px;float:right;margin:0 0 8px 12px" onerror="${cfb}">`;
+  const cstil='max-width:190px;width:40%;border-radius:8px;float:right;margin:0 0 8px 12px';
+  const cover=x.thumb
+    ?`<img src="/api/cover?id=${encodeURIComponent(key)}" style="${cstil}" data-fb="${esc(x.thumb)}" onerror="this.onerror=function(){this.style.display='none'};this.src=this.dataset.fb">`
+    :`<img src="/api/cover?id=${encodeURIComponent(key)}" style="${cstil}" onerror="this.style.display='none'">`;
   const ov=document.createElement('div'); ov.className='modal';
   ov.innerHTML=`<div class="modal-box" style="max-width:560px"><div class="modal-head"><b>ℹ Eigenschaften</b>`+
     `<button class="ib" title="Schließen" onclick="this.closest('.modal').remove()">✕</button></div>`+
@@ -10530,8 +10527,8 @@ function renderPlayerQueue(){
     // Abo-Folgen: die CD-Nummer (#12) vor den Titel — so ist die Reihenfolge sofort klar (JB 21.07.)
     const nr=x.abo_nr?`<span class="pl-nr" title="Folge ${x.abo_nr}">#${x.abo_nr}</span> `:'';
     return `<div class="pl-item ${i===playerState.idx?'akt':''}${(i===plqSel||plqAuswahl.has(i))?' sel':''}${aus?' artaus':''}" draggable="true" tabindex="0" data-i="${i}" `+
-      `ondragstart="plqDragStart(event,${i})" ondragover="plqDragOver(event)" ondrop="plqDrop(event,${i})" `+
-      `onclick="plqSelect(${i},event)" ondblclick="plQueueKlick(${i})" oncontextmenu="return plItemKontext(event,${i})" title="Klick = auswählen · Doppelklick/Enter = abspielen · Rechtsklick = Menü · Entf = aus Playlist löschen · ↑/↓ = Auswahl · Ziehen = umsortieren">${i+1}. ${nr}${esc(x.titel||k)}</div>`;}).join('')
+      `ondragstart="plqDragStart(event,+this.dataset.i)" ondragover="plqDragOver(event)" ondrop="plqDrop(event,+this.dataset.i)" `+
+      `onclick="plqSelect(+this.dataset.i,event)" ondblclick="plQueueKlick(+this.dataset.i)" oncontextmenu="return plItemKontext(event,+this.dataset.i)" title="Klick = auswählen · Doppelklick/Enter = abspielen · Rechtsklick = Menü · Entf = aus Playlist löschen · ↑/↓ = Auswahl · Ziehen = umsortieren">${i+1}. ${nr}${esc(x.titel||k)}</div>`;}).join('')
     ||'<div class="pl-leer">Leer — Titel aus der Bibliothek hierher ziehen.</div>';
   const q=document.getElementById('pl-queue'); if(q){q.innerHTML=html; q.onpointerdown=plqBandStart;}
   const qw=document.getElementById('pl-queue-win'); if(qw){qw.innerHTML=html; qw.onpointerdown=plqBandStart;}
@@ -10601,7 +10598,7 @@ async function tsuchLauf(){
     const d=await r.json(); const tr=d.treffer||[];
     if(!tr.length){body.innerHTML='<div class="leer">Nichts gefunden. (Nur Videos mit heruntergeladenen Untertiteln/Transkripten werden durchsucht.)</div>';return;}
     body.innerHTML=tr.map(v=>`<div class="tsuche-treffer"><div class="tsuche-t-titel">${esc(v.titel)}</div>`+
-      v.treffer.map(t=>`<button class="tsuche-z" data-key="${esc(v.key)}" onclick="tsSpring(this.dataset.key,${t.zeit})"><span class="zt">${zeit(t.zeit)}</span>${tsMarkiere(t.text,q)}</button>`).join('')+
+      v.treffer.map(t=>`<button class="tsuche-z" data-key="${esc(v.key)}" data-t="${t.zeit}" onclick="tsSpring(this.dataset.key,+this.dataset.t)"><span class="zt">${zeit(t.zeit)}</span>${tsMarkiere(t.text,q)}</button>`).join('')+
       '</div>').join('');
   }catch(e){body.innerHTML='<div class="leer">Suche fehlgeschlagen.</div>';}
 }
@@ -10748,7 +10745,7 @@ async function plselDrop(ev){
   const name=(plState.find(x=>x.id===id)||{}).name||'Playlist';
   const schon=keys.filter(k=>vorher.includes(k)).length;
   toastMitZurueck((neu?'📃 „'+name+'" angelegt · ':'')+keys.length+' Titel → „'+name+'"'+
-    (schon?' ('+schon+' schon drin — jetzt doppelt)':''), 'plZurueck()');
+    (schon?' ('+schon+' schon drin — jetzt doppelt)':''), plZurueck);
 }
 async function plZurueck(){
   const w=plLetzterWurf; if(!w)return;
@@ -10762,8 +10759,8 @@ function toastMitZurueck(text,ruf){
   // dieselbe Stelle, dieselbe Optik, damit nichts Neues zu lernen ist.
   let t=document.getElementById('toast');
   if(!t){t=document.createElement('div'); t.id='toast'; document.body.appendChild(t);}
-  t.innerHTML=esc(text)+' <button class="btn mini" style="margin-left:10px" onclick="'+ruf+
-              ';document.getElementById(\\'toast\\').classList.remove(\\'an\\')">↩ Rückgängig</button>';
+  t.innerHTML=esc(text)+' <button class="btn mini" style="margin-left:10px">↩ Rückgängig</button>';
+  t.lastChild.onclick=()=>{ruf(); document.getElementById('toast').classList.remove('an');};
   t.classList.add('an');
   clearTimeout(t._weg); t._weg=setTimeout(()=>t.classList.remove('an'),7000);
 }
@@ -10872,10 +10869,10 @@ function nameListeMalen(){
   const zeile=(b,an,i)=>'<div class="name-zeile" draggable="'+(an?'true':'false')+'" data-id="'+b[0]+'" '+
     'style="display:flex;align-items:center;gap:8px;padding:5px 7px;margin:3px 0;border:1px solid #2c2621;'+
     'border-radius:7px;background:'+(an?'#1b1613':'transparent')+';cursor:'+(an?'grab':'default')+'">'+
-    '<input type="checkbox" '+(an?'checked':'')+' onchange="nameBausteinToggle(\\''+b[0]+'\\',this.checked)">'+
+    '<input type="checkbox" '+(an?'checked':'')+' data-id="'+esc(b[0])+'" onchange="nameBausteinToggle(this.dataset.id,this.checked)">'+
     '<span style="flex:1">'+esc(b[1])+' <span style="color:var(--gedaempft)">'+esc(b[2])+'</span></span>'+
-    (an?'<button class="ib" onclick="nameSchieben(\\''+b[0]+'\\',-1)" title="nach vorn">▲</button>'+
-        '<button class="ib" onclick="nameSchieben(\\''+b[0]+'\\',1)" title="nach hinten">▼</button>':'')+
+    (an?'<button class="ib" data-id="'+esc(b[0])+'" onclick="nameSchieben(this.dataset.id,-1)" title="nach vorn">▲</button>'+
+        '<button class="ib" data-id="'+esc(b[0])+'" onclick="nameSchieben(this.dataset.id,1)" title="nach hinten">▼</button>':'')+
     '</div>';
   box.innerHTML=(drin.length?'<div style="font-size:11px;color:var(--gedaempft)">Reihenfolge — ziehen oder ▲▼:</div>':'')+
     drin.map((b,i)=>zeile(b,true,i)).join('')+
@@ -10992,8 +10989,8 @@ async function plSyncConfig(){
       '<input type="checkbox" id="sync-auto"'+(p.sync_auto?' checked':'')+'>'+
       'Automatisch synchronisieren — sobald sich die Playlist ändert und der Ordner da ist</label>'+
     '<div class="abo-staffel" style="margin-top:8px"><span style="opacity:.7">Spiegeln löscht im Ziel nur Dateien, die die App selbst kopiert hat.</span><span class="spacer"></span>'+
-      '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',false)" title="Nur kopieren — es wird nie etwas gelöscht">Nur kopieren</button>'+
-      '<button class="btn mini" onclick="syncSpeichern(\\''+id+'\\',true)" title="Exakt spiegeln — Entferntes verschwindet auch im Ziel (nur App-eigene Kopien)">Exakt spiegeln</button></div>';
+      '<button class="btn mini" data-id="'+esc(id)+'" onclick="syncSpeichern(this.dataset.id,false)" title="Nur kopieren — es wird nie etwas gelöscht">Nur kopieren</button>'+
+      '<button class="btn mini" data-id="'+esc(id)+'" onclick="syncSpeichern(this.dataset.id,true)" title="Exakt spiegeln — Entferntes verschwindet auch im Ziel (nur App-eigene Kopien)">Exakt spiegeln</button></div>';
   document.body.appendChild(fly); nachVorn(fly);
   aboFlyoutPositionieren(fly,null);
   fly.style.height='auto';                             // wächst mit dem Inhalt …
@@ -11182,8 +11179,8 @@ function hotkeyEditor(){
   const zeilen=Object.keys(HK_DEF).map(a=>'<div class="optrow"><span>'+HK_NAMEN[a]+'</span>'
     +'<span style="display:flex;gap:6px;align-items:center">'
     +'<b id="hk-'+a+'" style="min-width:56px;text-align:right;color:var(--akz2)">'+hkLabel(a)+'</b>'
-    +'<button class="btn mini" onclick="hkFangen(\\''+a+'\\',this)">ändern</button>'
-    +'<button class="ib" title="Standard wiederherstellen" onclick="hkZuruecksetzen(\\''+a+'\\')">↺</button></span></div>').join('');
+    +'<button class="btn mini" data-a="'+a+'" onclick="hkFangen(this.dataset.a,this)">ändern</button>'
+    +'<button class="ib" title="Standard wiederherstellen" data-a="'+a+'" onclick="hkZuruecksetzen(this.dataset.a)">↺</button></span></div>').join('');
   const ov=document.createElement('div'); ov.className='modal';
   ov.innerHTML='<div class="modal-box" style="max-width:470px"><div class="modal-head"><b>⌨ Hotkeys — Player-Tasten belegen</b>'
     +'<button class="ib" title="Schließen" onclick="this.closest(\\'.modal\\').remove()">✕</button></div>'
