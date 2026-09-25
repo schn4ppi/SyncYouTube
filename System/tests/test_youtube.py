@@ -3294,20 +3294,24 @@ def test_vlc_motor_spielt_und_meldet_status(monkeypatch, tmp_path):
             aufrufe.append(("media", m.pfad))
 
         def play(self):
-            aufrufe.append(("play",)); self.zustand = "spielt"
+            aufrufe.append(("play",))
+            self.zustand = "spielt"
 
         def pause(self):
             aufrufe.append(("toggle",))
             self.zustand = "pause" if self.zustand == "spielt" else "spielt"
 
         def set_pause(self, x):
-            aufrufe.append(("pause", x)); self.zustand = "pause"
+            aufrufe.append(("pause", x))
+            self.zustand = "pause"
 
         def stop(self):
-            aufrufe.append(("stop",)); self.zustand = "aus"
+            aufrufe.append(("stop",))
+            self.zustand = "aus"
 
         def set_time(self, ms):
-            aufrufe.append(("seek", ms)); self.zeit = ms
+            aufrufe.append(("seek", ms))
+            self.zeit = ms
 
         def audio_set_volume(self, v):
             # Live gemessen (05.08.): libvlc verliert set_volume-Rufe, die vor
@@ -3329,7 +3333,8 @@ def test_vlc_motor_spielt_und_meldet_status(monkeypatch, tmp_path):
             return 245000
 
         def set_rate(self, r):
-            aufrufe.append(("rate", r)); self.rate = r
+            aufrufe.append(("rate", r))
+            self.rate = r
 
         def get_rate(self):
             return getattr(self, "rate", 1.0)
@@ -3535,7 +3540,8 @@ def test_srt_untertitel_gekoppelt_und_gewandelt(monkeypatch, tmp_path):
         "Sprache muss auch aus .srt-Namen lesbar sein"
 
     (tmp_path / "Untertitel").mkdir()
-    v = tmp_path / "Video"; v.mkdir()
+    v = tmp_path / "Video"
+    v.mkdir()
     srt = v / "Clip [abcdef12345].en.srt"
     srt.write_text("1\n00:00:01,000 --> 00:00:02,500\nHallo\n", encoding="utf-8")
     monkeypatch.setattr(app, "ziel_ordner", lambda: str(tmp_path))
@@ -3750,7 +3756,8 @@ def test_vlc_selbstheilung_baut_neu(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "vlc", fake_vlc)
     monkeypatch.setattr(app, "_vlc", {"instanz": None, "spieler": None,
                                       "key": "", "grund": "", "vol_wunsch": None})
-    mp3 = tmp_path / "x.mp3"; mp3.write_bytes(b"x")
+    mp3 = tmp_path / "x.mp3"
+    mp3.write_bytes(b"x")
     monkeypatch.setattr(app, "_geladen", {"k|mp3": {"pfad": str(mp3)}})
     st = app.vlc_kommando({"cmd": "play", "key": "k|mp3"})
     assert len(gebaut) == 2, "Selbstheilung hat keine frische Instanz gebaut"
@@ -3961,7 +3968,8 @@ def test_vlc_einbettung_hwnd(monkeypatch, tmp_path):
     assert hwnds == [4242] and st["eingebettet"] is True
     app._vlc_reset()
     app.vlc_kommando({"cmd": "status"})              # status laedt nicht nach
-    mp3 = tmp_path / "x.mp3"; mp3.write_bytes(b"x")
+    mp3 = tmp_path / "x.mp3"
+    mp3.write_bytes(b"x")
     monkeypatch.setattr(app, "_geladen", {"k|mp3": {"pfad": str(mp3)}})
     app.vlc_kommando({"cmd": "play", "key": "k|mp3"})
     assert 4242 in hwnds[1:], "Nach der Selbstheilung muss die Einbettung wiederkommen"
