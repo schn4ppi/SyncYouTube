@@ -319,6 +319,7 @@ from yt_dlp import cookies as _yt_dlp_cookies  # noqa: E402
 import cookie_kopie  # noqa: E402
 import filme  # noqa: E402
 import geo  # noqa: E402
+import huelle  # noqa: E402  (Import startet nichts)
 import live_tv  # noqa: E402
 import profil_geraete  # noqa: E402
 import update  # noqa: E402
@@ -385,6 +386,13 @@ def _film_schluessel_und_netz_gesperrt():
     yield
     for n, f in echt.items():
         setattr(filme, n, f)
+
+
+@pytest.fixture(autouse=True)
+def _huellen_config_im_tmp(monkeypatch, tmp_path):
+    """Die Hülle liest ihren Port aus der config.json neben huelle.py (F25);
+    im Test nie aus der echten Datei."""
+    monkeypatch.setattr(huelle, "CONFIG_PFAD", str(tmp_path / "huelle_config.json"))
 
 
 @pytest.fixture(autouse=True)

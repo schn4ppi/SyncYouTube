@@ -14,10 +14,14 @@ Browser-Tab vorher). Nur ein Video, das gerade in IHR Panel spielt, hält der
 Server beim Schließen an (JB 24.09.2026: „Pausieren"; sonst liefe es hörbar,
 aber unsichtbar weiter).
 
-NÄCHSTE ETAPPE (nicht hier): VLC-Video per set_hwnd IN dieses Fenster
-einbetten — dann ersetzt der VLC-Motor das <video>-Element vollständig und
-der Browser-Player kann in der Hülle abgeschaltet werden.
+VLC-Video: Die Hülle bettet das Bild des VLC-Motors in ein WinForms-Panel
+dieses Fensters ein und meldet es dem Server über /api/vlc (Befehl
+`fenster`, siehe Bruecke/_video unten).
+
+Adresse: Der Port kommt aus der config.json des Servers neben dieser Datei
+(dort legt der Quellstart seine Einstellungen ab), Rückfall 8776 (F25).
 """
+import json
 import os
 import subprocess
 import sys
@@ -27,13 +31,29 @@ import urllib.request
 
 import windows_kennung
 
-PORT = 8776
-ADRESSE = f"http://127.0.0.1:{PORT}"
+STANDARD_PORT = 8776
+CONFIG_PFAD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
+
+def _port():
+    """Port aus der config.json des Servers; bei fehlender, kaputter oder
+    unsinniger Angabe 8776 (F25: vorher fest 8776, ein anderer Port in den
+    Einstellungen ließ die Hülle ins Leere laufen)."""
+    try:
+        with open(CONFIG_PFAD, encoding="utf-8") as f:
+            port = int(json.load(f).get("port") or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return STANDARD_PORT
+    return port if 0 < port < 65536 else STANDARD_PORT
+
+
+def adresse():
+    return f"http://127.0.0.1:{_port()}"
 
 
 def server_laeuft(timeout=2):
     try:
-        with urllib.request.urlopen(f"{ADRESSE}/api/status", timeout=timeout):
+        with urllib.request.urlopen(f"{adresse()}/api/status", timeout=timeout):
             return True
     except Exception:                                # noqa: BLE001 — aus/startet noch
         return False
@@ -194,7 +214,7 @@ class VideoFenster:
     @staticmethod
     def _an_server(daten, timeout):
         import json as _json
-        req = urllib.request.Request(f"{ADRESSE}/api/vlc",
+        req = urllib.request.Request(f"{adresse()}/api/vlc",
                                      data=_json.dumps(daten).encode("utf-8"), method="POST")
         return urllib.request.urlopen(req, timeout=timeout)
 
@@ -285,13 +305,13 @@ def main():
         # Ehrlich scheitern statt leeres Fenster: der Nutzer sieht den Grund.
         import ctypes
         ctypes.windll.user32.MessageBoxW(
-            None, "Der YouTube-Downloader-Server startet nicht (Port 8776).\n"
-                  "Bitte einmal über YouTube-Downloader.bat starten.",
+            None, f"Der SyncYouTube-Server startet nicht (Port {_port()}).\n"
+                  "Bitte einmal über SyncYouTube.bat starten.",
             "SyncYouTube", 0x10)
         return 1
     api = Bruecke()
     fenster = webview.create_window(
-        "SyncYouTube", ADRESSE, width=1360, height=860,
+        "SyncYouTube", adresse(), width=1360, height=860,
         background_color="#171310", min_size=(560, 420), js_api=api)
     api._fenster = fenster
     api._video._fenster = fenster                    # für die Maus-Weiterleitung

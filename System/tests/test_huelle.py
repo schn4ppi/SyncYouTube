@@ -1213,3 +1213,46 @@ def test_huelle_schliessen_pausiert_video_und_laesst_musik(dotnet, monkeypatch, 
     st = app.vlc_status()
     assert app._vlc["hwnd"] == 0, "Panel nicht abgemeldet"
     assert st["zustand"] == ("pause" if art == "video" else "spielt"), (art, st["zustand"])
+
+
+# ------------------------------------------------------------------ F25
+# Die Hülle lief fest auf Port 8776 und nannte im Fehlerfall die nicht
+# vorhandene „YouTube-Downloader.bat“. Jetzt liest sie den Port aus der
+# config.json des Servers (Rückfall 8776) und nennt die echte Startdatei.
+
+def _config(monkeypatch, tmp_path, inhalt):
+    pfad = tmp_path / "config.json"
+    if inhalt is not None:
+        pfad.write_text(inhalt, encoding="utf-8")
+    monkeypatch.setattr(huelle, "CONFIG_PFAD", str(pfad), raising=False)
+
+
+def test_huelle_nimmt_den_port_aus_der_config(monkeypatch, tmp_path, netz, webview_attrappe, dotnet):
+    _config(monkeypatch, tmp_path, json.dumps({"port": 8791}))
+    urls = []
+    echt = sys.modules["webview"].create_window
+    monkeypatch.setattr(sys.modules["webview"], "create_window",
+                        lambda titel, url, **kw: urls.append(url) or echt(titel, url, **kw))
+    assert huelle.main() == 0
+    assert urls == ["http://127.0.0.1:8791"], urls
+    assert huelle.server_laeuft() is True
+    assert netz.anfragen[-1]["url"] == "http://127.0.0.1:8791/api/status"
+
+
+@pytest.mark.parametrize("inhalt", [None, "kaputt{", json.dumps({"port": "x"}),
+                                    json.dumps({"port": 0}), json.dumps([1])])
+def test_huelle_faellt_auf_8776_zurueck(monkeypatch, tmp_path, inhalt):
+    _config(monkeypatch, tmp_path, inhalt)
+    assert huelle.adresse() == "http://127.0.0.1:8776"
+
+
+def test_huelle_meldung_nennt_die_echte_startdatei(monkeypatch, tmp_path, webview_attrappe):
+    import ctypes
+    _config(monkeypatch, tmp_path, json.dumps({"port": 8791}))
+    monkeypatch.setattr(huelle, "server_starten", lambda: False)
+    texte = []
+    monkeypatch.setattr(ctypes.windll.user32, "MessageBoxW", lambda h, text, titel, art: texte.append(text))
+    assert huelle.main() == 1
+    assert len(texte) == 1 and "SyncYouTube.bat" in texte[0] and "8791" in texte[0], texte
+    assert "YouTube-Downloader.bat" not in texte[0]
+    assert os.path.exists(os.path.join(os.path.dirname(MODUL_DIR), "SyncYouTube.bat")),         "die genannte Startdatei gibt es"
