@@ -35,6 +35,7 @@ _datei_locks_lock = threading.Lock()
 FEHL_BACKOFF_S = 30 * 60                   # nach Fehlschlag frühestens in 30 min wieder
 FEHL_BACKOFF_MAX_S = 6 * 3600              # Staffel 30 min, 1 h, 2 h, 4 h, dann 6 h
 META_HALTBAR_S = 14 * 24 * 3600            # Ratings altern langsam (Spec)
+META_UNVOLLSTAENDIG_S = 3600               # nach einem Ausfall von TMDB/OMDb (F12)
 OMDB_TAGES_DECKEL = 950                    # Free-Key: 1.000/Tag — Puffer lassen
 GERAET_KOPF = ('MediaBrowser Client="Sync", Device="SyncYouTube", '
                'DeviceId="sync-jb", Version="1.0"')
@@ -794,7 +795,10 @@ def _omdb_erlaubt(cache):
 def detail(item_id, profil="standard"):
     """Spiegel-Eintrag + TMDB/OMDb-Anreicherung (on demand, 14-Tage-Cache).
     Fehlender Key oder tote Quelle ⇒ Felder bleiben leer, NIE eine Fehlerseite
-    (Selbstheilungs-Regel)."""
+    (Selbstheilungs-Regel). Ein Ausfall (Netzfehler, Antwort außer 200/404,
+    auch 429, oder der OMDb-Tagesdeckel) markiert den Eintrag `unvollstaendig`;
+    der hält nur eine Stunde (F12). Jeder OMDb-Abruf zählt im selben
+    Schreibvorgang in `omdb_zaehler`, sonst griffe der Tagesdeckel nie."""
     e = next((x for x in katalog_lesen()["eintraege"] if x["id"] == item_id), None)
     if not e:
         e = _folge_holen(item_id)
@@ -805,12 +809,15 @@ def detail(item_id, profil="standard"):
     # "trailer_v2" ist der Feld-Versions-Marker: ältere Cache-Einträge werden
     # einmal frisch geholt (Netflix-Detailseite Build 184; v2 = Trailer-Fix:
     # language=de-DE filterte auch die VIDEOS auf Deutsch ⇒ meist leer).
-    if not m or "trailer_v2" not in m or time.time() - (m.get("ts") or 0) > META_HALTBAR_S:
+    haltbar = META_UNVOLLSTAENDIG_S if m.get("unvollstaendig") else META_HALTBAR_S
+    if not m or "trailer_v2" not in m or time.time() - (m.get("ts") or 0) > haltbar:
         m = {"ts": time.time(), "beschreibung": "", "cast": [],
              "empfehlungen_tmdb": [], "imdb_rating": "", "metacritic": "",
              "tomatometer": "", "tagline": "", "regie": [], "drehbuch": [],
              "trailer": [], "trailer_v2": True, "hoehe": 0, "audio_kanaele": 0,
              "audio_sprachen": [], "sub_sprachen": []}
+        unvollstaendig = False
+        omdb_rufe = 0
         keys = _meta_keys()
         if keys.get("tmdb") and e.get("tmdb"):
             art = "tv" if e["typ"] == "serie" else "movie"
@@ -838,12 +845,17 @@ def detail(item_id, profil="standard"):
                     m["empfehlungen_tmdb"] = [str(x.get("id")) for x in
                                               (d.get("recommendations") or {})
                                               .get("results") or []]
+                elif st != 404:            # 404 = Titel gibt es dort nicht (endgültig)
+                    unvollstaendig = True
             except Exception:              # noqa: BLE001 — Reihe kommt ohne TMDB
-                pass
-        if keys.get("omdb") and e.get("imdb") and _omdb_erlaubt(cache):
+                unvollstaendig = True
+        if keys.get("omdb") and e.get("imdb") and not _omdb_erlaubt(cache):
+            unvollstaendig = True          # Tagesdeckel: später nachholen
+        elif keys.get("omdb") and e.get("imdb"):
             try:
                 st, roh = _http(f"https://www.omdbapi.com/?i={e['imdb']}"
                                 f"&apikey={keys['omdb']}")
+                omdb_rufe += 1
                 if st == 200:
                     d = json.loads(roh)
                     # OMDb schreibt fehlende Werte wörtlich als "N/A" — das
@@ -855,9 +867,12 @@ def detail(item_id, profil="standard"):
                     m["tomatometer"] = _wert(next(
                         (r.get("Value") for r in d.get("Ratings") or []
                          if "Rotten" in (r.get("Source") or "")), ""))
-                    cache["omdb_zaehler"] = (cache.get("omdb_zaehler") or 0) + 1
+                elif st != 404:
+                    unvollstaendig = True
             except Exception:              # noqa: BLE001 — Zahl fehlt dann eben
-                pass
+                unvollstaendig = True
+        if unvollstaendig:
+            m["unvollstaendig"] = True
         # Technik kommt seit dem Seiten-Abzug nicht mehr im Spiegel mit
         # (teuerstes Feld, live gemessen — s. katalog_abzug): je Titel EIN
         # Einzel-Abruf: Codecs, Auflösung, Ton-Kanäle/-Sprachen, Untertitel-
@@ -888,9 +903,16 @@ def detail(item_id, profil="standard"):
             pass
         # Zwei-Fragen-Regel (Nachtprüfung 06.08.): mehrere Server-Threads
         # schreiben den Meta-Cache — json_aendern mischt NUR den eigenen
-        # Schlüssel ein, statt fremde frische Einträge zu überschreiben.
-        _json_aendern(_pfade["meta"],
-                         lambda d: d.__setitem__(item_id, m), standard={})
+        # Schlüssel ein, statt fremde frische Einträge zu überschreiben. Der
+        # OMDb-Zähler zählt dort auf den Stand der Datei weiter (F12).
+        def _eintragen(d):
+            d[item_id] = m
+            if omdb_rufe:
+                heute = time.strftime("%Y-%m-%d")
+                if d.get("omdb_tag") != heute:
+                    d["omdb_tag"], d["omdb_zaehler"] = heute, 0
+                d["omdb_zaehler"] = (d.get("omdb_zaehler") or 0) + omdb_rufe
+        _json_aendern(_pfade["meta"], _eintragen, standard={})
     return {**e, "beschreibung": m.get("beschreibung") or "",
             "cast": m.get("cast") or [],
             "empfehlungen_tmdb": m.get("empfehlungen_tmdb") or [],
