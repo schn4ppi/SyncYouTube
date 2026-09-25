@@ -672,3 +672,36 @@ def test_nach_einem_strom_liest_die_naechste_anfrage_wieder_mit_zeitlimit(monkey
         assert s.recv(1024) == b"", "der Server hätte die Verbindung schließen müssen"
         assert time.monotonic() - t0 < 4
         s.close()
+
+
+# ------------------------------------------------------------ Abgewiesene POSTs schließen die Verbindung
+# Abnahme 25.09.: Die 403 aus Host/Origin-Prüfung und Riegel lasen den Körper
+# nicht und ließen die Verbindung offen. Unter HTTP/1.0 harmlos (eine Anfrage
+# je Verbindung); spräche der Handler HTTP/1.1, würde ein Körper, der selbst
+# eine Anfrage ohne Origin enthält, als zweite Anfrage ausgeführt.
+
+def test_abgewiesener_post_schliesst_die_verbindung_in_beiden_zweigen(monkeypatch):
+    st, _, _ = _fern(Host="127.0.0.1:8776", Origin="https://angreifer.example")
+    assert st == 403 and LETZTER["h"].close_connection, "Zweig Host/Origin"
+    _fernsteuerung(monkeypatch)
+    st, _, _ = _anfrage("/api/remote", methode="POST", ip=LAN, kopf={"Host": PC_IM_LAN},
+                        rumpf={"cmd": "play"})
+    assert st == 403 and LETZTER["h"].close_connection, "Zweig Riegel"
+    assert app._remote["n"] == 0
+
+
+def test_koerper_eines_abgewiesenen_posts_wird_nie_zur_zweiten_anfrage(monkeypatch):
+    innen = b'{"cmd": "play"}'
+    zweite = (b"POST /api/remote HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+              b"Content-Length: " + str(len(innen)).encode() + b"\r\n\r\n" + innen)
+    with _EchterServer(monkeypatch, zeitlimit=1.0, protokoll="HTTP/1.1") as server:
+        erste = (f"POST /api/remote HTTP/1.1\r\nHost: 127.0.0.1:{server.port}\r\n"
+                 f"Origin: https://angreifer.example\r\nContent-Type: text/plain\r\n"
+                 f"Content-Length: {len(zweite)}\r\n\r\n").encode() + zweite
+        s = server.verbinden()
+        s.sendall(erste)
+        antwort = _bis_zum_ende(s)
+        s.close()
+    assert antwort.startswith(b"HTTP/1.1 403"), antwort[:200]
+    assert antwort.count(b"HTTP/1.1 ") == 1, antwort
+    assert app._remote["n"] == 0, "der eingeschmuggelte Befehl darf nicht laufen"

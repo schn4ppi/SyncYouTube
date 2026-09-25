@@ -7027,9 +7027,14 @@ class Handler(BaseHTTPRequestHandler):
             _antwort(self, 404, {"fehler": "unbekannt"})
 
     def do_POST(self):
+        # Abgewiesen wird ohne den Körper zu lesen; die Verbindung schließt
+        # danach immer (wie bei 400/413), sonst würde ein Körper, der selbst
+        # eine Anfrage enthält, bei Keep-Alive als zweite Anfrage gelesen.
         if not self._anfrage_vertraut():
+            self.close_connection = True
             return _antwort(self, 403, {"fehler": "Anfrage von fremder Seite abgelehnt."})
         if not self._hat_zugriff():
+            self.close_connection = True
             return _antwort(self, 403, {"fehler": "Kein Zugriff — Fernsteuerung aus oder falscher Code."})
         # S14: negative oder unlesbare Länge -> 400, über 2 MB -> 413; in beiden
         # Fällen wird der Körper nicht gelesen und die Verbindung geschlossen.
