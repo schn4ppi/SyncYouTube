@@ -3432,6 +3432,18 @@ function fernModusSetzen(lokal){
 }
 function nurPc(eintrag){eintrag.nurPc=true; return eintrag;}
 function menuFuerGeraet(eintraege){return NUR_FERN?(eintraege||[]).filter(e=>!(e&&e.nurPc)):eintraege;}
+/* Wiedergabe-Wahlen eines Geräts im WLAN (Abnahme 25.09.2026, offene Frage 3
+   an JB): Qualität, Untertitel-Modus und -Stil, Tempo und Versatz schreibt der
+   Server nur vom PC (config.json). Auf dem Gerät wirken sie sofort, gehen
+   aber nicht an den Server (vorher 403 und „🔒 Nur am PC“ mitten in der
+   Wiedergabe). Untertitel-Modus und -Stil merkt sich der Browser des Geräts
+   (ytdl_fern_wahl); sie schlagen dort den globalen Standard des PCs, Regeln je
+   Titel und Playlist gelten weiter. „Zurücksetzen“ gibt den Stil wieder dem PC. */
+function fernWahl(){try{const w=JSON.parse(localStorage.getItem('ytdl_fern_wahl')||'{}'); return (w&&typeof w==='object')?w:{};}catch(e){return {};}}
+function fernWahlMerken(felder){
+  const w=Object.assign(fernWahl(),felder);
+  try{localStorage.setItem('ytdl_fern_wahl',JSON.stringify(w));}catch(e){}
+}
 /* Was trotzdem abgewiesen wird (403 mit nur_pc), meldet sich EINMAL je Weg,
    statt still nichts zu tun. */
 const _nurPcGemeldet=new Set();
@@ -3667,8 +3679,8 @@ function hilfeModal(an){const m=document.getElementById('hilfemodal'); if(m)m.st
 
 /* ---- Command-Bar oben: Download, Live-Queue, Now-Playing, Zwischenablage ---- */
 function qualMerken(v){                               // Qualitätswahl fuer naechsten Start sichern
-  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({standard_qualitaet:v})});
+  if(!NUR_FERN)fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({standard_qualitaet:v})});   // Gerät im WLAN: gilt, solange die Seite offen ist
   const a=document.getElementById('cmd-qual'), b=document.getElementById('qual');
   if(a)a.value=v; if(b)b.value=v;
 }
@@ -7518,25 +7530,31 @@ function subStilSetzen(feld,wert){
   if(feld==='schatten')wert=!!wert;
   subStil[feld]=wert;
   try{localStorage.setItem('ytdl_substil',JSON.stringify(subStil));}catch(e){}
-  // Server-global (JB: gilt für alle Videos, überlebt jede Version).
-  fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
+  // Server-global (JB: gilt für alle Videos, überlebt jede Version); ein
+  // Gerät im WLAN merkt ihn nur für sich (fernWahl).
+  if(NUR_FERN)fernWahlMerken({sub_look:Object.assign({},subStil)});
+  else fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({global:1,merge:1,sub_look:subStil})}).catch(()=>{});
   subStilAnwenden();
 }
 function subStilReset(){
   subStil=Object.assign({},SUB_STANDARD);
   try{localStorage.setItem('ytdl_substil',JSON.stringify(subStil));}catch(e){}
-  fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
+  if(NUR_FERN)fernWahlMerken({sub_look:null});      // Gerät: wieder der Stil des PCs ab dem nächsten Öffnen
+  else fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({global:1,merge:1,sub_look:''})}).catch(()=>{});
   subStilAnwenden();
 }
 /* Beim Seitenstart gewinnt der SERVER-Stand (überlebt Versionen/Browser);
-   localStorage bleibt der schnelle Zwischenspeicher. */
+   localStorage bleibt der schnelle Zwischenspeicher. Auf einem Gerät im WLAN
+   gewinnt ein dort gewählter Stil (fernWahl), sonst ebenfalls der Server. */
 let _subStilServer=false;
 function subStilVomServer(){
   if(_subStilServer||!daten||!daten.config)return;
   _subStilServer=true;
-  const g=(daten.config.wiedergabe)||{};
+  const g=Object.assign({},(daten.config.wiedergabe)||{});
+  const eigen=NUR_FERN?fernWahl().sub_look:null;
+  if(eigen&&typeof eigen==='object')g.sub_look=eigen;
   if(g.sub_look&&typeof g.sub_look==='object'){       // neuer Look gewinnt
     for(const f in SUB_STANDARD)if(g.sub_look[f]!==undefined)subStil[f]=g.sub_look[f];
     subStil.groesse=parseFloat(subStil.groesse)||1;
@@ -7581,7 +7599,9 @@ function subModusSetzen(mode){
   // Absolut-Regel je Titel, und Titel mit alter „aus"-Regel schalteten die
   // Untertitel wieder ab. Ausnahmen je Titel/Playlist setzt weiter der
   // Rechtsklick-Dialog „Wiedergabe…" (bewusst, nicht als Nebenwirkung).
-  fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
+  // Ein Gerät im WLAN merkt den Umschalter nur für sich (fernWahl).
+  if(NUR_FERN)fernWahlMerken({sub:mode});
+  else fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({global:1,merge:1,sub:mode})}).catch(()=>{});
   if(typeof daten!=='undefined'&&daten&&daten.config)  // sofort wirksam, ohne Poll
     daten.config.wiedergabe=Object.assign({},daten.config.wiedergabe||{},{sub:mode});
@@ -9642,7 +9662,9 @@ async function vlcTick(){
 let subModeSitzung=subMode;
 function wiedergabeFuer(x){
   const p=(playerState.plid&&((plState.find(q=>q.id===playerState.plid)||{}).wiedergabe))||{};
-  const g=(daten&&daten.config&&daten.config.wiedergabe)||{};
+  const g=Object.assign({},(daten&&daten.config&&daten.config.wiedergabe)||{});
+  const eigen=NUR_FERN?fernWahl().sub:'';              // Gerät im WLAN: seine Wahl statt des PC-Standards
+  if(eigen)g.sub=eigen;
   const t=(x&&x.wiedergabe)||{};
   return {sub:t.sub||p.sub||g.sub||'', speed:t.speed||p.speed||g.speed||0, ton:t.ton||p.ton||g.ton||'',
           sub_offset:t.sub_offset||p.sub_offset||g.sub_offset||0};
@@ -9659,6 +9681,7 @@ function wiedergabeAnwenden(x,el){
 function wiedergabeMerken(felder){
   const k=aktKey(); if(!k)return;                      // nichts läuft -> nichts zu merken
   const x=libFind(k); if(x)x.wiedergabe=Object.assign({},x.wiedergabe||{},felder);
+  if(NUR_FERN)return;                                  // Gerät im WLAN: gilt nur hier, bis die Bibliothek neu lädt
   fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(Object.assign({keys:[k],merge:1},felder))}).catch(()=>{});
 }

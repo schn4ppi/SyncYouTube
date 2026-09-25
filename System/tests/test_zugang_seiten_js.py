@@ -462,3 +462,57 @@ def test_download_zeile_ohne_trotzdem_und_ordner_im_wlan(tmp_path):
     assert "Trotzdem" not in fern["u"] and "'ordner'" not in fern["u"], fern["u"]
     assert "'entfernen'" in fern["u"] and "Abspielen" in fern["u"]
     assert "'weiter'" in fern["f"], "Weiter nach einem Fehler bleibt im WLAN"
+
+
+# Wiedergabe-Wahlen auf einem Gerät im WLAN (Abnahme 25.09.2026, offene Frage 3
+# an JB): Qualität, Untertitel-Modus und -Stil, Tempo und Versatz schreibt der
+# Server nur vom PC (config.json). Vorher schickte die Oberfläche sie trotzdem,
+# bekam 403 und zeigte mitten in der Wiedergabe „🔒 Nur am PC“; beim nächsten
+# Titel und beim nächsten Öffnen galt wieder der Standard des PCs.
+
+def _wahl_teile(q, fern):
+    helfer = [_js_funktion(q, n) for n in ("fernWahl", "fernWahlMerken") if f"function {n}(" in q]
+    return [
+        SPEICHER,
+        "const _f=[]; globalThis.fetch=async(u,o)=>{_f.push((o&&o.method||'GET')+' '+u);"
+        " return {ok:true,status:200,json:async()=>({})};};",
+        re.search(r"^const SUB_STANDARD=\{.*?\};", q, re.M | re.S).group(0), _js_zeile(q, "let subStil="),
+        "let subMode='aus', subCues=[], subModeSitzung='aus', _subStilServer=true;",
+        "function subAnzeigen(){} function subNachladen(){} function karLauf(){} function subStilAnwenden(){}",
+        "function subPresetZuLook(){return {};}",
+        "let playerState={plid:null}, plState=[];",
+        "let daten={config:{wiedergabe:{sub:'zeilen', sub_look:{groesse:2}}}};",
+        "const _x={id:'k1',wiedergabe:{}}; function aktKey(){return 'k1';} function libFind(){return _x;}",
+        "_els['cmd-qual']={value:'beste'}; _els.qual={value:'beste'};",
+        _js_zeile(q, "let NUR_FERN"), f"NUR_FERN={'true' if fern else 'false'};",
+        *helfer,
+        *[_js_funktion(q, n) for n in ("qualMerken", "subModusSetzen", "wiedergabeFuer", "wiedergabeMerken",
+                                       "subStilSetzen", "subStilReset", "subStilVomServer")],
+        # Wahl am Gerät bzw. PC, dann der nächste Status (Server-Stand), der nächste
+        # Titel ohne eigene Regel, ein Titel mit Regel und ein Neustart der Seite
+        "qualMerken('720p'); subModusSetzen('aus'); subStilSetzen('groesse',1.5); wiedergabeMerken({speed:1.5});",
+        "await new Promise(r=>setTimeout(r,0));",
+        "daten={config:{wiedergabe:{sub:'zeilen', sub_look:{groesse:2}}}};",
+        "const naechster=wiedergabeFuer({wiedergabe:{}}).sub, mitRegel=wiedergabeFuer({wiedergabe:{sub:'karaoke'}}).sub;",
+        "_subStilServer=false; subStil=Object.assign({},SUB_STANDARD); subStilVomServer();",
+        "aus({fetch:_f, naechster, mitRegel, groesse:subStil.groesse, qual:_els['cmd-qual'].value,"
+        " tempo:_x.wiedergabe.speed, speicher:localStorage._d});",
+    ]
+
+
+def test_wiedergabe_wahlen_auf_dem_geraet_bleiben_im_geraet(tmp_path):
+    q = _pc()
+    (e,) = _lauf(tmp_path, *_wahl_teile(q, fern=True))
+    assert e["fetch"] == [], f"kein Schreibversuch am Server, also keine 403-Meldung: {e['fetch']}"
+    assert e["qual"] == "720p" and e["tempo"] == 1.5, "die Wahl wirkt sofort"
+    assert e["naechster"] == "aus", "die Untertitel-Wahl des Geräts hält auch beim nächsten Titel"
+    assert e["mitRegel"] == "karaoke", "eine Regel je Titel gilt weiter"
+    assert e["groesse"] == 1.5, "der Untertitel-Stil des Geräts überlebt einen Neustart der Seite"
+
+
+def test_wiedergabe_wahlen_am_pc_wie_bisher(tmp_path):
+    q = _pc()
+    (e,) = _lauf(tmp_path, *_wahl_teile(q, fern=False))
+    assert e["fetch"].count("POST /api/wiedergabe") == 3 and "POST /api/config" in e["fetch"], e["fetch"]
+    assert e["naechster"] == "zeilen" and e["groesse"] == 2, "am PC gilt der Stand des Servers"
+    assert "ytdl_fern_wahl" not in e["speicher"]
