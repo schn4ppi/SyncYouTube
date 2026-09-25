@@ -299,3 +299,56 @@ def test_ohne_offene_meldung_kein_nachreichen(tmp_path, monkeypatch):
     _queue([{"item": "f9", "position_s": 5, "gesehen": False, "ts": 1, "abgewiesen": True}])
     assert filme.fortschritt("f1", 100) is True
     assert laeufe == [], "abgewiesene Einträge allein lösen kein Nachreichen aus"
+
+
+# ------------------------------------------------------------------ F20
+# Der Bild-Cache schrieb nicht atomar: brach das Schreiben ab (Platte voll,
+# Prozess beendet), blieb ein abgeschnittenes Bild unter dem Zielnamen liegen,
+# und jeder spätere Abruf lieferte es aus dem Cache, für immer.
+
+class _HalbeDatei:
+    """Schreibt die Hälfte und scheitert dann, wie eine volle Platte."""
+
+    def __init__(self, pfad):
+        self._f = open(pfad, "wb")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self._f.close()
+        return False
+
+    def write(self, roh):
+        self._f.write(roh[:len(roh) // 2])
+        raise OSError(28, "Kein Platz auf dem Datenträger")
+
+
+def test_bild_cache_haelt_kein_halbes_bild(tmp_path, monkeypatch):
+    _einrichten(tmp_path, monkeypatch)
+    bild = b"\xff\xd8" + b"JPEG" * 500
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO)]))
+    antwort = filme._http
+
+    def http(url, **kw):
+        if "/Images/" in url:
+            return 200, bild
+        return antwort(url, **kw)
+    monkeypatch.setattr(filme, "_http", http)
+    echt = open
+
+    def oeffnen(pfad, modus="r", *a, **k):
+        if "wb" in modus and "filme_bilder" in str(pfad):
+            return _HalbeDatei(pfad)
+        return echt(pfad, modus, *a, **k)
+    monkeypatch.setattr(filme, "open", oeffnen, raising=False)
+    try:
+        erstes = filme.bild_holen("f1")
+    except OSError:
+        erstes = None
+    assert erstes in (None, bild)
+    monkeypatch.setattr(filme, "open", echt, raising=False)
+    assert filme.bild_holen("f1") == bild, "ein abgeschnittenes Bild blieb im Cache"
+    ordner = os.listdir(filme._pfade["bilder"])
+    assert ordner == ["f1_Primary.jpg"], ordner

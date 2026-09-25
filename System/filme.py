@@ -775,8 +775,19 @@ def bild_holen(item_id, art="Primary"):
         return None
     if st != 200 or not roh:
         return None
-    with open(pfad, "wb") as f:
-        f.write(roh)
+    # Atomar (F20): erst unter eigenem Zwischennamen, dann os.replace. Ein
+    # abgebrochenes Schreiben ließ sonst ein halbes Bild für immer im Cache.
+    # Scheitert das Ablegen, geht das Bild trotzdem raus, nur ohne Cache.
+    tmp = f"{pfad}.{os.getpid()}.{threading.get_ident():x}.tmp"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(roh)
+        os.replace(tmp, pfad)
+    except OSError:
+        try:
+            os.remove(tmp)                 # eigener Zwischenstand, nie das Bild selbst
+        except OSError:
+            pass
     return roh
 
 
