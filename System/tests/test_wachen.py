@@ -320,7 +320,10 @@ def test_schreiben_im_faden_macht_den_test_rot(tmp_path):
     selbst am Alarm, pytest machte daraus bloß eine Warnung. Die Wache meldet
     jeden Versuch darum am Testende noch einmal. Der Kindlauf schützt zusätzlich
     einen Ordner in tmp_path, der den Programmordner spielt: selbst ohne Wache
-    landete die Datei also nie in einem echten Ordner."""
+    landete die Datei also nie in einem echten Ordner.
+    Nacharbeit (25.09.): zwei Tests, damit der Fund beim VERURSACHER steht.
+    Mit nur einem Test fiel nicht auf, wenn die Meldung je Test fehlte: die
+    Meldung am Sitzungsende hängt den Fund dem letzten Test an."""
     echt = tmp_path / "echt"
     echt.mkdir()
     probe = tmp_path / "test_probe_schreiben.py"
@@ -329,16 +332,22 @@ def test_schreiben_im_faden_macht_den_test_rot(tmp_path):
         import pytest
 
         @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
-        def test_schreibt_nur_im_faden():
+        def test_a_schreibt_nur_im_faden():
             f = threading.Thread(target=lambda: open({str(echt / "config.json")!r}, "w").close())
             f.start()
             f.join(30)
+
+        def test_b_ist_sauber():
+            pass
         '''), encoding="utf-8")
     lauf = _kindlauf(probe, tmp_path, SYNCYT_WACHE_ZUSATZ=str(echt))
     aus = lauf.stdout + lauf.stderr
     assert not (echt / "config.json").exists(), "trotz Wache geschrieben"
     assert lauf.returncode != 0 and "echten Programmordner" in aus, aus[-2000:]
-    assert "1 passed, 1 error" in aus, aus[-2000:]
+    assert "2 passed, 1 error" in aus, aus[-2000:]
+    rot = [z for z in aus.splitlines() if z.startswith(("ERROR ", "FAILED "))]
+    assert len(rot) == 1 and "::test_a_schreibt_nur_im_faden" in rot[0], (
+        f"der Fund steht nicht beim Verursacher: {rot}")
 
 
 def test_basetemp_im_programmordner_wird_vor_dem_lauf_abgelehnt(tmp_path):
@@ -379,8 +388,20 @@ def test_netz_ist_fuer_live_tv_geo_vpn_und_update_gesperrt(request):
         with pytest.raises(pytest.fail.Exception):
             sys.audit(ereignis, *args)
     sys.audit("socket.connect", None, ("127.0.0.1", 8790))      # lokal bleibt erlaubt
-    offen = [f"{m.__name__}.{n}" for m, n in conftest.NETZ_SPERREN
-             if getattr(getattr(m, n), "netz_sperre", None) != n]
+    # Fest hingeschrieben (Nacharbeit 25.09.): aus NETZ_SPERREN abgeleitet,
+    # blieb der Test grün, wenn jemand dort einen Eintrag strich. Geprüft
+    # wird vor jedem Aufruf, damit ein Rot-Lauf nie das Echte ruft.
+    import geo
+    import update
+    import vpn
+    module = {"geo": geo, "vpn": vpn, "update": update}
+    erwartet = {"geo.freie_proxys", "vpn.status", "vpn._still",
+                "update.fetch_release_json", "update.fetch_https"}
+    benannt = {f"{m.__name__}.{n}" for m, n in conftest.NETZ_SPERREN}
+    assert erwartet <= benannt, f"benannte Sperre fehlt in NETZ_SPERREN: {sorted(erwartet - benannt)}"
+    offen = [x for x in sorted(erwartet)
+             if getattr(getattr(module[x.split(".")[0]], x.split(".")[1]), "netz_sperre", None)
+             != x.split(".")[1]]
     assert not offen, f"ungesperrt: {offen}"
     for modul, name in conftest.NETZ_SPERREN:
         with pytest.raises(pytest.fail.Exception):
