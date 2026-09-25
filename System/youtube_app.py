@@ -4233,10 +4233,8 @@ def abo_aktion(daten):
                     _playlists[:] = [p for p in _playlists if p.get("id") != pl.get("id")]
                 _json_speichern(GELADEN_PFAD, _geladen)
             _playlists_speichern()
-        try:                                          # Folgen-Cache des Abos ist jetzt Waise
-            os.remove(os.path.join(ABO_INDEX_ORDNER, f"{daten.get('id')}.json"))
-        except OSError:
-            pass
+        if abo:                                       # Folgen-Cache des Abos ist jetzt Waise
+            _abo_index_entfernen(abo.get("id"))
         with _io_lock:
             _abos[:] = [a for a in _abos if a.get("id") != daten.get("id")]
             _json_speichern(ABO_PFAD, _abos)
@@ -4359,6 +4357,20 @@ def abos_pruefen():
 
 
 ABO_INDEX_ORDNER = os.path.join(DATEN_DIR, "abo_index")
+_ABO_ID_FORM = re.compile(r"[0-9a-f]{8}")             # uuid4().hex[:8], s. abo_aktion("create")
+
+
+def _abo_index_entfernen(abo_id):
+    """Folgen-Cache eines entfernten Abos in den Papierkorb (Gesamtprüfung S1).
+    Nur für eine Id in der Form, die `create` vergibt: die Id stammt aus der
+    Anfrage, und `..\\`, ein absoluter oder ein UNC-Pfad hätten sonst eine
+    beliebige `.json` getroffen. Scheitert der Papierkorb, bleibt der Cache
+    liegen (er ist nur abgeleitet und wird nie wieder gelesen)."""
+    abo_id = str(abo_id or "")
+    if not _ABO_ID_FORM.fullmatch(abo_id):
+        return False
+    pfad = os.path.join(ABO_INDEX_ORDNER, f"{abo_id}.json")
+    return os.path.isfile(pfad) and bool(_in_papierkorb(pfad))
 
 
 def abo_folgen(abo_id, aktualisieren=False):
