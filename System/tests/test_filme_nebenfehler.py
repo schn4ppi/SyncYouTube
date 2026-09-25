@@ -352,3 +352,49 @@ def test_bild_cache_haelt_kein_halbes_bild(tmp_path, monkeypatch):
     assert filme.bild_holen("f1") == bild, "ein abgeschnittenes Bild blieb im Cache"
     ordner = os.listdir(filme._pfade["bilder"])
     assert ordner == ["f1_Primary.jpg"], ordner
+
+
+# ------------------------------------------------------------------ F23
+# Beim Snippet-Backen waren Prüfen („läuft schon?“) und Merken nicht atomar:
+# zwei Anfragen starteten zwei ffmpeg auf dieselbe Zwischendatei. Und
+# stream_url (meldet sich bei Jellyfin an) lief auch für unbekannte Ids.
+
+def _snippet_umgebung(tmp_path, monkeypatch):
+    import subprocess
+    import threading
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", _fake_http([
+        ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
+        ("/Items", 200, FAKE_ITEMS)]))
+    filme.katalog_abzug()
+    stroeme, laeufe = [], []
+    schranke = threading.Barrier(2)
+
+    def strom(item_id, **kw):
+        stroeme.append(item_id)
+        try:
+            schranke.wait(timeout=1)       # beide Anfragen gleichzeitig hier
+        except threading.BrokenBarrierError:
+            pass
+        return "http://strom.invalid/" + item_id
+    monkeypatch.setattr(filme, "stream_url", strom)
+    monkeypatch.setattr(subprocess, "run", lambda befehl, **kw: laeufe.append(befehl[-1]))
+    return stroeme, laeufe
+
+
+def test_snippet_unbekannte_id_fragt_keinen_strom(tmp_path, monkeypatch):
+    stroeme, laeufe = _snippet_umgebung(tmp_path, monkeypatch)
+    assert filme.snippet_backen("gibtsnicht") is False
+    assert stroeme == [] and laeufe == [], "für eine unbekannte Id lief stream_url"
+
+
+def test_snippet_zwei_anfragen_ein_ffmpeg(tmp_path, monkeypatch):
+    import threading
+    stroeme, laeufe = _snippet_umgebung(tmp_path, monkeypatch)
+    faeden = [threading.Thread(target=filme.snippet_backen, args=("f1",)) for _ in range(2)]
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join(5)
+    assert len(laeufe) == 1, f"{len(laeufe)} ffmpeg-Läufe auf dieselbe Zwischendatei"
+    assert "f1" not in filme._snippet_laeuft, "der Merker bleibt nicht hängen"

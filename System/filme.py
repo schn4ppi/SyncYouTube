@@ -1181,6 +1181,7 @@ def mehr_wie(item_id):
 # (kein Vollabruf); der Token bleibt am PC, der Client sieht nur die Datei.
 
 _snippet_laeuft = set()
+_snippet_lock = threading.Lock()           # Prüfen und Merken in einem Schritt (F23)
 
 
 def snippet_pfad(item_id):
@@ -1189,17 +1190,25 @@ def snippet_pfad(item_id):
 
 
 def snippet_backen(item_id):
-    """Einmalig je Titel; still bei jedem Fehler (Vorschau ist Kür)."""
+    """Einmalig je Titel; still bei jedem Fehler (Vorschau ist Kür). Nur für
+    Titel aus dem Spiegel (sonst meldet stream_url sich umsonst an), und
+    „läuft schon?“ wird unter einer Sperre geprüft und gemerkt (F23): vorher
+    starteten zwei Anfragen zwei ffmpeg auf dieselbe Zwischendatei."""
     pfad = snippet_pfad(item_id)
-    if not pfad or os.path.exists(pfad) or item_id in _snippet_laeuft:
+    if not pfad:
         return False
     e = next((x for x in katalog_lesen()["eintraege"] if x["id"] == item_id), None)
-    strom = stream_url(item_id)
-    if not (e and strom):
+    if not e:
         return False
-    start = max(60, int((e.get("laufzeit_min") or 30) * 60 * 0.27))
-    _snippet_laeuft.add(item_id)
+    with _snippet_lock:
+        if os.path.exists(pfad) or item_id in _snippet_laeuft:
+            return False
+        _snippet_laeuft.add(item_id)
     try:
+        strom = stream_url(item_id)
+        if not strom:
+            return False
+        start = max(60, int((e.get("laufzeit_min") or 30) * 60 * 0.27))
         import subprocess
         os.makedirs(_pfade["snippets"], exist_ok=True)
         tmp = pfad + ".tmp.mp4"
