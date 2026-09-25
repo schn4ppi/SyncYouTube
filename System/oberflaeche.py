@@ -3516,7 +3516,10 @@ async function laden(){
    Nie mitten im Titel (JB-Entscheid 7a Punkt 5, 25.09.2026): spielt Musik
    oder VLC, bleibt das Neuladen vorgemerkt; der Sekundentakt holt es in der
    nächsten Pause nach, am Titelende ersetzt es das Weiterschalten
-   (plTitelEnde, vlcTick). */
+   (plTitelEnde, vlcTick). Crossfade und Automix starten den Nachfolger
+   schon vor dem Titelende hörbar: solange ein Stand vorgemerkt ist, startet
+   darum keine Blende (uebergangTick), und läuft eine schon, wartet das
+   Neuladen auch am Titelende auf die nächste Pause. */
 let uiStand=null, uiNeuVorgemerkt=false;
 function uiStandPruefen(stand){
   if(!stand)return;
@@ -3534,6 +3537,7 @@ function wiedergabeSpielt(){                           // Musik im Browser oder 
    true heißt: die Seite lädt jetzt neu. */
 function uiNeuLaden(){
   if(!uiNeuVorgemerkt)return false;
+  if(xfNext&&!xfNext.paused&&!xfNext.ended)return false;   // Blende läuft: der Nachfolger ist schon hörbar
   const tippt=document.activeElement&&['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
   if(tvpOffen||tvInfoOffen||tvDialogOffen||tippt)return false;
   let letzter=0;
@@ -8041,6 +8045,9 @@ function uebergangTick(el){                            // ein Ticker für alle �
   if(!el.duration)return;
   if(el._xf){if(xfNext&&xfNext._xfAlt===el)xfLautstaerke(); return;}   // Blende läuft: auch ohne Bildtakt nachführen
   const rest=el.duration-el.currentTime;
+  // Neuer Stand vorgemerkt: das Titelende lädt neu, darum keine Blende, die
+  // den Nachfolger schon vorher hörbar startet (F10, nie mitten im Titel).
+  if(uiNeuVorgemerkt&&(uebergang==='crossfade'||uebergang==='automix'))return;
   if(uebergang==='crossfade'&&crossfadeSek>0&&rest<=crossfadeSek){
     el._xf=true; starteCrossfade(el,rest);
   }else if(uebergang==='gapless'&&rest<=12&&!xfNext){

@@ -159,3 +159,74 @@ def test_neuladen_bei_vlc_pause(tmp_path):
                  "vlcStatus={verfuegbar:true, zustand:'pausiert', key:'song|mp3', pos:10, dauer:200};"
                  " await vlcTick(); uiStandPruefen('b'); aus({log:_log.slice()});")
     assert e["log"] == ["reload"]
+
+
+# ------------------------------------- F10 mit Überblendung (Nacharbeit, 25.09.)
+# Crossfade und Automix starten den Nachfolger einige Sekunden vor dem Titelende
+# hörbar (xfNext spielt, ist aber noch nicht #pl-el). Lud das Titelende dann neu,
+# brach der schon laufende Nachfolger ab, also doch mitten im Titel. Jetzt: ist
+# ein neuer Stand vorgemerkt, startet keine Blende, und das Titelende lädt sauber
+# neu. Kommt der Stand erst während einer laufenden Blende, übernimmt das
+# Titelende den Nachfolger, und das Neuladen wartet auf die nächste Pause.
+# Ausgeführt mit dem echten Player-Kern aus test_uebergaenge_verhalten.
+
+def _blende_teile(q):
+    import test_uebergaenge_verhalten as tu
+    teile = tu._kern(q)
+    attrappe = "let uiNeuVorgemerkt=false; function uiNeuLaden(){return false;}"
+    assert attrappe in teile[0], "die Attrappe der Selbst-Erneuerung fehlt im Übergangs-Kern"
+    teile[0] = teile[0].replace(attrappe, "")       # hier läuft die echte
+    anfang = q.index("let uiStand=null")
+    return teile + [
+        "const _ss={}; Object.defineProperty(globalThis, 'sessionStorage', {configurable:true,"
+        " value:{getItem:k=>_ss[k]??null, setItem(k,v){_ss[k]=String(v);}}});",
+        "globalThis.location={reload(){_log.push('reload');}};",
+        "let tvInfoOffen=false, tvDialogOffen=false, vlcSpielt=false; document.activeElement=null;",
+        q[anfang:q.index("/* Addon-Nachschub", anfang)],
+        "const neuGeladen=()=>_log.filter(x=>x==='reload').length;",
+        "const hoerbar=()=>_audios.filter(a=>!a.paused).map(a=>a.id);",
+        "function frisch(art){uebergang=art; crossfadeSek=4; xfNext=null; adoptEl=null;"
+        " _log.length=0; _audios.length=0; uiStand=null; uiNeuVorgemerkt=false;"
+        " for(const k in _ss)delete _ss[k]; playerState={idx:0,queue:['a','b','c'],quelle:''};}",
+    ]
+
+
+def test_vorgemerkter_stand_startet_keine_blende(tmp_path):
+    ergebnisse = _lauf(tmp_path, *_blende_teile(_pc()), r"""
+for(const art of ['crossfade','automix']){
+  frisch(art);
+  const el=starte(0);
+  uiStandPruefen('a'); uiStandPruefen('b');            // neuer Stand, die Musik spielt: vorgemerkt
+  el.currentTime=97; feuer(el,'timeupdate'); bild(500); // im Überblend-Fenster
+  const vorEnde={blende:!!xfNext, hoerbar:hoerbar()};
+  el.currentTime=100; el.ended=true; el.paused=true; feuer(el,'ended');
+  aus({art, vorEnde, neu:neuGeladen(), hoerbar:hoerbar()});
+}
+""")
+    assert [e["art"] for e in ergebnisse] == ["crossfade", "automix"]
+    for e in ergebnisse:
+        assert e["vorEnde"] == {"blende": False, "hoerbar": []}, \
+            f"{e['art']}: mit vorgemerktem Stand darf keine Blende den Nachfolger starten: {e}"
+        assert e["neu"] == 1 and e["hoerbar"] == [], \
+            f"{e['art']}: das Titelende lädt neu, und dabei darf kein Nachfolger mitten im Titel stehen: {e}"
+
+
+def test_stand_waehrend_der_blende_laedt_erst_in_der_pause(tmp_path):
+    (e,) = _lauf(tmp_path, *_blende_teile(_pc()), r"""
+frisch('crossfade');
+const el=starte(0); uiStandPruefen('a');
+el.currentTime=97; feuer(el,'timeupdate'); bild(500); // die Blende läuft, der Nachfolger ist hörbar
+const nx=xfNext;
+uiStandPruefen('b');                                   // der neue Stand kommt mitten in der Blende
+const inBlende=neuGeladen();
+el.currentTime=100; el.ended=true; el.paused=true; feuer(el,'ended');
+const amEnde={neu:neuGeladen(), uebernommen:_els['pl-el']===nx, spielt:!nx.paused, hoerbar:hoerbar().length};
+uiStandPruefen('b');                                   // nächster Takt: der Nachfolger spielt weiter
+const weiter=neuGeladen();
+nx.pause(); uiStandPruefen('b');                       // Pause: jetzt neu laden
+aus({inBlende, amEnde, weiter, pause:neuGeladen()});
+""")
+    assert e["inBlende"] == 0
+    assert e["amEnde"] == {"neu": 0, "uebernommen": True, "spielt": True, "hoerbar": 1}, \
+        f"am Titelende läuft der Nachfolger schon; Neuladen hieße Abbruch mitten im Titel: {e}"
+    assert e["weiter"] == 0 and e["pause"] == 1, e
