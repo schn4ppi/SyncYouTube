@@ -699,6 +699,65 @@ def test_playlist_sync_umbenannter_titel_alte_kopie_geht(tmp_path, monkeypatch, 
     assert not entfernt
 
 
+def _umbenannt_waehrend_platte_ab(tmp_path, monkeypatch):
+    """B liegt auf einer eigenen Platte; nach dem ersten Lauf ist sie ab, und
+    A heißt in der Bibliothek neu."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    platte = tmp_path / "platte"
+    platte.mkdir()
+    (dl / "MP3" / B).rename(platte / B)
+    app._geladen[KB]["pfad"] = str(platte / B)
+    app.playlist_sync(pl)
+    platte.rename(tmp_path / "platte_ab")
+    neu_name = "A neu [aaaaaa11111].mp3"
+    (dl / "MP3" / A).rename(dl / "MP3" / neu_name)
+    app._geladen[KA]["pfad"] = str(dl / "MP3" / neu_name)
+    return stick, pl, platte, neu_name
+
+
+def test_playlist_sync_umbenannt_waehrend_gesperrt_alte_kopie_geht_spaeter(tmp_path, monkeypatch,
+                                                                          entfernt):
+    """Heißt ein Titel neu, während der Ordner einer anderen Quelle nicht
+    erreichbar ist, bleibt die alte Kopie in diesem Lauf liegen, ihr Name aber
+    im Merkblatt: der nächste Lauf mit erreichbarem Ordner nimmt sie nach
+    `_entfernt`. Vorher vergaß das Merkblatt den alten Namen, und die Kopie
+    blieb für immer im Ziel."""
+    stick, pl, platte, neu_name = _umbenannt_waehrend_platte_ab(tmp_path, monkeypatch)
+    r1 = app.playlist_sync(pl)
+    assert r1.get("fehlend") == 1 and r1["geloescht"] == 0 and (stick / A).is_file()
+    assert (stick / neu_name).is_file()
+    (tmp_path / "platte_ab").rename(platte)
+    r2 = app.playlist_sync(pl)
+    assert not (stick / A).exists(), "alte Kopie bleibt für immer im Ziel"
+    assert (stick / "_entfernt" / A).read_bytes() == b"AAAA" and r2["geloescht"] == 1
+    assert (stick / neu_name).is_file() and (stick / B).is_file()
+    r3 = app.playlist_sync(pl)
+    assert r3["geloescht"] == 0 and "reste" not in pl["sync_kopien"]
+    assert not entfernt
+
+
+def test_playlist_sync_alte_kopie_die_nicht_weg_ging_wird_erneut_versucht(tmp_path, monkeypatch,
+                                                                         entfernt):
+    """Scheitert das Verschieben der alten Kopie eines umbenannten Titels,
+    versucht es der nächste Lauf wieder (wie bei entfernten Titeln)."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    app.playlist_sync(pl)
+    neu_name = "A neu [aaaaaa11111].mp3"
+    (dl / "MP3" / A).rename(dl / "MP3" / neu_name)
+    app._geladen[KA]["pfad"] = str(dl / "MP3" / neu_name)
+    echt = app._rueckholbar_verschieben
+
+    def gesperrt(*a, **k):
+        raise OSError("Datei in Benutzung")
+    monkeypatch.setattr(app, "_rueckholbar_verschieben", gesperrt)
+    r1 = app.playlist_sync(pl)
+    assert r1["fehler"] == 1 and (stick / A).is_file()
+    monkeypatch.setattr(app, "_rueckholbar_verschieben", echt)
+    r2 = app.playlist_sync(pl)
+    assert r2["geloescht"] == 1 and (stick / "_entfernt" / A).is_file()
+    assert not entfernt
+
+
 def test_auto_sync_versucht_unvollstaendig_erst_nach_pause(tmp_path, monkeypatch):
     """Solange eine Quelle fehlt, läuft der Auto-Sync nicht in jedem 5-s-Takt
     (jeder Lauf durchsucht den Download-Ordner), sondern frühestens nach

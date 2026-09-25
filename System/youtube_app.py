@@ -3870,8 +3870,10 @@ def playlist_sync(pl):
     {Schlüssel: Dateiname}} gilt nur für den Zielordner, für den es entstand,
     und nennt nur wirklich kopierte Dateien; eine schon vorhandene gleich
     große Datei im Ziel ist nicht unsere, das Original selbst (Sync-Ordner in
-    der Bibliothek) nie. Entfernt wird nur für Schlüssel, die nicht mehr in
-    der Playlist stehen. Fehlt eine Quelle (`fehlend` im Ergebnis), bleibt
+    der Bibliothek) nie. Entfernt werden die Kopien der Schlüssel, die nicht
+    mehr in der Playlist stehen, und die alte Kopie eines umbenannten Titels;
+    solange die noch im Ziel liegt, merkt sich das Merkblatt ihren Namen unter
+    "reste" {alter Name: Schlüssel}. Fehlt eine Quelle (`fehlend` im Ergebnis), bleibt
     ihre Kopie über den Schlüssel geschützt; liegt sie in einem gerade
     unerreichbaren Ordner (Platte ab), wird in diesem Lauf gar nichts
     entfernt, der nächste Lauf mit erreichbarem Ordner holt es nach. Eine alte
@@ -3891,6 +3893,8 @@ def playlist_sync(pl):
     kopien = pl.get("sync_kopien") if isinstance(pl.get("sync_kopien"), dict) else {}
     bisher = kopien.get("dateien") if kopien.get("ordner") == ordner_norm else None
     bisher = {str(k): str(n) for k, n in bisher.items()} if isinstance(bisher, dict) else {}
+    reste = kopien.get("reste") if kopien.get("ordner") == ordner_norm else None
+    reste = {str(n): str(k) for n, k in reste.items()} if isinstance(reste, dict) else {}
     alte_liste = pl.get("sync_manifest") if "sync_kopien" not in pl else None
     alte_namen = set(alte_liste) if isinstance(alte_liste, list) else set()
     items = list(pl.get("items", []))
@@ -3931,30 +3935,35 @@ def playlist_sync(pl):
             fehler += 1
             if eigen:
                 neu[key] = name
+    neu_reste = {}                                    # alte Namen umbenannter Titel, die noch im Ziel liegen
     if pl.get("sync_modus") == "spiegeln":
         geschuetzt = set(gewollt) | set(neu.values())  # Namen, die einem Titel gehören
         aktuell = {k: n for n, (k, _s) in gewollt.items()}
-        for key, name in bisher.items():
+        kandidaten = ([(k, n, False) for k, n in bisher.items()]
+                      + [(k, n, True) for n, k in reste.items()])
+        for key, name, rest in kandidaten:
             entfernt = key not in in_playlist
-            umbenannt = key in aktuell and aktuell[key] != name   # alte Kopie unter altem Namen
+            umbenannt = rest or (key in aktuell and aktuell[key] != name)   # Kopie unter altem Namen
             if not (entfernt or umbenannt) or name in geschuetzt:
                 continue
-            if gesperrt:                              # erst, wenn der Ordner wieder da ist
-                if entfernt:
-                    neu[key] = name
-                continue
-            ziel = os.path.join(ordner, name)
-            if not os.path.isfile(ziel):
-                continue                              # schon weg
-            try:
-                _rueckholbar_verschieben(ziel, os.path.join(ordner, ENTFERNT_ORDNER))
-                geloescht += 1
-            except OSError:
-                fehler += 1
-                if entfernt:
-                    neu[key] = name                   # nächster Lauf versucht es wieder
+            if not gesperrt:                          # gesperrt: erst, wenn der Ordner wieder da ist
+                ziel = os.path.join(ordner, name)
+                if not os.path.isfile(ziel):
+                    continue                          # schon weg
+                try:
+                    _rueckholbar_verschieben(ziel, os.path.join(ordner, ENTFERNT_ORDNER))
+                    geloescht += 1
+                    continue
+                except OSError:
+                    fehler += 1
+            if entfernt and not rest:                 # gemerkt: der nächste Lauf versucht es wieder
+                neu[key] = name
+            else:
+                neu_reste[name] = key
     with _io_lock:
         pl["sync_kopien"] = {"ordner": ordner_norm, "dateien": neu}
+        if neu_reste:
+            pl["sync_kopien"]["reste"] = neu_reste
         pl.pop("sync_manifest", None)
         pl["sync_ts"] = time.time()
         _json_speichern(PLAYLIST_PFAD, _playlists)
