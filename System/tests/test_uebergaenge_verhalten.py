@@ -33,6 +33,7 @@ from test_medientasten_verhalten import (  # noqa: E402
     _lauf,
     _modul_js,
     _pc,
+    _pc_helfer,
 )
 
 vlc_attrappe = test_medien_smtc.vlc_attrappe          # Fixture
@@ -104,6 +105,7 @@ const r3=v=>Math.round(v*1000)/1000;
 def _kern(q, *extra):
     """Attrappe + Baustein + echter Player-Kern der Seite."""
     teile = [UMGEBUNG, _modul_js(), _js_zeile(q, "const medienS="), _js_zeile(q, "let sleepTimer=")]
+    teile += _pc_helfer()
     teile += [_js_funktion(q, n) for n in KERN + extra
               if n not in NEU or re.search(r"^function " + n + r"\(", q, re.M)]
     return teile

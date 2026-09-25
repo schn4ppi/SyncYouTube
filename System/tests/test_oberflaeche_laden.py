@@ -21,7 +21,7 @@ for pfad in (MODUL_DIR, TESTS_DIR):
     if pfad not in sys.path:
         sys.path.insert(0, pfad)
 
-from test_medientasten_verhalten import _js_funktion, _js_zeile, _lauf, _pc  # noqa: E402
+from test_medientasten_verhalten import _js_funktion, _js_zeile, _lauf, _pc, _pc_helfer  # noqa: E402
 
 GUT = {"config": {"ziel_ordner": "D:/Ziel", "unterordner": True, "metadaten": True,
                   "cookies_browser": "firefox", "parallel": 2, "standard_qualitaet": "beste",
@@ -82,7 +82,7 @@ def test_cfginit_erst_nach_erfolg(tmp_path):
 
 def _neuladen_teile(q):
     anfang = q.index("let uiStand=null")
-    return [
+    return _pc_helfer() + [
         "const _ss={}; Object.defineProperty(globalThis, 'sessionStorage', {configurable:true,"
         " value:{getItem:k=>_ss[k]??null, setItem(k,v){_ss[k]=String(v);}}});",
         "globalThis.location={reload(){_log.push('reload');}};",

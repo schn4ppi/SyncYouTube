@@ -93,9 +93,9 @@ const _ev={stopPropagation(){},currentTarget:{getBoundingClientRect(){return {le
 
 
 def _menue_lauf(tmp_path, *schritte):
-    from test_medientasten_verhalten import _js_funktion, _js_zeile, _lauf, _pc
+    from test_medientasten_verhalten import _js_funktion, _js_zeile, _lauf, _pc, _pc_helfer
     q = _pc()
-    teile = [MENUE_DOM, _js_zeile(q, "let NUR_FERN")]
+    teile = [MENUE_DOM, _js_zeile(q, "let NUR_FERN"), *_pc_helfer()]
     for name in ("nurPc", "menuFuerGeraet", "kmFuellen", "kontextMenuBauen",
                  "libItemMenu", "plAddListe", "gruppeListe"):
         teile.append(_js_funktion(q, name))

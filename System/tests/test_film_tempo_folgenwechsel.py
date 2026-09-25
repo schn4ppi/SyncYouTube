@@ -41,6 +41,7 @@ from test_medientasten_verhalten import (  # noqa: E402
     _lauf,
     _modul_js,
     _pc,
+    _pc_helfer,
 )
 
 # Die Transcoder-Attrappe ersetzt den VLC-Start durch einen Stub; hier läuft
@@ -95,7 +96,7 @@ def _teile(szenario):
     return ([_modul_js(), "const medienS=medienSitzung(()=>null);",
              _js_zeile(q, "let tvpAbgeloest"), _js_zeile(q, "let tvpGesehenGemeldet"),
              _js_zeile(q, "let tvpRateWert"), ATTRAPPE.replace(_VLC_STUB, ""), TICK_STUB, UMFELD]
-            + [_js_funktion(q, n) for n in namen] + [szenario])
+            + _pc_helfer() + [_js_funktion(q, n) for n in namen] + [szenario])
 
 
 def test_folgenwechsel_im_browser_behaelt_tempo_und_stumm(tmp_path):

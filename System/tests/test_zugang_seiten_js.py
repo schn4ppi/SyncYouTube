@@ -23,7 +23,7 @@ for pfad in (MODUL_DIR, TESTS_DIR):
     if pfad not in sys.path:
         sys.path.insert(0, pfad)
 
-from test_medientasten_verhalten import _handy, _js_funktion, _js_zeile, _lauf, _pc  # noqa: E402
+from test_medientasten_verhalten import _handy, _js_funktion, _js_zeile, _lauf, _pc, _pc_helfer  # noqa: E402
 
 # localStorage mit removeItem und Spur; location/history als Attrappe.
 SPEICHER = r"""
@@ -219,7 +219,7 @@ def test_status_schaltet_den_fern_modus(tmp_path):
 def _menue_rendern(q, funktion, aufruf, nur_fern):
     """Ein Menü der Oberfläche bauen lassen und die sichtbaren Einträge lesen."""
     return [
-        KLASSEN,
+        KLASSEN, *_pc_helfer(),
         _js_zeile(q, "let NUR_FERN"), _js_funktion(q, "nurPc"), _js_funktion(q, "menuFuerGeraet"),
         f"NUR_FERN={'true' if nur_fern else 'false'};",
         "const _menues=[]; document.createElement=()=>{const m={style:{},querySelectorAll:()=>[]};"
@@ -321,7 +321,7 @@ def test_optionen_menue_im_wlan_ohne_einstellungen(tmp_path):
              " function subStilInit(){} function fernInfoMalen(){} function popoverBei(){}"
              " let daten={config:{fehler_ausblenden_min:5}};")
     (e,) = _lauf(
-        tmp_path, KLASSEN, stubs,
+        tmp_path, KLASSEN, stubs, *_pc_helfer(),
         "const _m=[]; document.createElement=()=>{const m={style:{},querySelector:()=>null}; _m.push(m); return m;};",
         "document.body.appendChild=()=>{}; document.addEventListener=()=>{};",
         _js_funktion(q, "optionenToggle"),
@@ -492,7 +492,7 @@ def _wahl_teile(q, fern):
         "const _x={id:'k1',wiedergabe:{}}; function aktKey(){return 'k1';} function libFind(){return _x;}",
         "_els['cmd-qual']={value:'beste'}; _els.qual={value:'beste'};",
         _js_zeile(q, "let NUR_FERN"), f"NUR_FERN={'true' if fern else 'false'};",
-        *helfer,
+        *_pc_helfer(), *helfer,
         *[_js_funktion(q, n) for n in ("qualMerken", "subModusSetzen", "wiedergabeFuer", "wiedergabeMerken",
                                        "subStilSetzen", "subStilReset", "subStilVomServer")],
         # Wahl am Gerät bzw. PC, dann der nächste Status (Server-Stand), der nächste

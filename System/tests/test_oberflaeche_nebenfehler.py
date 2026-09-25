@@ -14,7 +14,7 @@ for pfad in (MODUL_DIR, TESTS_DIR):
     if pfad not in sys.path:
         sys.path.insert(0, pfad)
 
-from test_medientasten_verhalten import _js_funktion, _lauf, _pc  # noqa: E402
+from test_medientasten_verhalten import _js_funktion, _lauf, _pc, _pc_helfer  # noqa: E402
 
 
 # ------------------------------------------------------------------ F11
@@ -100,6 +100,7 @@ def _playlist_teile(q, antwort_create):
         "globalThis.prompt=()=>'Neu'; function plMalen(){} function toast(t){_toasts.push(t);}",
         "let playerState={queue:['a|mp3','b|mp3'], idx:0};",
         "_els['plsel']={value:''};",
+        *_pc_helfer(),
         *[_js_funktion(q, n) for n in namen],
     ]
 
@@ -159,7 +160,7 @@ GESPERRT = ("Object.defineProperty(globalThis, 'localStorage', {configurable:tru
 
 def test_geraete_wahl_ueberlebt_gesperrten_speicher(tmp_path):
     from test_medientasten_verhalten import _js_zeile
-    (e,) = _lauf(tmp_path, GESPERRT, _js_zeile(_pc(), "let plGeraet"),
+    (e,) = _lauf(tmp_path, GESPERRT, *_pc_helfer(), _js_zeile(_pc(), "let plGeraet"),
                  "aus({plGeraet});")
     assert e == {"plGeraet": "browser"}
 
@@ -187,6 +188,7 @@ def _import_teile(q, antwort):
         "_els['plsel']={value:''};",
         f"globalThis.fetch=async(url,opt)=>{{_post.push(url); return {antwort};}};",
         "function datei(n){return {files:[{name:'liste.m3u', text:async()=>'#EXTM3U '+'x'.repeat(n)}], value:'x'};}",
+        *_pc_helfer(),
         _js_funktion(q, "plImport"),
     ]
 

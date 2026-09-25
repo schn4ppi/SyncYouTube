@@ -20,7 +20,7 @@ for pfad in (MODUL_DIR, TESTS_DIR):
         sys.path.insert(0, pfad)
 
 import youtube_app as app  # noqa: E402
-from test_medientasten_verhalten import _js_funktion, _lauf, _pc  # noqa: E402
+from test_medientasten_verhalten import _js_funktion, _lauf, _pc, _pc_helfer  # noqa: E402
 from test_zugang_und_vertrauen import _anfrage  # noqa: E402
 
 
@@ -100,6 +100,7 @@ def _dialog_teile():
         "async function plApi(b){_schritte.push('plApi'); await plLaden();}",
         "_els['sync-pfad']={value:'D:\\\\Stick'}; _els['sync-auto']={checked:true};",
         "_els['sync-fly']={remove(){_schritte.push('zu');}};",
+        *_pc_helfer(),
         _js_funktion(_pc(), "syncSpeichern"),
     ]
 

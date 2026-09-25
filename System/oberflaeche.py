@@ -27,7 +27,8 @@ hier in derselben Reihenfolge steht, und umgekehrt.
             Master SyncDashTray/System/layout_kern.js ändern)
   <script>  das Hauptskript mit diesen Hauptbereichen:
     ==== Helfer & globaler Zustand
-         esc/toast/mb/zeit · Looks/Skins · Bildschirm-Wächter · Optionen-Zahnrad
+         esc/toast/mb/zeit · Server-Ruf api() und Browser-Speicher lsLesen/
+         lsSchreiben/lsWeg · Looks/Skins · Bildschirm-Wächter · Optionen-Zahnrad
     ==== Panels / Docking
          Ansicht-Verlauf (Mausrad) · Verlust-Schutz · Layout-Vorlagen · eigene
          Layouts · Mini-Player · ✏-Layout-Modus
@@ -2170,6 +2171,43 @@ function zeit(s){if(s==null)return'';s=Math.round(s);const m=Math.floor(s/60),h=
   if(h)return h+':'+String(m%60).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
   return m+':'+String(s%60).padStart(2,'0');}
 
+/* ---- Server-Ruf und Browser-Speicher (Gesamtprüfung O3) -------------------
+   api(pfad, body, opt) ist der EINE Weg für POST an den eigenen Server. Vorher
+   stand dieselbe fetch-Zeile 57-mal da, und r.ok prüften vier Stellen.
+     · body geht als JSON; ein fertiger Text geht unverändert, ohne body '{}'.
+     · Zurück kommt die Antwort des Servers als Objekt, unverändert. Einen
+       Fehler erkennt man wie bisher an `fehler`: jede Fehlerantwort des
+       Servers trägt ihn (_antwort in youtube_app.py). Fehlt er bei einem
+       Status außerhalb 2xx doch einmal, setzt api() den einheitlichen Text
+       aus apiFehlertext() ein. Gefragt wird r.ok===false: ein echter Response
+       hat ok immer, eine Test-Attrappe ohne ok gilt als Erfolg.
+     · Ein Netzfehler wirft weiter, wie fetch selbst; eine Antwort, die sich
+       nicht als JSON lesen lässt (abgerissene Verbindung), wirft ebenso, mit
+       dem einheitlichen Text. So nehmen die Stellen, die die Antwort lesen,
+       genau ihren bisherigen catch-Weg.
+     · {roh:true} liefert den Response unverändert, für Stellen, die Status und
+       Fehlertext selbst auswerten (M3U-Import: 413, Sync einrichten).
+   fetch wird bei jedem Ruf neu nachgeschlagen, damit die Hülle für Geräte im
+   WLAN (fetchHuelleSetzen) auch hier greift. Welche POSTs bewusst roh bleiben
+   und warum, steht in tests/test_oberflaeche_api.py (ROH_BLEIBT).
+   lsLesen/lsSchreiben/lsWeg: localStorage mit Netz, wie in handy.py. Ein
+   gesperrter Speicher (privates Fenster, blockierte Website-Daten) wirft schon
+   beim Zugriff (F27); dann liefert lsLesen null, Schreiben und Löschen tun
+   nichts. Blöcke, die zugleich JSON.parse oder mehr schützen, bleiben try. */
+function apiFehlertext(status){return 'Server antwortet mit '+status+'.';}
+async function api(pfad,body,opt){
+  const r=await fetch(pfad,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:typeof body==='string'?body:JSON.stringify(body===undefined?{}:body)});
+  if(opt&&opt.roh)return r;
+  let d;
+  try{d=await r.json();}catch(e){throw new Error(apiFehlertext(r.status));}
+  if(r.ok===false&&d&&typeof d==='object'&&!d.fehler)d.fehler=apiFehlertext(r.status);
+  return d;
+}
+function lsLesen(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSchreiben(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+function lsWeg(k){try{localStorage.removeItem(k);}catch(e){}}
+
 /* ---- Looks/Themes: ein „Skin" setzt nur die Farb-Variablen um ---- */
 const SKINS=[['terracotta','Terracotta (Nacht)',''],['hell','Hell (Tag)','light'],
   ['hacker','Hacker-Grün','theme-hacker'],['neon','Neon','theme-neon'],['ozean','Ozean','theme-ozean']];
@@ -2182,7 +2220,7 @@ function applySkin(name){
   const h=document.documentElement, def=SKINS.find(s=>s[0]===name)||SKINS[0];
   SKINS.forEach(s=>{if(s[2])h.classList.remove(s[2]);});
   if(def[2])h.classList.add(def[2]);
-  try{localStorage.setItem('ytdl_skin',def[0]);}catch(e){}
+  lsSchreiben('ytdl_skin',def[0]);
   themeIcon();
   const sel=document.getElementById('opt_skin'); if(sel)sel.value=def[0];
   if(window.vizFarbeAktualisieren)vizFarbeAktualisieren();   // Visualizer folgt dem Akzent
@@ -2388,7 +2426,7 @@ function optionenToggle(ev){
   document.body.appendChild(m);
   const sel=m.querySelector('#opt_fehler'); if(sel)sel.value=fmin;
   const ar=m.querySelector('#opt_ar');
-  if(ar){try{ar.value=localStorage.getItem('ytdl_ar')||'16/9';}catch(e){ar.value='16/9';}}
+  if(ar)ar.value=lsLesen('ytdl_ar')||'16/9';
   const sp=m.querySelector('#opt_sprung'); if(sp)sp.value=sprungWeite();
   const kl=m.querySelector('#opt_klick'); if(kl)kl.value=klickArt();
   const pr=m.querySelector('#opt_plqrahmen'); if(pr)pr.value=plqRahmenArt();
@@ -2401,9 +2439,9 @@ function optionenToggle(ev){
   setTimeout(()=>document.addEventListener('pointerdown',function zu(e2){
     if(!m.contains(e2.target)&&e2.target.id!=='optbtn'){m.remove(); document.removeEventListener('pointerdown',zu);}},true),0);
 }
-function setGap(v){try{localStorage.setItem('ytdl_gap',v);}catch(e){} const g=document.getElementById('gapval'); if(g)g.textContent=v+' px';}
+function setGap(v){lsSchreiben('ytdl_gap',v); const g=document.getElementById('gapval'); if(g)g.textContent=v+' px';}
 async function setFehlerMin(v){
-  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fehler_ausblenden_min:parseInt(v,10)})});}catch(e){}
+  try{await api('/api/config',{fehler_ausblenden_min:parseInt(v,10)});}catch(e){}
 }
 
 /* ================= Panels / Docking ================= */
@@ -2471,7 +2509,7 @@ function defaultLayout(){
   ]};
 }
 function ladeLayout(){
-  try{localStorage.removeItem('ytdl_layout_vormini');}catch(e){}   // frischer Start = kein Mini-Rest
+  lsWeg('ytdl_layout_vormini');   // frischer Start = kein Mini-Rest
   try{const s=JSON.parse(localStorage.getItem(LKEY)||'null');
     if(s&&s.panels){
       delete s.mini;                                 // Mini-Layout nie als Hauptlayout übernehmen
@@ -2538,7 +2576,7 @@ function saveLayout(){
     if(m){L.basis={vp:m,panels:L.panels.map(p=>({id:p.id,x:p.x,y:p.y,w:p.w,h:p.h}))}; L.vp=m;}
   }
   _lastSig=sig;
-  try{localStorage.setItem(LKEY,JSON.stringify(L));}catch(e){}
+  lsSchreiben(LKEY,JSON.stringify(L));
 }
 function panelEl(id){return document.querySelector('.panel[data-id="'+id+'"]');}
 function bringFront(p){p.zi=++L.z;const el=panelEl(p.id);if(el)el.style.zIndex=p.zi;}
@@ -2716,7 +2754,7 @@ function panelMenu(id,btn){
    ↩ Vorheriges TAUSCHT mit der gemerkten -> nochmal ↩ wechselt wieder vor.
    Nichts geht mit EINEM Klick verloren. ---- */
 const LPREV='ytdl_layout_prev_v1';
-function layoutMerken(){try{localStorage.setItem(LPREV,JSON.stringify(L));}catch(e){}}
+function layoutMerken(){lsSchreiben(LPREV,JSON.stringify(L));}
 function layoutVorheriges(){
   let prev=null; try{prev=JSON.parse(localStorage.getItem(LPREV)||'null');}catch(e){}
   if(prev&&prev.panels)prev.panels=prev.panels.filter(p=>p.id!=='pmini');
@@ -2724,7 +2762,7 @@ function layoutVorheriges(){
   miniVerlassen();
   const cur=JSON.stringify(L);
   L=prev; renderPanels(); saveLayout();
-  try{localStorage.setItem(LPREV,cur);}catch(e){}
+  lsSchreiben(LPREV,cur);
 }
 
 /* ---- Layout-Vorlagen ---- */
@@ -2773,7 +2811,7 @@ function layoutSelectFuellen(){
 }
 function layoutWaehlen(v){
   if(!v)return;
-  try{localStorage.setItem('ytdl_layout_wahl',v);}catch(e){}
+  lsSchreiben('ytdl_layout_wahl',v);
   if(v.startsWith('v:'))layoutVorlage(v.slice(2));
   else if(v.startsWith('m:')){const l=meineLayouts()[v.slice(2)];
     if(l){layoutMerken(); miniVerlassen(); L=JSON.parse(JSON.stringify(l));
@@ -2782,7 +2820,7 @@ function layoutWaehlen(v){
 function layoutSpeichern(){
   const n=prompt('Name für diese Fenster-Anordnung:'); if(!n||!n.trim())return;
   const eigene=meineLayouts(); eigene[n.trim()]=JSON.parse(JSON.stringify(L));
-  try{localStorage.setItem('ytdl_layouts_v1',JSON.stringify(eigene));}catch(e){}
+  lsSchreiben('ytdl_layouts_v1',JSON.stringify(eigene));
   layoutSelectFuellen(); document.getElementById('layoutsel').value='m:'+n.trim();
 }
 function layoutLoeschen(){
@@ -2790,7 +2828,7 @@ function layoutLoeschen(){
   if(!v.startsWith('m:')){alert('Bitte oben eines DEINER gespeicherten Layouts wählen.');return;}
   const name=v.slice(2); if(!confirm('Layout „'+name+'" löschen?'))return;
   const eigene=meineLayouts(); delete eigene[name];
-  try{localStorage.setItem('ytdl_layouts_v1',JSON.stringify(eigene));}catch(e){}
+  lsSchreiben('ytdl_layouts_v1',JSON.stringify(eigene));
   layoutSelectFuellen();
 }
 
@@ -2830,7 +2868,7 @@ function miniToggle(){
   const b=document.getElementById('mini-btn');
   if(!miniAn){
     miniVor=JSON.parse(JSON.stringify(L));             // echtes Layout merken (Session + Reload-Fallback)
-    try{localStorage.setItem(VORMINI,JSON.stringify(miniVor));}catch(e){}
+    lsSchreiben(VORMINI,JSON.stringify(miniVor));
     document.body.classList.add('mini');
     L=miniLayoutBauen(); miniAn=true; renderPanels();
     if(b){b.classList.add('an'); b.textContent='🔳 Voll';}
@@ -2840,7 +2878,7 @@ function miniToggle(){
     if(!vor){try{vor=JSON.parse(localStorage.getItem(VORMINI)||'null');}catch(e){}}
     if(vor&&vor.panels){delete vor.mini; vor.panels=vor.panels.filter(p=>p.id!=='pmini'); L=vor;}
     else L=defaultLayout();
-    miniVor=null; try{localStorage.removeItem(VORMINI);}catch(e){}
+    miniVor=null; lsWeg(VORMINI);
     layoutAnViewport();                                // Fenster im Mini resized? Basis-Projektion statt roher Alt-Pixel
     renderPanels();
     if(b){b.classList.remove('an'); b.textContent='🔳 Mini';}
@@ -2849,7 +2887,7 @@ function miniToggle(){
 function miniVerlassen(){                              // Layout-Wechsel beendet den Mini-Modus (Aufrufer setzt neues L)
   if(!miniAn)return;
   miniAn=false; miniVor=null; document.body.classList.remove('mini');
-  try{localStorage.removeItem(VORMINI);}catch(e){}
+  lsWeg(VORMINI);
   const b=document.getElementById('mini-btn'); if(b){b.classList.remove('an'); b.textContent='🔳 Mini';}
 }
 
@@ -2880,7 +2918,7 @@ function dockOverlay(id,text,ready){
   d.textContent=text; el.appendChild(d);
 }
 
-function fensterAbstand(){let v=NaN; try{v=parseInt(localStorage.getItem('ytdl_gap'),10);}catch(e){} return isNaN(v)?0:v;}
+function fensterAbstand(){const v=parseInt(lsLesen('ytdl_gap'),10); return isNaN(v)?0:v;}
 // Fenster „kleben": die linke/obere Kante des gezogenen Fensters an sinnvolle
 // Positionen fangen — Rand, Kanten-Ausrichtung mit Nachbarn, und Anlegen mit
 // eingestelltem Abstand (Gap). So sitzen Fenster sauber nebeneinander.
@@ -3438,7 +3476,7 @@ function menuFuerGeraet(eintraege){return NUR_FERN?(eintraege||[]).filter(e=>!(e
 function fernWahl(){try{const w=JSON.parse(localStorage.getItem('ytdl_fern_wahl')||'{}'); return (w&&typeof w==='object')?w:{};}catch(e){return {};}}
 function fernWahlMerken(felder){
   const w=Object.assign(fernWahl(),felder);
-  try{localStorage.setItem('ytdl_fern_wahl',JSON.stringify(w));}catch(e){}
+  lsSchreiben('ytdl_fern_wahl',JSON.stringify(w));
 }
 /* Was trotzdem abgewiesen wird (403 mit nur_pc), meldet sich EINMAL je Weg,
    statt still nichts zu tun. */
@@ -3568,7 +3606,7 @@ function remoteAusfuehren(r){
 }
 async function fernToggle(){
   const an=!(daten&&daten.fernsteuerung&&daten.fernsteuerung.aktiv);
-  await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fernsteuerung:an})});
+  await api('/api/config',{fernsteuerung:an});
   await laden(); fernInfoMalen();
   if(an)alert('Fernsteuerung aktiviert.\\n\\nBitte die App EINMAL neu starten (Tray → Beenden → neu öffnen), '+
     'damit sie im WLAN erreichbar wird. Danach steht hier im ⚙ der Code + der Handy-Link.\\n\\n'+
@@ -3601,8 +3639,7 @@ async function fernCodeErneuern(){
     'müssen danach den neuen eingeben. Gekoppelte Geräte (Fernseher) bleiben gekoppelt.', '🔄 Code erneuern',
     async()=>{
       let neu='';
-      try{const r=await fetch('/api/code_erneuern',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-          if(r.ok)neu=((await r.json())||{}).code||'';}catch(e){}
+      try{neu=(await api('/api/code_erneuern')).code||'';}catch(e){}
       await laden(); fernInfoMalen();
       toast(neu?('📱 Neuer Code: '+neu):'Code konnte nicht erneuert werden.');
     });
@@ -3625,13 +3662,11 @@ function fernInfoMalen(){
 async function hinzufuegen(){
   const box=document.getElementById('urls');
   const urls=box.value.trim(); if(!urls)return;
-  await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls,qualitaet:document.getElementById('qual').value})});
+  await api('/api/add',{urls,qualitaet:document.getElementById('qual').value});
   box.value=''; laden();
 }
 async function aktion(id,art){
-  await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id,art})});
+  await api('/api/action',{id,art});
   laden();
 }
 
@@ -3696,8 +3731,7 @@ function hilfeModal(an){const m=document.getElementById('hilfemodal'); if(m)m.st
 
 /* ================= Command-Bar oben: Download, Live-Queue, Now-Playing, Zwischenablage ================= */
 function qualMerken(v){                               // Qualitätswahl fuer naechsten Start sichern
-  if(!NUR_FERN)fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({standard_qualitaet:v})});   // Gerät im WLAN: gilt, solange die Seite offen ist
+  if(!NUR_FERN)api('/api/config',{standard_qualitaet:v});   // Gerät im WLAN: gilt, solange die Seite offen ist
   const a=document.getElementById('cmd-qual'), b=document.getElementById('qual');
   if(a)a.value=v; if(b)b.value=v;
 }
@@ -3710,8 +3744,7 @@ function qualMerken(v){                               // Qualitätswahl fuer nae
 async function cmdDownload(){
   const inp=document.getElementById('cmd-url'); const url=(inp.value||'').trim(); if(!url)return;
   let d=null;
-  try{const r=await fetch('/api/link_deuten',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({url})}); d=await r.json();}catch(e){}
+  try{d=await api('/api/link_deuten',{url});}catch(e){}
   if(!d||d.typ==='unbekannt'){toast('Das sieht nicht nach einer Adresse aus — bitte einen Link einfügen.');return;}
   if(d.eindeutig) linkAusfuehren(url,d.typ,null); else linkFrage(d,url);
 }
@@ -3719,8 +3752,7 @@ async function linkAusfuehren(url,typ,wahl){
   const q=document.getElementById('cmd-qual').value;
   if(typ==='kanal'&&wahl==='abo'){                     // abonnieren statt laden
     toast('📡 Kanal wird abonniert …');
-    let r=null; try{r=await (await fetch('/api/abo',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({art:'create',url,qualitaet:q})})).json();}catch(e){}
+    let r=null; try{r=await api('/api/abo',{art:'create',url,qualitaet:q});}catch(e){}
     if(!r||r.fehler){toast((r&&r.fehler)||'Abo ließ sich nicht anlegen.');return;}
     cmdFeldLeeren(); toast('📡 Abonniert: „'+(r.name||'Kanal')+'" — neue Folgen kommen von allein.');
     try{abosZeigen();}catch(e){}
@@ -3732,8 +3764,7 @@ async function linkAusfuehren(url,typ,wahl){
   if(typ==='playlist'||typ==='mix'||typ==='kanal'||(typ==='video_in_playlist'&&wahl==='alle')){
     ganzerKanal(null,url); return;
   }
-  await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls:url,qualitaet:q,ganze_liste:false})});
+  await api('/api/add',{urls:url,qualitaet:q,ganze_liste:false});
   cmdFeldLeeren(); laden();
 }
 function cmdFeldLeeren(){
@@ -3803,8 +3834,7 @@ async function ganzerKanal(btn,urlAus){
     const gr=groesseSchaetzen(d.dauer_summe,q);
     const qtext=({beste:'Beste',audio:'MP3'}[q])||q;
     if(!confirm('„'+d.name+'"\\n\\nDie ersten '+d.anzahl+' Titel des Mixes (ab dem Startvideo) in Qualität '+qtext+' laden?'+gr+'\\nSchon geladene werden übersprungen.'))return;
-    await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true,limit:limit})});
+    await api('/api/add',{urls:d.url,qualitaet:q,ganze_liste:true,limit:limit});
     cmdFeldLeeren(); laden();
     try{dlboxTab('queue');}catch(e){}
     toast('📺 „'+d.name+'": '+d.anzahl+' Titel werden geladen.');
@@ -3861,9 +3891,8 @@ function mengenRegler(d,q){
   m.querySelector('#mr-neu').onclick=()=>{richtung='neu'; malen();};
   m.querySelector('#mr-los').onclick=async()=>{
     m.remove();
-    await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({urls:d.url,qualitaet:q,ganze_liste:true,
-                           menge:(menge>=gesamt?0:menge),richtung})});
+    await api('/api/add',{urls:d.url,qualitaet:q,ganze_liste:true,
+                           menge:(menge>=gesamt?0:menge),richtung});
     cmdFeldLeeren(); laden();
     try{dlboxTab('queue');}catch(e){}
     toast('📺 „'+d.name+'": '+menge+' Videos werden geladen ('+(richtung==='alt'?'älteste':'neueste')+' zuerst). Schon geladene werden übersprungen.');
@@ -3997,7 +4026,7 @@ document.addEventListener('drop',async e=>{
   if(!/^https?:\\/\\//i.test(url))return;              // interne Drags (Umsortieren) haben keinen http-Text
   e.preventDefault();
   const q=(document.getElementById('cmd-qual')||{}).value||'beste';
-  try{await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls:url,qualitaet:q})});}catch(err){}
+  try{await api('/api/add',{urls:url,qualitaet:q});}catch(err){}
   plInfo('⬇ Per Drag&Drop hinzugefügt: '+url.slice(0,48));
   laden();
 });
@@ -4008,8 +4037,7 @@ document.addEventListener('drop',async e=>{
    Backkatalog (📜) — fehlende Folgen ausgegraut, per Doppelklick/Auswahl nachladbar. ---- */
 let aboState=[], aboOffen={}, aboLetzterKlick={};
 async function aboPost(daten){
-  const r=await fetch('/api/abo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(daten)});
-  return await r.json();
+  return await api('/api/abo',daten);
 }
 async function aboLaden(){try{const r=await fetch('/api/abos'); aboState=(await r.json()).items||[]; aboMalen();}catch(e){}}
 /* ================= Filme ================= */
@@ -4147,9 +4175,7 @@ async function filmePlayVlc(id,pos,meta,wechsel){
   try{
     await huelleMelden();                              // Hülle: Film rendert ins Panel
     if(gen!==tvpWechselGen)return;                     // während der Anmeldung überholt: gar nicht erst starten
-    const r=await fetch('/api/filme/play',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id, vol:plVol, pos:pos||0})});
-    const d=await r.json();
+    const d=await api('/api/filme/play',{id, vol:plVol, pos:pos||0});
     if(d.fehler){toast('🎬 '+d.fehler); gescheitert(); return;}
     // Überholt, während VLC schon startete: spielt der VLC noch DIESE verworfene
     // Folge und ist das Ziel eine andere, anhalten — sonst lief sie unsichtbar
@@ -4487,8 +4513,8 @@ function tvpZu(){
   tvpOffen=false; tvpModus='vlc'; tvpTc=false; tvpTcOffset=0;   // nie hängen lassen
   medienNachFilm();                                    // Overlay + Tasten zurück an die Musik
   if(tvpTimer){clearInterval(tvpTimer); tvpTimer=null;}
-  const api=window.pywebview&&window.pywebview.api;   // Hüllen-Bild freigeben
-  if(api&&api.video_rect){try{api.video_rect(0,0,0,0,false);}catch(e){}}
+  const pw=window.pywebview&&window.pywebview.api;   // Hüllen-Bild freigeben
+  if(pw&&pw.video_rect){try{pw.video_rect(0,0,0,0,false);}catch(e){}}
   const el=document.getElementById('tv-player');
   if(el){
     if(document.fullscreenElement===el){try{document.exitFullscreen();}catch(e){}}
@@ -4577,10 +4603,10 @@ async function tvpTick(){
   // Lade-Spinner und Pause-Schirm — darum: Fläche endet auch an der
   // Panel-Oberkante, und solange Spinner/Pause-Schirm sichtbar sind,
   // wird das Panel ganz versteckt (der Browser zeigt Backdrop + Overlay).
-  const api=window.pywebview&&window.pywebview.api;
-  if(api&&api.video_rect&&tvpModus==='browser'){
-    try{api.video_rect(0,0,0,0,false);}catch(e){}      // <video> rendert selbst
-  }else if(api&&api.video_rect){
+  const pw=window.pywebview&&window.pywebview.api;
+  if(pw&&pw.video_rect&&tvpModus==='browser'){
+    try{pw.video_rect(0,0,0,0,false);}catch(e){}      // <video> rendert selbst
+  }else if(pw&&pw.video_rect){
     const u=document.querySelector('#tv-player .tvp-unten');
     const dpr=window.devicePixelRatio||1;
     // JB 07.08.: „das bild wird plötzlich größer wenn die Bedienung
@@ -4593,8 +4619,8 @@ async function tvpTick(){
     const idle2=document.getElementById('tvp-idle');
     const spinner=lade&&lade.style.display!=='none';
     const pauseSchirm=idle2&&idle2.style.display!=='none';
-    if(spinner||pauseSchirm){try{api.video_rect(0,0,0,0,false);}catch(e){}}
-    else{try{api.video_rect(0,0,Math.round(innerWidth*dpr),Math.round(bis*dpr),true);}catch(e){}}
+    if(spinner||pauseSchirm){try{pw.video_rect(0,0,0,0,false);}catch(e){}}
+    else{try{pw.video_rect(0,0,Math.round(innerWidth*dpr),Math.round(bis*dpr),true);}catch(e){}}
   }
   const f=document.getElementById('tvp-fuell');
   if(f&&tvpDauer)f.style.width=Math.min(100,tvpPos/tvpDauer*100)+'%';
@@ -5012,7 +5038,7 @@ document.addEventListener('keydown',ev=>{
   ev.preventDefault(); filmStopp();
 });
 async function filmeSync(){
-  try{await fetch('/api/filme/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  try{await api('/api/filme/sync');
     toast('🎬 Katalog-Abzug gestartet — dauert bei großen Bibliotheken etwas.');
     setTimeout(filmeLaden, 8000);
   }catch(e){toast('🎬 Abzug nicht erreichbar.');}
@@ -5357,8 +5383,8 @@ function aboDelete(id,ev){
 }
 async function aboPruefen(btn){
   const t=btn&&btn.textContent; if(btn){btn.disabled=true; btn.textContent='prüfe…';}
-  try{const r=await fetch('/api/abo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'pruefen'})});
-    const d=await r.json(); alert(d.neu?(d.neu+' neue(s) Video(s) in die Warteschlange gelegt.'):'Keine neuen Videos.');
+  try{const d=await api('/api/abo',{art:'pruefen'});
+    alert(d.neu?(d.neu+' neue(s) Video(s) in die Warteschlange gelegt.'):'Keine neuen Videos.');
   }catch(e){alert('Prüfen fehlgeschlagen.');}
   if(btn){btn.disabled=false; btn.textContent=t;} aboLaden(); laden();
 }
@@ -5368,7 +5394,7 @@ async function aboPruefen(btn){
 /* ---- Smart-/Auto-Playlists: Regel-basiert, füllen sich selbst aus der Bibliothek ---- */
 let smartListen=[]; try{smartListen=JSON.parse(localStorage.getItem('ytdl_smart'))||[];}catch(e){}
 if(!Array.isArray(smartListen))smartListen=[];
-function smartSpeichern(){try{localStorage.setItem('ytdl_smart',JSON.stringify(smartListen));}catch(e){}}
+function smartSpeichern(){lsSchreiben('ytdl_smart',JSON.stringify(smartListen));}
 function smartBerechnen(rules){
   let arr=libdaten.filter(x=>x.vorhanden&&!x.blacklist);
   if(rules.kat==='MP3')arr=arr.filter(x=>x.kategorie==='MP3'||(!x.vcodec&&x.acodec));
@@ -5466,12 +5492,11 @@ function dublettenPopover(ev){
 async function dubDelete(id){
   const x=libFind(id)||{titel:''};
   if(!confirm('„'+(x.titel||'').slice(0,40)+'" ('+x.qualitaet+') in den Papierkorb?'))return;
-  await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,art:'loeschen'})});
+  await api('/api/biblio',{id,art:'loeschen'});
   await libLaden(); const m=document.getElementById('dubpop'); if(m)m.innerHTML=dubBody();   // in place neu füllen
 }
 async function configSpeichern(){
-  await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
+  await api('/api/config',{
       ziel_ordner:document.getElementById('cfg_ziel').value,
       unterordner:document.getElementById('cfg_ordner').value==='1',
       metadaten:document.getElementById('cfg_meta').value==='1',
@@ -5493,7 +5518,7 @@ async function configSpeichern(){
           .map(s=>s.trim()).filter(Boolean).forEach(s=>sp.push(s));
         return sp;
       })(),
-      auto_update:document.getElementById('cfg_autoupdate').value==='1'})});
+      auto_update:document.getElementById('cfg_autoupdate').value==='1'});
   document.getElementById('cfg_meldung').textContent='Gespeichert ✓';
   setTimeout(()=>document.getElementById('cfg_meldung').textContent='',2500);
   laden();
@@ -5586,16 +5611,15 @@ async function geoWgImport(){
   const content=document.getElementById('geowg-content').value, land=document.getElementById('geowg-land').value;
   const msg=document.getElementById('geowg-msg'); msg.textContent='…';
   try{
-    const r=await fetch('/api/geo_wireguard',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,land})});
-    const d=await r.json();
+    const d=await api('/api/geo_wireguard',{content,land});
     if(d.fehler){msg.style.color='#e08a6a';msg.textContent=d.fehler;}
     else{msg.style.color='#9ec49a';msg.textContent='importiert ✓ — Länder: '+(d.laender||[]).join(', ');}
   }catch(e){msg.style.color='#e08a6a';msg.textContent='Fehler';}
   laden();
 }
 async function geoTestStart(){
-  try{const r=await fetch('/api/geo_test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-    const d=await r.json(); if(d.fehler){alert(d.fehler);return;}}catch(e){}
+  try{const d=await api('/api/geo_test');
+    if(d.fehler){alert(d.fehler);return;}}catch(e){}
   geoStatusLaden(true);
   if(!geoTestTimer)geoTestTimer=setInterval(()=>geoStatusLaden(false),1500);
 }
@@ -5657,11 +5681,11 @@ function thumbClick(ev,id){
    lokal, denn es ist eine Bedien-Vorliebe des Menschen am Gerät, keine
    Programm-Einstellung. */
 function klickArt(){
-  let v='doppel'; try{v=localStorage.getItem('ytdl_klickart')||'doppel';}catch(e){}
+  let v=lsLesen('ytdl_klickart')||'doppel';
   return v==='einfach'?'einfach':'doppel';
 }
 function klickArtSetzen(v){
-  try{localStorage.setItem('ytdl_klickart',v==='einfach'?'einfach':'doppel');}catch(e){}
+  lsSchreiben('ytdl_klickart',v==='einfach'?'einfach':'doppel');
   toast(v==='einfach'?'▶ Einfachklick spielt ab.':'▶ Doppelklick spielt ab (Einfachklick wählt aus).');
 }
 /* ---- Rahmen-Auswahl in der Bibliothek (Build 135, JB Punkt 4) ------------
@@ -5920,7 +5944,7 @@ function playArtMenu(ev){
   aktionsMenu(ev, PLAYART.map(o=>[(o[0]===playArt?'✓ ':'　')+o[1]+' '+o[2], ()=>playArtSetzen(o[0])]));
 }
 function playArtSetzen(v){
-  playArt=v; try{localStorage.setItem('ytdl_playart',v);}catch(e){}
+  playArt=v; lsSchreiben('ytdl_playart',v);
   transportRender(); libMalen(); renderPlayerQueue();  // Ansicht + Queue folgen sofort
   const o=PLAYART.find(o=>o[0]===v)||PLAYART[0];
   toast('▶ '+o[1]+' '+o[2]);
@@ -5936,10 +5960,10 @@ function artPasst(x){
   return playArt==='mp3'?audio:!audio;
 }
 function shuffleToggle(){playShuffle=!playShuffle;
-  try{localStorage.setItem('ytdl_shuffle',playShuffle?'1':'0');}catch(e){}
+  lsSchreiben('ytdl_shuffle',playShuffle?'1':'0');
   transportRender();}
 function repeatCycle(){playRepeat=(playRepeat==='aus')?'alle':(playRepeat==='alle'?'eins':'aus');
-  try{localStorage.setItem('ytdl_repeat',playRepeat);}catch(e){}
+  lsSchreiben('ytdl_repeat',playRepeat);
   transportRender();
   xfPruefen();}                                        // eins: eine laufende Blende in den nächsten Titel zurücknehmen
 /* Zieht NUR die Zustände der Transport-Knöpfe nach (classList/innerHTML des
@@ -6209,8 +6233,7 @@ async function schnittSpeichern(btn){
   if(btn){btn.disabled=true; btn.textContent='⏳ …';}
   plInfo('✂ Ausschnitt wird erstellt …', true);
   try{
-    const r=await fetch('/api/clip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(daten)});
-    const d=await r.json();
+    const d=await api('/api/clip',daten);
     // Build 144i (JB 25.07.: „zeigt dass er es geschafft hat, aber die
     // Fehlermeldung"): Hier wurde eine NIE deklarierte Variable geprüft — der
     // Erfolgspfad warf dadurch einen ReferenceError, der unten im catch als
@@ -6270,10 +6293,10 @@ function ladeCols(){
   }
   return COLALL.map(k=>({key:k,sichtbar:COLDEFAULT.includes(k)}));
 }
-function saveCols(){try{localStorage.setItem('ytdl_libcols_v1',JSON.stringify(libcols));}catch(e){}}
+function saveCols(){lsSchreiben('ytdl_libcols_v1',JSON.stringify(libcols));}
 function sichtbareCols(){return libcols.filter(c=>c.sichtbar).map(c=>c.key);}
 function ladeSort(){try{const s=JSON.parse(localStorage.getItem('ytdl_libsort_v1'));if(s&&s.key)return s;}catch(e){}return {key:'neu',dir:-1};}
-function saveSort(){try{localStorage.setItem('ytdl_libsort_v1',JSON.stringify(libsort));}catch(e){}}
+function saveSort(){lsSchreiben('ytdl_libsort_v1',JSON.stringify(libsort));}
 
 let _libSig=null;
 async function libLaden(){
@@ -6305,7 +6328,7 @@ function libArchivToggle(){
 }
 async function libEnrich(btn){
   btn.disabled=true; const t=btn.textContent; btn.textContent='lädt…';
-  try{await fetch('/api/biblio_enrich',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(e){}
+  try{await api('/api/biblio_enrich');}catch(e){}
   setTimeout(()=>{btn.disabled=false; btn.textContent=t; libLaden();},2000);
 }
 function ytdatum(d){if(!d||d.length!==8)return'';return d.slice(6,8)+'.'+d.slice(4,6)+'.'+d.slice(0,4);}
@@ -6497,7 +6520,7 @@ function albenHTML(arr){
 /* Auto-Tagging anstoßen (alles ohne Album bzw. die aktuelle Auswahl) */
 async function autotagAlle(){
   if(!confirm('Auto-Tagging: Musik ohne Album-Info bei MusicBrainz nachschlagen und\\nKünstler / Titel / Album eintragen (auch in die MP3-Dateien).\\n\\nLäuft im Hintergrund, ca. 1 Titel pro Sekunde. Starten?'))return;
-  await fetch('/api/autotag',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  await api('/api/autotag');
 }
 // Symbol für die Art des Titels: 🎵 Musik/MP3, 🎬 hochauflösend, 🎥 normales Video.
 function katIcon(x){
@@ -6524,8 +6547,7 @@ function herzKnopf(x){
 async function herzToggle(id){
   const x=libFind(id); if(!x)return;
   x.herz=!x.herz;                                      // sofort sichtbar, Server zieht nach
-  try{fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id, art:'herz'})}).catch(()=>{});}catch(e){}
+  try{api('/api/biblio',{id, art:'herz'}).catch(()=>{});}catch(e){}
   document.querySelectorAll('[data-tr="herz"]').forEach(b=>{
     if(aktKey()===id){b.textContent=x.herz?'♥':'♡'; b.classList.toggle('an',!!x.herz);}});
   libMalen();
@@ -6689,8 +6711,7 @@ function entdeckerDurchhoeren(){
 }
 async function entdeckerHolen(btn,vid){
   const q=(document.getElementById('cmd-qual')||{}).value||'beste';
-  await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls:'https://www.youtube.com/watch?v='+vid,qualitaet:q,ziel_playlist:entdeckerPlName()})});
+  await api('/api/add',{urls:'https://www.youtube.com/watch?v='+vid,qualitaet:q,ziel_playlist:entdeckerPlName()});
   if(btn){btn.textContent='✓'; btn.disabled=true;}
   const z=btn&&btn.closest('.abo-f'); if(z)z.style.opacity=.45;
   laden();
@@ -6705,8 +6726,7 @@ async function entdeckerAlle(){
   const gr=groesseSchaetzen(dsum,(document.getElementById('cmd-qual')||{}).value||'beste');
   if(!confirm(vids.length+' neue Titel laden? Sie sammeln sich in der Playlist „'+entdeckerPlName()+'".'+gr))return;
   const q=(document.getElementById('cmd-qual')||{}).value||'beste';
-  await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls:vids.map(v=>'https://www.youtube.com/watch?v='+v).join('\\n'),qualitaet:q,ziel_playlist:entdeckerPlName()})});
+  await api('/api/add',{urls:vids.map(v=>'https://www.youtube.com/watch?v='+v).join('\\n'),qualitaet:q,ziel_playlist:entdeckerPlName()});
   toast('📻 '+vids.length+' Titel eingereiht → „'+entdeckerPlName()+'"'); entdeckerZu(); laden();
   try{dlboxTab('queue');}catch(e){}
 }
@@ -6858,12 +6878,12 @@ function gruppeListe(m,id,fertig){
     const row=b.closest('.clip-row'), k=row.dataset.k, act=b.dataset.act;
     if(act==='play'){playerPlay([k]); fertig(); return;}
     if(act==='fav'){
-      await fetch('/api/clip_favorit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});
+      await api('/api/clip_favorit',{id:k});
       await libLaden(); if(document.body.contains(m))gruppeListe(m,id,fertig); return;   // frisch neu malen
     }
     if(act==='del'){
       frageModal('Diesen Ausschnitt in den Papierkorb verschieben?\\nAus dem Windows-Papierkorb wiederherstellbar.', '🗑 In den Papierkorb', async()=>{
-        await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k,art:'loeschen'})});
+        await api('/api/biblio',{id:k,art:'loeschen'});
         await libLaden();
         if(document.body.contains(m)&&gruppeVon(id).length>1)gruppeListe(m,id,fertig); else fertig();
         toast('🗑 Ausschnitt in den Papierkorb.');
@@ -7009,7 +7029,7 @@ function playerKontext(ev){
   eintraege.push(nurPc(['＋ Zu Playlist', ()=>plOptionen(k), 'sub']));
   eintraege.push(['🎶 Warteschlange', queueWerkzeugListe, 'sub']);
   eintraege.push(['📊 Visualizer', ()=>VIZMODES.map(v=>[v[2], v[0]===vizMode, ()=>{vizMode=v[0];
-      try{localStorage.setItem('ytdl_viz',vizMode);}catch(e){} vizModeRender();}]), 'sub']);
+      lsSchreiben('ytdl_viz',vizMode); vizModeRender();}]), 'sub']);
   eintraege.push(['⚡ Geschwindigkeit ('+playSpeed+'×)', ()=>
     [0.5,0.75,1,1.25,1.5,2].map(s=>[s+'×', s===playSpeed, ()=>speedWaehlen(s)]), 'sub']);
   eintraege.push(['💬 Untertitel', ()=>{
@@ -7114,14 +7134,14 @@ let playerLayout='horizontal';   // Standard: Video links, Playlist rechts (JB-F
 // Embed leckt (und der Toggle unten schreibt im Embed auch nichts zurück).
 const _plEmbed=(typeof location!=='undefined'&&location.search.indexOf('embed=1')>=0);
 if(_plEmbed){playerLayout='vertikal';}
-else{try{const v=localStorage.getItem('ytdl_player_layout'); if(v)playerLayout=v;}catch(e){}}
+else{const v=lsLesen('ytdl_player_layout'); if(v)playerLayout=v;}
 function playerLayoutSet(){
   const card=document.getElementById('pl-card');
   if(card)card.classList.toggle('pl-horizontal', playerLayout==='horizontal');
 }
 function playerLayoutToggle(){
   playerLayout=(playerLayout==='horizontal')?'vertikal':'horizontal';
-  if(!_plEmbed){try{localStorage.setItem('ytdl_player_layout',playerLayout);}catch(e){}}  // Embed: nur für die Sitzung
+  if(!_plEmbed){lsSchreiben('ytdl_player_layout',playerLayout);}  // Embed: nur für die Sitzung
   playerLayoutSet();
 }
 function libFind(k){return libdaten.find(x=>x.id===k);}
@@ -7230,7 +7250,7 @@ function playerLinkKopieren(){
 /* ---- Abspielgeschwindigkeit ---- */
 let playSpeed=1; try{const v=parseFloat(localStorage.getItem('ytdl_speed')); if(v>=0.25&&v<=3)playSpeed=v;}catch(e){}
 function speedAnwenden(){const el=document.getElementById('pl-el'); if(el)el.playbackRate=playSpeed;
-  try{localStorage.setItem('ytdl_speed',playSpeed);}catch(e){}
+  lsSchreiben('ytdl_speed',playSpeed);
   const b=document.getElementById('plb-speed'); if(b)b.textContent=playSpeed+'×';}
 
 /* ---- Untertitel / Karaoke / Transkript (aus .vtt neben der Datei) ---- */
@@ -7443,7 +7463,7 @@ function subMenu(ev){
 }
 function subRomajiToggle(){
   subRomaji=!subRomaji;
-  try{localStorage.setItem('ytdl_subromaji',subRomaji?'1':'0');}catch(e){}
+  lsSchreiben('ytdl_subromaji',subRomaji?'1':'0');
   const k=aktKey(); if(k)subLaden(k);
 }
 let subLaedt=false;                                    // läuft gerade ein Untertitel-Download?
@@ -7489,20 +7509,18 @@ function subStilSetzen(feld,wert){
   if(feld==='groesse'&&!wert)wert=1;
   if(feld==='schatten')wert=!!wert;
   subStil[feld]=wert;
-  try{localStorage.setItem('ytdl_substil',JSON.stringify(subStil));}catch(e){}
+  lsSchreiben('ytdl_substil',JSON.stringify(subStil));
   // Server-global (JB: gilt für alle Videos, überlebt jede Version); ein
   // Gerät im WLAN merkt ihn nur für sich (fernWahl).
   if(NUR_FERN)fernWahlMerken({sub_look:Object.assign({},subStil)});
-  else fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({global:1,merge:1,sub_look:subStil})}).catch(()=>{});
+  else api('/api/wiedergabe',{global:1,merge:1,sub_look:subStil}).catch(()=>{});
   subStilAnwenden();
 }
 function subStilReset(){
   subStil=Object.assign({},SUB_STANDARD);
-  try{localStorage.setItem('ytdl_substil',JSON.stringify(subStil));}catch(e){}
+  lsSchreiben('ytdl_substil',JSON.stringify(subStil));
   if(NUR_FERN)fernWahlMerken({sub_look:null});      // Gerät: wieder der Stil des PCs ab dem nächsten Öffnen
-  else fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({global:1,merge:1,sub_look:''})}).catch(()=>{});
+  else api('/api/wiedergabe',{global:1,merge:1,sub_look:''}).catch(()=>{});
   subStilAnwenden();
 }
 /* Beim Seitenstart gewinnt der SERVER-Stand (überlebt Versionen/Browser);
@@ -7553,7 +7571,7 @@ function subAnzeigen(){
 function subModusSetzen(mode){
   subMode=mode;
   if(typeof subModeSitzung!=='undefined')subModeSitzung=mode;   // Sitzungs-Standard mitziehen
-  try{localStorage.setItem('ytdl_submode',subMode);}catch(e){}
+  lsSchreiben('ytdl_submode',subMode);
   // Blink-Wurzel 2 + JB 05.08. („wenn ich die einmal an habe, dann sind die
   // für alle an"): der Umschalter gilt GLOBAL — früher schrieb er eine
   // Absolut-Regel je Titel, und Titel mit alter „aus"-Regel schalteten die
@@ -7561,8 +7579,7 @@ function subModusSetzen(mode){
   // Rechtsklick-Dialog „Wiedergabe…" (bewusst, nicht als Nebenwirkung).
   // Ein Gerät im WLAN merkt den Umschalter nur für sich (fernWahl).
   if(NUR_FERN)fernWahlMerken({sub:mode});
-  else fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({global:1,merge:1,sub:mode})}).catch(()=>{});
+  else api('/api/wiedergabe',{global:1,merge:1,sub:mode}).catch(()=>{});
   if(typeof daten!=='undefined'&&daten&&daten.config)  // sofort wirksam, ohne Poll
     daten.config.wiedergabe=Object.assign({},daten.config.wiedergabe||{},{sub:mode});
   if(subMode!=='aus'&&!subCues)subNachladen();         // fehlen welche -> still holen, KEIN Popup
@@ -7582,7 +7599,7 @@ async function subNachladen(){
   const k=aktKey(); if(!k||subAutoVersucht.has(k))return;
   subAutoVersucht.add(k);
   subLaedt=true; subAnzeigen();                         // sofort „⏳ …" zeigen (JB 21.07.)
-  try{await fetch('/api/untertitel_laden',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});}catch(e){}
+  try{await api('/api/untertitel_laden',{id:k});}catch(e){}
   // Statt starrer Zeitpunkte: nachfragen, BIS die .vtt da ist (max ~40 s) und dann anzeigen.
   for(let i=0;i<20;i++){
     await new Promise(r=>setTimeout(r,2000));
@@ -7715,8 +7732,8 @@ const VIZMODES=[['balken','📊','Balken'],['spiegel','🪞','Spiegel-Balken'],[
 let vizMode='balken';
 try{const v=localStorage.getItem('ytdl_viz'); if(v&&VIZMODES.some(m=>m[0]===v))vizMode=v;}catch(e){}
 let audioCtx=null, vizAnalyser=null, vizSrc=null, vizGain=null, normGain=null, vizEl=null, vizRAF=null, vizFarbe='#c9952b';
-let normAn=false; try{normAn=localStorage.getItem('ytdl_norm')==='1';}catch(e){}
-function normSetzen(an){ normAn=!!an; try{localStorage.setItem('ytdl_norm',normAn?'1':'0');}catch(e){}
+let normAn=lsLesen('ytdl_norm')==='1';
+function normSetzen(an){ normAn=!!an; lsSchreiben('ytdl_norm',normAn?'1':'0');
   if(!normAn&&normGain){try{normGain.gain.value=1;}catch(e){}} }
 function vizFarbeAktualisieren(){
   try{vizFarbe=(getComputedStyle(document.documentElement).getPropertyValue('--akz')||'').trim()||'#c9952b';}catch(e){}
@@ -7728,7 +7745,7 @@ let eqFilters=[], eqWerte=[0,0,0,0,0];
 try{const v=JSON.parse(localStorage.getItem('ytdl_eq')); if(Array.isArray(v)&&v.length===5)eqWerte=v.map(n=>+n||0);}catch(e){}
 function eqSetzen(i,db){ db=Math.max(-12,Math.min(12,Math.round(+db||0))); eqWerte[i]=db;
   if(eqFilters[i]){try{eqFilters[i].gain.value=db;}catch(e){}}
-  try{localStorage.setItem('ytdl_eq',JSON.stringify(eqWerte));}catch(e){}
+  lsSchreiben('ytdl_eq',JSON.stringify(eqWerte));
   const l=document.getElementById('eqval'+i); if(l)l.textContent=(db>0?'+':'')+db;
 }
 function eqPreset(name){ (EQ_PRESETS[name]||EQ_PRESETS.Flat).forEach((db,i)=>{
@@ -7861,12 +7878,12 @@ try{const v=localStorage.getItem('ytdl_uebergang');
   else if(crossfadeSek>0)uebergang='crossfade';        // alte Crossfade-Einstellung übernehmen
 }catch(e){}
 function setUebergang(v){
-  uebergang=v; try{localStorage.setItem('ytdl_uebergang',v);}catch(e){}
+  uebergang=v; lsSchreiben('ytdl_uebergang',v);
   const r=document.getElementById('xfrow'); if(r)r.style.display=(v==='crossfade'||v==='automix')?'block':'none';
 }
 /* Canvas: animiertes, weichgezeichnetes Cover als lebender Hintergrund (Spotify-Canvas-Gefühl) */
-let canvasAn=false; try{canvasAn=localStorage.getItem('ytdl_canvas')==='1';}catch(e){}
-function setCanvas(an){canvasAn=!!an; try{localStorage.setItem('ytdl_canvas',canvasAn?'1':'0');}catch(e){} canvasAnwenden();}
+let canvasAn=lsLesen('ytdl_canvas')==='1';
+function setCanvas(an){canvasAn=!!an; lsSchreiben('ytdl_canvas',canvasAn?'1':'0'); canvasAnwenden();}
 function canvasAnwenden(){
   const media=document.getElementById('pl-media'); if(!media)return;
   let c=document.getElementById('pl-canvas');
@@ -7878,7 +7895,7 @@ function canvasAnwenden(){
 }
 function setCrossfade(v){
   crossfadeSek=Math.max(0,Math.min(12,parseInt(v,10)||0));
-  try{localStorage.setItem('ytdl_crossfade',crossfadeSek);}catch(e){}
+  lsSchreiben('ytdl_crossfade',crossfadeSek);
   const l=document.getElementById('xfval'); if(l)l.textContent=crossfadeSek?crossfadeSek+' s':'aus';
 }
 function xfAbbrechen(){                                // laufenden Übergang verwerfen, Lautstärke zurück
@@ -8135,12 +8152,12 @@ document.addEventListener('fullscreenchange', ()=>{ if(!document.fullscreenEleme
 /* Sprungweite der Pfeiltasten (JB-Wunsch: einstellbar). YouTube nimmt 5 s —
    das bleibt der Standard, damit sich die Tasten vertraut anfühlen. */
 function sprungWeite(){
-  let v=5; try{v=parseInt(localStorage.getItem('ytdl_sprung'),10)||5;}catch(e){}
+  let v=parseInt(lsLesen('ytdl_sprung'),10)||5;
   return Math.max(1,Math.min(60,v));
 }
 function sprungWeiteSetzen(v){
   const n=Math.max(1,Math.min(60,parseInt(v,10)||5));
-  try{localStorage.setItem('ytdl_sprung',n);}catch(e){}
+  lsSchreiben('ytdl_sprung',n);
   toast('⏩ Pfeiltasten springen '+n+' Sekunden.');
 }
 /* Seitenverhältnis des Bildfelds (Build 130). JB will 16:9 FEST, damit das
@@ -8158,20 +8175,20 @@ function arAnlegen(m,v){
   m.style.setProperty('--pl-arn', zahl.toFixed(4));
 }
 function seitenverhaeltnisSetzen(v){
-  try{localStorage.setItem('ytdl_ar',v);}catch(e){}
+  lsSchreiben('ytdl_ar',v);
   const m=document.getElementById('pl-media'); if(!m)return;
   arAnlegen(m,v);
   toast('🖵 Seitenverhältnis: '+((PL_AR.find(a=>a[0]===v)||[])[1]||v));
 }
 function seitenverhaeltnisAnwenden(){                  // beim Aufbau des Players
-  let v='16/9'; try{v=localStorage.getItem('ytdl_ar')||'16/9';}catch(e){}
+  let v=lsLesen('ytdl_ar')||'16/9';
   const m=document.getElementById('pl-media'); if(m)arAnlegen(m,v);
 }
 function plbSeekDrag(v){const t=document.getElementById('plb-t0'), d=spulStand().dauer;
   if(d&&t)t.textContent=zeit(v/1000*d);}
 function plbSeekEnd(v){spulenAuf(v); plbSeekAktiv=false;}
 function plbVol(v){plVol=Math.max(0,Math.min(100,+v||0));
-  try{localStorage.setItem('ytdl_vol',plVol);}catch(e){}
+  lsSchreiben('ytdl_vol',plVol);
   if(vlcAktiv())vlcBefehl('vol',{wert:plVol});   // Gerät VLC hört auf dieselbe Lautstärke
   const el=document.getElementById('pl-el'); if(el)el.volume=plVol/100;
   // Mini-Player- und Video-Leisten-Regler zeigen immer denselben Stand
@@ -8496,22 +8513,20 @@ async function geraeteMalen(){
 }
 async function geraetFreigeben(id){
   const sel=document.getElementById('gpr-'+id);
-  try{await fetch('/api/geraet_bestaetigen',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id, profil:(sel&&sel.value)||'standard'})});
+  try{await api('/api/geraet_bestaetigen',{id, profil:(sel&&sel.value)||'standard'});
     toast('📺 Gerät freigegeben — es verbindet sich gleich von selbst.');
   }catch(e){toast('📺 Freigeben fehlgeschlagen.');}
   geraeteMalen();
 }
 async function geraetTrennen(id){
-  try{await fetch('/api/geraet_entfernen',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({id})});
+  try{await api('/api/geraet_entfernen',{id});
     toast('📺 Gerät getrennt — der Zugang ist sofort wertlos.');
   }catch(e){toast('📺 Trennen fehlgeschlagen.');}
   geraeteMalen();
 }
 /* ---- Profile („Wer schaut?", Teilprojekt 3) ------------------------------- */
 let tvProfile=null, tvProfilModus=false;
-function tvProfil(){try{return localStorage.getItem('ytdl_profil')||'standard';}catch(e){return 'standard';}}
+function tvProfil(){return lsLesen('ytdl_profil')||'standard';}
 async function tvProfileLaden(){
   try{tvProfile=((await (await fetch('/api/profile')).json())||{}).items||[];}
   catch(e){tvProfile=[{id:'standard',name:'JB',emoji:'🦊'}];}
@@ -8536,7 +8551,7 @@ function tvProfilFokusMalen(){
   if(z){z.classList.add('tv-fokus'); z.scrollIntoView({block:'nearest',inline:'nearest'});}
 }
 function tvProfilSetzen(id){
-  try{localStorage.setItem('ytdl_profil',id);}catch(e){}
+  lsSchreiben('ytdl_profil',id);
   tvProfilModus=false; tvTab='home'; tvFokus={r:0,i:0};
   tvFilmReihen=null; tvLaden();
 }
@@ -8574,8 +8589,7 @@ async function tvDlgAnlegen(){
   const name=(inp&&inp.value.trim())||'';
   if(!name){toast('👤 Bitte erst einen Namen eingeben.'); if(inp)inp.focus(); return;}
   try{
-    const p=await (await fetch('/api/profil_anlegen',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name, emoji:tvDlgEmoji})})).json();
+    const p=await api('/api/profil_anlegen',{name, emoji:tvDlgEmoji});
     if(p&&p.id){tvDialogZu(); await tvProfileLaden(); tvProfilSetzen(p.id); return;}
   }catch(e){}
   toast('👤 Profil anlegen fehlgeschlagen.');
@@ -8613,8 +8627,7 @@ async function tvLivePlay(e){
   try{
     await huelleMelden();                              // Hülle: Sender rendert ins Panel
     if(g!==liveStartGen)return;                        // während der Anmeldung überholt: nichts mehr starten
-    const r=await (await fetch('/api/live/play',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({url:e.url, name:e.name, vol:plVol})})).json();
+    const r=await api('/api/live/play',{url:e.url, name:e.name, vol:plVol});
     if(r.fehler){toast('📡 '+r.fehler); return;}
     tvFilmPlayer('',e.name);                           // Fernbedienung ohne Seek-Ziel
   }catch(x){toast('📡 Kanal nicht erreichbar.');}
@@ -8733,8 +8746,7 @@ async function tvAnfrage(e){
   if(e.status==='da'){toast('✔ Gibt es schon — such den Titel im Katalog.'); return;}
   if(e.status==='kommt'||e.status==='teils'){toast('⏳ Ist schon angefragt — kommt.'); return;}
   try{
-    const r=await (await fetch('/api/filme/anfragen',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({tmdb:e.tmdb, typ:e.typ})})).json();
+    const r=await api('/api/filme/anfragen',{tmdb:e.tmdb, typ:e.typ});
     if(r.ok){toast('➕ Wunsch gestellt — René lädt ihn, sobald er kann.'); e.status='kommt'; tvMalen();}
     else toast('➕ '+(r.fehler||'Anfrage fehlgeschlagen.'));
   }catch(x){toast('➕ Anfrage nicht erreichbar.');}
@@ -8987,9 +8999,7 @@ function folgenFehlerText(f){                          // f: 'zugang' | 'netz' (
 }
 async function tvMerk(id){
   try{
-    const r=await (await fetch('/api/filme/merk?profil='+encodeURIComponent(tvProfil()),
-      {method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({id})})).json();
+    const r=await api('/api/filme/merk?profil='+encodeURIComponent(tvProfil()),{id});
     if(tvInfoDaten)tvInfoDaten.d.gemerkt=!!r.an;
     toast(r.an?'🎞 Auf deiner Liste.':'🎞 Von der Liste genommen.');
     tvInfoMalen();
@@ -9332,7 +9342,7 @@ function posMerken(){
   const keys=Object.keys(_posMerk);
   if(keys.length>800)keys.sort((a,b)=>(_posMerk[a].ts||0)-(_posMerk[b].ts||0))
     .slice(0,keys.length-800).forEach(x=>delete _posMerk[x]);
-  try{localStorage.setItem('ytdl_pos_v1',JSON.stringify(_posMerk));}catch(e){}
+  lsSchreiben('ytdl_pos_v1',JSON.stringify(_posMerk));
 }
 window.addEventListener('beforeunload',posMerken);
 function posMerkerMalen(){
@@ -9397,7 +9407,7 @@ function plBarIdleInit(media,el){                      // Leiste ruht die Maus -
    VLC-Instanz auf dem PC (/api/vlc → python-vlc). Titelende meldet der
    1-s-Status-Takt, dann greift dieselbe playerAdvance-Logik wie im Browser.
    VLC nicht installiert ⇒ Hinweis (toast) + Browser-Player als Rückfall. */
-let plGeraet='browser'; try{plGeraet=localStorage.getItem('ytdl_geraet')||'browser';}catch(e){}   // gesperrter Speicher (F27)
+let plGeraet=lsLesen('ytdl_geraet')||'browser';   // gesperrter Speicher (F27)
 let vlcTimer=null, vlcEndeFuer='', vlcRateLetzte=1;
 /* DIE eine Wahrheit „spielt gerade über VLC?" (JB 05.08.): Gerät VLC gewählt
    UND der aktuelle Titel läuft dort wirklich — Videos OHNE Hülle spielen im
@@ -9422,10 +9432,10 @@ const HUELLE_MELDEN_MS=3000;
    dafür tvpWechselGen (Esc und jeder Folgenwechsel zählen dort hoch). */
 let vlcStartGen=0, liveStartGen=0;
 async function huelleMelden(){
-  const api=window.pywebview&&window.pywebview.api;
-  if(!api||typeof api.video_melden!=='function')return;
+  const pw=window.pywebview&&window.pywebview.api;
+  if(!pw||typeof pw.video_melden!=='function')return;
   let uhr=0;
-  try{await Promise.race([api.video_melden(),new Promise(r=>{uhr=setTimeout(r,HUELLE_MELDEN_MS);})]);}
+  try{await Promise.race([pw.video_melden(),new Promise(r=>{uhr=setTimeout(r,HUELLE_MELDEN_MS);})]);}
   catch(e){}
   finally{clearTimeout(uhr);}
 }
@@ -9438,9 +9448,7 @@ async function vlcBefehl(cmd,extra){
       const g=++vlcStartGen;
       if(cmd==='play'){await huelleMelden(); if(g!==vlcStartGen)return null;}
     }
-    const r=await fetch('/api/vlc',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(Object.assign({cmd:cmd},extra||{}))});
-    const d=await r.json();
+    const d=await api('/api/vlc',Object.assign({cmd:cmd},extra||{}));
     // Jede Antwort (Musik- UND Film-Takt) trägt die Windows-Knöpfe des
     // Server-VLC mit (medien_smtc.py) — hier landen Weiter/Zurück.
     smtcTaste(d).catch(()=>{});
@@ -9449,13 +9457,13 @@ async function vlcBefehl(cmd,extra){
 }
 async function geraetWechsel(){
   if(plGeraet==='vlc'){
-    plGeraet='browser'; try{localStorage.setItem('ytdl_geraet','browser');}catch(e){}
+    plGeraet='browser'; lsSchreiben('ytdl_geraet','browser');
     vlcBefehl('stop'); geraetMalen(); if(aktKey())renderPlayerMedia();
     return;
   }
   const s=await vlcBefehl('pruefen');                 // lädt libvlc; ehrlicher Rückfall
   if(!s||!s.verfuegbar){toast((s&&s.grund)||'VLC nicht erreichbar — der Browser-Player spielt weiter.'); return;}
-  plGeraet='vlc'; try{localStorage.setItem('ytdl_geraet','vlc');}catch(e){}
+  plGeraet='vlc'; lsSchreiben('ytdl_geraet','vlc');
   geraetMalen(); if(aktKey())renderPlayerMedia();
 }
 function geraetMalen(){
@@ -9493,7 +9501,7 @@ function renderPlayerVlc(media,x,k){
   vlcBefehl('play',{key:k,vol:plVol,rate:vlcRateLetzte,sub:subMode!=='aus',ton:w.ton||''}).then(s=>{
     if(s&&!s.verfuegbar){                              // VLC unterwegs verschwunden -> Rückfall
       toast(s.grund||'VLC nicht gefunden — der Browser-Player übernimmt.');
-      plGeraet='browser'; try{localStorage.setItem('ytdl_geraet','browser');}catch(e){}
+      plGeraet='browser'; lsSchreiben('ytdl_geraet','browser');
       geraetMalen(); renderPlayerMedia();
     }else if(s&&s.fehler)toast('VLC: '+s.fehler);
   });
@@ -9534,8 +9542,8 @@ function vlcNeustart(){
    bleibt frei (Fläche endet an ihrer Oberkante); Geräte-Pixel via dpr. */
 let _hRectSig='';
 function huelleVideoRect(s){
-  const api=window.pywebview&&window.pywebview.api;
-  if(!api||!api.video_rect)return;
+  const pw=window.pywebview&&window.pywebview.api;
+  if(!pw||!pw.video_rect)return;
   const x=libFind(aktKey());
   const video=x&&(x.dateiart?x.dateiart!=='audio':(x.kategorie!=='MP3'));
   const wrap=document.querySelector('#pl-media .pl-vizwrap');
@@ -9554,7 +9562,7 @@ function huelleVideoRect(s){
   }
   if(sig===_hRectSig)return;                          // nur Änderungen melden
   _hRectSig=sig;
-  try{api.video_rect(args[0],args[1],args[2],args[3],args[4]);}catch(e){}
+  try{pw.video_rect(args[0],args[1],args[2],args[3],args[4]);}catch(e){}
 }
 async function vlcTick(){
   if(plGeraet!=='vlc'){clearInterval(vlcTimer); vlcTimer=null; huelleVideoRect(null); return;}
@@ -9598,7 +9606,7 @@ async function vlcTick(){
     _posMerkTs=Date.now();
     if(s.pos>20&&s.pos<s.dauer-20)_posMerk[mk]={t:Math.floor(s.pos),ts:Date.now()};
     else if(s.pos>=s.dauer-20)delete _posMerk[mk];
-    try{localStorage.setItem('ytdl_pos_v1',JSON.stringify(_posMerk));}catch(e){}
+    lsSchreiben('ytdl_pos_v1',JSON.stringify(_posMerk));
   }
   // Titelende: genau EINMAL weiterschalten (der Ended-Zustand bleibt in libvlc
   // stehen, bis etwas Neues spielt — ohne die Merker-Variable liefe die
@@ -9637,8 +9645,7 @@ function wiedergabeMerken(felder){
   const k=aktKey(); if(!k)return;                      // nichts läuft -> nichts zu merken
   const x=libFind(k); if(x)x.wiedergabe=Object.assign({},x.wiedergabe||{},felder);
   if(NUR_FERN)return;                                  // Gerät im WLAN: gilt nur hier, bis die Bibliothek neu lädt
-  fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(Object.assign({keys:[k],merge:1},felder))}).catch(()=>{});
+  api('/api/wiedergabe',Object.assign({keys:[k],merge:1},felder)).catch(()=>{});
 }
 function speedWaehlen(s){playSpeed=s; speedAnwenden(); wiedergabeMerken({speed:s});
   if(vlcAktiv()){vlcRateLetzte=s; vlcBefehl('rate',{wert:s});}}
@@ -9676,7 +9683,7 @@ async function wgSpeichern(){
   const hol=id=>{const s=document.getElementById(id); return s?s.value:undefined;};
   const body=Object.assign({},wgZiel,{sub:hol('wg-sub')||'',speed:parseFloat(hol('wg-speed'))||0});
   const ton=hol('wg-ton'); if(ton!==undefined)body.ton=ton;
-  await fetch('/api/wiedergabe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  await api('/api/wiedergabe',body);
   await Promise.all([libLaden(),plLaden(),laden()]);   // alle drei Ebenen frisch
   toast('🎚 Wiedergabe-Einstellungen gespeichert.');
 }
@@ -9892,7 +9899,7 @@ function renderPlayerMedia(){
   adoptEl=null;
   if(!uebernahme)xfAbbrechen();                        // normaler Wechsel -> evtl. laufenden Fade verwerfen
   const src='/media?id='+encodeURIComponent(k);
-  try{fetch('/api/played',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:k})});}catch(e){}
+  try{api('/api/played',{id:k});}catch(e){}
   // Nach der WIRKLICH servierten Datei entscheiden (dateiart vom Server):
   // fehlt das Video und es gibt nur die MP3, gehört die Audio-Ansicht
   // (Cover+Visualizer) her — statt schwarzem Video-Element (JB 14.07.).
@@ -10048,11 +10055,11 @@ function plqSelect(i,ev){
    ohne neue Bedienzone. Wer das alte Verhalten will, stellt „nur auf freier
    Flaeche" ein (⚙ Ansicht → Playlist-Rahmen). */
 function plqRahmenArt(){
-  let v='auto'; try{v=localStorage.getItem('ytdl_plqrahmen')||'auto';}catch(e){}
+  let v=lsLesen('ytdl_plqrahmen')||'auto';
   return v==='frei'?'frei':'auto';
 }
 function plqRahmenArtSetzen(v){
-  try{localStorage.setItem('ytdl_plqrahmen',v==='frei'?'frei':'auto');}catch(e){}
+  lsSchreiben('ytdl_plqrahmen',v==='frei'?'frei':'auto');
   toast(v==='frei'?'▭ Rahmen nur auf freier Fläche (Ziehen hat überall Vorrang).'
                   :'▭ Rahmen ab der Zeile — markierte Titel bleiben zum Verschieben greifbar.');
 }
@@ -10229,7 +10236,7 @@ async function queueAlsPlaylist(){
   const keys=playerState.queue.slice();
   const id=await plAnlegen(n.trim()); if(!id){toast('Konnte die Playlist nicht anlegen.');return;}
   for(const k of keys){                                // Backend-add nimmt einen Key; Reihenfolge bleibt
-    await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'add',id,key:k})});
+    await api('/api/playlist',{art:'add',id,key:k});
   }
   await plLaden();
   toast('💾 „'+n.trim()+'" gespeichert ('+keys.length+' Titel).');
@@ -10682,7 +10689,7 @@ async function plAuswahlEntfernen(){
   libAuswahl.clear(); libMalen();
   plInfo(keys.length+(keys.length===1?' Titel':' Titel')+' aus der Playlist entfernt (Dateien bleiben)');
 }
-async function plApi(body){await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); await plLaden();}
+async function plApi(body){await api('/api/playlist',body); await plLaden();}
 /* Neue Playlist anlegen -> ihre id ('' bei einem Fehler). Der Server nennt
    die id selbst (F17); vorher wurde „die zuletzt gelistete“ geraten, und bei
    einem Fehler oder einer gleichzeitig angelegten Abo-Playlist landeten die
@@ -10690,9 +10697,7 @@ async function plApi(body){await fetch('/api/playlist',{method:'POST',headers:{'
 async function plAnlegen(name){
   let id='';
   try{
-    const r=await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({art:'create',name})});
-    if(r.ok)id=((await r.json())||{}).id||'';
+    id=(await api('/api/playlist',{art:'create',name})).id||'';
   }catch(e){}
   await plLaden();
   return id;
@@ -10808,7 +10813,7 @@ async function plImport(input){
   const body=JSON.stringify({name,m3u:text});
   if(new Blob([body]).size>2*1024*1024){plInfo('Import abgebrochen: die Datei ist zu groß (höchstens 2 MB).');return;}
   try{
-    const r=await fetch('/api/playlist_import',{method:'POST',headers:{'Content-Type':'application/json'},body});
+    const r=await api('/api/playlist_import',body,{roh:true});
     const d=await r.json().catch(()=>({}));
     if(!r.ok){
       plInfo('Import fehlgeschlagen: '+(r.status===413?'die Datei ist zu groß (höchstens 2 MB).'
@@ -10918,12 +10923,10 @@ async function nameSchemaSpeichern(){
   const go=document.getElementById('name-go'); if(go)go.disabled=true;   // Plan ist veraltet
   namePlan=null;
   const pl=document.getElementById('name-plan'); if(pl)pl.innerHTML='';
-  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name_schema:nameSchema})});}catch(e){}
+  try{await api('/api/config',{name_schema:nameSchema});}catch(e){}
 }
 async function nameAutoSetzen(an){
-  try{await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({auto_umbenennen:!!an})});
+  try{await api('/api/config',{auto_umbenennen:!!an});
     toast(an?'Importe werden künftig automatisch benannt.':'Auto-Benennen aus.');}catch(e){}
 }
 async function nameProbelauf(){
@@ -10947,9 +10950,7 @@ async function nameAnwenden(){
   if(!confirm('Jetzt '+namePlan.bereit+' Datei(en) umbenennen?\\n\\nDie Untertitel wandern mit, der alte Name wird IN der Datei vermerkt, und „↩ Rückgängig" macht alles zurück.'))return;
   const stand=document.getElementById('name-stand'); if(stand)stand.textContent='benenne um …';
   try{
-    const r=await fetch('/api/umbenennen',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({go:true,schema:nameSchema})});
-    const d=await r.json();
+    const d=await api('/api/umbenennen',{go:true,schema:nameSchema});
     toast('✔ '+d.umbenannt+' umbenannt'+(d.uebersprungen?', '+d.uebersprungen+' übersprungen':''));
     await nameProbelauf(); laden();
   }catch(e){if(stand)stand.textContent='Umbenennen fehlgeschlagen.';}
@@ -10957,9 +10958,7 @@ async function nameAnwenden(){
 async function nameUndo(){
   if(!confirm('Den letzten Umbenenn-Lauf zurücknehmen?'))return;
   try{
-    const r=await fetch('/api/umbenennen',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({art:'undo'})});
-    const d=await r.json();
+    const d=await api('/api/umbenennen',{art:'undo'});
     toast(d.ok?('↩ '+d.zurueck+' Datei(en) zurückbenannt'+(d.blockiert?', '+d.blockiert+' blockiert':'')):(d.fehler||'nichts zurückzunehmen'));
     await nameProbelauf(); laden();
   }catch(e){toast('Rückgängig fehlgeschlagen.');}
@@ -10976,7 +10975,7 @@ async function plSyncConfig(){
   const id=document.getElementById('plsel').value;
   if(!id){alert('Bitte zuerst eine Playlist wählen.');return;}
   const p=plState.find(x=>x.id===id);
-  let letzter=''; try{letzter=localStorage.getItem('ytdl_sync_letzter')||'';}catch(e){}
+  let letzter=lsLesen('ytdl_sync_letzter')||'';
   const alt=document.getElementById('sync-fly'); if(alt)alt.remove();
   const fly=document.createElement('div');
   fly.className='abo-flyout'; fly.id='sync-fly'; fly.tabIndex=-1; fly.style.height='auto';
@@ -11047,14 +11046,13 @@ async function syncSpeichern(id,spiegeln){
      dann bleibt der Dialog offen, und der Ordner wird nicht als letzter gemerkt. */
   let d={};
   try{
-    const r=await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({art:'sync_config',id,sync_ordner:ordner,
-                           sync_modus:spiegeln?'spiegeln':'kopieren',sync_auto:auto})});
+    const r=await api('/api/playlist',{art:'sync_config',id,sync_ordner:ordner,
+                           sync_modus:spiegeln?'spiegeln':'kopieren',sync_auto:auto},{roh:true});
     d=await r.json().catch(()=>({}));
     if(!r.ok&&!d.fehler)d={fehler:'Speichern abgelehnt ('+r.status+').'};
   }catch(e){d={fehler:'Server nicht erreichbar.'};}
   if(d.fehler){toast('⇄ Sync: '+d.fehler);return;}
-  try{if(ordner)localStorage.setItem('ytdl_sync_letzter',ordner);}catch(e){}
+  if(ordner)lsSchreiben('ytdl_sync_letzter',ordner);
   await plLaden();
   const f=document.getElementById('sync-fly'); if(f)f.remove();
   if(ordner){toast('⇄ Sync: '+(spiegeln?'spiegeln':'kopieren')+(auto?', automatisch':'')+' → '+ordner);
@@ -11068,8 +11066,7 @@ async function plSyncNow(id){
   plInfo('synchronisiere …', true);                    // Fortschritt: bleibt
   const info=document.getElementById('plinfo');      // 06.09.: war undeklariert (ReferenceError)
   try{
-    const r=await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'sync',id})});
-    const d=await r.json();
+    const d=await api('/api/playlist',{art:'sync',id});
     if(d.fehler)info.textContent='Sync-Fehler: '+d.fehler;
     else info.textContent=`Sync ✓ ${d.kopiert} kopiert`+(d.geloescht?`, ${d.geloescht} gelöscht`:'')+`, ${d.im_ziel} im Ordner`;
   }catch(e){info.textContent='Sync fehlgeschlagen (App erreichbar?)';}
@@ -11077,11 +11074,11 @@ async function plSyncNow(id){
 }
 
 async function biblio(id,art){
-  await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,art})});
+  await api('/api/biblio',{id,art});
   libLaden();
 }
 async function biblioNeuladen(id){
-  await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,art:'neuladen'})});
+  await api('/api/biblio',{id,art:'neuladen'});
   zeigeView('queue');
 }
 
@@ -11153,7 +11150,7 @@ let HK={};
 (function(){let g={}; try{g=JSON.parse(localStorage.getItem('ytdl_hotkeys')||'{}')||{};}catch(e){}
   for(const a in HK_DEF)HK[a]=(Array.isArray(g[a])&&g[a].length)?g[a].slice():HK_DEF[a].slice();})();
 
-function hkSpeichern(){try{localStorage.setItem('ytdl_hotkeys',JSON.stringify(HK));}catch(e){}}
+function hkSpeichern(){lsSchreiben('ytdl_hotkeys',JSON.stringify(HK));}
 function hkCode(e){return (e.shiftKey?'Shift+':'')+e.code;}
 function hkAktionFuer(code){for(const a in HK){if((HK[a]||[]).includes(code))return a;} return '';}
 function hkTaste(code){return code.replace('Shift+','⇧').replace('Key','').replace('Arrow','')

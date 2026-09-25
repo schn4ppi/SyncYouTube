@@ -157,8 +157,33 @@ def _modul_js():
     return medien_session.MEDIEN_JS
 
 
+# Die zentralen Helfer der PC-Oberfläche (Gesamtprüfung O3): Server-Ruf und
+# Browser-Speicher. Wer Seitenfunktionen ausschneidet, die sie rufen, bindet
+# sie mit _pc_helfer() ein; _lauf prüft das vorher (_helfer_wache).
+PC_HELFER = ("apiFehlertext", "api", "lsLesen", "lsSchreiben", "lsWeg")
+
+
+def _pc_helfer():
+    q = _pc()
+    return [_js_funktion(q, n) for n in PC_HELFER]
+
+
+def _helfer_wache(text):
+    """Ruft ein Teil einen der Helfer, den kein Teil definiert, scheitert der
+    Lauf laut. Die Seitenfunktionen fangen Fehler oft selbst
+    (`try{…}catch(e){}`): ein fehlender Helfer wäre dort ein stiller
+    ReferenceError, und der Test prüfte etwas anderes als die Seite
+    (Gegenprobe in test_oberflaeche_api.py)."""
+    fehlt = [n for n in PC_HELFER
+             if re.search(r"(?<![\w.$])" + n + r"\(", text)
+             and not re.search(r"\bfunction " + n + r"\(|(?<![\w.$])" + n + r"\s*=[^=]", text)]
+    assert not fehlt, (f"Teile rufen {fehlt}, aber kein Teil definiert sie: "
+                       "*_pc_helfer() in die Teile aufnehmen")
+
+
 def _lauf(tmp_path, *teile):
     """Führt Attrappe + Teile aus und liefert die JSON-Zeilen von aus(...)."""
+    _helfer_wache("\n".join(teile))
     _deno_oder_skip()
     skript = tmp_path / "lauf.mjs"
     skript.write_text(UMGEBUNG + "\n" + "\n".join(teile) + "\n", encoding="utf-8")
@@ -346,7 +371,7 @@ def test_leere_warteschlange_raeumt_das_overlay(tmp_path):
     Overlay stehen, ein laufender Crossfade spielte weiter, und VLC spielte
     unsteuerbar weiter (vlcAktiv ohne Titel = false)."""
     q = _pc()
-    (e,) = _lauf(tmp_path, _modul_js(), _js_zeile(q, "const medienS="),
+    (e,) = _lauf(tmp_path, _modul_js(), _js_zeile(q, "const medienS="), *_pc_helfer(),
                  _js_funktion(q, "filmTasten"), _js_funktion(q, "renderPlayerMedia"), r"""
 var tvpOffen=false, plGeraet='vlc', adoptEl=null; const calls=[];
 _els['pl-media']={innerHTML:'x'};

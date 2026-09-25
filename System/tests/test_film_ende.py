@@ -43,6 +43,7 @@ from test_medientasten_verhalten import (  # noqa: E402
     _js_zeile,
     _lauf,
     _pc,
+    _pc_helfer,
 )
 
 vlc_attrappe = test_medien_smtc.vlc_attrappe          # Fixture
@@ -170,7 +171,7 @@ def _teile(echt_tv=False):
         stubs = stubs.replace(attrappe, "") + TV_DOM
         zeilen.append(_js_zeile(q, "let snipTimer="))
         namen = namen + list(TV_ECHT)
-    return zeilen + [stubs] + [_js_funktion(q, n) for n in namen]
+    return zeilen + _pc_helfer() + [stubs] + [_js_funktion(q, n) for n in namen]
 
 
 def test_bausteine_gibt_es():

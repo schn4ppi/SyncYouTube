@@ -632,7 +632,7 @@ def test_code_erneuern_nur_im_einstellungs_menue(tmp_path):
 
 
 def test_code_erneuern_fragt_und_holt_den_neuen_stand(tmp_path):
-    from test_medientasten_verhalten import _js_funktion, _lauf, _pc
+    from test_medientasten_verhalten import _js_funktion, _lauf, _pc, _pc_helfer
     q = _pc()
     (e,) = _lauf(
         tmp_path,
@@ -642,6 +642,7 @@ def test_code_erneuern_fragt_und_holt_den_neuen_stand(tmp_path):
         " return {ok:true,status:200,json:async()=>({code:'NEU2345678'})};};",
         "async function laden(){_spur.push('laden');} function fernInfoMalen(){_spur.push('malen');}",
         "function toast(t){_spur.push('toast:'+t);}",
+        *_pc_helfer(),
         _js_funktion(q, "fernCodeErneuern"),
         "await fernCodeErneuern(); await new Promise(r=>setTimeout(r,0));",
         "const nachJa=_spur.slice(); _spur.length=0; _jaSagen=false; await fernCodeErneuern();",

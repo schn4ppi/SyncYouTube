@@ -38,7 +38,7 @@ for _pfad in (MODUL_DIR, HIER):
         sys.path.insert(0, _pfad)
 
 import test_medien_smtc  # noqa: E402  (dieselbe libvlc-Attrappe für die Server-Seite)
-from test_medientasten_verhalten import _js_funktion, _lauf, _pc  # noqa: E402
+from test_medientasten_verhalten import _js_funktion, _lauf, _pc, _pc_helfer  # noqa: E402
 
 import huelle  # noqa: E402  (Import startet weder Fenster noch Server)
 import youtube_app as app  # noqa: E402  (Import startet keinen Server)
@@ -658,7 +658,7 @@ def test_seite_meldet_das_panel_vor_jedem_vlc_start(tmp_path):
     /api/live/play) auf video_melden; ein kaputter, hängender oder fehlender
     Ruf hält den Start nie auf; im Browser passiert nichts Neues."""
     q = _pc()
-    teile = _start_zaehler(q) + [_js_funktion(q, n) for n in (
+    teile = _start_zaehler(q) + _pc_helfer() + [_js_funktion(q, n) for n in (
         "huelleMelden", "vlcBefehl", "filmePlayVlc", "tvLivePlay")]
     (e,) = _lauf(tmp_path, SEITE, *teile, r"""
 const erg={};
@@ -735,7 +735,7 @@ def test_ueberholter_start_in_der_huelle_wuergt_den_neueren_nicht_ab(tmp_path):
     zeigte die Fernbedienung von B. Jetzt schickt ein Start, der während der
     Anmeldung überholt wurde (neuerer Start, Esc, Stopp), gar nichts."""
     q = _pc()
-    teile = _start_zaehler(q) + [_js_funktion(q, n) for n in (
+    teile = _start_zaehler(q) + _pc_helfer() + [_js_funktion(q, n) for n in (
         "huelleMelden", "vlcBefehl", "filmePlayVlc", "tvLivePlay")]
     (e,) = _lauf(tmp_path, WETTLAUF, *teile, r"""
 const erg={};
@@ -770,7 +770,7 @@ def test_filmende_stopp_ueberholt_keinen_wartenden_musikstart(tmp_path):
     überholt auch auf der Seite nichts. Ein Stopp OHNE nur_key (Gerät
     gewechselt, Liste leer) überholt weiter (test_ueberholter_start_…)."""
     q = _pc()
-    teile = _start_zaehler(q) + [_js_funktion(q, n) for n in (
+    teile = _start_zaehler(q) + _pc_helfer() + [_js_funktion(q, n) for n in (
         "huelleMelden", "vlcBefehl", "filmePlayVlc", "tvLivePlay")]
     (e,) = _lauf(tmp_path, WETTLAUF, *teile, r"""
 const erg={};
