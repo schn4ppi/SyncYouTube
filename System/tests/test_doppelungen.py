@@ -88,3 +88,39 @@ def test_ui_stand_zaehlt_die_oberflaeche_und_ihren_baustein(monkeypatch, tmp_pat
     assert stand() == 1_700_000_100
     os.utime(tmp_path / "oberflaeche.py", (1_700_000_200, 1_700_000_200))
     assert stand() == 1_700_000_200
+
+
+# ------------------------------------------------------------ JS-Fehler-Rekorder
+
+def test_js_rekorder_schreibt_unter_der_sperre_des_fehlerkanals(monkeypatch, tmp_path):
+    """Der Rekorder der Oberfläche war eine Kopie von `fehler_merken`, nur ohne
+    `_fehler_lock`: Zwei Meldungen über dem Deckel konnten sich beim Kürzen
+    gegenseitig Zeilen wegschreiben. Jetzt wartet er auf dieselbe Sperre."""
+    import threading
+    ziel = tmp_path / "js_fehler.jsonl"
+    monkeypatch.setattr(app, "JS_FEHLER_LOG", str(ziel))
+    ergebnis = {}
+
+    def melden():
+        ergebnis["antwort"] = _anfrage("/api/js_fehler", methode="POST", kopf=PC,
+                                       rumpf={"text": "TypeError: x", "quelle": "/", "zeile": 7, "stack": "at f"})
+    with app._fehler_lock:
+        faden = threading.Thread(target=melden, daemon=True)
+        faden.start()
+        faden.join(0.5)
+        assert not ziel.exists(), "der Rekorder schrieb, obwohl der Fehlerkanal gesperrt war"
+    faden.join(5)
+    assert ergebnis["antwort"][0] == 200
+    zeile = json.loads(ziel.read_text(encoding="utf-8").strip())
+    assert {k: zeile[k] for k in ("text", "quelle", "zeile", "stack")} == \
+        {"text": "TypeError: x", "quelle": "/", "zeile": 7, "stack": "at f"}, "die Felder bleiben"
+    assert set(zeile) == {"ts", "text", "quelle", "zeile", "stack"}
+
+
+def test_js_rekorder_bleibt_gedeckelt(monkeypatch, tmp_path):
+    ziel = tmp_path / "js_fehler.jsonl"
+    ziel.write_text("x" * 250_000 + "\n", encoding="utf-8")
+    monkeypatch.setattr(app, "JS_FEHLER_LOG", str(ziel))
+    st, _, _ = _anfrage("/api/js_fehler", methode="POST", kopf=PC, rumpf={"text": "Probe"})
+    assert st == 200 and ziel.stat().st_size < 200_000
+    assert json.loads(ziel.read_text(encoding="utf-8").splitlines()[-1])["text"] == "Probe"

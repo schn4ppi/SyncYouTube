@@ -6123,12 +6123,18 @@ _fehler_lock = threading.Lock()
 def fehler_merken(url, text, art="", titel="", pfad=None):
     """Einen Fehlschlag dauerhaft festhalten. `pfad` ist ueberschreibbar, damit
     Tests gegen tmp_path messen statt gegen den Produktiv-Ordner (P7)."""
-    ziel = pfad or FEHLER_LOG
     zeile = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
              "art": str(art or "")[:40],
              "url": str(url or "")[:300],
              "titel": str(titel or "")[:200],
              "text": str(text or "")[:600]}
+    return _zeile_anhaengen(pfad or FEHLER_LOG, zeile)
+
+
+def _zeile_anhaengen(ziel, zeile):
+    """Eine JSON-Zeile an ein Protokoll (.jsonl) hängen: unter `_fehler_lock`,
+    Deckel 200 KB, das Älteste fällt weg. Gemeinsam für den Fehlerkanal und den
+    JS-Rekorder (Gesamtprüfung Gruppe 7: der Rekorder war eine Kopie ohne Sperre)."""
     try:
         with _fehler_lock:
             if os.path.exists(ziel) and os.path.getsize(ziel) > 200_000:
@@ -7997,29 +8003,13 @@ class Handler(BaseHTTPRequestHandler):
                     _cfg_speichern()
                 return _antwort(self, 200, fernsteuerung_info())
             elif pfad == "/api/js_fehler":      # Fehler-Rekorder der Oberfläche
-                try:
-                    log_pfad = JS_FEHLER_LOG
-                    # Deckel 200 KB: Ältestes fällt weg, nie ungebremst wachsen.
-                    if os.path.exists(log_pfad) and os.path.getsize(log_pfad) > 200_000:
-                        with open(log_pfad, encoding="utf-8", errors="replace") as f:
-                            rest = f.readlines()[-200:]
-                        # Fehler-Zwilling zum neuen yt_fehler-Kanal (07.09.2026):
-                        # »die letzten 200 Zeilen« deckelt nicht, wenn EINE Zeile
-                        # riesig ist. Deshalb zusaetzlich nach Bytes kuerzen.
-                        while rest and sum(len(z.encode("utf-8")) for z in rest) > 150_000:
-                            rest.pop(0)
-                        with open(log_pfad, "w", encoding="utf-8") as f:
-                            f.writelines(rest)
-                    with open(log_pfad, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-                                            "text": str(daten.get("text") or "")[:400],
-                                            "quelle": str(daten.get("quelle") or "")[:80],
-                                            "zeile": daten.get("zeile") or 0,
-                                            # 06.09.: Promise-Fehler kamen ohne Ort an (P8)
-                                            "stack": str(daten.get("stack") or "")[:600]},
-                                           ensure_ascii=False) + "\n")
-                except OSError:
-                    pass
+                # Derselbe Schreiber wie der Fehlerkanal: Sperre, Deckel 200 KB.
+                _zeile_anhaengen(JS_FEHLER_LOG, {"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                                                 "text": str(daten.get("text") or "")[:400],
+                                                 "quelle": str(daten.get("quelle") or "")[:80],
+                                                 "zeile": daten.get("zeile") or 0,
+                                                 # 06.09.: Promise-Fehler kamen ohne Ort an (P8)
+                                                 "stack": str(daten.get("stack") or "")[:600]})
                 return _antwort(self, 200, {"ok": True})
             elif pfad == "/api/played":         # ein Titel wurde abgespielt
                 with _io_lock:
