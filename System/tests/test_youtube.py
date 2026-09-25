@@ -2292,10 +2292,11 @@ def test_titel_auf_playlist_ziehen():
     quelle = _oberflaeche_html()
     assert "plselDrop" in quelle, "Die Playlist-Auswahl ist kein Fallziel"
     assert "ondrop=\"plselDrop(event)\"" in quelle, "Kein ondrop an der Playlist-Auswahl"
-    # Fallen lassen auf "keine Playlist" legt eine NEUE an.
+    # Fallen lassen auf "keine Playlist" legt eine NEUE an (seit F17 ueber
+    # plAnlegen, das die id des Servers nimmt).
     i = quelle.index("function plselDrop")
     block = quelle[i:i + 2200]
-    assert "art:'create'" in block.replace(" ", ""), \
+    assert "plAnlegen(" in block.replace(" ", ""), \
         "Fallenlassen auf 'keine Playlist' legt keine neue an"
     # Mehrfachauswahl reist mit (die Entscheidung faellt in plZiehKeys).
     j = quelle.index("function plZiehKeys")

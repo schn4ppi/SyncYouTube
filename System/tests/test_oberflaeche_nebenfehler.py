@@ -76,3 +76,54 @@ def test_kopfleiste_vlc_ohne_dauer_bleibt_gesperrt(tmp_path):
                  "cmdSeekTick(); cmdSeekEnd(300); aus({kopf:stand('cmd'), befehle:_befehle.slice()});")
     assert e["kopf"]["gesperrt"] is True and e["befehle"] == []
 
+
+
+# ------------------------------------------------------------------ F17
+# Eine neue Playlist wurde als „die zuletzt gelistete“ geraten. Bei einem
+# Fehler oder einer gleichzeitig angelegten Abo-Playlist landeten die Titel in
+# der falschen Liste. Jetzt antwortet der Server mit der id.
+
+def _playlist_teile(q, antwort_create):
+    namen = ["plCreate", "queueAlsPlaylist", "plApi", "plLaden"]
+    if "function plAnlegen(" in q:
+        namen.append("plAnlegen")
+    return [
+        "let plState=[]; const _post=[]; const _toasts=[];",
+        # derweil legte der Server eine Abo-Playlist an: sie steht am Ende der Liste
+        "const _server=[{id:'neu1', name:'Neu', items:[]}, {id:'abo9', name:'Abo', items:[]}];",
+        f"const _create={antwort_create};",
+        "globalThis.fetch=async(url,opt)=>{",
+        "  if(url==='/api/playlists')return {ok:true, json:async()=>({items:_server})};",
+        "  const b=JSON.parse(opt.body); _post.push(b);",
+        "  if(b.art==='create')return _create;",
+        "  return {ok:true, json:async()=>({ok:true})};};",
+        "globalThis.prompt=()=>'Neu'; function plMalen(){} function toast(t){_toasts.push(t);}",
+        "let playerState={queue:['a|mp3','b|mp3'], idx:0};",
+        "_els['plsel']={value:''};",
+        *[_js_funktion(q, n) for n in namen],
+    ]
+
+
+OK_MIT_ID = "{ok:true, status:200, json:async()=>({ok:true, id:'neu1'})}"
+ABGELEHNT = "{ok:false, status:403, json:async()=>({fehler:'nur_pc'})}"
+
+
+def test_neue_playlist_wird_ueber_ihre_id_gewaehlt(tmp_path):
+    (e,) = _lauf(tmp_path, *_playlist_teile(_pc(), OK_MIT_ID),
+                 "await plCreate(); aus({sel:_els['plsel'].value});")
+    assert e["sel"] == "neu1", "gewählt wurde die zuletzt gelistete statt der neuen Playlist"
+
+
+def test_warteschlange_landet_in_der_neuen_playlist(tmp_path):
+    (e,) = _lauf(tmp_path, *_playlist_teile(_pc(), OK_MIT_ID),
+                 "await queueAlsPlaylist(); aus({adds:_post.filter(b=>b.art==='add').map(b=>b.id)});")
+    assert e["adds"] == ["neu1", "neu1"]
+
+
+def test_gescheiterte_anlage_fuellt_keine_fremde_playlist(tmp_path):
+    (e1, e2) = _lauf(tmp_path, *_playlist_teile(_pc(), ABGELEHNT),
+                     "await plCreate(); aus({sel:_els['plsel'].value});",
+                     "await queueAlsPlaylist(); aus({adds:_post.filter(b=>b.art==='add').length,"
+                     " toasts:_toasts});")
+    assert e1["sel"] == ""
+    assert e2["adds"] == 0 and any("nicht anlegen" in t for t in e2["toasts"])

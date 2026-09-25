@@ -4129,11 +4129,15 @@ def _playlists_speichern():
 
 
 def playlist_aktion(daten):
+    """Ändert eine Playlist; bei `create` Rückgabe der neuen id (F17: die
+    Oberfläche riet sonst „die zuletzt gelistete“)."""
     art = daten.get("art")
+    neu_id = None
     with _io_lock:
         if art == "create":
             name = (str(daten.get("name") or "")).strip()[:80] or "Playlist"
-            _playlists.append({"id": uuid.uuid4().hex[:8], "name": name, "items": [], "ts": time.time()})
+            neu_id = uuid.uuid4().hex[:8]
+            _playlists.append({"id": neu_id, "name": name, "items": [], "ts": time.time()})
         else:
             pl = next((p for p in _playlists if p.get("id") == daten.get("id")), None)
             if not pl:
@@ -4170,6 +4174,7 @@ def playlist_aktion(daten):
                 if "sync_auto" in daten:              # JB 07.08.: Auto-Sync
                     pl["sync_auto"] = bool(daten["sync_auto"])
         _json_speichern(PLAYLIST_PFAD, _playlists)
+    return neu_id
 
 
 # ---- Wiedergabe-Grundeinstellungen (Spec Punkt 5, Etappe C) -----------------
@@ -7942,7 +7947,9 @@ class Handler(BaseHTTPRequestHandler):
                 if daten.get("art") == "sync":
                     pl = next((p for p in _playlists if p.get("id") == daten.get("id")), None)
                     return _antwort(self, 200, playlist_sync(pl))
-                playlist_aktion(daten)
+                neu_id = playlist_aktion(daten)
+                if neu_id:
+                    return _antwort(self, 200, {"ok": True, "id": neu_id})
             elif pfad == "/api/geo_wireguard":
                 return _antwort(self, 200, self._geo_wireguard(daten))
             elif pfad == "/api/geo_test":

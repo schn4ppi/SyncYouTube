@@ -80,3 +80,20 @@ def test_auto_update_im_leerlauf(monkeypatch):
     with pytest.raises(_Stopp):
         app._update_hintergrund()
     assert rufe == ["update"] and schlaf == [90, 24 * 3600]
+
+
+# ------------------------------------------------------------------ F17
+
+def test_playlist_anlage_antwortet_mit_id(monkeypatch):
+    import json
+
+    from test_zugang_und_vertrauen import _anfrage
+    monkeypatch.setattr(app, "_playlists", [{"id": "alt00001", "name": "Alt", "items": [], "ts": 0}])
+    st, _, koerper = _anfrage("/api/playlist", methode="POST", rumpf={"art": "create", "name": "Neu"})
+    assert st == 200
+    antwort = json.loads(koerper)
+    neu = [p for p in app._playlists if p["name"] == "Neu"]
+    assert len(neu) == 1 and antwort.get("id") == neu[0]["id"], antwort
+    st, _, koerper = _anfrage("/api/playlist", methode="POST",
+                              rumpf={"art": "rename", "id": "alt00001", "name": "Umbenannt"})
+    assert st == 200 and json.loads(koerper) == {"ok": True}, "die übrigen Aktionen antworten wie bisher"

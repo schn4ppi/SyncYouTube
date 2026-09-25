@@ -5833,8 +5833,7 @@ function bulkPlaylist(ev){
   const opt=plState.map(p=>[p.name+' ('+p.items.length+')', false, ()=>rein(p.id)]);
   opt.push(['＋ Neue Playlist…', false, async()=>{
     const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim())return;
-    await plApi({art:'create',name:n.trim()});
-    const id=(plState[plState.length-1]||{}).id; if(id)rein(id);}]);
+    const id=await plAnlegen(n.trim()); if(id)rein(id);}]);
   kmListe(kontextMenuBauen(ev||window.event,[]), '＋ '+keys.length+' Titel in …', opt);
 }
 
@@ -6812,7 +6811,7 @@ function plAddListe(m,key){
     let id=b.dataset.pl;
     if(id==='__neu'){
       const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim()){m.remove();return;}
-      await plApi({art:'create',name:n.trim()}); id=(plState[plState.length-1]||{}).id;
+      id=await plAnlegen(n.trim());
     }
     if(id){
       for(const k of keys)await plApi({art:'add',id,key:k});
@@ -10289,11 +10288,9 @@ async function queueAlsPlaylist(){
   if(!playerState.queue.length){toast('Die Warteschlange ist leer.');return;}
   const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim())return;
   const keys=playerState.queue.slice();
-  await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'create',name:n.trim()})});
-  await plLaden();                                     // plState frisch -> neue id am Ende
-  const neu=plState[plState.length-1]; if(!neu){toast('Konnte die Playlist nicht anlegen.');return;}
+  const id=await plAnlegen(n.trim()); if(!id){toast('Konnte die Playlist nicht anlegen.');return;}
   for(const k of keys){                                // Backend-add nimmt einen Key; Reihenfolge bleibt
-    await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'add',id:neu.id,key:k})});
+    await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'add',id,key:k})});
   }
   await plLaden();
   toast('💾 „'+n.trim()+'" gespeichert ('+keys.length+' Titel).');
@@ -10747,6 +10744,20 @@ async function plAuswahlEntfernen(){
   plInfo(keys.length+(keys.length===1?' Titel':' Titel')+' aus der Playlist entfernt (Dateien bleiben)');
 }
 async function plApi(body){await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); await plLaden();}
+/* Neue Playlist anlegen -> ihre id ('' bei einem Fehler). Der Server nennt
+   die id selbst (F17); vorher wurde „die zuletzt gelistete“ geraten, und bei
+   einem Fehler oder einer gleichzeitig angelegten Abo-Playlist landeten die
+   Titel in der falschen Liste. */
+async function plAnlegen(name){
+  let id='';
+  try{
+    const r=await fetch('/api/playlist',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({art:'create',name})});
+    if(r.ok)id=((await r.json())||{}).id||'';
+  }catch(e){}
+  await plLaden();
+  return id;
+}
 
 /* ---- Titel auf eine Playlist ziehen (Build 135, JB Punkt 4) --------------
    Bisher ging Einreihen nur über das ＋-Menü an jeder Kachel — bei mehreren
@@ -10779,8 +10790,7 @@ async function plselDrop(ev){
     const vorschlag=(libFind(keys[0])||{}).titel||'Neue Playlist';
     const n=prompt('Neue Playlist anlegen — Name:', vorschlag.slice(0,40));
     if(!n||!n.trim())return;
-    await plApi({art:'create',name:n.trim()});
-    id=(plState[plState.length-1]||{}).id; neu=true;
+    id=await plAnlegen(n.trim()); neu=true;
     if(!id){toast('Playlist ließ sich nicht anlegen.');return;}
   }
   const p=plState.find(x=>x.id===id);
@@ -10821,12 +10831,11 @@ function plOptionen(key){
   const opt=plState.map(p=>[p.name+' ('+p.items.length+')', false, ()=>rein(p.id)]);
   opt.push(['＋ Neue Playlist…', false, async()=>{
     const n=prompt('Name der neuen Playlist:'); if(!n||!n.trim())return;
-    await plApi({art:'create',name:n.trim()});
-    const id=(plState[plState.length-1]||{}).id; if(id)rein(id);}]);
+    const id=await plAnlegen(n.trim()); if(id)rein(id);}]);
   return opt;
 }
-async function plCreate(){const n=prompt('Name der neuen Playlist:'); if(n&&n.trim()){await plApi({art:'create',name:n.trim()});
-  const neu=plState[plState.length-1]; if(neu){document.getElementById('plsel').value=neu.id; plMalen();}}}
+async function plCreate(){const n=prompt('Name der neuen Playlist:'); if(n&&n.trim()){const id=await plAnlegen(n.trim());
+  if(id){document.getElementById('plsel').value=id; plMalen();}}}
 async function plDelete(){const id=document.getElementById('plsel').value; if(!id)return;
   const p=plState.find(x=>x.id===id); if(p&&confirm('Playlist „'+p.name+'" löschen? (Dateien bleiben erhalten)'))await plApi({art:'delete',id});}
 async function plRename(){const id=document.getElementById('plsel').value; if(!id)return;
@@ -10836,7 +10845,7 @@ async function plAdd(key){
   if(!id){
     if(plState.length){alert('Bitte oben zuerst eine Playlist wählen — oder ＋ Neu.');return;}
     const n=prompt('Neue Playlist — Name:'); if(!n||!n.trim())return;
-    await plApi({art:'create',name:n.trim()}); id=(plState[plState.length-1]||{}).id;
+    id=await plAnlegen(n.trim()); if(!id)return;
     document.getElementById('plsel').value=id; plMalen();
   }
   await plApi({art:'add',id,key});
