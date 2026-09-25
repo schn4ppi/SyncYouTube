@@ -136,9 +136,12 @@ def _wird_ausgeliefert(rel):
     """Gehört diese versionierte Datei (Pfad wie git ls-files) ins Nutzerpaket?
 
     Ausschlussliste statt Positivliste (Gegenprüfung 24.09.): Die heiß nachgeladenen
-    Seiten (oberflaeche, handy, fernbedienung, medien_session) importiert der Router
-    erst im Funktionsrumpf — eine Positivliste „was youtube_app oben importiert"
-    verlöre sie still. layout_kern.js lädt kein Code: Die Oberfläche trägt eine
+    Seiten (youtube_app.HEISSE_SEITEN: oberflaeche, handy, fernbedienung,
+    medien_session) lädt der Router über ihren Namen (importlib in _seite_frisch);
+    kein Import-Scanner sieht sie. Deshalb hier eine Ausschlussliste — eine
+    Positivliste „was youtube_app importiert" verlöre sie still — und in der
+    exe-Bauvorschrift SyncYouTube.spec ausdrückliche hiddenimports (berichtigt in
+    der Nacharbeit zu Gruppe 7). layout_kern.js lädt kein Code: Die Oberfläche trägt eine
     Inline-Kopie, die Familien-Wache vendor_kern hält die Datei byte-gleich mit dem
     Master (berichtigt in der Gesamtprüfung Gruppe 7; vorher stand hier, sie werde
     per Pfad geladen). Sie geht als versionierte Datei trotzdem mit."""
