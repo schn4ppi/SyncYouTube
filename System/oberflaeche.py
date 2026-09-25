@@ -10876,9 +10876,20 @@ async function plImport(input){
   const f=input.files&&input.files[0]; if(!f)return;
   const text=await f.text(); input.value='';
   const name=prompt('Name der importierten Playlist:', f.name.replace(/\\.(m3u8?)$/i,''))||f.name;
+  // Der Server nimmt höchstens 2 MB an (MAX_KOERPER, S14) und schließt danach
+  // die Verbindung: darum vorher selbst messen und ehrlich „zu groß“ melden,
+  // statt „Import ✓ — 0 Titel“ (Gesamtprüfung Gruppe 6).
+  const body=JSON.stringify({name,m3u:text});
+  if(new Blob([body]).size>2*1024*1024){plInfo('Import abgebrochen: die Datei ist zu groß (höchstens 2 MB).');return;}
   try{
-    const r=await fetch('/api/playlist_import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,m3u:text})});
-    const d=await r.json(); await plLaden();
+    const r=await fetch('/api/playlist_import',{method:'POST',headers:{'Content-Type':'application/json'},body});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){
+      plInfo('Import fehlgeschlagen: '+(r.status===413?'die Datei ist zu groß (höchstens 2 MB).'
+                                                     :(d.fehler||('Antwort '+r.status))));
+      return;
+    }
+    await plLaden();
     if(d.id){document.getElementById('plsel').value=d.id; plMalen();}
     plInfo('Import ✓ — '+(d.gefunden||0)+' Titel gefunden');
   }catch(e){plInfo('Import fehlgeschlagen');}

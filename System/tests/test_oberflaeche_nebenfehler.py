@@ -174,3 +174,44 @@ def test_neuladen_ueberlebt_gesperrten_speicher(tmp_path):
                  "uiStandPruefen('a'); uiStandPruefen('b');",
                  "el.paused=true; el.ended=true; plTitelEnde({target:el}); aus({log:_log.slice()});")
     assert e["log"] == ["reload"], e
+
+
+# ------------------------------------------------ Orchestrator-Entscheide (Gruppe 6d)
+# M3U-Import über 2 MB: der Server weist den Körper mit 413 ab (S14), die Seite
+# meldete trotzdem „Import ✓ — 0 Titel gefunden“. Jetzt ehrlich „zu groß“.
+
+def _import_teile(q, antwort):
+    return [
+        "const _info=[]; const _post=[]; function plInfo(t){_info.push(t);}",
+        "async function plLaden(){} function plMalen(){} globalThis.prompt=()=>'Liste';",
+        "_els['plsel']={value:''};",
+        f"globalThis.fetch=async(url,opt)=>{{_post.push(url); return {antwort};}};",
+        "function datei(n){return {files:[{name:'liste.m3u', text:async()=>'#EXTM3U '+'x'.repeat(n)}], value:'x'};}",
+        _js_funktion(q, "plImport"),
+    ]
+
+
+def test_m3u_ueber_zwei_mb_meldet_zu_gross(tmp_path):
+    ok = "{ok:true, status:200, json:async()=>({ok:true, id:'p1', gefunden:3})}"
+    (e,) = _lauf(tmp_path, *_import_teile(_pc(), ok),
+                 "await plImport(datei(2*1024*1024+10)); aus({info:_info, post:_post.length});")
+    assert e["post"] == 0, "eine zu große Datei muss gar nicht erst geschickt werden"
+    assert len(e["info"]) == 1 and "zu groß" in e["info"][0] and "✓" not in e["info"][0], e
+
+
+def test_m3u_abgewiesen_meldet_den_grund(tmp_path):
+    zu_gross = "{ok:false, status:413, json:async()=>({fehler:'Anfrage zu groß (höchstens 2 MB)'})}"
+    (e,) = _lauf(tmp_path, *_import_teile(_pc(), zu_gross),
+                 "await plImport(datei(100)); aus({info:_info});")
+    assert "zu groß" in e["info"][-1] and "✓" not in e["info"][-1], e
+    nur_pc = "{ok:false, status:403, json:async()=>({fehler:'Nur am PC möglich.', nur_pc:true})}"
+    (e,) = _lauf(tmp_path, *_import_teile(_pc(), nur_pc),
+                 "await plImport(datei(100)); aus({info:_info});")
+    assert "Nur am PC" in e["info"][-1] and "✓" not in e["info"][-1], e
+
+
+def test_m3u_import_gelingt_wie_bisher(tmp_path):
+    ok = "{ok:true, status:200, json:async()=>({ok:true, id:'p1', gefunden:3})}"
+    (e,) = _lauf(tmp_path, *_import_teile(_pc(), ok),
+                 "await plImport(datei(100)); aus({info:_info, sel:_els['plsel'].value});")
+    assert e == {"info": ["Import ✓ — 3 Titel gefunden"], "sel": "p1"}
