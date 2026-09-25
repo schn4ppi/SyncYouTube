@@ -6135,10 +6135,29 @@ def herunterladen(item):
             _als_uebersprungen(item, fund)
             Q.speichern()
             return
+    elif not _vorhandene_sichern(item):              # „Trotzdem laden“: erst sichern, dann ersetzen
+        return
     if item.get("geo_laender") and not item.get("geo_versucht") and CFG.get("geo_vpn"):
         _geo_download(item, erzwingen)
         return
     _download_lauf(item, erzwingen)
+
+
+def _vorhandene_sichern(item):
+    """„Trotzdem laden“ (Gesamtprüfung Gruppe 6): yt-dlp ersetzt die vorhandene
+    Datei (overwrites). Vorher wandert sie rückholbar in den Papierkorb (Rückfall
+    `_Papierkorb`, _rueckholbar_entfernen). Lässt sie sich nicht sichern, wird
+    nichts ersetzt: der Eintrag steht mit Grund auf „fehler“. True = weiter."""
+    fund = schon_geladen(item["url"], item["qualitaet"]) or item.get("datei") or ""
+    if not (fund and os.path.isfile(fund)):
+        return True
+    if _rueckholbar_entfernen(fund):
+        return True
+    with Q.lock:
+        item["status"] = "fehler"
+        item["fehler"] = "Die vorhandene Datei ließ sich nicht sichern, darum wurde nichts ersetzt."
+    Q.speichern()
+    return False
 
 
 def _zugang_ok(url, extra_opts, timeout=30):
@@ -7008,15 +7027,9 @@ def _lan_action(daten):
     art = daten.get("art")
     if art in ("ordner_offen", "ordner"):
         return "Nur am PC: den Explorer öffnen."
-    # „Trotzdem laden“ auf einem übersprungenen Eintrag lädt mit erzwingen, und
-    # yt-dlp ersetzt die vorhandene Datei ohne Papierkorb (Abnahme 25.09.2026):
-    # das ist Dateien löschen im Sinne von 7a Punkt 2, bis JB anders entscheidet.
-    if art == "weiter":
-        with Q.lock:
-            it = Q.finde(str(daten.get("id") or ""))
-            ersetzt = bool(it and it.get("status") == "uebersprungen")
-        if ersetzt:
-            return "Nur am PC: „Trotzdem laden“ ersetzt die vorhandene Datei."
+    # „Trotzdem laden“ geht seit Gruppe 6 wieder aus dem WLAN: die vorhandene
+    # Datei wandert vorher rückholbar in den Papierkorb (_vorhandene_sichern),
+    # es geht also nichts ohne Rückweg verloren.
     return None
 
 

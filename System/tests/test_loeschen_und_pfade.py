@@ -1032,3 +1032,55 @@ def test_entfernt_ordner_traegt_eine_nomedia(tmp_path, monkeypatch, entfernt):
     app.playlist_sync(pl)
     assert nomedia.is_file()
     assert not [p for p in entfernt if not p.endswith(".nomedia")]
+
+
+# ------------------------------------ „Trotzdem laden“ sichert vorher (Gruppe 6d)
+# Ein übersprungener Eintrag wird mit „Trotzdem laden“ neu geladen, und yt-dlp
+# ersetzte die vorhandene Datei (overwrites) ohne Rückweg. Jetzt wandert sie
+# vorher rückholbar in den Papierkorb (Rückfall `_Papierkorb`); lässt sie sich
+# nicht sichern, wird nichts ersetzt.
+
+VID = "https://www.youtube.com/watch?v=trotzdem001"
+
+
+def _trotzdem_welt(tmp_path, monkeypatch):
+    dl = _dl(tmp_path, monkeypatch)
+    alt = dl / "Titel [trotzdem001].mp4"
+    alt.write_bytes(b"ALT" * 1000)
+    app._geladen[app._geladen_key(VID, "beste")] = {"name": alt.name, "pfad": str(alt),
+                                                    "groesse": alt.stat().st_size}
+    laeufe = []
+    monkeypatch.setattr(app, "_download_lauf",
+                        lambda item, erzwingen=False, **kw: laeufe.append((erzwingen, alt.exists())))
+    item = {"id": "t1", "url": VID, "qualitaet": "beste", "status": "wartend", "erzwingen": True}
+    return alt, item, laeufe
+
+
+def test_trotzdem_laden_sichert_die_vorhandene_datei(tmp_path, monkeypatch, korb, entfernt):
+    alt, item, laeufe = _trotzdem_welt(tmp_path, monkeypatch)
+    app.herunterladen(item)
+    assert laeufe == [(True, False)], "yt-dlp lief, während die alte Datei noch am Platz lag"
+    assert korb == [str(alt)] and os.path.isfile(str(alt) + ".im_korb")
+    assert not entfernt
+
+
+def test_trotzdem_laden_ohne_sicherung_ersetzt_nichts(tmp_path, monkeypatch, korb, entfernt):
+    alt, item, laeufe = _trotzdem_welt(tmp_path, monkeypatch)
+    korb.klappt = False
+
+    def scheitert(pfad, ordner):
+        raise OSError("Ziel nur lesbar")
+    monkeypatch.setattr(app, "_rueckholbar_verschieben", scheitert)
+    monkeypatch.setattr(app, "_sag", lambda *a, **k: None)
+    app.herunterladen(item)
+    assert laeufe == [], "ohne Sicherung darf nichts ersetzt werden"
+    assert alt.read_bytes() == b"ALT" * 1000
+    assert item["status"] == "fehler" and "nicht sichern" in item["fehler"], item
+    assert not entfernt
+
+
+def test_ohne_trotzdem_bleibt_das_ueberspringen(tmp_path, monkeypatch, korb):
+    alt, item, laeufe = _trotzdem_welt(tmp_path, monkeypatch)
+    item.pop("erzwingen")
+    app.herunterladen(item)
+    assert laeufe == [] and korb == [] and item["status"] == "uebersprungen"

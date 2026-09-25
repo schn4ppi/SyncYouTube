@@ -889,14 +889,18 @@ def ohne_download(monkeypatch):
     monkeypatch.setattr(app, "herunterladen", lambda item: None)
 
 
-def test_trotzdem_laden_ersetzt_die_datei_nur_am_pc(monkeypatch, ohne_download):
+def test_trotzdem_laden_geht_wieder_aus_dem_wlan(monkeypatch, ohne_download):
+    """Seit Gruppe 6 (Entscheid des Orchestrators) sichert „Trotzdem laden“ die
+    vorhandene Datei vorher rückholbar (tests/test_loeschen_und_pfade.py); damit
+    ist es kein Löschen ohne Rückweg mehr und aus dem WLAN wieder erlaubt."""
     _fernsteuerung(monkeypatch)
     it = _eintrag("uebersprungen")
     st, _, koerper = _senden("POST", "/api/action", {"art": "weiter", "id": it["id"]}, kopf={"X-Code": CODE})
-    assert st == 403 and json.loads(koerper).get("nur_pc") is True, koerper[:120]
-    assert it["status"] == "uebersprungen" and not it.get("erzwingen"), it
-    st, _, _ = _senden("POST", "/api/action", {"art": "weiter", "id": it["id"]}, ip="127.0.0.1")
-    assert st == 200 and it.get("erzwingen") is True and it["status"] == "wartend", "vom PC wie bisher"
+    assert st == 200, koerper[:120]
+    assert it.get("erzwingen") is True and it["status"] == "wartend", it
+    it2 = _eintrag("uebersprungen")
+    st, _, _ = _senden("POST", "/api/action", {"art": "weiter", "id": it2["id"]}, ip="127.0.0.1")
+    assert st == 200 and it2.get("erzwingen") is True and it2["status"] == "wartend", "vom PC wie bisher"
 
 
 @pytest.mark.parametrize("status", ["pausiert", "fehler"])
