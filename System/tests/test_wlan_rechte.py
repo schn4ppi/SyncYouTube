@@ -46,8 +46,11 @@ def test_alias_handy_ist_weg_und_m_bleibt(monkeypatch):
 # eine neue Route ohne Einordnung macht den Test rot, eine verwaiste Einordnung
 # ebenso. Welche Route wohin gehört, steht nur in LAN_ERLAUBT und NUR_PC.
 
-def _ist_pfad_ausdruck(k):
-    """`self.path` oder `urlparse(self.path).path`."""
+def _ist_pfad_ausdruck(k, namen=frozenset()):
+    """`self.path`, `urlparse(self.path).path` oder ein lokaler Name, der
+    diesen Wert trägt (`pfad = urlparse(self.path).path`)."""
+    if isinstance(k, ast.Name):
+        return k.id in namen
     if isinstance(k, ast.Attribute) and k.attr == "path":
         if isinstance(k.value, ast.Name) and k.value.id == "self":
             return True
@@ -68,16 +71,19 @@ def _routen_aus_dem_code():
     for name, methode in (("_get_routen", "GET"), ("_post_routen", "POST")):
         if name not in methoden:                     # alter Stand ohne getrennten Router
             continue
+        namen = frozenset(z.id for k in ast.walk(methoden[name]) if isinstance(k, ast.Assign)
+                          and _ist_pfad_ausdruck(k.value)
+                          for z in k.targets if isinstance(z, ast.Name))
         for k in ast.walk(methoden[name]):
             werte = []
-            if isinstance(k, ast.Compare) and _ist_pfad_ausdruck(k.left):
+            if isinstance(k, ast.Compare) and _ist_pfad_ausdruck(k.left, namen):
                 for op, rechts in zip(k.ops, k.comparators):
                     if isinstance(op, ast.Eq):
                         werte.append(rechts)
                     elif isinstance(op, ast.In) and isinstance(rechts, (ast.Tuple, ast.List, ast.Set)):
                         werte.extend(rechts.elts)
             elif (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute)
-                  and k.func.attr == "startswith" and _ist_pfad_ausdruck(k.func.value)):
+                  and k.func.attr == "startswith" and _ist_pfad_ausdruck(k.func.value, namen)):
                 werte.extend(k.args)
             for w in werte:
                 if isinstance(w, ast.Constant) and isinstance(w.value, str):
@@ -249,6 +255,41 @@ def test_fernsteuern_aus_dem_wlan_geht_weiter(monkeypatch):
     st, _, _ = _anfrage("/api/remote", methode="POST", ip=LAN,
                         kopf={"Host": PC_IM_LAN, "X-Code": CODE}, rumpf={"cmd": "next"})
     assert st == 200 and app._remote["cmd"] == "next"
+
+
+# Tor und Router lesen denselben Pfad (Abnahme 25.09.2026): der POST-Router
+# verglich die rohe Adresse samt Anfrageteil. POST /api/filme/merk?profil=…
+# (so ruft der Fernsehmodus die Merkliste) lief darum vom PC wie aus dem WLAN
+# auf 404 „unbekannt“, und die Oberfläche meldete „Von der Liste genommen“.
+
+def test_film_merkliste_mit_anfrageteil_vom_pc(tmp_path):
+    import filme
+    st, _, koerper = _anfrage("/api/filme/merk?profil=kinder", methode="POST",
+                              kopf={"Host": "127.0.0.1:8776"}, rumpf={"id": "film1"})
+    assert st == 200 and json.loads(koerper) == {"an": True}, koerper[:120]
+    assert "film1" in filme.merkliste_lesen("kinder"), "gemerkt im Profil aus der Adresse"
+    st, _, koerper = _anfrage("/api/filme/merk?profil=kinder", methode="POST",
+                              kopf={"Host": "127.0.0.1:8776"}, rumpf={"id": "film1"})
+    assert json.loads(koerper) == {"an": False} and "film1" not in filme.merkliste_lesen("kinder")
+
+
+def test_film_merkliste_mit_anfrageteil_aus_dem_wlan(monkeypatch):
+    import filme
+    _fernsteuerung(monkeypatch)
+    st, _, koerper = _anfrage("/api/filme/merk?profil=egal", methode="POST", ip=LAN,
+                              kopf={"Host": PC_IM_LAN, "X-Code": CODE}, rumpf={"id": "film2"})
+    assert st == 200 and json.loads(koerper) == {"an": True}, koerper[:120]
+    assert "film2" in filme.merkliste_lesen("standard"), "mit Code gilt das Standard-Profil, nie die Adresse"
+
+
+def test_post_mit_anfrageteil_erreicht_dieselbe_route(monkeypatch):
+    _fernsteuerung(monkeypatch)
+    st, _, _ = _anfrage("/api/remote?von=tv", methode="POST", ip=LAN,
+                        kopf={"Host": PC_IM_LAN, "X-Code": CODE}, rumpf={"cmd": "next"})
+    assert st == 200 and app._remote["cmd"] == "next"
+    st, _, koerper = _anfrage("/api/config?x=1", methode="POST", ip=LAN,
+                              kopf={"Host": PC_IM_LAN, "X-Code": CODE}, rumpf={"ziel_ordner": "C:\\Fremd"})
+    assert st == 403 and json.loads(koerper).get("nur_pc") is True, "das Tor sieht denselben Pfad wie der Router"
 
 
 # ------------------------------------------------------------ S10: eine Schreibweise, ::1 ist lokal

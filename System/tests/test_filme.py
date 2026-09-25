@@ -937,7 +937,7 @@ def test_geteilter_zustand_geht_nicht_verloren(tmp_path, monkeypatch):
         "erledigte Meldungen blieben liegen"
 
 
-def test_nur_ein_abzug_gleichzeitig():
+def test_nur_ein_abzug_gleichzeitig(monkeypatch):
     """Sync-Knopf und 6-h-Ticker teilen sich EINE Sperre.
 
     Vorher hatte nur der Ticker eine; der Knopf startete blind einen zweiten
@@ -945,11 +945,15 @@ def test_nur_ein_abzug_gleichzeitig():
     zehn gleichzeitige 1000er-Seiten — und beide enden mit
     `fortschritt_nachreichen()`, das dann jede Meldung doppelt schickt."""
     import youtube_app as app
+    from test_zugang_und_vertrauen import _anfrage
     quelle = open(os.path.join(MODUL_DIR, "youtube_app.py"), encoding="utf-8").read()
-    assert "def _filme_abzug_anstossen" in quelle
-    i = quelle.index('elif self.path == "/api/filme/sync"')
-    block = quelle[i:i + 600]
-    assert "_filme_abzug_anstossen(" in block, "der Sync-Knopf umgeht die Sperre"
+    # Der Knopf (POST /api/filme/sync) geht durch die Sperre: Aufruf statt Erwähnung.
+    anstoesse = []
+    with monkeypatch.context() as mp:                 # nur diese Attrappe, die Wachen bleiben
+        mp.setattr(app, "_filme_abzug_anstossen", lambda **k: anstoesse.append(k) or False)
+        st, _, koerper = _anfrage("/api/filme/sync", methode="POST", kopf={"Host": "127.0.0.1:8776"}, rumpf={})
+    assert st == 200 and json.loads(koerper)["gestartet"] is False, "der Sync-Knopf umgeht die Sperre"
+    assert anstoesse == [{"von_hand": True}]
     assert "threading.Thread(target=filme.katalog_abzug" not in quelle, \
         "es gibt noch einen ungesperrten Abzug-Start"
     # Ergebnis statt Schreibweise: der zweite Anstoß muss abgelehnt werden

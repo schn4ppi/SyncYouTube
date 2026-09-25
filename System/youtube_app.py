@@ -7837,20 +7837,23 @@ class Handler(BaseHTTPRequestHandler):
         self._post_routen(daten)
 
     def _post_routen(self, daten):
-        """Der POST-Router; Riegel, Körper-Prüfung und WLAN-Tor liegen davor in do_POST."""
+        """Der POST-Router; Riegel, Körper-Prüfung und WLAN-Tor liegen davor in do_POST.
+        Verglichen wird der Pfad ohne Anfrageteil, wie im WLAN-Tor (Abnahme
+        25.09.2026): vorher lief POST /api/filme/merk?profil=… auf 404."""
+        pfad = urlparse(self.path).path
         try:
-            if self.path == "/api/remote":            # Befehl vom Handy an den PC-Player
+            if pfad == "/api/remote":            # Befehl vom Handy an den PC-Player
                 return _antwort(self, 200, remote_befehl(daten))
-            if self.path == "/api/vlc":               # Gerät „VLC": Befehl an den VLC-Motor
+            if pfad == "/api/vlc":               # Gerät „VLC": Befehl an den VLC-Motor
                 # Nachtprüfung 06.08.: play mit BELIEBIGER url (lokale Datei,
                 # LAN-Adresse) und das Fenster-Handle setzt nur der PC selbst
                 # (Prüfer _lan_vlc im WLAN-Tor).
                 return _antwort(self, 200, vlc_kommando(daten))
-            if self.path == "/api/wiedergabe":        # Grundeinstellungen: global/Playlist/Titel
+            if pfad == "/api/wiedergabe":        # Grundeinstellungen: global/Playlist/Titel
                 return _antwort(self, 200, wiedergabe_setzen(daten))
-            if self.path == "/api/addon_nachschub":   # Addon reicht Vorgemerktes nach (v1.2.0)
+            if pfad == "/api/addon_nachschub":   # Addon reicht Vorgemerktes nach (v1.2.0)
                 return _antwort(self, 200, addon_nachschub(daten))
-            if self.path == "/api/beenden":
+            if pfad == "/api/beenden":
                 # Sauberes Beenden aus der Suite (JB 14.07.2026: im Suite-Betrieb gibt es
                 # kein eigenes Tray mehr — Steuerung über SyncDashTray/Dashboard). Nur vom
                 # eigenen PC (bei aktiver Handy-Fernsteuerung lauscht der Server im WLAN;
@@ -7858,33 +7861,33 @@ class Handler(BaseHTTPRequestHandler):
                 Q.speichern()
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return _antwort(self, 200, {"ok": True})
-            if self.path == "/api/add":
+            if pfad == "/api/add":
                 self._add(daten)
-            elif self.path == "/api/action":
+            elif pfad == "/api/action":
                 self._action(daten)
-            elif self.path == "/api/config":
+            elif pfad == "/api/config":
                 # Grundeinstellungen (Zielordner!) schreibt nur der PC selbst (NUR_PC).
                 self._config(daten)
-            elif self.path == "/api/code_erneuern":   # Knopf „Code erneuern“ (7a Punkt 3, NUR_PC)
+            elif pfad == "/api/code_erneuern":   # Knopf „Code erneuern“ (7a Punkt 3, NUR_PC)
                 with _cfg_lock:
                     CFG["fernsteuerung_code"] = neuer_fernsteuerungs_code()
                     _cfg_speichern()
                 return _antwort(self, 200, fernsteuerung_info())
-            elif self.path == "/api/js_fehler":      # Fehler-Rekorder der Oberfläche
+            elif pfad == "/api/js_fehler":      # Fehler-Rekorder der Oberfläche
                 try:
-                    pfad = JS_FEHLER_LOG
+                    log_pfad = JS_FEHLER_LOG
                     # Deckel 200 KB: Ältestes fällt weg, nie ungebremst wachsen.
-                    if os.path.exists(pfad) and os.path.getsize(pfad) > 200_000:
-                        with open(pfad, encoding="utf-8", errors="replace") as f:
+                    if os.path.exists(log_pfad) and os.path.getsize(log_pfad) > 200_000:
+                        with open(log_pfad, encoding="utf-8", errors="replace") as f:
                             rest = f.readlines()[-200:]
                         # Fehler-Zwilling zum neuen yt_fehler-Kanal (07.09.2026):
                         # »die letzten 200 Zeilen« deckelt nicht, wenn EINE Zeile
                         # riesig ist. Deshalb zusaetzlich nach Bytes kuerzen.
                         while rest and sum(len(z.encode("utf-8")) for z in rest) > 150_000:
                             rest.pop(0)
-                        with open(pfad, "w", encoding="utf-8") as f:
+                        with open(log_pfad, "w", encoding="utf-8") as f:
                             f.writelines(rest)
-                    with open(pfad, "a", encoding="utf-8") as f:
+                    with open(log_pfad, "a", encoding="utf-8") as f:
                         f.write(json.dumps({"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
                                             "text": str(daten.get("text") or "")[:400],
                                             "quelle": str(daten.get("quelle") or "")[:80],
@@ -7895,51 +7898,51 @@ class Handler(BaseHTTPRequestHandler):
                 except OSError:
                     pass
                 return _antwort(self, 200, {"ok": True})
-            elif self.path == "/api/played":         # ein Titel wurde abgespielt
+            elif pfad == "/api/played":         # ein Titel wurde abgespielt
                 with _io_lock:
                     e = _geladen.get(daten.get("id") or "")
                     if e:
                         e["plays"] = int(e.get("plays", 0)) + 1
                         e["last_play"] = time.time()  # für „Zuletzt gespielt"
                         _geladen_speichern()
-            elif self.path == "/api/biblio":
+            elif pfad == "/api/biblio":
                 self._biblio(daten)
-            elif self.path == "/api/biblio_enrich":
+            elif pfad == "/api/biblio_enrich":
                 threading.Thread(target=biblio_enrich_alle, daemon=True).start()
-            elif self.path == "/api/umbenennen":      # Namens-Baukasten anwenden/zurück (Build 113), NUR_PC
+            elif pfad == "/api/umbenennen":      # Namens-Baukasten anwenden/zurück (Build 113), NUR_PC
                 if daten.get("art") == "undo":
                     _antwort(self, 200, migration_rueckgaengig())
                 else:
                     schema = [b for b in (daten.get("schema") or []) if b in NAME_BAUSTEINE] or None
                     _antwort(self, 200, migration_anwenden(go=bool(daten.get("go")), schema=schema,
                                                            keys=daten.get("keys") or None))
-            elif self.path == "/api/importieren":     # fremde Dateien im Ordner aufnehmen
+            elif pfad == "/api/importieren":     # fremde Dateien im Ordner aufnehmen
                 n = ordner_importieren()
                 return _antwort(self, 200, {"neu": n})
-            elif self.path == "/api/playlist":
+            elif pfad == "/api/playlist":
                 if daten.get("art") == "sync":
                     pl = next((p for p in _playlists if p.get("id") == daten.get("id")), None)
                     return _antwort(self, 200, playlist_sync(pl))
                 playlist_aktion(daten)
-            elif self.path == "/api/geo_wireguard":
+            elif pfad == "/api/geo_wireguard":
                 return _antwort(self, 200, self._geo_wireguard(daten))
-            elif self.path == "/api/geo_test":
+            elif pfad == "/api/geo_test":
                 return _antwort(self, 200, self._geo_test_start(daten))
-            elif self.path == "/api/playlist_import":
+            elif pfad == "/api/playlist_import":
                 return _antwort(self, 200, playlist_import_m3u(daten.get("name"), daten.get("m3u")))
-            elif self.path == "/api/link_deuten":      # Build 126: „ein Feld für alles"
+            elif pfad == "/api/link_deuten":      # Build 126: „ein Feld für alles"
                 return _antwort(self, 200, link_deuten(daten.get("url") or ""))
-            elif self.path == "/api/abo":
+            elif pfad == "/api/abo":
                 return _antwort(self, 200, abo_aktion(daten))
-            elif self.path == "/api/clip":
+            elif pfad == "/api/clip":
                 return _antwort(self, 200, clip_erstellen(daten))
-            elif self.path == "/api/clip_favorit":         # Build 144k: Favorit wählen (NUR_PC)
+            elif pfad == "/api/clip_favorit":         # Build 144k: Favorit wählen (NUR_PC)
                 return _antwort(self, 200, _clip_favorit_setzen(daten.get("id") or ""))
-            elif self.path == "/api/untertitel_laden":
+            elif pfad == "/api/untertitel_laden":
                 threading.Thread(target=untertitel_nachladen, args=(daten.get("id") or "",), daemon=True).start()
-            elif self.path == "/api/autotag":
+            elif pfad == "/api/autotag":
                 threading.Thread(target=autotag_lauf, args=(daten.get("keys"),), daemon=True).start()
-            elif self.path == "/api/filme/sync":       # manueller Katalog-Abzug
+            elif pfad == "/api/filme/sync":       # manueller Katalog-Abzug
                 # Unter DERSELBEN Sperre wie der 6-h-Ticker. Ohne sie liefen zwei
                 # Voll-Abzüge parallel gegen Renés Server — bei 4885 Titeln zehn
                 # 1000er-Seiten gleichzeitig — und beide endeten mit
@@ -7948,7 +7951,7 @@ class Handler(BaseHTTPRequestHandler):
                     return _antwort(self, 200, {"gestartet": False,
                                                 "hinweis": "Ein Abzug läuft bereits."})
                 return _antwort(self, 200, {"gestartet": True})
-            elif self.path == "/api/filme/play":       # Jellyfin-Strom in den LOKALEN VLC
+            elif pfad == "/api/filme/play":       # Jellyfin-Strom in den LOKALEN VLC
                 strom = filme.stream_url(daten.get("id") or "", druck=True)   # JBs Druck
                 if not strom:
                     return _antwort(self, 503, {"fehler": "Jellyfin nicht erreichbar "
@@ -7962,27 +7965,27 @@ class Handler(BaseHTTPRequestHandler):
                      # globale Sprach-Präferenz (Optionen → Wiedergabe-Standard);
                      # film:-Keys haben keine Titel-Ebene, global genügt.
                      "ton": (CFG.get("wiedergabe") or {}).get("ton")}))
-            elif self.path == "/api/filme/merk":       # 🎞 Film-Watchlist an/aus (je Profil)
+            elif pfad == "/api/filme/merk":       # 🎞 Film-Watchlist an/aus (je Profil)
                 return _antwort(self, 200, {"an": filme.merkliste_toggle(
                     daten.get("id") or "", self._geraet_profil())})
             # ---- Teilprojekt 3: Profile + Geräte ---------------------------
-            elif self.path == "/api/geraet_anmelden":  # Pairing Schritt 1 (frei)
+            elif pfad == "/api/geraet_anmelden":  # Pairing Schritt 1 (frei)
                 return _antwort(self, 200, profil_geraete.geraet_anmelden(
                     daten.get("name") or "") or {"fehler": "Anmeldung gerade nicht möglich"})
-            elif self.path == "/api/geraet_bestaetigen":   # NUR PC (Freigabe, NUR_PC)
+            elif pfad == "/api/geraet_bestaetigen":   # NUR PC (Freigabe, NUR_PC)
                 return _antwort(self, 200, {"ok": profil_geraete.geraet_bestaetigen(
                     daten.get("id") or "", daten.get("profil") or "standard")})
-            elif self.path == "/api/geraet_entfernen":     # NUR PC (Widerruf, NUR_PC)
+            elif pfad == "/api/geraet_entfernen":     # NUR PC (Widerruf, NUR_PC)
                 return _antwort(self, 200, {"ok": profil_geraete.geraet_entfernen(
                     daten.get("id") or "")})
-            elif self.path == "/api/profil_anlegen":
+            elif pfad == "/api/profil_anlegen":
                 p = profil_geraete.profil_anlegen(daten.get("name") or "",
                                                   daten.get("emoji") or "")
                 return _antwort(self, 200, p or {"fehler": "Name fehlt"})
-            elif self.path == "/api/filme/anfragen":   # Wunsch stellen (Teilprojekt 4)
+            elif pfad == "/api/filme/anfragen":   # Wunsch stellen (Teilprojekt 4)
                 return _antwort(self, 200, filme.seerr_anfragen(
                     daten.get("tmdb") or 0, daten.get("typ") or "film"))
-            elif self.path == "/api/live/play":        # Live-Kanal in den VLC
+            elif pfad == "/api/live/play":        # Live-Kanal in den VLC
                 # Nachtprüfung 06.08. (SSRF): die URL kommt NICHT vom Client,
                 # sondern wird über die Kanal-Liste nachgeschlagen — gespielt
                 # wird nur, was die kodinerds-Liste wirklich kennt.
@@ -7993,7 +7996,7 @@ class Handler(BaseHTTPRequestHandler):
                     {"cmd": "play", "url": gewuenscht,
                      "key": "live:" + (daten.get("name") or ""),
                      "vol": daten.get("vol"), "vollbild": True}))
-            elif self.path == "/api/filme/fortschritt":
+            elif pfad == "/api/filme/fortschritt":
                 # Vor dem Senden merken: ein wartender Hüllen-Rückfall für diesen
                 # Film schweigt dann (_film_stelle_melden, Nacharbeit Runde 3).
                 _seiten_meldung_merken(str(daten.get("id") or ""))
