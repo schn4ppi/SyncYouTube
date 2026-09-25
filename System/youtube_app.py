@@ -3552,11 +3552,13 @@ def _vorher_sichern(pfad, neuer_inhalt):
     daneben (endet nicht auf .conf, zählt also nicht als WireGuard-Land).
     Nie überschreiben: exklusiv angelegt, bei Kollision nummeriert. Gibt den
     Pfad der Sicherung zurück oder "" (nichts zu sichern); OSError geht an
-    den Aufrufer, der dann nicht überschreibt."""
+    den Aufrufer, der dann nicht überschreibt. Verglichen wird mit den Bytes,
+    die der Aufrufer schreibt (Textmodus, utf-8: jedes \\n wird os.linesep),
+    sonst gälte eine Datei mit \\r\\n nie als gleich."""
     if not os.path.isfile(pfad):
         return ""
-    with open(pfad, encoding="utf-8", errors="replace") as f:
-        if f.read() == neuer_inhalt:
+    with open(pfad, "rb") as f:
+        if f.read() == neuer_inhalt.replace("\n", os.linesep).encode("utf-8"):
             return ""
     stempel = time.strftime("%Y%m%d-%H%M%S")
     for n in range(1, 1000):

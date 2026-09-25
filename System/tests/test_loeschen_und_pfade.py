@@ -939,6 +939,22 @@ def test_wireguard_gleicher_inhalt_ohne_sicherung(tmp_path, monkeypatch):
     assert sorted(p.name for p in ordner.iterdir()) == ["GB.conf", "US.conf"]
 
 
+def test_wireguard_gleicher_inhalt_mit_crlf_ohne_sicherung(tmp_path, monkeypatch):
+    """Kommt die .conf mit Windows-Zeilenenden, legte jeder erneute Aufruf mit
+    demselben Inhalt eine überflüssige .bak an: geschrieben wird im Textmodus
+    (aus \\r\\n wird dabei \\r\\r\\n), verglichen wurde mit normalisierten
+    Zeilenenden. Die geschriebene Datei selbst bleibt, wie sie war."""
+    ordner = _wg(tmp_path, monkeypatch)
+    crlf = WG_NEU.replace("\n", "\r\n")
+    app.Handler._geo_wireguard(None, {"land": "GB", "content": crlf})
+    vorher = (ordner / "GB.conf").read_bytes()
+    app.Handler._geo_wireguard(None, {"land": "GB", "content": crlf})
+    assert sorted(p.name for p in ordner.iterdir()) == ["GB.conf"]
+    assert (ordner / "GB.conf").read_bytes() == vorher
+    app.Handler._geo_wireguard(None, {"land": "GB", "content": WG_ALT})  # anderer Inhalt: sichern
+    assert len([p for p in ordner.iterdir() if p.name.endswith(".bak")]) == 1
+
+
 def test_wireguard_zwei_sicherungen_ueberschreiben_sich_nicht(tmp_path, monkeypatch):
     ordner = _wg(tmp_path, monkeypatch)
     (ordner / "GB.conf").write_text(WG_ALT, encoding="utf-8")
