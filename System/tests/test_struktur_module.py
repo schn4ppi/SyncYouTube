@@ -115,6 +115,66 @@ def test_gegenprobe_nackter_verweis_wird_gefunden():
     assert nackte_verweise(quelle, {"_video_id": "links"}) == [(4, "_video_id")]
 
 
+def verdeckte_module(quelltext, module):
+    """(Zeile, Name, Funktion) jeder Stelle, an der eine Funktion einen der
+    Modulnamen lokal neu bindet: Parameter, Zuweisung (auch im Tupel), for,
+    with … as, except … as, fremder Import. Danach ist `links.X` in dieser
+    Funktion kein Aufruf ins Modul mehr, sondern scheitert erst zur Laufzeit;
+    ruff meldet nur den Gebrauch VOR der Zuweisung (F823). `import links` in
+    der Funktion bindet dasselbe Modul und zählt nicht."""
+    funde = {}
+    for f in ast.walk(ast.parse(quelltext)):
+        if not isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        gebunden = [(a.arg, a.lineno) for a in ast.walk(f.args) if isinstance(a, ast.arg)]
+        for k in ast.walk(f):
+            if isinstance(k, ast.Name) and isinstance(k.ctx, (ast.Store, ast.Del)):
+                gebunden.append((k.id, k.lineno))
+            elif isinstance(k, ast.ExceptHandler) and k.name:
+                gebunden.append((k.name, k.lineno))
+            elif isinstance(k, (ast.Import, ast.ImportFrom)):
+                for a in k.names:
+                    name = a.asname or a.name.split(".")[0]
+                    if not (isinstance(k, ast.Import) and a.name.split(".")[0] == name):
+                        gebunden.append((name, k.lineno))
+        for name, zeile in gebunden:
+            if name in module:                       # innerste Funktion gewinnt (walk geht von außen)
+                funde[(zeile, name)] = getattr(f, "name", "lambda")
+    return sorted((zeile, name, funktion) for (zeile, name), funktion in funde.items())
+
+
+def test_keine_funktion_der_app_verdeckt_ein_ausgelagertes_modul():
+    """Nacharbeit Y2: `links, rechts = rest.split(sep, 1)` in _name_teile
+    verdeckte das Modul links. Heute harmlos, ein späteres `links.X` dort
+    schlüge aber erst zur Laufzeit an einem str fehl."""
+    with open(app.__file__, encoding="utf-8") as f:
+        funde = verdeckte_module(f.read(), set(AUSGELAGERT))
+    assert not funde, f"Funktionen der App verdecken ein ausgelagertes Modul: {funde}"
+
+
+def test_gegenprobe_verdecktes_modul_wird_gefunden():
+    quelle = ("import links\n"
+              "def a(links):\n"
+              "    pass\n"
+              "def b(rest):\n"
+              "    links, rechts = rest.split(' - ', 1)\n"
+              "    for musik_einstufung in rest:\n"
+              "        pass\n"
+              "    try:\n"
+              "        pass\n"
+              "    except OSError as links:\n"
+              "        pass\n"
+              "    with open(rest) as links:\n"
+              "        pass\n"
+              "    import links\n"
+              "    import os as links\n"
+              "    f = lambda musik_einstufung: musik_einstufung\n"
+              "    return links.link_deuten(rest), f\n")
+    assert verdeckte_module(quelle, {"links", "musik_einstufung"}) == [
+        (2, "links", "a"), (5, "links", "b"), (6, "musik_einstufung", "b"), (10, "links", "b"),
+        (12, "links", "b"), (15, "links", "b"), (16, "musik_einstufung", "lambda")]
+
+
 def _mock_ersatz(k, aliase, patch_namen):
     """(Zeile, Name) für einen unittest.mock-Aufruf an youtube_app:
     `patch("youtube_app.X")`, `patch.object(app, "X")` und

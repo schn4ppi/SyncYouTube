@@ -5153,8 +5153,8 @@ def _name_teile(e, pfad=""):
     if not (kuenstler and titel):                     # kein Auto-Tag: aus dem Titel spalten
         for sep in (" - ", " – ", " — "):
             if sep in rest:
-                links, rechts = rest.split(sep, 1)
-                kuenstler = kuenstler or links.strip()
+                links_teil, rechts = rest.split(sep, 1)     # nicht `links`: das ist das Modul
+                kuenstler = kuenstler or links_teil.strip()
                 titel = titel or rechts.strip()
                 break
     nr = e.get("track_nr")
