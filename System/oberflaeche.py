@@ -3310,8 +3310,10 @@ function reihe(it){
   if(it.status==='wartend'){k.push(['pause','⏸ Pause'],['hoch','⏫ Hoch']);
     if(it.naechster_versuch>jetzt)k.push(['sofort','⚡ Sofort']);}
   if(it.status==='pausiert'||it.status==='fehler')k.push(['weiter','▶ Weiter']);
-  if(it.status==='uebersprungen')k.push(['weiter','▶ Trotzdem']);
-  if(fertigartig)k.push(['ordner','📂 Ordner']);
+  // „Trotzdem“ ersetzt die vorhandene Datei, „Ordner“ öffnet den Explorer am
+  // PC: beides nur am PC (der Server lehnt es aus dem WLAN ab).
+  if(it.status==='uebersprungen'&&!NUR_FERN)k.push(['weiter','▶ Trotzdem']);
+  if(fertigartig&&!NUR_FERN)k.push(['ordner','📂 Ordner']);
   k.push(['entfernen','✖ Entfernen']);               // geht auch bei Laufenden: bricht ab + nimmt raus
   let knoepfe=k.map(([a,t])=>`<button class="btn mini" onclick="event.stopPropagation();aktion('${it.id}','${a}')">${t}</button>`).join('');
   if(fertigartig)knoepfe=`<button class="btn mini" onclick="event.stopPropagation();fertigPlay('${it.id}')" title="Im Player abspielen">▶ Abspielen</button>`+knoepfe;

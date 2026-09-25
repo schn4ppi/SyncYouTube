@@ -416,3 +416,24 @@ def test_direkte_nur_pc_knoepfe_tragen_die_klasse(tmp_path):
     leiste.feed(e["html"])
     assert "nur-pc" in leiste.gefunden.get("clipDialog(aktKey())", []), leiste.gefunden.get("clipDialog(aktKey())")
     assert "nur-pc" not in leiste.gefunden.get("subMenu(event)", ["fehlt"])
+
+
+def test_download_zeile_ohne_trotzdem_und_ordner_im_wlan(tmp_path):
+    """„▶ Trotzdem“ ersetzt eine vorhandene Datei, „📂 Ordner“ öffnet den
+    Explorer am PC: beides lehnt der Server aus dem WLAN ab (Abnahme
+    25.09.2026). Auf einem Gerät im WLAN stehen die Knöpfe darum nicht in der
+    aufgeklappten Download-Zeile; Weiter, Pause und Entfernen bleiben."""
+    q = _pc()
+    teile = [_js_zeile(q, "let NUR_FERN"),
+             "let daten={jetzt:0}; const offeneQueue=new Set(['u1','f1']);",
+             "function esc(t){return String(t==null?'':t);} function balkenAscii(){return '';}"
+             " function mb(){return '';} function zeit(){return '';} function tempo(){return '';}",
+             _js_funktion(q, "kurzfehler"), _js_funktion(q, "reihe"),
+             "const u={id:'u1',status:'uebersprungen',titel:'T',qualitaet:'beste',datei:'x.mp4',gesamt:1};",
+             "const f={id:'f1',status:'fehler',titel:'T',qualitaet:'beste',fehler:'x'};",
+             "aus({u:reihe(u), f:reihe(f)}); NUR_FERN=true; aus({u:reihe(u), f:reihe(f)});"]
+    (pc, fern) = _lauf(tmp_path, *teile)
+    assert "Trotzdem" in pc["u"] and "'ordner'" in pc["u"], pc["u"]
+    assert "Trotzdem" not in fern["u"] and "'ordner'" not in fern["u"], fern["u"]
+    assert "'entfernen'" in fern["u"] and "Abspielen" in fern["u"]
+    assert "'weiter'" in fern["f"], "Weiter nach einem Fehler bleibt im WLAN"

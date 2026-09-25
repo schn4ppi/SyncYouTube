@@ -6965,8 +6965,18 @@ def _lan_biblio(daten):
 
 
 def _lan_action(daten):
-    if daten.get("art") in ("ordner_offen", "ordner"):
+    art = daten.get("art")
+    if art in ("ordner_offen", "ordner"):
         return "Nur am PC: den Explorer öffnen."
+    # „Trotzdem laden“ auf einem übersprungenen Eintrag lädt mit erzwingen, und
+    # yt-dlp ersetzt die vorhandene Datei ohne Papierkorb (Abnahme 25.09.2026):
+    # das ist Dateien löschen im Sinne von 7a Punkt 2, bis JB anders entscheidet.
+    if art == "weiter":
+        with Q.lock:
+            it = Q.finde(str(daten.get("id") or ""))
+            ersetzt = bool(it and it.get("status") == "uebersprungen")
+        if ersetzt:
+            return "Nur am PC: „Trotzdem laden“ ersetzt die vorhandene Datei."
     return None
 
 

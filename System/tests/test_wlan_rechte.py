@@ -825,3 +825,39 @@ def test_wlan_darf_einen_verschobenen_titel_neu_laden(monkeypatch, geroutet):
     _fernsteuerung(monkeypatch)
     st, _, _ = _senden("POST", "/api/biblio", {"art": "neuladen", "id": "abc"}, kopf={"X-Code": CODE})
     assert st == 200 and geroutet == [("POST", "/api/biblio")]
+
+
+# „Trotzdem laden“ (Abnahme 25.09.2026): ein übersprungener Eintrag wird mit
+# erzwingen neu geladen, yt-dlp ersetzt die vorhandene Datei (overwrites) ohne
+# Papierkorb. Das ist Dateien löschen im Sinne von 7a Punkt 2 und geht bis zu
+# JBs Antwort nur am PC; Weiter nach Pause oder Fehler bleibt im WLAN erlaubt.
+
+def _eintrag(status):
+    it = app.Q.neu("https://www.youtube.com/watch?v=abcdefghijk", "Titel", "beste")
+    with app.Q.lock:
+        it["status"] = status
+    return it
+
+
+@pytest.fixture
+def ohne_download(monkeypatch):
+    """Ein Eintrag auf „wartend“ lädt nie wirklich (falls ein Worker läuft)."""
+    monkeypatch.setattr(app, "herunterladen", lambda item: None)
+
+
+def test_trotzdem_laden_ersetzt_die_datei_nur_am_pc(monkeypatch, ohne_download):
+    _fernsteuerung(monkeypatch)
+    it = _eintrag("uebersprungen")
+    st, _, koerper = _senden("POST", "/api/action", {"art": "weiter", "id": it["id"]}, kopf={"X-Code": CODE})
+    assert st == 403 and json.loads(koerper).get("nur_pc") is True, koerper[:120]
+    assert it["status"] == "uebersprungen" and not it.get("erzwingen"), it
+    st, _, _ = _senden("POST", "/api/action", {"art": "weiter", "id": it["id"]}, ip="127.0.0.1")
+    assert st == 200 and it.get("erzwingen") is True and it["status"] == "wartend", "vom PC wie bisher"
+
+
+@pytest.mark.parametrize("status", ["pausiert", "fehler"])
+def test_weiter_nach_pause_oder_fehler_geht_aus_dem_wlan(monkeypatch, ohne_download, status):
+    _fernsteuerung(monkeypatch)
+    it = _eintrag(status)
+    st, _, _ = _senden("POST", "/api/action", {"art": "weiter", "id": it["id"]}, kopf={"X-Code": CODE})
+    assert st == 200 and it["status"] == "wartend" and not it.get("erzwingen"), it
