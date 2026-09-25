@@ -364,6 +364,41 @@ _io_lock = threading.RLock()
 _cfg_lock = threading.RLock()
 
 
+class _LaeuftSchon:
+    """„Läuft schon“-Merker, der Prüfen und Setzen in EINEM Schritt macht
+    (Gesamtprüfung, Doppelungen App-Kern). Vorher standen sechs Merker ohne
+    Sperre da: `if x_laeuft: return` und `x_laeuft = True` waren zwei Schritte,
+    und zwei Anstöße im selben Augenblick liefen beide los."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.laeuft = False
+
+    def starten(self):
+        """True: dieser Aufrufer darf laufen (und MUSS danach `fertig()` rufen)."""
+        with self._lock:
+            if self.laeuft:
+                return False
+            self.laeuft = True
+            return True
+
+    def fertig(self):
+        with self._lock:
+            self.laeuft = False
+
+
+def _zustand_starten(zustand, lock, **felder):
+    """Dasselbe für ein Zustands-Dict, das die Oberfläche liest (`_geo_test`):
+    Prüfen und Setzen von zustand["laeuft"] unter `lock`. `autotag_lauf` macht
+    es mit eigener Sperre, weil es dabei Nachzuholendes merkt (F8)."""
+    with lock:
+        if zustand.get("laeuft"):
+            return False
+        zustand.update(felder)
+        zustand["laeuft"] = True
+        return True
+
+
 def _json_laden(pfad, fallback):
     try:
         with open(pfad, encoding="utf-8") as f:
@@ -2409,118 +2444,141 @@ def cover_aus_datei(key):
 
 
 _autotag = {"laeuft": False, "gesamt": 0, "erledigt": 0, "getaggt": 0}
+_autotag_lock = threading.Lock()
+# Was während eines Laufs angefragt wird (Gesamtprüfung F8): vorher verwarf
+# autotag_lauf den Auftrag still, ein Download, der während des Taggens fertig
+# wurde, blieb ungetaggt. Jetzt arbeitet der laufende Lauf das am Ende ab.
+_autotag_nachholen = {"keys": set(), "voll": False}
 
 
 def autotag_lauf(keys=None):
     """Auto-Tagging im Hintergrund: Kandidat raten -> MusicBrainz -> DB-Felder
-    (kuenstler/album/track/jahr) + Tags in die MP3. Ohne keys: alle Musik ohne Album."""
-    if _autotag["laeuft"]:
-        return
-    _autotag.update({"laeuft": True, "gesamt": 0, "erledigt": 0, "getaggt": 0})
+    (kuenstler/album/track/jahr) + Tags in die MP3. Ohne keys: alle Musik ohne Album.
+    Läuft schon einer, merkt er sich den Auftrag und holt ihn am Ende nach (F8)."""
+    with _autotag_lock:
+        if _autotag.get("laeuft"):
+            if keys is None:
+                _autotag_nachholen["voll"] = True
+            else:
+                _autotag_nachholen["keys"].update(keys)
+            return
+        _autotag.update({"laeuft": True, "gesamt": 0, "erledigt": 0, "getaggt": 0})
     try:
-        # Ohne keys zwei Gruppen: (1) Musik ohne Album -> volle MB-Suche;
-        # (2) schon Getaggtes mit gespeicherten MB-Ids, dem nur das Cover
-        # fehlt -> NUR Cover nachziehen, ohne neue MB-Suche und ohne die
-        # Tags anzufassen (CAA drosselt Serien — live gemessen 0/35; so
-        # heilt sich der Rückstand bei jedem späteren Lauf von selbst).
-        alle = list(keys) if keys else [k for k, e in _geladen_schnappschuss()
-                                        if _ist_musik(e) and not e.get("album")]
-        # Auch Videos (JB 05.08.: „Videos können Lieder sein") — ihr Cover
-        # landet als Sidecar; cover_album=True stoppt Wiederholungen.
-        nur_cover = [] if keys else [k for k, e in _geladen_schnappschuss()
-                                     if e.get("album") and not e.get("cover_album")
-                                     and (e.get("mb_release") or e.get("mb_rg")
-                                          or e.get("cover_url"))
-                                     and k not in alle]
-        _autotag["gesamt"] = len(alle) + len(nur_cover)
-        for k in nur_cover:
-            e = _geladen.get(k)
-            _autotag["erledigt"] += 1
-            if not e or e.get("cover_album"):
-                continue
-            bild = _cover_holen(e.get("mb_release", ""), e.get("mb_rg", ""))
-            if not bild:
-                bild = _bild_laden(e.get("cover_url") or "")
-            if bild:
-                _cover_in_datei(k, e, bild)
-                if e.get("cover_album"):             # ehrlich: nur EINGEBETTETE zählen
-                    _autotag["getaggt"] += 1
-            time.sleep(2)                            # CAA-Takt (Serien-Drossel)
-        for k in alle:
-            e = _geladen.get(k)
-            _autotag["erledigt"] += 1
-            if not e:
-                continue
-            ku, ti = _tag_kandidat(e)
-            # Live-Hinweis IMMER aus dem ORIGINAL-Dateititel (Relauf-Falle,
-            # live gemessen: der Kandidat kommt aus den schon getaggten
-            # Feldern — „(Live On MTV Unplugged)" war da längst abgestreift,
-            # und die Live-Regel kam nie zum Zug).
-            live = _ist_live_titel(e.get("titel") or "") or _ist_live_titel(ti)
-            fund = _mb_suche(ku, ti, live_hinweis=live)
-            time.sleep(1.5)                          # MusicBrainz-Regel: max 1 Anfrage/Sekunde (+Puffer)
-            if not fund:
-                # Build 136: zweiter Versuch ohne Klammer-Zusätze — die sind
-                # der häufigste Grund, warum ein Titel nicht gefunden wird.
-                blank = _titel_kern(ti)
-                if blank != ti:
-                    fund = _mb_suche(ku, blank, live_hinweis=live)
-                    time.sleep(1.5)
-            # iTunes-Rückfall (JB 05.08., „viele Lieder ohne richtige Cover/
-            # Titel"): MusicBrainz fand nichts oder kein Album — die offene
-            # iTunes-Suche ergänzt NUR leere Felder (nichts überschreiben).
-            if not fund or not fund.get("album"):
-                it = _itunes_suche(ku, _titel_kern(ti))
-                if not it:
-                    # Vertauschte Reihenfolge probieren („Mr. Sandman - The
-                    # Chordettes": der Kandidat riet Künstler und Titel
-                    # falsch herum). Der strenge Titel+Künstler-Abgleich
-                    # macht das SICHER — nur die richtige Reihenfolge trifft.
-                    it = _itunes_suche(_titel_kern(ti), ku)
-                    if it:                            # Fund in Wahrheit vertauscht
-                        ku, ti = _titel_kern(ti), ku
-                if it:
-                    if not fund:
-                        fund = it
-                    else:
-                        for feld in ("album", "jahr", "genre"):
-                            if not fund.get(feld) and it.get(feld):
-                                fund[feld] = it[feld]
-                        fund["cover_url"] = it.get("cover_url", "")
-            if not fund:
-                continue
-            with _io_lock:
-                e["kuenstler"] = fund["kuenstler"] or ku
-                e["album"] = fund["album"]
-                e["track"] = fund["titel"] or ti
-                if fund.get("jahr"):
-                    e["jahr"] = fund["jahr"]
-                if fund.get("genre"):                 # Etappe A: nur Belegtes
-                    e["genre"] = fund["genre"]
-                # MB-Ids merken: der Cover-Nachzug (oben) braucht sie, um
-                # ohne neue MusicBrainz-Suche ans Bild zu kommen.
-                if fund.get("release_id"):
-                    e["mb_release"] = fund["release_id"]
-                if fund.get("rg_id"):
-                    e["mb_rg"] = fund["rg_id"]
-                if fund.get("cover_url"):             # iTunes-Artwork für den Nachzug
-                    e["cover_url"] = fund["cover_url"]
-                _geladen_speichern()
-            _autotag["getaggt"] += 1
-            _tags_in_datei(k, e)
-            # Etappe A: echtes Album-Cover (MP3: eingebettet, Video: Sidecar —
-            # JB 05.08.: Dateiart ist kein Ausschluss). Kette: Cover Art
-            # Archive, dann iTunes-Artwork; kein Bild ist kein Fehler.
-            if not e.get("cover_album"):
-                bild = None
-                if fund.get("release_id") or fund.get("rg_id"):
-                    bild = _cover_holen(fund.get("release_id", ""), fund.get("rg_id", ""))
+        while True:                                  # ein Durchgang je Auftrag, Nachgeholtes danach
+            # Ohne keys zwei Gruppen: (1) Musik ohne Album -> volle MB-Suche;
+            # (2) schon Getaggtes mit gespeicherten MB-Ids, dem nur das Cover
+            # fehlt -> NUR Cover nachziehen, ohne neue MB-Suche und ohne die
+            # Tags anzufassen (CAA drosselt Serien — live gemessen 0/35; so
+            # heilt sich der Rückstand bei jedem späteren Lauf von selbst).
+            alle = list(keys) if keys else [k for k, e in _geladen_schnappschuss()
+                                            if _ist_musik(e) and not e.get("album")]
+            # Auch Videos (JB 05.08.: „Videos können Lieder sein") — ihr Cover
+            # landet als Sidecar; cover_album=True stoppt Wiederholungen.
+            nur_cover = [] if keys else [k for k, e in _geladen_schnappschuss()
+                                         if e.get("album") and not e.get("cover_album")
+                                         and (e.get("mb_release") or e.get("mb_rg")
+                                              or e.get("cover_url"))
+                                         and k not in alle]
+            _autotag["gesamt"] += len(alle) + len(nur_cover)   # Nachhol-Durchgänge zählen dazu
+            for k in nur_cover:
+                e = _geladen.get(k)
+                _autotag["erledigt"] += 1
+                if not e or e.get("cover_album"):
+                    continue
+                bild = _cover_holen(e.get("mb_release", ""), e.get("mb_rg", ""))
                 if not bild:
-                    bild = _bild_laden(fund.get("cover_url") or e.get("cover_url") or "")
+                    bild = _bild_laden(e.get("cover_url") or "")
                 if bild:
                     _cover_in_datei(k, e, bild)
+                    if e.get("cover_album"):             # ehrlich: nur EINGEBETTETE zählen
+                        _autotag["getaggt"] += 1
+                time.sleep(2)                            # CAA-Takt (Serien-Drossel)
+            for k in alle:
+                e = _geladen.get(k)
+                _autotag["erledigt"] += 1
+                if not e:
+                    continue
+                ku, ti = _tag_kandidat(e)
+                # Live-Hinweis IMMER aus dem ORIGINAL-Dateititel (Relauf-Falle,
+                # live gemessen: der Kandidat kommt aus den schon getaggten
+                # Feldern — „(Live On MTV Unplugged)" war da längst abgestreift,
+                # und die Live-Regel kam nie zum Zug).
+                live = _ist_live_titel(e.get("titel") or "") or _ist_live_titel(ti)
+                fund = _mb_suche(ku, ti, live_hinweis=live)
+                time.sleep(1.5)                          # MusicBrainz-Regel: max 1 Anfrage/Sekunde (+Puffer)
+                if not fund:
+                    # Build 136: zweiter Versuch ohne Klammer-Zusätze — die sind
+                    # der häufigste Grund, warum ein Titel nicht gefunden wird.
+                    blank = _titel_kern(ti)
+                    if blank != ti:
+                        fund = _mb_suche(ku, blank, live_hinweis=live)
+                        time.sleep(1.5)
+                # iTunes-Rückfall (JB 05.08., „viele Lieder ohne richtige Cover/
+                # Titel"): MusicBrainz fand nichts oder kein Album — die offene
+                # iTunes-Suche ergänzt NUR leere Felder (nichts überschreiben).
+                if not fund or not fund.get("album"):
+                    it = _itunes_suche(ku, _titel_kern(ti))
+                    if not it:
+                        # Vertauschte Reihenfolge probieren („Mr. Sandman - The
+                        # Chordettes": der Kandidat riet Künstler und Titel
+                        # falsch herum). Der strenge Titel+Künstler-Abgleich
+                        # macht das SICHER — nur die richtige Reihenfolge trifft.
+                        it = _itunes_suche(_titel_kern(ti), ku)
+                        if it:                            # Fund in Wahrheit vertauscht
+                            ku, ti = _titel_kern(ti), ku
+                    if it:
+                        if not fund:
+                            fund = it
+                        else:
+                            for feld in ("album", "jahr", "genre"):
+                                if not fund.get(feld) and it.get(feld):
+                                    fund[feld] = it[feld]
+                            fund["cover_url"] = it.get("cover_url", "")
+                if not fund:
+                    continue
+                with _io_lock:
+                    e["kuenstler"] = fund["kuenstler"] or ku
+                    e["album"] = fund["album"]
+                    e["track"] = fund["titel"] or ti
+                    if fund.get("jahr"):
+                        e["jahr"] = fund["jahr"]
+                    if fund.get("genre"):                 # Etappe A: nur Belegtes
+                        e["genre"] = fund["genre"]
+                    # MB-Ids merken: der Cover-Nachzug (oben) braucht sie, um
+                    # ohne neue MusicBrainz-Suche ans Bild zu kommen.
+                    if fund.get("release_id"):
+                        e["mb_release"] = fund["release_id"]
+                    if fund.get("rg_id"):
+                        e["mb_rg"] = fund["rg_id"]
+                    if fund.get("cover_url"):             # iTunes-Artwork für den Nachzug
+                        e["cover_url"] = fund["cover_url"]
+                    _geladen_speichern()
+                _autotag["getaggt"] += 1
+                _tags_in_datei(k, e)
+                # Etappe A: echtes Album-Cover (MP3: eingebettet, Video: Sidecar —
+                # JB 05.08.: Dateiart ist kein Ausschluss). Kette: Cover Art
+                # Archive, dann iTunes-Artwork; kein Bild ist kein Fehler.
+                if not e.get("cover_album"):
+                    bild = None
+                    if fund.get("release_id") or fund.get("rg_id"):
+                        bild = _cover_holen(fund.get("release_id", ""), fund.get("rg_id", ""))
+                    if not bild:
+                        bild = _bild_laden(fund.get("cover_url") or e.get("cover_url") or "")
+                    if bild:
+                        _cover_in_datei(k, e, bild)
+            with _autotag_lock:
+                if _autotag_nachholen["keys"]:
+                    keys = sorted(_autotag_nachholen["keys"])
+                    _autotag_nachholen["keys"].clear()
+                elif _autotag_nachholen["voll"]:
+                    keys = None
+                    _autotag_nachholen["voll"] = False
+                else:
+                    _autotag["laeuft"] = False       # im selben Schritt wie die letzte Prüfung
+                    return
     finally:
-        _autotag["laeuft"] = False
+        with _autotag_lock:
+            _autotag["laeuft"] = False
 
 
 def _untertitel_sprachen():
@@ -5085,10 +5143,10 @@ def _enrich_eintrag(key, e):
     return True
 
 
-_technik_laeuft = False
+_technik_lauf = _LaeuftSchon()
 
 
-_metadaten_laeuft = False
+_metadaten_lauf = _LaeuftSchon()
 
 
 def _hat_metadaten(pfad, ffprobe):
@@ -5111,11 +5169,9 @@ def metadaten_backfill():
     geladen-DB (yt-dlp-Titel/Uploader/Datum). Non-destruktiv: ffmpeg
     `-c copy` bewahrt Audio UND Cover, geschrieben wird atomar (tmp + replace);
     Dateien, die schon einen Titel-Tag haben, bleiben unberührt."""
-    global _metadaten_laeuft
     ffmpeg = _ffmpeg_exe()
-    if _metadaten_laeuft or not ffmpeg:
+    if not ffmpeg or not _metadaten_lauf.starten():
         return 0
-    _metadaten_laeuft = True
     ffprobe = os.path.join(BIN_DIR, "ffprobe.exe")
     geheilt = 0
     try:
@@ -5158,7 +5214,7 @@ def metadaten_backfill():
         if geheilt:
             _sag(f"Metadaten nachgetragen: {geheilt} Alt-Datei(en) haben jetzt Titel/Künstler")
     finally:
-        _metadaten_laeuft = False
+        _metadaten_lauf.fertig()
     return geheilt
 
 
@@ -5169,10 +5225,8 @@ def technik_backfill():
     die es noch nicht haben (ffprobe bzw. 2 schnelle Reads, lokal, offline).
     Läuft einmal im Hintergrund beim Start; danach trägt jeder Eintrag sein fp
     dauerhaft (Bibliothek 2.0: Wiedererkennen ohne [Id] im Namen)."""
-    global _technik_laeuft
-    if _technik_laeuft:
+    if not _technik_lauf.starten():
         return
-    _technik_laeuft = True
     try:
         idx = _datei_index()
         geaendert = False
@@ -5212,7 +5266,7 @@ def technik_backfill():
         if geaendert:
             _geladen_speichern()
     finally:
-        _technik_laeuft = False
+        _technik_lauf.fertig()
 
 
 # ---- Namens-Baukasten (Build 113, JB: „die Art der Beschreibung wählen und
@@ -5487,7 +5541,7 @@ def migration_rueckgaengig():
 SONSTIGES = "Sonstiges"
 AUDIO_EXT = (".mp3", ".m4a", ".opus", ".ogg", ".flac", ".wav", ".aac")
 VIDEO_EXT = (".mp4", ".mkv", ".webm", ".mov", ".avi")
-_einsortier_laeuft = False
+_einsortier_lauf = _LaeuftSchon()
 
 
 def _soll_kategorie(pfad, karten=None):
@@ -5513,10 +5567,8 @@ def downloads_einsortieren():
     Nicht-destruktiv: nie überschreiben (nummerierter Name), .part/.vtt/Bilder
     und frisch geänderte Dateien (<60 s, evtl. noch in Arbeit) bleiben liegen,
     Playlist-Sync-Ziele im Downloads-Ordner sind tabu (Spiegel-Kopien)."""
-    global _einsortier_laeuft
-    if _einsortier_laeuft or not CFG.get("unterordner", True):
+    if not CFG.get("unterordner", True) or not _einsortier_lauf.starten():
         return 0
-    _einsortier_laeuft = True
     bewegt = 0
     try:
         basis = os.path.abspath(ziel_ordner())
@@ -5559,7 +5611,7 @@ def downloads_einsortieren():
             _geladen_speichern()
             _sag(f"Downloads einsortiert: {bewegt} Datei(en) an den richtigen Platz bewegt")
     finally:
-        _einsortier_laeuft = False
+        _einsortier_lauf.fertig()
     return bewegt
 
 
@@ -5767,15 +5819,13 @@ def _einsortieren_hintergrund():
         time.sleep(6 * 3600)
 
 
-_enrich_laeuft = False
+_enrich_lauf = _LaeuftSchon()
 
 
 def biblio_enrich_alle():
     """Alle Einträge ohne Kanal-Info nachreichern (Hintergrund, sanft gedrosselt)."""
-    global _enrich_laeuft
-    if _enrich_laeuft:
+    if not _enrich_lauf.starten():
         return
-    _enrich_laeuft = True
     try:
         for k in [k for k, e in _geladen_schnappschuss() if not e.get("uploader")]:
             if youtube_gesperrt():                    # F4: Sperre -> Pause, der nächste Lauf holt nach
@@ -5785,7 +5835,7 @@ def biblio_enrich_alle():
                 _geladen_speichern()
             time.sleep(0.4)
     finally:
-        _enrich_laeuft = False
+        _enrich_lauf.fertig()
 
 
 def _enrich_keys(keys):
@@ -6008,6 +6058,7 @@ def _geo_download(item, erzwingen):
 # ---- Geo-Test (Assistent): probiert die Kette und meldet je Methode Zugang ja/nein
 
 _geo_test = {"laeuft": False, "stand": 0.0, "url": "", "titel": "", "info": "", "ergebnisse": []}
+_geo_test_lock = threading.Lock()
 
 
 def geo_test_lauf(url, titel, laender):
@@ -7557,7 +7608,7 @@ class Handler(BaseHTTPRequestHandler):
     def _geo_test_start(self, daten):
         """Geo-Test starten: probiert die Kette an einem geo-gesperrten Video und
         meldet je Methode Zugang ja/nein (Ergebnisse via /api/geo_status)."""
-        if _geo_test["laeuft"]:
+        if _geo_test.get("laeuft"):
             return {"ok": True, "laeuft": True}
         url = daten.get("url")
         laender = daten.get("laender")
@@ -7569,6 +7620,11 @@ class Handler(BaseHTTPRequestHandler):
         if not url:
             return {"fehler": "Kein geo-gesperrtes Video zum Testen. Füge eins hinzu, "
                               "das in deinem Land blockiert ist, und starte den Test erneut."}
+        # Prüfen und Setzen in EINEM Schritt, bevor der Faden startet: vorher
+        # setzte erst der Faden den Merker, zwei schnelle Klicks starteten zwei Tests.
+        if not _zustand_starten(_geo_test, _geo_test_lock, stand=time.time(), url=url, titel=titel,
+                                info="", ergebnisse=[]):
+            return {"ok": True, "laeuft": True}
         threading.Thread(target=geo_test_lauf, args=(url, titel, laender or []), daemon=True).start()
         return {"ok": True, "laeuft": True}
 

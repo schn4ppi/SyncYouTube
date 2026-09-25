@@ -736,5 +736,151 @@ def test_explorer_start_haelt_weder_worker_noch_bibliothek_auf(tmp_path, monkeyp
         faden.join(20)
 
 
+# ---------------------------------------------------------------- F8: Auto-Tag holt nach
+
+def _musik(*titel):
+    keys = []
+    for i, t in enumerate(titel):
+        k = f"musik{i:06d}|audio"
+        app._geladen[k] = {"titel": t, "kategorie": "MP3", "name": f"{t}.mp3", "pfad": ""}
+        keys.append(k)
+    return keys
+
+
+def _musicbrainz_mit_tor(monkeypatch):
+    """Statt MusicBrainz: jede Suche wird notiert und wartet am Tor `frei`."""
+    gesucht, frei, erste = [], threading.Event(), threading.Event()
+
+    def mb_suche(ku, ti, timeout=10, live_hinweis=None):
+        gesucht.append(ti)
+        erste.set()
+        frei.wait(20)
+        return None
+    monkeypatch.setattr(app, "_mb_suche", mb_suche)
+    monkeypatch.setattr(app, "_itunes_suche", lambda *a, **k: None)
+    monkeypatch.setattr(app, "_tag_kandidat", lambda e: ("Kanal", e.get("titel", "")))
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)
+    return gesucht, frei, erste
+
+
+def test_autotag_holt_titel_nach_die_waehrend_eines_laufs_fertig_werden(monkeypatch):
+    """Vorher verwarf autotag_lauf den Auftrag still, wenn schon ein Lauf lief:
+    ein zweiter Download, der während des Taggens fertig wurde, blieb ungetaggt
+    (nachgeholt nur über den Voll-Lauf-Knopf)."""
+    eins, zwei = _musik("Erstes Lied", "Zweites Lied")
+    gesucht, frei, erste = _musicbrainz_mit_tor(monkeypatch)
+    lauf = _im_faden(app.autotag_lauf, [eins])
+    try:
+        assert erste.wait(10)
+        app.autotag_lauf([zwei])                     # der zweite Download ist fertig
+    finally:
+        frei.set()
+        lauf.join(20)
+    assert _warten(lambda: not app._autotag["laeuft"])
+    assert "Zweites Lied" in gesucht, f"der zweite Titel wurde nie getaggt: {gesucht}"
+
+
+def test_autotag_holt_auch_einen_angefragten_voll_lauf_nach(monkeypatch):
+    eins, zwei = _musik("Erstes Lied", "Zweites Lied")
+    gesucht, frei, erste = _musicbrainz_mit_tor(monkeypatch)
+    lauf = _im_faden(app.autotag_lauf, [eins])
+    try:
+        assert erste.wait(10)
+        app.autotag_lauf()                           # JB drückt „alle taggen“
+    finally:
+        frei.set()
+        lauf.join(20)
+    assert _warten(lambda: not app._autotag["laeuft"])
+    assert "Zweites Lied" in gesucht, f"der Voll-Lauf ging verloren: {gesucht}"
+
+
+# ---------------------------------------------------------------- Läuft-schon-Merker
+
+def _unguenstigste_verzahnung(n):
+    """threading.settrace-Spur: jeder Faden hält an der Zeile an, die einen
+    Merker „laeuft“ auf True setzt, bis alle n dort sind (höchstens 0,5 s).
+    So läuft jedes Mal die Verzahnung, in der alle zwischen Prüfen und Setzen
+    stehen; ein Merker unter Sperre lässt dort nur einen hin."""
+    import linecache
+    schranke = threading.Barrier(n, timeout=0.5)
+    datei = app.__file__
+
+    def spur(frame, ereignis, arg):
+        if ereignis == "call":
+            return spur if frame.f_code.co_filename == datei else None
+        if ereignis == "line":
+            zeile = linecache.getline(datei, frame.f_lineno)
+            if "laeuft" in zeile and "True" in zeile and not zeile.lstrip().startswith(("#", "return")):
+                try:
+                    schranke.wait()
+                except threading.BrokenBarrierError:
+                    pass
+        return spur
+    return spur
+
+
+def _zaehlt_und_wartet(zaehler, frei, ergebnis=None):
+    def arbeit(*a, **k):
+        zaehler.append(1)
+        frei.wait(20)
+        return ergebnis
+    return arbeit
+
+
+def _lauf_vorbereiten(art, monkeypatch, tmp_path, zaehler, frei):
+    arbeit = _zaehlt_und_wartet(zaehler, frei, {})
+    if art == "technik":
+        monkeypatch.setattr(app, "_datei_index", arbeit)
+        return app.technik_backfill
+    if art == "metadaten":
+        monkeypatch.setattr(app, "_ffmpeg_exe", lambda: "ffmpeg.exe")
+        monkeypatch.setattr(app, "_datei_index", arbeit)
+        return app.metadaten_backfill
+    if art == "einsortieren":
+        monkeypatch.setitem(app.CFG, "unterordner", True)
+        monkeypatch.setattr(app, "_id_karten", arbeit)
+        return app.downloads_einsortieren
+    if art == "anreichern":
+        app._geladen["ohnekanal01|beste"] = {"titel": "Ohne Kanal"}
+        monkeypatch.setattr(app, "_enrich_eintrag", _zaehlt_und_wartet(zaehler, frei, False))
+        return app.biblio_enrich_alle
+    if art == "autotag":
+        keys = _musik("Ein Lied")
+        monkeypatch.setattr(app, "_mb_suche", _zaehlt_und_wartet(zaehler, frei))
+        monkeypatch.setattr(app, "_itunes_suche", lambda *a, **k: None)
+        monkeypatch.setattr(app, "_tag_kandidat", lambda e: ("Kanal", e.get("titel", "")))
+        return lambda: app.autotag_lauf(keys)
+    # Geo-Test: der Knopf startet den Test in einem eigenen Faden
+    monkeypatch.setattr(app, "_geo_test", {"laeuft": False, "stand": 0.0, "url": "", "titel": "",
+                                           "info": "", "ergebnisse": []})
+    monkeypatch.setattr(app, "geo_test_lauf", arbeit)
+    h = _handler()
+    return lambda: h._geo_test_start({"url": "https://www.youtube.com/watch?v=geogesperrt", "laender": ["GB"]})
+
+
+@pytest.mark.parametrize("art", ["technik", "metadaten", "einsortieren", "anreichern", "autotag", "geotest"])
+def test_gleichzeitige_anstoesse_starten_genau_einen_lauf(monkeypatch, tmp_path, art):
+    """Sechs „läuft schon“-Merker standen ohne Sperre da: Prüfen und Setzen
+    waren zwei Schritte, und zwei Anstöße im selben Augenblick liefen beide los
+    (zwei ffmpeg-Läufe auf dieselbe Datei, doppelte MusicBrainz-Anfragen)."""
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)
+    zaehler, frei = [], threading.Event()
+    anstoss = _lauf_vorbereiten(art, monkeypatch, tmp_path, zaehler, frei)
+    threading.settrace(_unguenstigste_verzahnung(8))
+    try:
+        faeden = [_im_faden(anstoss) for _ in range(8)]
+    finally:
+        threading.settrace(None)
+    try:
+        assert _warten(lambda: len(zaehler) >= 1)
+        threading.Event().wait(0.8)                  # alle übrigen hatten Zeit, loszulaufen
+        gestartet = len(zaehler)
+    finally:
+        frei.set()
+        for f in faeden:
+            f.join(20)
+    assert gestartet == 1, f"{gestartet} Läufe liefen gleichzeitig los"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
