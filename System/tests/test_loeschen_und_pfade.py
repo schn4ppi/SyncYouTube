@@ -988,3 +988,47 @@ def test_playlist_sync_kaputtes_merkblatt_entfernt_nichts(tmp_path, monkeypatch,
     pl["sync_kopien"] = kaputt
     r = app.playlist_sync(pl)
     assert r["ok"] and r["geloescht"] == 0 and (stick / A).is_file() and not entfernt
+
+
+# ------------------------------------ Playlist-Spiegel: fremde Datei und .nomedia (Gruppe 6d)
+
+@pytest.mark.parametrize("modus", ["spiegeln", "kopieren"])
+def test_playlist_sync_fremde_gleichnamige_datei_wandert_vor_dem_ueberschreiben(
+        tmp_path, monkeypatch, entfernt, modus):
+    """Lag im Ziel schon eine fremde Datei gleichen Namens (andere Größe),
+    überschrieb shutil.copy2 sie ohne Rückweg. Jetzt wandert sie vorher nach
+    `_entfernt`; eine eigene ältere Kopie wird wie bisher ersetzt."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch, modus)
+    stick.mkdir()
+    (stick / A).write_bytes(b"FREMD, andere Groesse")
+    r = app.playlist_sync(pl)
+    assert r["kopiert"] == 2 and r["fehler"] == 0, r
+    assert (stick / A).read_bytes() == b"AAAA"
+    assert (stick / "_entfernt" / A).read_bytes() == b"FREMD, andere Groesse", \
+        "die fremde Datei wurde ohne Rückweg überschrieben"
+    # eigene Kopie, Quelle neu geladen (andere Größe): ersetzt, nichts wandert
+    (dl / "MP3" / A).write_bytes(b"AAAAAAAA")
+    app.playlist_sync(pl)
+    assert (stick / A).read_bytes() == b"AAAAAAAA"
+    assert sorted(p.name for p in (stick / "_entfernt").iterdir() if p.name != ".nomedia") == [A]
+    assert not entfernt
+
+
+def test_entfernt_ordner_traegt_eine_nomedia(tmp_path, monkeypatch, entfernt):
+    """Auf einem Handy als Ziel nähme der Medienscanner sonst die entfernten
+    Titel wieder in die Musik-App auf. Jeder `_entfernt`-Ordner des Spiegels
+    bekommt eine leere `.nomedia`; eine vorhandene bleibt unangetastet."""
+    dl, stick, pl = _sync_welt(tmp_path, monkeypatch)
+    app.playlist_sync(pl)
+    pl["items"] = [KB]
+    app.playlist_sync(pl)
+    nomedia = stick / "_entfernt" / ".nomedia"
+    assert nomedia.is_file() and nomedia.read_bytes() == b""
+    nomedia.write_bytes(b"eigene Notiz")             # eine schon vorhandene wird nie ersetzt
+    app.playlist_sync(pl)
+    assert nomedia.read_bytes() == b"eigene Notiz"
+    # ein alter `_entfernt`-Ordner ohne .nomedia (von vor dieser Regel) bekommt sie beim nächsten Lauf
+    nomedia.unlink()
+    app.playlist_sync(pl)
+    assert nomedia.is_file()
+    assert not [p for p in entfernt if not p.endswith(".nomedia")]

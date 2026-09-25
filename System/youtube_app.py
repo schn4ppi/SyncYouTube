@@ -4368,6 +4368,29 @@ def _quellordner_erreichbar(e):
     return bool(ordner) and os.path.isdir(ordner)
 
 
+def _nach_entfernt(ziel, ordner):
+    """Datei im Sync-Ziel rückholbar nach `<ordner>/_entfernt` (nie gelöscht,
+    nie überschrieben; OSError geht an den Aufrufer)."""
+    neu = _rueckholbar_verschieben(ziel, os.path.join(ordner, ENTFERNT_ORDNER))
+    _nomedia_sichern(ordner)
+    return neu
+
+
+def _nomedia_sichern(ordner):
+    """Leere `.nomedia` in `<ordner>/_entfernt`, falls es den Ordner gibt: ist
+    das Ziel ein Handy, nähme der Medienscanner die entfernten Titel sonst
+    wieder in die Musik-App auf. Eine vorhandene Datei bleibt, wie sie ist
+    (exklusiv angelegt); ein Fehler ist nur Kür."""
+    rueck = os.path.join(ordner, ENTFERNT_ORDNER)
+    if not os.path.isdir(rueck):
+        return
+    try:
+        with open(os.path.join(rueck, ".nomedia"), "xb"):
+            pass
+    except OSError:                                   # schon da, oder Ziel nur lesbar
+        pass
+
+
 def playlist_sync(pl):
     """Playlist-Dateien in den Zielordner (Gerät/USB/Handy) kopieren.
     Modus 'spiegeln': aus der Playlist entfernte Titel verlassen das Ziel —
@@ -4379,7 +4402,10 @@ def playlist_sync(pl):
     {Schlüssel: Dateiname}} gilt nur für den Zielordner, für den es entstand,
     und nennt nur wirklich kopierte Dateien; eine schon vorhandene gleich
     große Datei im Ziel ist nicht unsere, das Original selbst (Sync-Ordner in
-    der Bibliothek) nie. Entfernt werden die Kopien der Schlüssel, die nicht
+    der Bibliothek) nie. Liegt im Ziel eine fremde Datei gleichen Namens mit
+    anderer Größe, wandert sie vor dem Kopieren nach `_entfernt`, statt
+    überschrieben zu werden; jeder `_entfernt`-Ordner trägt eine `.nomedia`
+    (Gesamtprüfung Gruppe 6). Entfernt werden die Kopien der Schlüssel, die nicht
     mehr in der Playlist stehen, und die alte Kopie eines umbenannten Titels;
     solange die noch im Ziel liegt, merkt sich das Merkblatt ihren Namen unter
     "reste" {alter Name: Schlüssel}. Fehlt eine Quelle (`fehlend` im Ergebnis), bleibt
@@ -4437,6 +4463,8 @@ def playlist_sync(pl):
                 if eigen:
                     neu[key] = name
             else:
+                if os.path.lexists(ziel) and not eigen:   # fremde Datei: erst in Sicherheit
+                    _nach_entfernt(ziel, ordner)
                 shutil.copy2(src, ziel)
                 kopiert += 1
                 neu[key] = name
@@ -4460,7 +4488,7 @@ def playlist_sync(pl):
                 if not os.path.isfile(ziel):
                     continue                          # schon weg
                 try:
-                    _rueckholbar_verschieben(ziel, os.path.join(ordner, ENTFERNT_ORDNER))
+                    _nach_entfernt(ziel, ordner)
                     geloescht += 1
                     continue
                 except OSError:
@@ -4469,6 +4497,7 @@ def playlist_sync(pl):
                 neu[key] = name
             else:
                 neu_reste[name] = key
+    _nomedia_sichern(ordner)                          # auch ein _entfernt von früher
     with _io_lock:
         pl["sync_kopien"] = {"ordner": ordner_norm, "dateien": neu}
         if neu_reste:
