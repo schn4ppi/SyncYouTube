@@ -63,7 +63,7 @@ from musik_einstufung import (  # noqa: F401
     _kanal_nummern, _kat_aus_name, _musik_grad, _musik_grade,
     _tag_kandidat, _titel_aus_name, _titel_blank, _titel_kern)
 
-__version__ = "1.2.7"
+__version__ = "1.2.8"
 
 # Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
 # Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
