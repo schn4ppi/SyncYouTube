@@ -40,6 +40,7 @@ def _umgebung():
         "let daten=null; const _ap=[];",
         "function apiStatus(ok){_ap.push(ok);} function malen(){} function remoteAusfuehren(){}",
         "function nachschubMelden(){} function subStilVomServer(){} function uiStandPruefen(){}",
+        "function fernModusSetzen(){}",   # Gerät im WLAN? eigener Test: test_zugang_seiten_js.py
         felder,
         "let _antwort=null; globalThis.fetch=async()=>_antwort;",
         "function antwort(ok,status,d){_antwort={ok,status,json:async()=>d};}",

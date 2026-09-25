@@ -561,16 +561,18 @@ aus({vlcCalls, kachel:_FAKE.metadata&&_FAKE.metadata.title});
 def _handy_teile():
     h = _handy()
     namen = ("esc", "libFind", "aktuelleListe", "setDev", "spiel", "steuer", "handyNachbar",
-             "handyEnde", "handyMedienInfo", "handyMedienAnmelden")
+             "handyEnde", "handyMedienInfo", "handyMedienAnmelden", "mitCode", "lsSchreiben")
     return [_modul_js(), _js_zeile(h, "const medienS=")] + [_js_funktion(h, n) for n in namen]
 
 
 def test_handy_sperrbildschirm_steuert_das_handy(tmp_path):
     """Sperrbildschirm-Knöpfe wirken auf das Handy-Element — nie auf den PC.
-    Das Cover trägt den Zugangscode in der Adresse: der Browser lädt es ohne
-    eigene Kopfzeilen (X-Code ginge verloren, im WLAN käme 403)."""
+    Seit dem 25.09.2026 trägt ein HttpOnly-Cookie den Zugang (JB-Entscheid 7a
+    Punkt 1); den Code in der Cover-Adresse gibt es nur noch als Rückfall für
+    einen Browser ohne Cookies (KOPF). Hier dieser Rückfall, der Weg mit
+    Cookie steht in test_zugang_seiten_js.py."""
     (e,) = _lauf(tmp_path, r"""
-var CODE='AB12CD', dev='handy', aktuell=null;
+var KOPF='AB12CD', dev='handy', aktuell=null;
 var daten=[{id:'k1',titel:'Eins',uploader:'Kanal',kuenstler:'Künstlerin',thumb:'https://i.ytimg.com/1.jpg',vorhanden:true},
            {id:'k2',titel:'Zwei',uploader:'Kanal2',thumb:'',vorhanden:true}];
 const remoteCalls=[];
@@ -602,7 +604,7 @@ def test_handy_umschalten_auf_pc_stoppt_das_handy(tmp_path):
 
     ROTE GEGENPROBE: mit dem alten ended->steuer('next') steht 'next' in remoteCalls."""
     (e,) = _lauf(tmp_path, r"""
-var CODE='', dev='handy', aktuell=null;
+var KOPF='', dev='handy', aktuell=null;
 var daten=[{id:'k1',titel:'Eins',uploader:'K',thumb:'',vorhanden:true},{id:'k2',titel:'Zwei',uploader:'K',thumb:'',vorhanden:true}];
 const remoteCalls=[];
 _els.el=fakeMedia({id:'el'}); _els.suche={value:''}; _els.nowtitel={}; _els.nowsub={}; _els.pp={};

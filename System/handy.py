@@ -95,26 +95,52 @@ footer .ctrl{margin:0}
 <script>
 /*MEDIEN_SESSION_JS*/
 const medienS=medienSitzung(()=>document.getElementById('el'));
-let CODE=localStorage.getItem('ytdl_code')||'';
-let dev=localStorage.getItem('ytdl_dev')||'pc';
+/* Zugang (JB-Entscheid 7a Punkt 1, 25.09.2026): Der Code lebt nur noch als
+   HttpOnly-Cookie, das der Server nach der ersten richtigen Eingabe setzt;
+   diese Seite speichert ihn nirgends (vorher im localStorage). KOPF ist der
+   Rückfall für einen Browser, der keine Cookies nimmt: dann gilt der Code nur,
+   solange die Seite offen ist, und reist als X-Code bzw. in Medien-Adressen. */
+let KOPF='';
+let dev=lsLesen('ytdl_dev')||'pc';
 let daten=[], aktuell=null;
 
 // esc wie in oberflaeche.py: maskiert auch Anführungszeichen, damit ein Wert
 // in einem Attribut (src, data-key) nie aus dem Attribut ausbricht (S3).
 function esc(t){const d=document.createElement('div');d.textContent=t||'';
   return d.innerHTML.replaceAll('"','&quot;').replaceAll("'",'&#39;');}
-async function api(pfad,opt){opt=opt||{};opt.headers=Object.assign({'X-Code':CODE},opt.headers||{});return fetch(pfad,opt);}
+function lsLesen(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSchreiben(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+function lsWeg(k){try{localStorage.removeItem(k);}catch(e){}}
+async function api(pfad,opt){opt=opt||{};
+  if(KOPF)opt.headers=Object.assign({'X-Code':KOPF},opt.headers||{});
+  return fetch(pfad,opt);}
+function mitCode(url){return KOPF?url+'&code='+encodeURIComponent(KOPF):url;}   // nur ohne Cookie
 
+/* Code einmal mit Kopf prüfen (der Server setzt dann das Cookie), danach ohne:
+   Nimmt der Browser das Cookie nicht, bleibt der Code nur im Speicher (KOPF). */
+async function codePruefen(code){
+  const r=await fetch('/api/status',{headers:{'X-Code':code}});
+  if(!r.ok){let t=''; try{t=((await r.json())||{}).fehler||'';}catch(e){} return {ok:false,text:t};}
+  const r2=await fetch('/api/status');
+  KOPF=r2.ok?'':code;
+  return {ok:true};
+}
 async function anmelden(){
-  CODE=(document.getElementById('code').value||'').trim().toUpperCase();
-  const r=await api('/api/status');
-  if(r.status===403){document.getElementById('loginfehler').textContent='Code stimmt nicht.';return;}
-  localStorage.setItem('ytdl_code',CODE);
+  const code=(document.getElementById('code').value||'').replace(/[\\s-]/g,'').toUpperCase();
+  const e=await codePruefen(code);
+  if(!e.ok){document.getElementById('loginfehler').textContent=
+    (e.text.indexOf('ausgeschaltet')>=0)?e.text:'Code stimmt nicht.'; return;}
+  document.getElementById('code').value='';
+  appZeigen();
+}
+function appZeigen(){
   document.getElementById('login').style.display='none';
   document.getElementById('app').style.display='';
   setDev(dev); start();
+  if(KOPF)document.getElementById('tipp').textContent+=' (Dieser Browser speichert keine Cookies: '+
+    'der Code gilt, bis die Seite geschlossen wird.)';
 }
-function setDev(d){dev=d; localStorage.setItem('ytdl_dev',d);
+function setDev(d){dev=d; lsSchreiben('ytdl_dev',d);
   document.getElementById('dev-pc').classList.toggle('an',d==='pc');
   document.getElementById('dev-handy').classList.toggle('an',d==='handy');
   document.getElementById('vol').style.display=(d==='handy')?'':'none';
@@ -142,7 +168,7 @@ function spiel(id){
   document.getElementById('nowsub').textContent=aktuell?(aktuell.uploader||''):'';
   if(dev==='handy'){
     const el=document.getElementById('el');
-    el.src='/media?id='+encodeURIComponent(id)+'&code='+encodeURIComponent(CODE);
+    el.src=mitCode('/media?id='+encodeURIComponent(id));      // der Zugang reist im Cookie
     el.play(); document.getElementById('pp').textContent='⏸';
     handyMedienInfo(aktuell,id);
   }else{
@@ -167,12 +193,14 @@ function handyNachbar(r){
   if(arr[i+r])spiel(arr[i+r]);
 }
 function handyEnde(){if(dev==='handy')handyNachbar(1);}   // Titelende läuft am Handy weiter, nie am PC
-/* Sperrbildschirm: Titel, Interpret, Cover. Das Cover trägt den Zugangscode
-   in der ADRESSE — der Browser lädt Bilder für den Sperrbildschirm ohne eigene
-   Kopfzeilen, X-Code ginge verloren (im WLAN käme 403). */
+/* Sperrbildschirm: Titel, Interpret, Cover. Der Browser lädt Bilder für den
+   Sperrbildschirm ohne eigene Kopfzeilen; seit dem 25.09.2026 trägt das
+   Cookie den Zugang (auf einem echten Handy noch nicht gemessen; scheitert das
+   Cover, zeigt der Sperrbildschirm das YouTube-Vorschaubild). Ohne Cookie
+   steht der Code wie früher in der Adresse. */
 function handyMedienInfo(x,id){
   if(!x)return;
-  const cover='/api/cover?id='+encodeURIComponent(id)+'&code='+encodeURIComponent(CODE);
+  const cover=mitCode('/api/cover?id='+encodeURIComponent(id));
   medienS.info({title:x.titel||'', artist:x.kuenstler||x.uploader||'', album:x.album||'',
     artwork:medienS.bilder([[cover,'512x512'],[x.thumb,'480x360']])});
 }
@@ -207,10 +235,20 @@ _el.addEventListener('play',()=>{document.getElementById('pp').textContent='⏸'
 handyMedienAnmelden();
 
 function start(){ladenBib();}
-// Auto-Login, wenn schon ein Code gespeichert ist (oder am PC selbst, wo kein Code nötig ist)
-(async()=>{ if(CODE!==null){ const r=await api('/api/status');
-  if(r.ok){document.getElementById('login').style.display='none';document.getElementById('app').style.display='';setDev(dev);start();}
-  else {document.getElementById('code').value=CODE;} }})();
+/* Start: Ein Code von früher (localStorage) geht EINMAL an den Server (der
+   setzt das Cookie) und wird danach entfernt, ob richtig oder nicht; nur bei
+   einem Netzfehler bleibt er für den nächsten Versuch. Dann: Zugang über das
+   Cookie (oder am PC selbst, wo keiner nötig ist)? */
+async function starten(){
+  const alt=lsLesen('ytdl_code');
+  if(alt){try{await codePruefen(alt); lsWeg('ytdl_code');}catch(e){}}
+  let r=null;
+  try{r=await api('/api/status');}catch(e){}
+  if(r&&r.ok){appZeigen(); return;}
+  if(r){let t=''; try{t=((await r.json())||{}).fehler||'';}catch(e){}
+    if(t.indexOf('ausgeschaltet')>=0)document.getElementById('loginfehler').textContent=t;}
+}
+starten();
 </script>
 </body>
 </html>

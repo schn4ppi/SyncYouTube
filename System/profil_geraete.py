@@ -279,7 +279,27 @@ body{margin:0;background:#0c0a09;color:#f2ece5;font-family:system-ui,sans-serif;
 <p>Gib dieses Gerät am PC frei: <b>Optionen → 📱 Geräte</b> — dort erscheint
 der Code. Diese Seite macht danach von selbst weiter.</p></div>
 <script>
-(async function(){
+/* Der Token lebt nur noch als HttpOnly-Cookie (JB-Entscheid 7a Punkt 1,
+   25.09.2026): /?geraet=… lässt der Server das Cookie setzen und leitet auf /
+   ohne Token um. Ein Token von früher im localStorage geht EINMAL diesen Weg
+   und ist danach weg; ist er widerrufen, landet das Gerät wieder hier. */
+async function koppeln(){
+  let alt=null;
+  try{alt=localStorage.getItem('ytdl_geraet_token');}catch(e){}
+  if(alt){
+    try{localStorage.removeItem('ytdl_geraet_token');}catch(e){}
+    location.replace('/?geraet='+encodeURIComponent(alt)); return;
+  }
+  if(location.search.indexOf('geraet=')>=0)history.replaceState(null,'',location.pathname);   // widerrufener Token: raus aus der Adresse
+  /* SameSite=Strict: kam die Seite aus einer fremden App (QR-Scanner), fehlte
+     das Cookie womöglich nur beim ersten Laden. Ein Abruf aus der Seite trägt
+     es; gilt der Zugang schon, einmal zurück zur Startseite statt neu koppeln. */
+  let schonDa=false;
+  try{schonDa=!sessionStorage.getItem('ytdl_koppeln_zurueck')&&(await fetch('/api/status')).ok;}catch(e){}
+  if(schonDa){
+    try{sessionStorage.setItem('ytdl_koppeln_zurueck','1');}catch(e){}
+    location.replace('/'); return;
+  }
   const name=(navigator.userAgent.match(/Android TV|SmartTV|Silk|Android|iPhone|iPad/)||['Browser'])[0]+' '+
     new Date().toLocaleDateString('de-DE');
   const r=await (await fetch('/api/geraet_anmelden',{method:'POST',
@@ -288,9 +308,9 @@ der Code. Diese Seite macht danach von selbst weiter.</p></div>
   const takt=setInterval(async()=>{
     const s=await (await fetch('/api/geraet_status?id='+r.geraet_id+'&code='+r.code)).json();
     if(s.token){clearInterval(takt);
-      try{localStorage.setItem('ytdl_geraet_token',s.token);
-          localStorage.setItem('ytdl_profil',s.profil||'standard');}catch(e){}
-      location.href='/?geraet='+encodeURIComponent(s.token);}
+      try{localStorage.setItem('ytdl_profil',s.profil||'standard');}catch(e){}   // Profil-Wahl, kein Geheimnis
+      location.replace('/?geraet='+encodeURIComponent(s.token));}
   },3000);
-})();
+}
+koppeln();
 </script></body></html>"""

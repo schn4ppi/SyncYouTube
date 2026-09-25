@@ -404,7 +404,7 @@ def test_baustein_wird_heiss_nachgeladen():
 # ------------------------------------------------------------- Handy
 
 HANDY_STUBS = r"""
-var CODE='C0DE', dev='handy', aktuell=null;
+var KOPF='C0DE', dev='handy', aktuell=null;
 var daten=[{id:'k1',titel:'Eins',uploader:'K',thumb:'',vorhanden:true},{id:'k2',titel:'Zwei',uploader:'K',thumb:'',vorhanden:true}];
 const remoteCalls=[];
 function remote(c){remoteCalls.push(c); return Promise.resolve();}
@@ -420,7 +420,7 @@ _els['dev-pc']={classList:{toggle(){}}}; _els['dev-handy']={classList:{toggle(){
 def _handy_alles():
     h = _handy()
     namen = ("esc", "libFind", "aktuelleListe", "setDev", "spiel", "steuer", "handyNachbar",
-             "handyEnde", "handyMedienInfo", "handyMedienAnmelden")
+             "handyEnde", "handyMedienInfo", "handyMedienAnmelden", "mitCode", "lsSchreiben")
     m = re.search(r"^const _el=document\.getElementById\('el'\);$.*?^handyMedienAnmelden\(\);$", h,
                   re.M | re.S)
     assert m, "Listener-Block der Handy-Seite nicht gefunden"

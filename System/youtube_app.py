@@ -36,7 +36,7 @@ import webbrowser
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, urlsplit, parse_qs
+from urllib.parse import urlencode, urlparse, urlsplit, parse_qs, parse_qsl
 
 import cookie_kopie         # Firefox-Cookies samt WAL für yt-dlp (Lehre aus SyncFindus, 24.09.2026)
 import familie as fam       # gemeinsamer Kern: atomares Schreiben mit Wiederholung (F5)
@@ -6843,6 +6843,48 @@ HEIMNETZ_ENDUNGEN = (".local", ".lan", ".home.arpa", ".fritz.box", ".localdomain
 MAX_KOERPER = 2 * 1024 * 1024        # S14: größter angenommener POST-Körper
 SEITEN = ("/", "/index.html", "/m", "/koppeln", "/fernbedienung")   # Routen, die eine HTML-Seite liefern
 FERNSTEUERUNG_AUS_TEXT = "Fernsteuerung am PC ausgeschaltet."
+KOPPEL_API = ("/api/geraet_anmelden", "/api/geraet_status")   # frei; `code` dort ist der Kopplungs-Code
+FREIE_SEITEN = ("/m", "/koppeln")                             # auch ohne Zugang (Code-Eingabe, Kopplung)
+
+# Kopplung und Code per Cookie (JB-Entscheid 7a Punkt 1, 25.09.2026; S17, F9).
+# Vorher standen Geräte-Token und Code in der Adresse (Verlauf, Lesezeichen,
+# Referrer) und im localStorage, und die PC-Oberfläche auf einem gekoppelten
+# Gerät schickte bei keinem Aufruf einen Zugang mit (jede API-Anfrage 403).
+# Jetzt:
+#  * Ein gültiger Token oder Code aus der Adresse oder dem Kopf wird ein
+#    HttpOnly-Cookie (SameSite=Strict, Path=/); das Skript der Seite sieht es
+#    nie, und jeder Aufruf der Seite trägt es von selbst.
+#  * Eine SEITE mit Token oder Code in der Adresse leitet auf dieselbe Adresse
+#    ohne den Parameter um. API-Wege antworten direkt (ein Medien-Strom oder
+#    ein Bild folgt keiner Umleitung, wenn der Browser keine Cookies nimmt).
+#  * Kopf und Adresse bleiben als Rückfall gültig.
+#  * Ein ungültiges Cookie (Code erneuert, Gerät getrennt) löscht der Server
+#    in der Antwort: sonst schickte die Oberfläche es jede Sekunde mit und
+#    liefe nach zehn Sekunden in die Versuchsbremse.
+COOKIE_GERAET = "syncyt_geraet"
+COOKIE_CODE = "syncyt_code"
+# Der Token hält 400 Tage (die Obergrenze der Browser), der Code 30 Tage: ein
+# Handy mit Code gibt ihn danach neu ein, ein gekoppelter Fernseher nie.
+COOKIE_DAUER = {COOKIE_GERAET: 400 * 24 * 3600, COOKIE_CODE: 30 * 24 * 3600}
+_COOKIE_WERT = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def cookies_lesen(kopf):
+    """Cookie-Kopf als dict; der erste Wert je Name gilt, Kaputtes wird übergangen
+    (andere Programme auf demselben Rechner setzen eigene Cookies)."""
+    kekse = {}
+    for teil in (kopf or "").split(";"):
+        name, gleich, wert = teil.partition("=")
+        name = name.strip()
+        if gleich and name and name not in kekse:
+            kekse[name] = wert.strip().strip('"')
+    return kekse
+
+
+def cookie_zeile(name, wert):
+    """Set-Cookie-Zeile; ein leerer Wert löscht das Cookie."""
+    return (f"{name}={wert}; Max-Age={COOKIE_DAUER[name] if wert else 0}; Path=/; "
+            "HttpOnly; SameSite=Strict")
 _HOST_MUSTER = re.compile(r"(?:\[(?P<v6>[0-9a-f:.]+)\]|(?P<name>[a-z0-9_.-]+))(?::(?P<port>\d{1,5}))?")
 
 
@@ -6915,8 +6957,10 @@ def _lan_vlc(daten):
 
 
 def _lan_biblio(daten):
-    if daten.get("art") != "herz":                   # löschen, vergessen, Archiv, Explorer, Player …
-        return "Nur am PC: die Bibliothek ändern (aus dem WLAN geht nur ❤)."
+    # ❤ ist Abspielen-Komfort, „neuladen“ holt einen verschobenen Titel neu
+    # (ein Download-Anstoß); löschen, vergessen, Archiv, Explorer, Player … nur am PC.
+    if daten.get("art") not in ("herz", "neuladen"):
+        return "Nur am PC: die Bibliothek ändern (aus dem WLAN gehen nur ❤ und Neu-Laden)."
     return None
 
 
@@ -7081,7 +7125,7 @@ LAN_ERLAUBT = {
     ("POST", "/api/untertitel_laden"): ("abspielen: fehlende Untertitel holen", None),
     ("POST", "/api/filme/fortschritt"): ("abspielen: Stelle und „gesehen“ melden", None),
     ("POST", "/api/filme/merk"): ("abspielen: Film-Merkliste des Profils", None),
-    ("POST", "/api/biblio"): ("nur ❤ Lieblingssong umschalten", _lan_biblio),
+    ("POST", "/api/biblio"): ("nur ❤ Lieblingssong und „Erneut herunterladen“", _lan_biblio),
     # fernsteuern
     ("POST", "/api/remote"): ("fernsteuern: Befehl an den PC-Player", None),
     ("POST", "/api/vlc"): ("fernsteuern: VLC-Befehle (ohne fremde Adresse, ohne Fenster)", _lan_vlc),
@@ -7181,6 +7225,10 @@ class Handler(BaseHTTPRequestHandler):
     # stört das nicht; die Strom-Wege heben es nach dem Kopf auf
     # (_schreib_zeitlimit_aufheben), sonst bräche ein pausierter Film ab.
     timeout = 30
+    # Je Anfrage in _hat_zugriff gesetzt (7a Punkt 1); die Vorgaben gelten, wenn
+    # eine Anfrage den Riegel nie erreicht (abgewiesener Host, Fehlerseite).
+    _neue_cookies = ()
+    _zugang_aus_adresse = False
 
     def handle_one_request(self):
         # Jede Anfrage liest wieder mit Zeitlimit, auch nach einem Strom auf
@@ -7189,6 +7237,7 @@ class Handler(BaseHTTPRequestHandler):
             self.connection.settimeout(self.timeout)
         except (AttributeError, OSError):
             pass
+        self._neue_cookies = []                       # je Anfrage neu (auch bei Keep-Alive)
         super().handle_one_request()
 
     def log_message(self, *a):                        # Konsole ruhig halten
@@ -7198,6 +7247,11 @@ class Handler(BaseHTTPRequestHandler):
         # S2: einbetten darf nur das Dashboard (und die App selbst) — für JEDE
         # Antwort, auch die direkt geschriebenen (Medien, Proxy, Export).
         self.send_header("Content-Security-Policy", EINBETTEN_CSP)
+        # S17: kein Link und kein nachgeladenes Bild nimmt die Adresse der Seite
+        # mit (früher stand dort der Token oder Code).
+        self.send_header("Referrer-Policy", "no-referrer")
+        for zeile in self._neue_cookies:
+            self.send_header("Set-Cookie", zeile)
         super().end_headers()
 
     def _anfrage_vertraut(self):
@@ -7227,39 +7281,67 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return lan_ablehnung(methode, urlparse(self.path).path, daten)
 
+    def _zugangsdaten(self):
+        """((Token, Herkunft), (Code, Herkunft)): je der erste gefüllte Wert aus
+        Adresse, Kopf (X-Geraet/X-Code) oder Cookie (7a Punkt 1)."""
+        q = parse_qs(urlparse(self.path).query)
+        kekse = cookies_lesen(self.headers.get("Cookie", ""))
+
+        def eins(param, kopf, keks):
+            for quelle, wert in (("adresse", (q.get(param) or [""])[0]),
+                                 ("kopf", self.headers.get(kopf, "") or ""),
+                                 ("cookie", kekse.get(keks, ""))):
+                if wert:
+                    return wert, quelle
+            return "", ""
+        return eins("geraet", "X-Geraet", COOKIE_GERAET), eins("code", "X-Code", COOKIE_CODE)
+
+    def _keks_merken(self, name, wert, quelle, gueltig):
+        """Gültig aus Adresse oder Kopf: Cookie setzen. Ungültig aus dem Cookie:
+        Cookie löschen. Alles andere bleibt, wie es ist."""
+        if gueltig and quelle in ("adresse", "kopf") and _COOKIE_WERT.fullmatch(wert):
+            self._neue_cookies.append(cookie_zeile(name, wert))
+        elif not gueltig and quelle == "cookie":
+            self._neue_cookies.append(cookie_zeile(name, ""))
+
     def _geraet_profil(self):
         """Profil des anfragenden Geräts: localhost = im UI gewählt (Query),
-        LAN-Gerät = an den Token gebunden (Teilprojekt 3)."""
-        q = parse_qs(urlparse(self.path).query)
-        tok = (q.get("geraet") or [self.headers.get("X-Geraet", "")])[0]
+        LAN-Gerät = an den Token gebunden (Teilprojekt 3; Token auch aus dem Cookie)."""
+        (tok, _quelle), _code = self._zugangsdaten()
         p = profil_geraete.geraet_ok(tok)
         if p:
             return p
+        q = parse_qs(urlparse(self.path).query)
         return (q.get("profil") or ["standard"])[0] if self._ist_lokal() else "standard"
 
     def _hat_zugriff(self):
         """Localhost immer; aus dem LAN: Pairing-Wege frei, sonst NUR mit
         verifiziertem Geräte-Token ODER dem Fernsteuerungs-Code (Riegel-
-        PFLICHT, JB: Externe nur mit Zugangsdaten)."""
+        PFLICHT, JB: Externe nur mit Zugangsdaten), aus Adresse, Kopf oder
+        Cookie. Merkt nebenbei, welche Cookies die Antwort setzt oder löscht
+        und ob der Zugang aus der Adresse kam (dann leitet eine Seite um)."""
+        self._neue_cookies = []
+        self._zugang_aus_adresse = False
         ip = self.client_address[0] if self.client_address else ""
         if self._ist_lokal():
             return True
         if not CFG.get("fernsteuerung"):             # S13: aus heißt aus, sofort und
             return False                             # auch für gekoppelte Geräte
         pfad = urlparse(self.path).path
-        if pfad in ("/m", "/koppeln", "/api/geraet_anmelden", "/api/geraet_status"):
+        if pfad in KOPPEL_API:
             return True                              # Pairing muss VOR dem Token gehen
-        q = parse_qs(urlparse(self.path).query)
-        tok = (q.get("geraet") or [self.headers.get("X-Geraet", "")])[0]
-        code = (q.get("code") or [self.headers.get("X-Code", "")])[0]
+        frei = pfad in FREIE_SEITEN                  # Code-Eingabe und Koppel-Seite
+        (tok, tok_quelle), (code, code_quelle) = self._zugangsdaten()
         if not (tok or code):                        # nichts zu raten: zählt nicht
-            return False
+            return frei
         if not _bremse_versuch(ip):                  # S7: prüfen und belegen in EINEM Schritt
-            return False
-        ok = None
+            return frei
+        ok = profil = code_ok = None
         try:
-            ok = bool(profil_geraete.geraet_ok(tok) or zugriff_erlaubt(
-                ip, CFG.get("fernsteuerung"), CFG.get("fernsteuerung_code") or "", code))
+            profil = profil_geraete.geraet_ok(tok)
+            code_ok = not profil and zugriff_erlaubt(
+                ip, CFG.get("fernsteuerung"), CFG.get("fernsteuerung_code") or "", code)
+            ok = bool(profil or code_ok)
         finally:
             if ok is None:
                 _bremse_freigeben(ip)                # Ausnahme im Vergleich: nichts zählen
@@ -7267,7 +7349,26 @@ class Handler(BaseHTTPRequestHandler):
                 _bremse_erfolg(ip)
             else:
                 _bremse_fehlversuch(ip)
-        return ok
+        if tok:
+            self._keks_merken(COOKIE_GERAET, tok, tok_quelle, bool(profil))
+        if code and not profil:
+            self._keks_merken(COOKIE_CODE, code, code_quelle, bool(code_ok))
+        self._zugang_aus_adresse = bool((profil and tok_quelle == "adresse")
+                                        or (code_ok and code_quelle == "adresse"))
+        return ok or frei
+
+    def _ohne_zugang_umleiten(self):
+        """7a Punkt 1: Token oder Code aus der Adresse ist jetzt ein Cookie; die
+        Seite lädt sich ohne den Parameter neu (raus aus Adresszeile, Verlauf
+        und Lesezeichen). Alle anderen Parameter (etwa embed=1) bleiben."""
+        teile = urlparse(self.path)
+        rest = [(k, v) for k, v in parse_qsl(teile.query, keep_blank_values=True)
+                if k not in ("geraet", "code")]
+        self.send_response(302)
+        self.send_header("Location", teile.path + ("?" + urlencode(rest) if rest else ""))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _fernsteuerung_aus(self):
         """S13: aus heißt aus, für jedes Gerät im WLAN, auch ein gekoppeltes.
@@ -7289,6 +7390,8 @@ class Handler(BaseHTTPRequestHandler):
                     and CFG.get("fernsteuerung")):   # S13: aus = auch keine Koppel-Seite
                 return _antwort(self, 200, profil_geraete.PAIRING_HTML.encode("utf-8"), "text/html")
             return _antwort(self, 403, {"fehler": "Kein Zugriff — Gerät nicht gekoppelt."})
+        if self._zugang_aus_adresse and urlparse(self.path).path in SEITEN:
+            return self._ohne_zugang_umleiten()
         q = parse_qs(urlparse(self.path).query)
         ablehnung = self._lan_tor(self.command or "GET", {k: v[0] for k, v in q.items() if v})
         if ablehnung:
@@ -7351,8 +7454,10 @@ class Handler(BaseHTTPRequestHandler):
             # und das Senden (ein langsamer Client im WLAN) laufen ohne Sperre.
             with Q.lock:
                 items = [dict(it) for it in Q.items]
+            # „lokal“ (7a Punkt 1): die Oberfläche blendet auf Geräten im WLAN
+            # die Einstellungen und alle nur-PC-Aktionen aus.
             if lokal:
-                _antwort(self, 200, {"items": items, "config": CFG,
+                _antwort(self, 200, {"items": items, "config": CFG, "lokal": True,
                                      "ziel": ziel_ordner(), "ffmpeg": bool(_ffmpeg_exe()),
                                      "vpn": geo.nordvpn_verfuegbar(), "db": db_statistik(),
                                      "remote": _remote, "fernsteuerung": fernsteuerung_info(),
@@ -7360,10 +7465,12 @@ class Handler(BaseHTTPRequestHandler):
                                      "autotag": _autotag, "addon_xpi": bool(_addon_xpi_pfad()),
                                      "ui_stand": ui_stand, "jetzt": time.time()})
             else:
+                # „wiedergabe“ (Untertitel-Größe, Tempo je Titel) seit 25.09.2026:
+                # ein gekoppelter Fernseher spielt mit JBs Wiedergabe-Regeln.
                 harmlos = {k: CFG.get(k) for k in
                            ("standard_qualitaet", "unterordner", "metadaten",
-                            "untertitel", "parallel")}
-                _antwort(self, 200, {"items": items, "config": harmlos,
+                            "untertitel", "parallel", "wiedergabe")}
+                _antwort(self, 200, {"items": items, "config": harmlos, "lokal": False,
                                      "ffmpeg": bool(_ffmpeg_exe()),
                                      "db": db_statistik(),
                                      "ui_stand": ui_stand, "jetzt": time.time()})
@@ -8085,7 +8192,7 @@ class Handler(BaseHTTPRequestHandler):
         # Nachtprüfung 06.08.: alles Verändernde (löschen/vergessen/bulk) und
         # alles, was Prozesse auf JBs PC startet (extern/ordner), bleibt dem
         # PC selbst vorbehalten (Prüfer _lan_biblio im WLAN-Tor: aus dem WLAN
-        # geht nur ❤, seit 25.09.2026 mit 403 statt still).
+        # gehen nur ❤ und „neuladen“, seit 25.09.2026 mit 403 statt still).
         if art == "bulk":                            # mehrere auf einmal (Mehrfachauswahl)
             op = daten.get("op")
             keys = [k for k in (daten.get("keys") or []) if k in _geladen]

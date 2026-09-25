@@ -536,3 +536,157 @@ def test_code_erneuern_fragt_und_holt_den_neuen_stand(tmp_path):
     assert e["nachJa"][:2] == ["frage", "POST /api/code_erneuern"], e
     assert "laden" in e["nachJa"] and any("NEU2345678" in s for s in e["nachJa"]), e
     assert e["nachNein"] == ["frage"], "ohne Bestätigung ändert sich nichts"
+
+
+# ------------------------------------------------------------ 7a Punkt 1: Kopplung und Code per Cookie (S17, F9)
+
+def _kekse(koepfe):
+    """name -> vollständige Set-Cookie-Zeile."""
+    return {z.split("=", 1)[0].strip(): z for z in koepfe.get("set-cookie", [])}
+
+
+def _attribute(zeile):
+    teile = [t.strip() for t in zeile.split(";")]
+    return teile[0].split("=", 1)[1], {t.split("=", 1)[0].lower(): (t.split("=", 1) + [""])[1] for t in teile[1:]}
+
+
+def _mit_gekoppeltem_geraet(monkeypatch):
+    from test_zugang_und_vertrauen import _gekoppelt
+    token = _gekoppelt()
+    _fernsteuerung(monkeypatch)
+    return token
+
+
+@pytest.mark.parametrize("pfad,ziel", [("/?geraet={t}", "/"), ("/?embed=1&geraet={t}", "/?embed=1"),
+                                       ("/index.html?geraet={t}&profil=x", "/index.html?profil=x"),
+                                       ("/m?geraet={t}", "/m")])
+def test_token_in_der_adresse_wird_cookie_und_verschwindet(monkeypatch, pfad, ziel):
+    token = _mit_gekoppeltem_geraet(monkeypatch)
+    st, koepfe, _ = _anfrage(pfad.format(t=token), ip=LAN, kopf={"Host": PC_IM_LAN})
+    assert st == 302, (pfad, st)
+    assert koepfe["location"] == [ziel], koepfe.get("location")
+    wert, attr = _attribute(_kekse(koepfe)["syncyt_geraet"])
+    assert wert == token
+    assert "httponly" in attr and attr.get("samesite") == "Strict" and attr.get("path") == "/"
+    assert int(attr["max-age"]) >= 365 * 24 * 3600, "der Token-Keks hält lange"
+    assert token not in " ".join(koepfe["location"])
+
+
+def test_code_in_der_adresse_wird_cookie_und_verschwindet(monkeypatch):
+    _fernsteuerung(monkeypatch)
+    st, koepfe, _ = _anfrage(f"/m?code={CODE}", ip=LAN, kopf={"Host": PC_IM_LAN})
+    assert st == 302 and koepfe["location"] == ["/m"]
+    wert, attr = _attribute(_kekse(koepfe)["syncyt_code"])
+    assert wert == CODE and "httponly" in attr and attr.get("samesite") == "Strict"
+
+
+def test_das_cookie_oeffnet_seite_api_und_post(monkeypatch):
+    """F9: Die Aufrufe der Oberfläche auf einem gekoppelten Gerät trugen keinen
+    Zugang und bekamen 403. Mit dem Cookie tragen sie ihn von selbst."""
+    token = _mit_gekoppeltem_geraet(monkeypatch)
+    for keks in (f"syncyt_geraet={token}", f"syncyt_code={CODE}",
+                 f"andere_app=1; syncyt_geraet={token}; kaputt"):
+        kopf = {"Host": PC_IM_LAN, "Cookie": keks}
+        st, koepfe, koerper = _anfrage("/", ip=LAN, kopf=kopf)
+        assert st == 200 and b"<html" in koerper[:400].lower(), keks
+        assert "set-cookie" not in koepfe, "ein gültiges Cookie wird nicht neu gesetzt"
+        assert _anfrage("/api/status", ip=LAN, kopf=kopf)[0] == 200
+        st, _, _ = _anfrage("/api/remote", methode="POST", ip=LAN, kopf=kopf, rumpf={"cmd": "next"})
+        assert st == 200
+    assert app._remote["cmd"] == "next"
+
+
+def test_kopf_und_adresse_bleiben_als_rueckfall(monkeypatch):
+    """Kein Zwang zum Cookie: X-Code/X-Geraet und ?code= auf API-Wegen gehen
+    weiter (ohne Umleitung; ein Medien-Strom folgt keiner). Der Server setzt
+    dabei das Cookie, damit Bild- und Medien-Adressen den Code nicht brauchen."""
+    token = _mit_gekoppeltem_geraet(monkeypatch)
+    st, koepfe, _ = _anfrage("/api/status", ip=LAN, kopf={"Host": PC_IM_LAN, "X-Code": CODE})
+    assert st == 200 and "syncyt_code" in _kekse(koepfe)
+    st, koepfe, _ = _anfrage(f"/api/profile?geraet={token}", ip=LAN, kopf={"Host": PC_IM_LAN})
+    assert st == 200 and "location" not in koepfe and "syncyt_geraet" in _kekse(koepfe)
+    st, koepfe, _ = _anfrage(f"/media?id=gibtsnicht&code={CODE}", ip=LAN, kopf={"Host": PC_IM_LAN})
+    assert st == 404 and "location" not in koepfe, "API-Wege antworten direkt"
+
+
+def test_ungueltiges_cookie_wird_geloescht_und_zaehlt_einmal(monkeypatch):
+    """Ein veraltetes Cookie (Code erneuert, Gerät getrennt) schickte die
+    Oberfläche jede Sekunde mit: ohne Löschen liefe das Gerät nach zehn
+    Sekunden in die Versuchsbremse, bis zu 15 Minuten."""
+    _fernsteuerung(monkeypatch)
+    kopf = {"Host": PC_IM_LAN, "Cookie": "syncyt_code=ALTERCODE1; syncyt_geraet=0123456789abcdef"}
+    st, koepfe, _ = _anfrage("/api/status", ip=LAN, kopf=kopf)
+    assert st == 403
+    for name in ("syncyt_code", "syncyt_geraet"):
+        wert, attr = _attribute(_kekse(koepfe)[name])
+        assert wert == "" and attr.get("max-age") == "0", (name, koepfe.get("set-cookie"))
+    assert app._fehlversuche[LAN]["n"] == 1
+    st, _, koerper = _anfrage("/", ip=LAN, kopf=kopf)
+    assert st == 200 and b"koppeln" in koerper.lower(), "ohne gültigen Zugang: die Koppel-Seite"
+
+
+def test_fernsteuerung_aus_loescht_das_cookie_nicht(monkeypatch):
+    """Aus heißt aus — aber wieder an heißt: das Gerät ist ohne neue Kopplung da."""
+    token = _mit_gekoppeltem_geraet(monkeypatch)
+    app.CFG["fernsteuerung"] = False
+    st, koepfe, _ = _anfrage("/api/status", ip=LAN, kopf={"Host": PC_IM_LAN, "Cookie": f"syncyt_geraet={token}"})
+    assert st == 403 and "set-cookie" not in koepfe
+
+
+def test_kopplungs_code_der_koppelseite_zaehlt_nicht_als_fehlversuch(monkeypatch):
+    """/api/geraet_status trägt den KOPPLUNGS-Code in `code` (alle 3 s): der
+    ist kein Fernsteuerungs-Code und darf die Bremse nicht füllen."""
+    import profil_geraete as pg
+    _fernsteuerung(monkeypatch)
+    a = pg.geraet_anmelden("TV")
+    for _ in range(12):
+        st, koepfe, _ = _anfrage(f"/api/geraet_status?id={a['geraet_id']}&code={a['code']}",
+                                 ip=LAN, kopf={"Host": PC_IM_LAN})
+        assert st == 200 and "set-cookie" not in koepfe
+    assert LAN not in app._fehlversuche or app._fehlversuche[LAN]["n"] == 0
+
+
+def test_pc_bekommt_nie_ein_cookie():
+    st, koepfe, _ = _anfrage(f"/?code={CODE}", kopf={"Host": "127.0.0.1:8776"})
+    assert st == 200 and "set-cookie" not in koepfe
+
+
+@pytest.mark.parametrize("pfad,methode,ip", [
+    ("/", "GET", "127.0.0.1"), ("/api/status", "GET", "127.0.0.1"), ("/api/gibtsnicht", "GET", "127.0.0.1"),
+    ("/api/status", "GET", LAN), ("/", "GET", LAN), ("/api/remote", "POST", LAN)])
+def test_jede_antwort_verbietet_den_referrer(monkeypatch, pfad, methode, ip):
+    """Ein Link aus der Oberfläche (etwa ↗ YouTube) nimmt die Adresse der
+    Seite nie mit; früher stand dort der Token oder Code."""
+    _fernsteuerung(monkeypatch)
+    st, koepfe, _ = _senden(methode, pfad, {"cmd": "play"} if methode == "POST" else None, ip=ip)
+    assert koepfe.get("referrer-policy") == ["no-referrer"], (pfad, st, koepfe)
+
+
+def test_status_meldet_ob_die_seite_am_pc_laeuft(monkeypatch):
+    token = _mit_gekoppeltem_geraet(monkeypatch)
+    _, _, koerper = _anfrage("/api/status", kopf={"Host": "127.0.0.1:8776"})
+    assert json.loads(koerper)["lokal"] is True
+    _, _, koerper = _anfrage("/api/status", ip=LAN, kopf={"Host": PC_IM_LAN, "Cookie": f"syncyt_geraet={token}"})
+    d = json.loads(koerper)
+    assert d["lokal"] is False and "fernsteuerung" not in d and "ziel" not in d
+    assert "wiedergabe" in d["config"], "ein gekoppelter Fernseher spielt mit JBs Wiedergabe-Regeln"
+    assert "ziel_ordner" not in d["config"] and "fernsteuerung_code" not in d["config"]
+
+
+def test_profil_des_geraets_kommt_aus_dem_cookie(monkeypatch):
+    import profil_geraete as pg
+    _fernsteuerung(monkeypatch)
+    p = pg.profil_anlegen("Kinder", "🐻")
+    a = pg.geraet_anmelden("TV")
+    assert pg.geraet_bestaetigen(a["geraet_id"], p["id"])
+    token = pg.geraet_token_abholen(a["geraet_id"], a["code"])["token"]
+    _, _, koerper = _anfrage("/api/profile", ip=LAN, kopf={"Host": PC_IM_LAN, "Cookie": f"syncyt_geraet={token}"})
+    assert json.loads(koerper)["aktiv"] == p["id"]
+
+
+def test_wlan_darf_einen_verschobenen_titel_neu_laden(monkeypatch, geroutet):
+    """„⬇ Erneut herunterladen“ im Bibliotheks-Menü ist ein Download-Anstoß
+    (7a Punkt 2), also aus dem WLAN erlaubt; alle anderen Zweige nicht."""
+    _fernsteuerung(monkeypatch)
+    st, _, _ = _senden("POST", "/api/biblio", {"art": "neuladen", "id": "abc"}, kopf={"X-Code": CODE})
+    assert st == 200 and geroutet == [("POST", "/api/biblio")]

@@ -1526,7 +1526,9 @@ html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
 <!-- Einbettungs-Modus (JB 21.07.2026: „ein Browser, ein Browser"): im Dashboard-iframe
      (?embed=1) nur Logo + Build-Marke ausblenden. Die Layout-Leiste (✏ Layout,
      🔳 Mini) BLEIBT — JB braucht sie auch im Dashboard (21.07.). -->
-<style>body.embed .cmd-logo,body.embed #buildmark{display:none}</style>
+<style>body.embed .cmd-logo,body.embed #buildmark{display:none}
+/* Gerät im WLAN (JB-Entscheid 7a Punkt 1): was nur am PC geht, ist ausgeblendet */
+body.fern .nur-pc{display:none!important}</style>
 <script>/* embed nur im echten iframe (Dashboard). Ein neuer Tab schleppt ?embed=1 mit,
    ist aber KEIN iframe -> dort das Logo zeigen (JB 25.07.). window.top!==self ist
    cross-origin-sicher (nur Referenzvergleich, kein Property-Zugriff). */
@@ -1590,7 +1592,7 @@ if(location.search.indexOf('embed=1')>=0 && window.top!==window.self)document.bo
         <!-- Build 132: Die frühere Statistik-Spalte ist entfallen — ihr Inhalt
              wohnt oben in der ersten Reihe. Der Player bekommt den Platz. -->
         <div class="cmd-side">
-          <button class="iconbtn sm" onclick="abosZeigen()" title="Abos: Kanäle/Playlists abonnieren, Backkatalog, Format &amp; Regeln je Abo (Reiter im Download-Fenster)">📡</button>
+          <button class="iconbtn sm nur-pc" onclick="abosZeigen()" title="Abos: Kanäle/Playlists abonnieren, Backkatalog, Format &amp; Regeln je Abo (Reiter im Download-Fenster)">📡</button>
           <button class="iconbtn sm" id="theme" onclick="themeToggle()" title="Tag-/Nacht-Modus schnell umschalten">🌙</button>
           <button class="iconbtn sm" onclick="hilfeModal(true)" title="Legende: alle Knöpfe, Gesten &amp; Tasten erklärt">?</button>
           <button class="iconbtn sm" id="optbtn" onclick="optionenToggle(event)" title="Optionen (Look, Crossfade, Sleep-Timer, Fenster-Abstand …)">⚙</button>
@@ -1604,7 +1606,7 @@ if(location.search.indexOf('embed=1')>=0 && window.top!==window.self)document.bo
         <button class="dlbox-tab an" data-dlt="queue" onclick="dlboxTab('queue')">Downloads</button>
         <button class="dlbox-tab" data-dlt="done" onclick="dlboxTab('done')">Fertig</button>
         <button class="dlbox-tab" data-dlt="log" onclick="dlboxTab('log')">Log</button>
-        <button class="dlbox-tab" data-dlt="abos" onclick="dlboxTab('abos')">📡 Abos</button>
+        <button class="dlbox-tab nur-pc" data-dlt="abos" onclick="dlboxTab('abos')">📡 Abos</button>
         <span class="spacer"></span>
         <button class="btn mini dlbox-action" id="dlbox-action"></button>
       </div>
@@ -2308,7 +2310,7 @@ function optionenToggle(ev){
     '<div class="optrow" style="display:block"><div style="display:flex;justify-content:space-between">'+
       '<span>Fenster-Abstand</span><span id="gapval">'+fensterAbstand()+' px</span></div>'+
       '<input type="range" min="0" max="24" value="'+fensterAbstand()+'" style="width:100%;margin-top:4px" oninput="setGap(this.value)"></div>'+
-    '<div class="optrow"><span>Fehler ausblenden</span>'+
+    '<div class="optrow nur-pc"><span>Fehler ausblenden</span>'+
       '<select id="opt_fehler" onchange="setFehlerMin(this.value)">'+
         '<option value="0">nie</option><option value="2">nach 2 min</option>'+
         '<option value="5">nach 5 min</option><option value="15">nach 15 min</option></select></div>'+
@@ -2357,10 +2359,10 @@ function optionenToggle(ev){
       '<option value="0">aus</option><option value="15">15 min</option><option value="30">30 min</option>'+
       '<option value="60">60 min</option><option value="titel">nach diesem Titel</option></select>'+
       '<span id="sleepval" style="color:#8a7d74;font-size:11px;margin-left:6px"></span></span></div>'+
-    '<div class="optrow"><span>Dateinamen</span><button class="btn mini" onclick="namenFenster()" title="Bausteine wählen und schieben, Probelauf ansehen, anwenden oder zurücknehmen">🏷 Namens-Baukasten</button></div>'+
+    '<div class="optrow nur-pc"><span>Dateinamen</span><button class="btn mini" onclick="namenFenster()" title="Bausteine wählen und schieben, Probelauf ansehen, anwenden oder zurücknehmen">🏷 Namens-Baukasten</button></div>'+
     // Etappe C (Spec Punkt 5): globale Grundeinstellungen — unterste geteilte
     // Ebene; Playlist- und Titel-Regeln gehen vor (drei Ebenen, JB 23.07.).
-    '<div class="optrow"><span>Wiedergabe-Standard</span><button class="btn mini" onclick="wgGlobalDialog()" '+
+    '<div class="optrow nur-pc"><span>Wiedergabe-Standard</span><button class="btn mini" onclick="wgGlobalDialog()" '+
       'title="Untertitel/Karaoke, Geschwindigkeit und (vorbereitet) Ton-Sprache als Standard für alle Titel — Playlist- und Titel-Regeln gehen vor">🎚 ändern…</button></div>'+
     '<div class="optrow"><span>Player-Tasten</span><button class="btn mini" onclick="hotkeyEditor()" '+
       'title="Tastenkürzel des Players selbst belegen — ? zeigt die Legende mit der aktuellen Belegung">⌨ Hotkeys…</button></div>'+
@@ -2372,14 +2374,14 @@ function optionenToggle(ev){
     // Build 127: Die Link-Umschalter sind wieder raus — ohne „immer so"-Haken
     // gibt es nichts umzustellen, und ein Schalter für etwas, das immer
     // gefragt wird, wäre ein Knopf ohne Aufgabe (JB: wenige Knöpfe).
-    '<div class="optrow"><span>Alle Einstellungen</span><button class="btn mini" onclick="einstellungenOeffnen()">⚙ Öffnen</button></div>'+
+    '<div class="optrow nur-pc"><span>Alle Einstellungen</span><button class="btn mini" onclick="einstellungenOeffnen()">⚙ Öffnen</button></div>'+
     // JB 05.08.: Fernsehmodus auch HIER — er betrifft den Player, also gehört
     // er zusätzlich in dessen Optionen (Ansicht-Menü hat ihn ebenfalls, oben).
     '<div class="optrow"><span>📺 Fernsehmodus</span><button class="btn mini" onclick="fernsehModus()">Start</button></div>'+
-    '<div class="optrow"><span>📱 Fernsteuerung</span><button class="btn mini" id="fernbtn" onclick="fernToggle()">…</button></div>'+
+    '<div class="optrow nur-pc"><span>📱 Fernsteuerung</span><button class="btn mini" id="fernbtn" onclick="fernToggle()">…</button></div>'+
     // Teilprojekt 3: Geräte koppeln (QR/Code) + freigeben/trennen — nur am PC.
-    '<div class="optrow"><span>📺 Geräte (TV/Handy)</span><button class="btn mini" onclick="geraeteDialog()">Koppeln…</button></div>'+
-    '<div id="ferninfo" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
+    '<div class="optrow nur-pc"><span>📺 Geräte (TV/Handy)</span><button class="btn mini" onclick="geraeteDialog()">Koppeln…</button></div>'+
+    '<div id="ferninfo" class="nur-pc" style="font-size:11px;color:#8a7d74;padding:0 8px 6px"></div>';
   document.body.appendChild(m);
   const sel=m.querySelector('#opt_fehler'); if(sel)sel.value=fmin;
   const ar=m.querySelector('#opt_ar');
@@ -2427,8 +2429,9 @@ function dlboxRender(){
   }
   if(tabs)tabs.style.display=''; body.style.display=''; if(cm)cm.innerHTML='';
   document.querySelectorAll('#dlbox-tabs .dlbox-tab').forEach(t=>t.classList.toggle('an',t.dataset.dlt===dlboxAktiv));
+  if(NUR_FERN&&dlboxAktiv==='abos')dlboxAktiv='queue';   // Abos verwaltet nur der PC
   const act=document.getElementById('dlbox-action'), a=DLACTION[dlboxAktiv];   // Aktion oben in der Reiter-Leiste
-  if(act&&a){act.textContent=a[0]; act.setAttribute('onclick',a[1]); act.style.display='';}
+  if(act&&a&&!(NUR_FERN&&(dlboxAktiv==='queue'||dlboxAktiv==='abos'))){act.textContent=a[0]; act.setAttribute('onclick',a[1]); act.style.display='';}
   else if(act)act.style.display='none';
   const stash=document.getElementById('stash');
   DLV.forEach(v=>{if(v!==dlboxAktiv){const n=document.getElementById('view-'+v); if(n&&n.parentNode===body)stash.appendChild(n);}});
@@ -3408,6 +3411,46 @@ function apiStatus(ok){
   try{fernInfoMalen();}catch(e){}
 }
 
+/* Gekoppelte Geräte (JB-Entscheid 7a Punkt 1, 25.09.2026): Die volle
+   Oberfläche läuft auch auf einem Fernseher oder Handy im WLAN; der Zugang
+   reist als HttpOnly-Cookie mit jedem Aufruf (vorher bekam dort jeder Aufruf
+   403, Gesamtprüfung F9). /api/status meldet „lokal“. Auf einem Gerät im WLAN
+   ist ausgeblendet, was nur am PC geht (Einstellungen, Löschen, Pfade, Tags,
+   Clips, Abos, Playlists ändern); der Server sperrt es ohnehin (LAN_ERLAUBT).
+   Elemente tragen die Klasse „nur-pc“, Menü-Einträge markiert nurPc(). */
+let NUR_FERN=false;
+function fernModusSetzen(lokal){
+  // Ohne das Feld (ein noch laufender Server von vor dem 25.09. lädt diese
+  // Seite schon heiß nach) bleibt alles, wie es ist: die PC-Seite bleibt PC.
+  if(lokal!==true&&lokal!==false)return;
+  const fern=(lokal===false);
+  if(fern===NUR_FERN)return;
+  NUR_FERN=fern;
+  if(document.body)document.body.classList.toggle('fern',fern);
+}
+function nurPc(eintrag){eintrag.nurPc=true; return eintrag;}
+function menuFuerGeraet(eintraege){return NUR_FERN?(eintraege||[]).filter(e=>!(e&&e.nurPc)):eintraege;}
+/* Was trotzdem abgewiesen wird (403 mit nur_pc), meldet sich EINMAL je Weg,
+   statt still nichts zu tun. */
+const _nurPcGemeldet=new Set();
+function fetchHuelleSetzen(){
+  const roh=globalThis.fetch; if(!roh||roh._nurPc)return;
+  const huelle=async function(...a){
+    const r=await roh.apply(this,a);
+    if(r&&r.status===403&&NUR_FERN){
+      const weg=String((a[0]&&a[0].url)||a[0]||'').split('?')[0];
+      if(!_nurPcGemeldet.has(weg)){
+        _nurPcGemeldet.add(weg);
+        r.clone().json().then(j=>{if(j&&j.nur_pc)toast('🔒 '+(j.fehler||'Nur am PC möglich.'));
+          else _nurPcGemeldet.delete(weg);}).catch(()=>_nurPcGemeldet.delete(weg));
+      }
+    }
+    return r;
+  };
+  huelle._nurPc=true; globalThis.fetch=huelle;
+}
+fetchHuelleSetzen();
+
 let cfgInit=false;
 function configFuellen(){
   // cfgInit erst nach Erfolg (F9): ein Fehler mitten im Füllen sperrte das
@@ -3443,6 +3486,7 @@ async function laden(){
     const r=await fetch('/api/status');
     if(!r.ok)throw new Error('HTTP '+r.status);        // F9: eine Fehlerantwort (etwa 403) wird nie zum Stand
     daten=await r.json();
+    fernModusSetzen(daten.lokal);                      // Gerät im WLAN? (7a Punkt 1)
     apiStatus(true); configFuellen(); malen();
     remoteAusfuehren(daten.remote);                    // Befehle vom Handy ausführen
     nachschubMelden(daten.addon_nachschub);            // Addon-Vormerkungen (v1.2.0)
@@ -3612,6 +3656,7 @@ function einstellungenModalInit(){
 }
 function einstellungenOeffnen(){
   const alt=document.getElementById('optionen'); if(alt)alt.remove();
+  if(NUR_FERN){toast('⚙ Die Einstellungen gibt es nur am PC.'); return;}
   einstellungenModalInit();
   const m=document.getElementById('settingsmodal'); if(m)m.style.display='flex';
 }
@@ -6755,13 +6800,13 @@ function libItemMenu(ev,id){
   if(x.vorhanden)eintraege.push(['⏭ Als Nächstes abspielen', ()=>queueAlsNaechstes(id)]);
   if(x.vorhanden)eintraege.push(['➕ Ans Ende der Warteschlange', ()=>queueAnsEnde(id)]);
   const nAus=(libAuswahl&&libAuswahl.has&&libAuswahl.has(id))?libAuswahl.size:0;
-  eintraege.push([`＋ Zu Playlist…${nAus>1?' ('+nAus+')':''}`, (m)=>plAddListe(m,id), 'bleib']);
+  eintraege.push(nurPc([`＋ Zu Playlist…${nAus>1?' ('+nAus+')':''}`, (m)=>plAddListe(m,id), 'bleib']));
   // JB 07.08.: „Eventuell auch einen knopf im rechtsklick menü für alles
   // anwählen?" — wählt die GEFILTERTE Sicht (wie Strg+A).
   eintraege.push(['☑ Alles auswählen (Strg+A)', ()=>libAllesWaehlen()]);
-  if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(id,'ordner')]);
+  if(x.vorhanden)eintraege.push(nurPc(['📁 Im Ordner zeigen', ()=>biblio(id,'ordner')]));
   if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
-  if(x.vorhanden)eintraege.push(['✂ Ausschnitt schneiden…', ()=>clipDialog(id)]);
+  if(x.vorhanden)eintraege.push(nurPc(['✂ Ausschnitt schneiden…', ()=>clipDialog(id)]));
   // Build 144k (JB: „Rechtsklick auf den song = welcher der ausschnitte ist
   // der favorit?"): Die Ausschnitte dieses Songs wohnen HIER, nicht als
   // eigene Kacheln. ⭐ markiert den Favoriten; der zählt allein im Zufall.
@@ -6769,25 +6814,26 @@ function libItemMenu(ev,id){
   // wählen, welcher der Favorit ist — Hauptsong oder Ausschnitt.
   if(x.hat_geschwister){
     const clips=gruppeVon(id).filter(c=>c.clip).length;
-    eintraege.push(['✂ Ausschnitte ('+clips+')', (m)=>gruppeListe(m,id), 'bleib']);
+    eintraege.push(nurPc(['✂ Ausschnitte ('+clips+')', (m)=>gruppeListe(m,id), 'bleib']));
   }
-  eintraege.push([x.archiviert?'↩ Aus dem Archiv holen':'🗄 Ins Archiv legen', ()=>biblio(id, x.archiviert?'entarchiv':'archiv')]);
-  eintraege.push([x.blacklist?'✓ Für Meistgespielt zulassen':'🚫 Von Meistgespielt ausschließen', ()=>biblio(id, x.blacklist?'unblacklist':'blacklist')]);
-  if(libPlaylistView)eintraege.push(['✖ Aus dieser Playlist entfernen', ()=>plRemove(id)]);
+  eintraege.push(nurPc([x.archiviert?'↩ Aus dem Archiv holen':'🗄 Ins Archiv legen', ()=>biblio(id, x.archiviert?'entarchiv':'archiv')]));
+  eintraege.push(nurPc([x.blacklist?'✓ Für Meistgespielt zulassen':'🚫 Von Meistgespielt ausschließen', ()=>biblio(id, x.blacklist?'unblacklist':'blacklist')]));
+  if(libPlaylistView)eintraege.push(nurPc(['✖ Aus dieser Playlist entfernen', ()=>plRemove(id)]));
   // Etappe C (Spec Punkt 5): Wiedergabe-Regeln je Titel — ist der Titel Teil
   // einer Mehrfach-Auswahl, reist die GANZE Auswahl mit (Explorer-Muster,
   // dieselbe Regel wie beim Ziehen) = JBs „Eigenschaften setzen" in Masse.
   const wgKeys=(libAuswahl.has(id)&&libAuswahl.size>1)?[...libAuswahl]:[id];
-  eintraege.push(['🎚 Wiedergabe…'+(wgKeys.length>1?' ('+wgKeys.length+' Titel)':''),
-    ()=>wiedergabeDialog({keys:wgKeys}, wgKeys.length>1?wgKeys.length+' Titel':(x.titel||'Titel'))]);
+  eintraege.push(nurPc(['🎚 Wiedergabe…'+(wgKeys.length>1?' ('+wgKeys.length+' Titel)':''),
+    ()=>wiedergabeDialog({keys:wgKeys}, wgKeys.length>1?wgKeys.length+' Titel':(x.titel||'Titel'))]));
   eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(id)]);
-  eintraege.push(['🗑 In den Papierkorb', ()=>delEinzeln(id)]);
+  eintraege.push(nurPc(['🗑 In den Papierkorb', ()=>delEinzeln(id)]));
+  const sicht=menuFuerGeraet(eintraege);               // Gerät im WLAN: ohne nur-PC-Einträge
   const m=document.createElement('div'); m.className='itemmenu';
-  m.innerHTML=eintraege.map((e,i)=>`<button data-i="${i}">${e[0]}</button>`).join('');
+  m.innerHTML=sicht.map((e,i)=>`<button data-i="${i}">${e[0]}</button>`).join('');
   document.body.appendChild(m);
   popoverBei(m, ev.currentTarget.getBoundingClientRect());
   m.querySelectorAll('button').forEach(b=>b.onclick=(e2)=>{
-    e2.stopPropagation(); const ent=eintraege[+b.dataset.i];
+    e2.stopPropagation(); const ent=sicht[+b.dataset.i];
     if(ent[2]==='bleib'){ent[1](m); return;}          // Untermenü: Inhalt tauschen, offen bleiben
     ent[1](); m.remove();
   });
@@ -6911,6 +6957,7 @@ function ziehTooltip(ev,id){
 function kontextMenuBauen(pos, eintraege){
   // ⋯-Knöpfe (kein Rechtsklick): 2. Klick schließt statt neu zu öffnen.
   if(pos.clientX===undefined&&pos.currentTarget&&menuGeradeZu(pos.currentTarget))return;
+  eintraege=menuFuerGeraet(eintraege);                 // Gerät im WLAN: ohne nur-PC-Einträge
   document.querySelectorAll('.itemmenu').forEach(m=>m.remove());
   const m=document.createElement('div'); m.className='itemmenu';
   m.innerHTML=eintraege.map((e,i)=>e[2]==='sub'
@@ -6958,6 +7005,7 @@ function kontextMenuBauen(pos, eintraege){
 /* Füllt ein Menü-Element mit einer Auswahl-Liste: Haken = aktiv, ab 9 Einträgen
    erscheint ein Suchfeld (JB-Frage Playlists: kostet nichts, kommt nur bei Bedarf). */
 function kmFuellen(f,titel,optionen,fertig){           // optionen: [Label, aktiv?, fn]
+  optionen=menuFuerGeraet(optionen);
   const suche=optionen.length>8?'<input class="km-such" placeholder="Suchen…">':'';
   f.innerHTML='<div class="sm-titel">'+titel+'</div>'+suche+'<div class="km-sub">'+
     optionen.map((o,i)=>`<button data-i="${i}"><span class="km-check"${o[1]?'':' style="visibility:hidden"'}>✓</span>${esc(o[0])}</button>`).join('')+'</div>';
@@ -6983,7 +7031,7 @@ function playerKontext(ev){
   eintraege.push(['⏭ Nächster Titel', playerNext]);
   if(plGeraet==='vlc')eintraege.push(['↻ VLC neu verbinden', vlcNeustart]);
   // Untermenüs klappen wie in Windows RECHTS aus (Hover oder Klick), Haken = aktiv
-  eintraege.push(['＋ Zu Playlist', ()=>plOptionen(k), 'sub']);
+  eintraege.push(nurPc(['＋ Zu Playlist', ()=>plOptionen(k), 'sub']));
   eintraege.push(['🎶 Warteschlange', queueWerkzeugListe, 'sub']);
   eintraege.push(['📊 Visualizer', ()=>VIZMODES.map(v=>[v[2], v[0]===vizMode, ()=>{vizMode=v[0];
       try{localStorage.setItem('ytdl_viz',vizMode);}catch(e){} vizModeRender();}]), 'sub']);
@@ -6996,14 +7044,14 @@ function playerKontext(ev){
     return opt;}, 'sub']);
   eintraege.push(['🎚 Equalizer…', ()=>eqPopover({currentTarget:{getBoundingClientRect:
     ()=>({left:pos.clientX,right:pos.clientX,top:pos.clientY,bottom:pos.clientY})}})]);
-  if(x.vorhanden)eintraege.push(['✂ Ausschnitt schneiden…', ()=>clipDialog(k)]);
-  if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(k,'ordner')]);
+  if(x.vorhanden)eintraege.push(nurPc(['✂ Ausschnitt schneiden…', ()=>clipDialog(k)]));
+  if(x.vorhanden)eintraege.push(nurPc(['📁 Im Ordner zeigen', ()=>biblio(k,'ordner')]));
   // Build 144i (JB 25.07.: „auf youtube öffnen mit rechtsklick geht nicht zum
   // moment wo man gerade ist"): playerYoutube() hängt &t=<Position>s an — genau
   // wie der Werkzeug-Knopf. Nur HIER, im Player-Rechtsklick, wo es eine
   // laufende Stelle gibt (in der Bibliothek gibt es keine).
   if(x.url)eintraege.push(['↗ Auf YouTube öffnen (an dieser Stelle)', playerYoutube]);
-  eintraege.push(['⧉ In VLC / extern öffnen', playerExtern]);
+  eintraege.push(nurPc(['⧉ In VLC / extern öffnen', playerExtern]));
   eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(k)]);
   kontextMenuBauen(ev, eintraege);
   return false;
@@ -10154,7 +10202,7 @@ function plItemKontext(ev,i){                          // Rechtsklick auf einen 
   if(i<playerState.queue.length-1)eintraege.push(['⏬ Nach unten', ()=>plqVerschieben(i,1)]);
   eintraege.push([i===playerState.idx?'✖ Entfernen (Titel endet)':'✖ Aus Playlist entfernen', ()=>plqRemove(i)]);
   eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(k)]);
-  if(x.vorhanden)eintraege.push(['📁 Im Ordner zeigen', ()=>biblio(k,'ordner')]);
+  if(x.vorhanden)eintraege.push(nurPc(['📁 Im Ordner zeigen', ()=>biblio(k,'ordner')]));
   if(x.url)eintraege.push(['↗ Auf YouTube öffnen', ()=>window.open(x.url,'_blank','noreferrer')]);
   kontextMenuBauen(ev, eintraege);
   return false;
@@ -10237,7 +10285,7 @@ function queueLeeren(){
   toast('Warteschlange geleert.');
 }
 function queueWerkzeugListe(){                          // gemeinsame Liste [Label, aktiv?, fn] für Flyout + ⋯-Menü
-  return [['💾 Als Playlist speichern…', false, queueAlsPlaylist],
+  return [nurPc(['💾 Als Playlist speichern…', false, queueAlsPlaylist]),
           ['↕ Nach Titel sortieren', false, ()=>queueSortieren('titel')],
           ['↕ Nach Dauer sortieren', false, ()=>queueSortieren('dauer')],
           ['↕ Reihenfolge umkehren', false, queueUmkehren],
@@ -10246,7 +10294,7 @@ function queueWerkzeugListe(){                          // gemeinsame Liste [Lab
 }
 function plqWerkzeuge(ev){                              // ⋯-Knopf im Playlist-Fenster
   ev.stopPropagation();
-  kontextMenuBauen(ev, queueWerkzeugListe().map(o=>[o[0], o[2]]));
+  kontextMenuBauen(ev, queueWerkzeugListe().map(o=>Object.assign([o[0], o[2]],{nurPc:o.nurPc})));
 }
 function plWerkzeugeImPlayer(ev){
   /* Build 137 (JB Punkt 4): derselbe Werkzeugkasten im EINGEBAUTEN Player.
