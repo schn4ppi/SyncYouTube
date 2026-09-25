@@ -1,5 +1,12 @@
 # Start-Prompt für den nächsten SyncYouTube-Chat (Stand 25.09.2026, nach der Gesamtprüfung)
 
+> **NACHTRAG 25.09.2026 (Nacht) — Struktur-Runde 4 fertig, in main und als v.1.2.8 veröffentlicht.** Gruppe 9
+> (data-Attribute in allen Handlern samt Waechter, tote CSS samt Waechter, gesperrte Datei wird nie mit der
+> Vorgabe ueberschrieben) ist gebaut; der Gegenpruefer der Gruppe 9 wurde wegen Kontingent NICHT gefahren,
+> stattdessen eigene Abnahme (1555 Tests, ruff, Live-Pruefung: Oberflaeche, Kontextmenue, keine
+> Konsolenfehler). Bekannte Altlast: POST /api/umbenennen antwortet doppelt (xfail strict in
+> test_routen_antwort.py). Naechster Schritt: Firewall-Freigabe nach dem Plan unten.
+>
 > **NACHTRAG 25.09.2026 (spät) — Struktur-Runde 4 angehalten (Kontingent), Firewall-Knopf entschieden.**
 > - **Runde 4 (Struktur, verhaltensgleich)** steht im Zweig `gesamtpruefung` (auf GitHub, NICHT in main):
 >   `links.py` (Y2), `musik_einstufung.py` (Y3), Routentabelle `ROUTEN` (Y7) samt Nacharbeit und
