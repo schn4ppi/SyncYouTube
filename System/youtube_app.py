@@ -20,6 +20,8 @@ import glob
 import hashlib
 import hmac
 import json
+import logging
+import logging.handlers
 import math
 import mimetypes
 import os
@@ -3361,9 +3363,9 @@ def _smtc_titel(key):
 
 
 def _smtc_log(text):
-    """Konsole + dauerhafter Fehlerkanal (yt_fehler.jsonl) — unter pythonw
-    gibt es keine Konsole. Die Brücke meldet jeden Text nur einmal."""
-    _sag("Windows-Medienanmeldung: " + text)
+    """Konsole, Protokoll (Stufe WARNING) und dauerhafter Fehlerkanal
+    (yt_fehler.jsonl). Die Brücke meldet jeden Text nur einmal."""
+    _sag("Windows-Medienanmeldung: " + text, logging.WARNING)
     fehler_merken("", text, "smtc")
 
 
@@ -6558,7 +6560,7 @@ def _q_speichern_im_worker():
     try:
         Q.speichern()
     except Exception as e:                           # noqa: BLE001 — Worker darf NIE sterben
-        _sag("Warteschlange nicht gespeichert: " + _fehltext(e))
+        _sag("Warteschlange nicht gespeichert: " + _fehltext(e), logging.WARNING)
 
 
 def worker_schleife():
@@ -6825,7 +6827,7 @@ def _selbst_neustart():
             os.execv(sys.executable, [sys.executable] + sys.argv)
     except OSError as e:
         globals()["_neustart_geplant"] = False
-        _sag(f"Selbst-Neustart nicht möglich: {e}")
+        _sag(f"Selbst-Neustart nicht möglich: {e}", logging.WARNING)
 
 
 def _neustart_pruefen():
@@ -6959,7 +6961,7 @@ def ticker_schleife():
             try:
                 aufgabe()
             except Exception as e:                    # noqa: BLE001 — Takt lebt weiter
-                _sag(f"Ticker-Aufgabe {name}: {_fehltext(e)}")
+                _sag(f"Ticker-Aufgabe {name}: {_fehltext(e)}", logging.WARNING)
 
 
 # ---------------------------------------------------------------- HTTP-Server
@@ -8405,12 +8407,45 @@ def _worker_start(soll):
             _worker_faeden.append(f)
 
 
-def _sag(text):
-    """Konsolen-Ausgabe, die auch unter pythonw (kein stdout) nicht abstürzt."""
+# ---- Protokoll-Datei (Gesamtprüfung Gruppe 7, Plan Abschnitt 6 Punkt 1) ------
+# Unter pythonw (SyncYouTube.bat, Hülle) und in der exe gibt es keine Konsole:
+# _sag lief dort ins Leere, jeder Ticker-Fehler ging verloren. Jetzt schreibt
+# _sag zusätzlich in yt_protokoll.log im Datenverzeichnis, höchstens 1 MB, dazu
+# drei Vorgänger (.1 bis .3, das Älteste fällt weg). Eingerichtet in main(); beim
+# blossen Import (Tests, Werkzeuge) entsteht keine Datei.
+PROTOKOLL_LOG = os.path.join(DATEN_DIR, "yt_protokoll.log")
+PROTOKOLL_GROESSE = 1_000_000
+PROTOKOLL_VORGAENGER = 3
+_protokoll = logging.getLogger("SyncYouTube")
+_protokoll.setLevel(logging.INFO)
+_protokoll.propagate = False                        # nicht an den Wurzel-Logger (kein stderr-Rückfall)
+_protokoll.addHandler(logging.NullHandler())
+
+
+def protokoll_einrichten(pfad=None):
+    """Die Protokoll-Datei anhängen und den Handler liefern; ein früherer
+    Datei-Handler wird dabei ersetzt (nie doppelt schreiben)."""
+    for alt in [h for h in _protokoll.handlers if isinstance(h, logging.FileHandler)]:
+        _protokoll.removeHandler(alt)
+        alt.close()
+    handler = logging.handlers.RotatingFileHandler(
+        pfad or PROTOKOLL_LOG, maxBytes=PROTOKOLL_GROESSE, backupCount=PROTOKOLL_VORGAENGER,
+        encoding="utf-8", delay=True)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S"))
+    _protokoll.addHandler(handler)
+    return handler
+
+
+def _sag(text, stufe=logging.INFO):
+    """Konsole (wo es eine gibt, unter pythonw nicht) und Protokoll-Datei."""
     try:
         if sys.stdout is not None:
             print(text)
     except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        _protokoll.log(stufe, text)
+    except Exception:                                # noqa: BLE001 — Protokoll ist nie ein Grund zu scheitern
         pass
 
 
@@ -8531,13 +8566,14 @@ def _tray_icon(url):
 
 
 def _kennung_log(text):
-    """Konsole + dauerhafter Fehlerkanal (yt_fehler.jsonl) — unter pythonw gibt
-    es keine Konsole. windows_kennung meldet nur Probleme."""
-    _sag(text)
+    """Konsole, Protokoll (Stufe WARNING) und dauerhafter Fehlerkanal
+    (yt_fehler.jsonl). windows_kennung meldet nur Probleme."""
+    _sag(text, logging.WARNING)
     fehler_merken("", text, "kennung")
 
 
 def main():
+    protokoll_einrichten()                            # als Erstes: ab hier landet jede Meldung in der Datei
     # Windows-Kennung ZUERST, vor jedem Fenster (Microsoft: „before the application
     # presents any UI"). Ohne sie ordnet Windows den pythonw-Prozess der Verknüpfung
     # „IDLE (Python 3.14)" zu (Befund 23.09.). JB 24.09.2026: „Kennung + Startmenü-Eintrag".
@@ -8602,7 +8638,7 @@ def main():
         # und Anmeldung entstehen erst beim ersten Abspielen im VLC (lazy).
         _smtc_einrichten()
     except Exception as e:                           # noqa: BLE001 — nie den Start reißen
-        _sag(f"Windows-Medienanmeldung nicht eingerichtet: {e}")
+        _sag(f"Windows-Medienanmeldung nicht eingerichtet: {e}", logging.WARNING)
     _worker_start(_worker_soll())
     threading.Thread(target=ticker_schleife, daemon=True).start()
     threading.Thread(target=technik_backfill, daemon=True).start()   # Codecs für Alt-Dateien

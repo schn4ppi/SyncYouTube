@@ -74,3 +74,5 @@ __pycache__/
 *.json.defekt
 *.part
 *.vtt
+# 25.09.2026: Protokoll-Datei der App im Datenverzeichnis (+ Vorgänger .1 bis .3)
+yt_protokoll.log*
