@@ -19,6 +19,7 @@ for _pfad in (MODUL_DIR, TEST_DIR):
     if _pfad not in sys.path:
         sys.path.insert(0, _pfad)
 
+import links  # noqa: E402  (Kanal-Regel, seit Gesamtprüfung Y2 dort)
 import youtube_app as app  # noqa: E402
 from test_zugang_und_vertrauen import _anfrage, rechner  # noqa: E402,F401  (rechner: autouse)
 
@@ -155,10 +156,12 @@ def test_kanal_links_eine_regel_fuer_beide_leser():
 
 def test_kanal_links_regel_steht_an_einer_stelle(monkeypatch):
     """Die Regel stand zweimal wortgleich da (link_deuten und _kanal_url). Jetzt
-    gibt es sie einmal: Eine neue Unterseite gilt sofort für beide Leser."""
+    gibt es sie einmal: Eine neue Unterseite gilt sofort für beide Leser.
+    Ersetzt wird im Heimatmodul `links` (Gesamtprüfung Y2): ein Ersatz an
+    app._KANAL_UNTERSEITEN träfe keinen der beiden Leser mehr."""
     url = "https://www.youtube.com/@kanal/community"
     assert app.link_deuten(url)["typ"] == "video"      # heute: keine bekannte Unterseite
-    monkeypatch.setattr(app, "_KANAL_UNTERSEITEN", app._KANAL_UNTERSEITEN + ("/community",))
+    monkeypatch.setattr(links, "_KANAL_UNTERSEITEN", links._KANAL_UNTERSEITEN + ("/community",))
     assert app.link_deuten(url) == {"typ": "kanal", "eindeutig": True, "frage": "", "optionen": []}
     assert app._kanal_url(url) == url
 

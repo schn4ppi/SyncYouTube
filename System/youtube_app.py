@@ -43,9 +43,17 @@ from urllib.parse import urlencode, urlparse, urlsplit, parse_qs, parse_qsl
 import cookie_kopie         # Firefox-Cookies samt WAL für yt-dlp (Lehre aus SyncFindus, 24.09.2026)
 import familie as fam       # gemeinsamer Kern: atomares Schreiben mit Wiederholung (F5)
 import geo
+import links                # reine Link-Deutung (Gesamtprüfung Y2); die App ruft links.X
 import medien_smtc          # Windows-Medienanmeldung des VLC-Motors (pywinrt erst bei Bedarf)
 import update
 import windows_kennung      # App-Kennung JBK.SyncYouTube + Startmenü-Eintrag (JB 24.09.2026)
+# Verweise für Aufrufer von außen (Tests, Werkzeuge): app.X bleibt erreichbar.
+# Die App selbst ruft links.X; ersetzt wird in Tests nur links.X.
+from links import (  # noqa: F401
+    YOUTUBE_HOSTS, _KANAL_UNTERSEITEN, _KANAL_WURZEL, _KEIN_LINK_ZEICHEN,
+    _ist_mix, _kanal_url, _liste_zuschneiden, _mix_limit,
+    _plausible_id, _video_id, ist_einzelvideo, ist_youtube_link,
+    link_deuten, link_zeilen)
 
 __version__ = "1.2.7"
 
@@ -836,102 +844,6 @@ def _in_unterordner(pfad, kategorie):
         return pfad
 
 
-def ist_einzelvideo(url):
-    """watch?v=…&list=… heißt: JB will DIESES Video, nicht die ganze Liste.
-    Nur reine Playlist-Links (/playlist?list=…) werden komplett übernommen."""
-    try:
-        p = urlparse(url)
-        qs = parse_qs(p.query)
-        return bool(qs.get("v")) or "/playlist" not in p.path
-    except ValueError:
-        return True
-
-
-# Kanal-Links, EINE Regel für link_deuten und _kanal_url (Gesamtprüfung Gruppe 7,
-# vorher wortgleich zweimal): Eine Unterseite ist eindeutig und bleibt, wie sie
-# ist; die blosse Kanal-Wurzel ist mehrdeutig (laden oder abonnieren?).
-_KANAL_UNTERSEITEN = ("/videos", "/streams", "/shorts", "/playlists", "/featured", "/live")
-_KANAL_WURZEL = re.compile(r"^/(@[^/]+|channel/[^/]+|c/[^/]+|user/[^/]+)$")
-
-
-def link_deuten(url):
-    """Was will JB mit diesem Link? (Build 126 — „ein Feld für alles")
-
-    Bisher gab es drei zu ähnliche Knöpfe: ⬇ Download, 📺 ganzer Kanal,
-    📡 Abonnieren. JBs Ziel: EIN Feld, Enter genügt, die App erkennt den Typ
-    selbst — und fragt NUR, wo die Absicht wirklich offen ist.
-
-    Wirklich offen ist genau zweierlei, alles andere ist ableitbar:
-      * ein blosser Kanal-Link — laden oder abonnieren?
-      * watch?v=…&list=… — dieses eine Video oder die ganze Liste?
-    Mixe (list=RD…) haben ihre eigene Anzahl-Frage (Build 98), die bleibt.
-
-    Rein aus der URL, ohne Netz: schnell, testbar, funktioniert offline.
-    Rückgabe: {typ, eindeutig, frage, optionen[{id,text,standard}]}
-    """
-    roh = (url or "").strip()
-    if not roh.lower().startswith(("http://", "https://")):
-        return {"typ": "unbekannt", "eindeutig": False, "frage": "", "optionen": []}
-    try:
-        p = urlparse(roh)
-        qs = parse_qs(p.query)
-    except ValueError:
-        return {"typ": "unbekannt", "eindeutig": False, "frage": "", "optionen": []}
-
-    eindeutig = {"eindeutig": True, "frage": "", "optionen": []}
-    host = (p.netloc or "").lower()
-    if not any(h in host for h in ("youtube.com", "youtu.be")):
-        return dict(typ="video", **eindeutig)         # fremde Seite: normaler Download
-
-    if _ist_mix(roh):                                 # endlos, eigene Anzahl-Frage
-        return dict(typ="mix", **eindeutig)
-
-    pfad = (p.path or "").rstrip("/")
-    low = pfad.lower()
-    if qs.get("v"):
-        if qs.get("list"):                            # MEHRDEUTIG: eines oder alle?
-            return {"typ": "video_in_playlist", "eindeutig": False,
-                    "frage": "Dieser Link zeigt ein Video AUS einer Playlist.",
-                    "optionen": [{"id": "eines", "text": "Nur dieses Video", "standard": True},
-                                 {"id": "alle", "text": "Die ganze Playlist", "standard": False}]}
-        return dict(typ="video", **eindeutig)
-    if "/playlist" in low:
-        return dict(typ="playlist", **eindeutig)
-    if "youtu.be" in host or low.startswith("/shorts/") or "/watch" in low:
-        return dict(typ="video", **eindeutig)
-    if low.endswith(_KANAL_UNTERSEITEN):
-        return dict(typ="kanal", **eindeutig)         # Unterseite = klar: laden
-    if _KANAL_WURZEL.match(pfad):
-        return {"typ": "kanal", "eindeutig": False,   # MEHRDEUTIG: laden oder abo?
-                "frage": "Das ist ein Kanal.",
-                "optionen": [{"id": "abo", "text": "Abonnieren (neue Folgen kommen von allein)",
-                              "standard": True},
-                             {"id": "laden", "text": "Alle Videos jetzt laden", "standard": False}]}
-    return dict(typ="video", **eindeutig)
-
-
-def _kanal_url(url):
-    """Kanal-Link auf die Video-Liste normalisieren, damit yt-dlp ALLE Videos
-    listet — ein blosses /@name liefert sonst nur die Kanal-Reiter (belegt:
-    /@MrBeast -> 2 Reiter, /@MrBeast/videos -> die Videos). Playlist-/Watch-/
-    schon-Unterseiten-Links bleiben unveraendert."""
-    try:
-        p = urlparse(url)
-    except ValueError:
-        return url
-    if "youtube.com" not in (p.netloc or "").lower():
-        return url
-    path = (p.path or "").rstrip("/")
-    low = path.lower()
-    if parse_qs(p.query).get("v") or "/playlist" in low or "/watch" in low:
-        return url
-    if low.endswith(_KANAL_UNTERSEITEN):
-        return url
-    if _KANAL_WURZEL.match(path):
-        return "https://www.youtube.com" + path + "/videos"
-    return url
-
-
 # ---------------------------------------------------------------- yt-dlp
 
 def _ydl_basis_opts(mit_cookies=True):
@@ -1089,23 +1001,6 @@ def _ist_untertitel_fehler(exc):
                                 or "unable to download" in t)
 
 
-def _liste_zuschneiden(eintraege, menge, richtung="neu"):
-    """Auswahl aus einer aufgelösten Liste (Build 127, JB-Regler).
-
-    yt-dlp liefert Kanäle und Playlists NEUESTE ZUERST. „Die 20 ältesten"
-    heißt also: vom anderen Ende nehmen. Danach wird chronologisch geladen
-    (älteste zuerst) — dieselbe Logik wie beim Abo-Backkatalog, damit eine
-    Serie in der Reihenfolge ankommt, in der man sie ansieht.
-    Ohne Menge bleibt alles unangetastet (Verhalten wie bisher).
-    """
-    liste = [e for e in (eintraege or []) if e]
-    if not menge or menge <= 0:
-        return liste
-    if richtung == "alt":
-        return list(reversed(liste))[:menge]
-    return liste[:menge]
-
-
 # Höchstens zwei yt-dlp-Auflösungen gleichzeitig (Gesamtprüfung F2). Je Folge
 # oder Link startet ein eigener Faden, der Knopf „Alle (N)“ schickt bis zu 5.000
 # auf einmal — ungebremst ist das genau der Abruf-Sturm, den YouTube mit 429 und
@@ -1210,14 +1105,14 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
         # die 1..500-Klemme (_mix_limit), sonst hebelte ein getipptes bis=99999
         # genau den Deckel aus, den _mix_limit gegen endlose Listen aufstellt.
         # Ohne bis, aber mit von: 50 Stück ab von (statt Start>Ende=leer).
-        if ganze_liste and _ist_mix(url):
-            opts["playlistend"] = _mix_limit(bis or ((von + 49) if von else None) or limit)
+        if ganze_liste and links._ist_mix(url):
+            opts["playlistend"] = links._mix_limit(bis or ((von + 49) if von else None) or limit)
         elif bis:
             opts["playlistend"] = bis
         if von:
             opts["playliststart"] = von
         opts.update({"extract_flat": "in_playlist", "skip_download": True,
-                     "noplaylist": (not ganze_liste) and ist_einzelvideo(url)})
+                     "noplaylist": (not ganze_liste) and links.ist_einzelvideo(url)})
         info, fehler = _aufloesen_abruf(platzhalter, url, opts)
     finally:
         with Q.lock:
@@ -1270,7 +1165,7 @@ def _aufloesen_einreihen(platzhalter, info, url, qualitaet, ganze_liste, abo, zi
     eintraege = info.get("entries") if info.get("_type") == "playlist" else None
     if eintraege is not None:
         kandidaten = []
-        for e in _liste_zuschneiden(eintraege, menge, richtung):   # Build 127: JB-Regler
+        for e in links._liste_zuschneiden(eintraege, menge, richtung):   # Build 127: JB-Regler
             v_url = e.get("url") or f"https://www.youtube.com/watch?v={e.get('id')}"
             kandidaten.append((e, v_url, schon_geladen(v_url, qualitaet)))
     else:
@@ -1326,11 +1221,6 @@ def _aufloesen_einreihen(platzhalter, info, url, qualitaet, ganze_liste, abo, zi
         _liste_vermerken(url, ganze_liste, von, bis)
 
 
-def _video_id(url):
-    m = re.search(r"[?&]v=([\w-]{6,})", url) or re.search(r"youtu\.be/([\w-]{6,})", url)
-    return m.group(1) if m else url
-
-
 # ---- „Schon geladen"-Datenbank (JB-Regel: identischer Name + gleiche Größe
 # -> überspringen). Überlebt „Liste leeren" und App-Neustarts.
 
@@ -1376,7 +1266,7 @@ def _geladen_speichern():
 
 
 def _geladen_key(url, qualitaet):
-    return f"{_video_id(url)}|{qualitaet}"
+    return f"{links._video_id(url)}|{qualitaet}"
 
 
 def _kapitel_aus_info(info):
@@ -1446,17 +1336,6 @@ def _kat_aus_name(name):
     return "MP3" if n.endswith((".mp3", ".m4a", ".opus", ".ogg", ".flac", ".wav")) else "Video"
 
 
-def _plausible_id(vid):
-    """Sieht das nach einer echten YouTube-Id aus? Build 123 (JB-Fund:
-    „denke er verwechselt lokal… mit einem Link"): unsere EIGENEN Kunst-Ids
-    für Ordner-Funde („lokal-…") passten auf das Muster — importierte Dateien
-    bekamen dadurch eine erfundene YouTube-Adresse angehängt."""
-    vid = vid or ""
-    if vid.startswith("lokal-"):
-        return False
-    return bool(re.fullmatch(r"[\w-]{6,20}", vid))
-
-
 def _datei_index():
     """videoid -> Pfad aus EINEM Ordner-Durchlauf (inkl. Unterordner). So braucht
     die Bibliothek nicht pro Eintrag zu suchen (erkennt auch verschobene Dateien).
@@ -1516,8 +1395,8 @@ def bibliothek_liste():
             "vcodec": e.get("vcodec", ""), "acodec": e.get("acodec", ""),
             "abr": e.get("abr", 0), "asr": e.get("asr", 0), "hoehe": e.get("hoehe", 0),
             "groesse": e.get("groesse", 0), "name": e.get("name", ""),
-            "thumb": f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg" if _plausible_id(vid) else "",
-            "url": e.get("url") or (f"https://www.youtube.com/watch?v={vid}" if _plausible_id(vid) else ""),
+            "thumb": f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg" if links._plausible_id(vid) else "",
+            "url": e.get("url") or (f"https://www.youtube.com/watch?v={vid}" if links._plausible_id(vid) else ""),
             "vorhanden": bool(pfad), "archiviert": bool(e.get("archiviert")),
             "plays": e.get("plays", 0), "blacklist": bool(e.get("blacklist")),
             "last_play": e.get("last_play", 0), "ts": e.get("ts", 0),
@@ -2943,7 +2822,7 @@ def untertitel_nachladen(key):
     if not (e and pfad):
         return
     vid = key.split("|")[0]
-    url = e.get("url") or (f"https://www.youtube.com/watch?v={vid}" if _plausible_id(vid) else "")
+    url = e.get("url") or (f"https://www.youtube.com/watch?v={vid}" if links._plausible_id(vid) else "")
     ordner = untertitel_ordner()
     if not (url and _id_datei(ordner, vid, "")):      # Ziel nur mit schlichter Id (S4)
         return
@@ -3955,7 +3834,7 @@ def _tag_lesen(pfad, schluessel):
 def _id_tag_schreiben(pfad, vid):
     """Video-Id als Tag IN die Datei (Bibliothek 2.0 Schicht 2, Sicherheitsnetz
     fürs Kopieren auf andere Geräte)."""
-    if not vid or not _plausible_id(vid):
+    if not vid or not links._plausible_id(vid):
         return False
     return _tag_schreiben(pfad, _TAG_ID, vid)
 
@@ -3967,7 +3846,7 @@ def _id_tag_lesen(pfad):
     Datei wird sonst ungeprüft zum Bibliotheks-Schlüssel. Der Schreiber
     (`_id_tag_schreiben`) prüft dasselbe."""
     vid = _tag_lesen(pfad, _TAG_ID)
-    return vid if _plausible_id(vid) else ""
+    return vid if links._plausible_id(vid) else ""
 
 
 _AUFFAELLIG = re.compile(r"['\"<>`\\\x00-\x1f]")
@@ -4672,34 +4551,17 @@ def _abo_baseline(url, limit=60):
     return url, ids, titel, info
 
 
-def _ist_mix(url):
-    """YouTube-Mix/Radio? (list=RD…/RDMM/RDCLAK — dynamisch, endlos, an ein
-    Start-Video gebunden; UL = alter Uploads-Mix)."""
-    return bool(re.search(r"[?&]list=(RD|UL)", url or ""))
-
-
-def _mix_limit(wunsch):
-    """Wunsch-Anzahl fuer einen Mix: 1..500, sonst Default 50 (Build 98, JB:
-    einstellbar; „alle" gibt es bei Mixen bewusst NICHT — sie sind endlos und
-    nicht-deterministisch, JB mass 1877 vs 563 fuer denselben Mix)."""
-    try:
-        n = int(wunsch)
-    except (TypeError, ValueError):
-        return 50
-    return 50 if n <= 0 else min(n, 500)
-
-
 def kanal_info(url, limit=None):
     """Kanal/Playlist ohne Download aufloesen: Name + Videozahl fuer die
     Rueckfrage vor „ganzen Kanal laden". Kanal-Links werden auf /videos
     normalisiert; bis 5000 Videos (wie der Backkatalog-Deckel). Mixe werden
     nur bis zum Wunsch-Limit aufgeloest (schnell statt Endlos-Sanduhr) und
     als mix:true gemeldet."""
-    norm = _kanal_url((url or "").strip())
+    norm = links._kanal_url((url or "").strip())
     if not norm.lower().startswith(("http://", "https://")):
         return {"fehler": "Bitte einen Kanal- oder Playlist-Link einfuegen."}
-    mix = _ist_mix(norm)
-    deckel = _mix_limit(limit) if mix else 5000
+    mix = links._ist_mix(norm)
+    deckel = links._mix_limit(limit) if mix else 5000
     try:
         norm, ids, titel, info = _abo_baseline(norm, limit=deckel)
     except Exception:                                    # noqa: BLE001 — Nutzer sieht Text
@@ -4745,7 +4607,7 @@ def entdecken(playlist_id, seeds=3, je_seed=25):
     else:
         quelle, name = "bibliothek", "deine Bibliothek"
         kand = [(k.split("|", 1)[0], e) for k, e in _geladen_schnappschuss()
-                if _plausible_id(k.split("|", 1)[0]) and not e.get("importiert")]
+                if links._plausible_id(k.split("|", 1)[0]) and not e.get("importiert")]
         if not kand:
             return {"fehler": "Keine YouTube-Titel in der Bibliothek gefunden."}
         # DREI Toepfe (Build 107, JB: „was ich oft hoere muss nichts aussagen —
@@ -4897,7 +4759,7 @@ _listen_log = _json_laden(LISTEN_LOG_PFAD, {})       # list_id -> ts
 
 
 def _liste_vermerken(url, ganze_liste, von, bis):
-    if not ganze_liste or von or bis or _ist_mix(url):
+    if not ganze_liste or von or bis or links._ist_mix(url):
         return
     m = re.search(r"[?&]list=([\w-]+)", url)
     if m:
@@ -5015,7 +4877,7 @@ def abo_aktion(daten):
         url = (str(daten.get("url") or "")).strip()
         if not url.lower().startswith(("http://", "https://")):
             return {"fehler": "Bitte einen Kanal- oder Playlist-Link angeben."}
-        url = _kanal_url(url)                         # blosser Kanal-Link liefert nur die REITER (Build 91)
+        url = links._kanal_url(url)                         # blosser Kanal-Link liefert nur die REITER (Build 91)
         qual = daten.get("qualitaet") if daten.get("qualitaet") in QUALITAETEN else CFG["standard_qualitaet"]
         url, ids, titel, info = _abo_baseline(url)    # Baseline merken, NICHT laden
         abo = {"id": uuid.uuid4().hex[:8], "url": url, "name": titel or url,
@@ -5103,7 +4965,7 @@ def _abo_heilen(abo):
     bekam (`basis_offen`, Nacharbeit F4); ein leerer Kanal zählt dort als
     Antwort."""
     url = str(abo.get("url") or "")
-    norm = _kanal_url(url)
+    norm = links._kanal_url(url)
     offen = bool(abo.get("basis_offen"))
     reiter_link = norm != url                         # Alt-Abo: sein Folgen-Cache zeigte Reiter
     if not (reiter_link or offen):
@@ -5342,7 +5204,7 @@ def _enrich_eintrag(key, e):
     """Fehlende Metadaten (Titel/Kanal/Dauer/Datum) für einen Alt-Eintrag per
     yt-dlp nachladen (nur Metadaten, kein Download)."""
     vid = key.split("|")[0]
-    if not _plausible_id(vid):
+    if not links._plausible_id(vid):
         return False
     opts = _ydl_basis_opts()
     opts.update({"skip_download": True, "noplaylist": True})
@@ -5434,8 +5296,6 @@ def metadaten_backfill():
     finally:
         _metadaten_lauf.fertig()
     return geheilt
-
-
 
 
 def technik_backfill():
@@ -5865,7 +5725,7 @@ def ordner_importieren():
             # Dubletten-Wurzel (JB 14.07.): gibt es die Video-ID schon unter einem
             # ANDEREN Qualitäts-Schlüssel (z.B. mit totem Pfad), gehört die Datei
             # dem Heiler (pfade_heilen) — sonst entstehen zwei Zeilen je Datei.
-            if _plausible_id(vid) and any(k.split("|")[0] == vid for k in _geladen_schluessel()):
+            if links._plausible_id(vid) and any(k.split("|")[0] == vid for k in _geladen_schluessel()):
                 continue
             try:
                 groesse = os.path.getsize(pfad)
@@ -5875,7 +5735,7 @@ def ordner_importieren():
                 "name": fn, "groesse": groesse, "pfad": pfad,
                 "kategorie": "MP3" if audio else _kat_aus_name(fn),
                 "titel": _titel_aus_name(fn),
-                "url": (f"https://www.youtube.com/watch?v={vid}" if _plausible_id(vid) else ""),
+                "url": (f"https://www.youtube.com/watch?v={vid}" if links._plausible_id(vid) else ""),
                 "qualitaet": "audio" if audio else "lokal",
                 "importiert": True, "ts": time.time(),
                 "fp": _datei_fp(pfad)}               # Content-Ausweis (Bibliothek 2.0)
@@ -6063,7 +5923,7 @@ def _finde_datei(url, e):
     for k in (e.get("pfad"), os.path.join(ziel_ordner(), e.get("name") or "")):
         if k and os.path.isfile(k):
             return k
-    vid = _video_id(url)
+    vid = links._video_id(url)
     basis = ziel_ordner()
     muster = os.path.join(basis, "**", f"*[[]{glob.escape(vid)}[]]*")
     treffer = [p for p in glob.glob(muster, recursive=True)
@@ -6132,9 +5992,9 @@ def _als_uebersprungen(item, fundpfad):
 
 def _schon_da(url, qualitaet, ausser=None):
     """Gleiches Video in gleicher Qualität nur einmal — andere Qualität ist erlaubt."""
-    vid = _video_id(url)
+    vid = links._video_id(url)
     return any(it["id"] != ausser and it["qualitaet"] == qualitaet
-               and _video_id(it["url"]) == vid for it in Q.items)
+               and links._video_id(it["url"]) == vid for it in Q.items)
 
 
 def _fehltext(exc):
@@ -7157,53 +7017,10 @@ def _lan_action(daten):
     return None
 
 
-# Links aus dem WLAN (JB-Entscheid 7a Punkt 7, 25.09.2026; S12, S19): nur genau
-# EIN YouTube-Link. Der Host wird exakt verglichen, nie als Teilzeichenkette
-# (youtube.com.angreifer.de, …/?u=youtube.com). Ein Zeilenumbruch oder Leerraum
-# im Link hieße: mehrere Adressen in einem Feld — `_add` teilt an Zeilen. Vom PC
-# bleibt jeder http(s)-Link erlaubt, der nicht auf den PC selbst zeigt.
-# Abnahme 25.09.2026: Prüfer und Router zerlegen das Feld mit DERSELBEN Funktion
-# (`link_zeilen`). Vorher prüfte `_lan_add` das ganze Feld als einen Link, und
-# `_add` teilte mit `splitlines()` auch an U+2028, U+2029 und U+0085: ein
-# YouTube-Link mit angehängtem Trenner brachte einen zweiten, beliebigen Link
-# in die Warteschlange.
-YOUTUBE_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
-                           "youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com"})
-_KEIN_LINK_ZEICHEN = frozenset({"Zl", "Zp", "Cc", "Cf"})   # Trenner, Steuer- und Formatzeichen
-
-
-def link_zeilen(roh):
-    """Das Link-Feld von /api/add als Liste einzelner Links, genau so, wie
-    `_add` es einreiht (jede nicht leere Zeile, ohne Rand-Leerraum)."""
-    return [u.strip() for u in (roh or "").splitlines() if u.strip()]
-
-
-def ist_youtube_link(url):
-    """Genau ein http(s)-Link auf einen YouTube-Host (exakt), ohne Leerraum,
-    Zeilentrenner, Steuer- oder Formatzeichen, Backslash, Anmeldedaten oder
-    fremden Port."""
-    import unicodedata
-    if not isinstance(url, str) or not url:
-        return False
-    if any(ord(z) < 0x21 or z in "\\\x7f" or z.isspace()
-           or unicodedata.category(z) in _KEIN_LINK_ZEICHEN for z in url):
-        return False
-    try:
-        teile = urlsplit(url)
-        port = teile.port
-    except ValueError:
-        return False
-    if teile.scheme.lower() not in ("http", "https") or port not in (None, 80, 443):
-        return False
-    if teile.username is not None or teile.password is not None:
-        return False
-    return (teile.hostname or "").rstrip(".") in YOUTUBE_HOSTS
-
-
 def _lan_add(daten):
     roh = daten.get("urls")
-    links = link_zeilen(roh) if isinstance(roh, str) else []
-    if not (len(links) == 1 and ist_youtube_link(links[0])):
+    zeilen = links.link_zeilen(roh) if isinstance(roh, str) else []
+    if not (len(zeilen) == 1 and links.ist_youtube_link(zeilen[0])):
         return "Aus dem WLAN nur einzelne YouTube-Links (ein Link je Auftrag)."
     if daten.get("ziel_playlist"):
         return "Nur am PC: Titel in eine Playlist einreihen."
@@ -7211,7 +7028,7 @@ def _lan_add(daten):
 
 
 def _lan_kanal_info(daten):
-    if not ist_youtube_link(str(daten.get("url") or "").strip()):
+    if not links.ist_youtube_link(str(daten.get("url") or "").strip()):
         return "Aus dem WLAN nur YouTube-Links."
     return None
 
@@ -7283,7 +7100,7 @@ def zeigt_auf_diesen_rechner(host):
     host = (host or "").strip().strip("[]").lower().rstrip(".")
     if not host or host == "localhost" or host.endswith(".localhost"):
         return True
-    if host in YOUTUBE_HOSTS:
+    if host in links.YOUTUBE_HOSTS:
         return False
     eigene = _eigene_adressen()
     try:
@@ -8080,7 +7897,7 @@ class Handler(BaseHTTPRequestHandler):
             elif pfad == "/api/playlist_import":
                 return _antwort(self, 200, playlist_import_m3u(daten.get("name"), daten.get("m3u")))
             elif pfad == "/api/link_deuten":      # Build 126: „ein Feld für alles"
-                return _antwort(self, 200, link_deuten(daten.get("url") or ""))
+                return _antwort(self, 200, links.link_deuten(daten.get("url") or ""))
             elif pfad == "/api/abo":
                 return _antwort(self, 200, abo_aktion(daten))
             elif pfad == "/api/clip":
@@ -8180,7 +7997,7 @@ class Handler(BaseHTTPRequestHandler):
         von, bis = _ganzzahl("von"), _ganzzahl("bis")
         if von and bis and bis < von:
             von, bis = bis, von
-        urls = link_zeilen(daten.get("urls"))         # dieselbe Zerlegung wie im WLAN-Prüfer
+        urls = links.link_zeilen(daten.get("urls"))         # dieselbe Zerlegung wie im WLAN-Prüfer
         for url in urls:
             if not url.lower().startswith(("http://", "https://")):
                 continue
@@ -8398,7 +8215,7 @@ class Handler(BaseHTTPRequestHandler):
             if art == "neuladen":                    # verschobenen/gelöschten Titel neu holen
                 vid = key.split("|")[0]
                 url = e.get("url") or (f"https://www.youtube.com/watch?v={vid}"
-                                       if _plausible_id(vid) else "")
+                                       if links._plausible_id(vid) else "")
                 quali = e.get("qualitaet") or (key.split("|", 1)[1] if "|" in key else "beste")
                 if url:
                     threading.Thread(target=aufloesen, args=(url, quali), daemon=True).start()

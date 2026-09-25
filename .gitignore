@@ -48,6 +48,9 @@
 !System/fernbedienung.py
 !System/geo.py
 !System/vpn.py
+# 25.09.2026: Struktur-Runde der Gesamtprüfung (Abschnitt 4): Teile von
+# youtube_app.py in eigene Module (Y2 Links deuten).
+!System/links.py
 !System/tests/*.py
 !System/tools/quellstart_paket.py
 # 24.09.2026: Lizenztexte fremder Bestandteile, deren Paket keinen mitbringt

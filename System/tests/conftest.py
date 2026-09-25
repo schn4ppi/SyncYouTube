@@ -96,6 +96,15 @@ nicht. Kindprozesse sieht der Riegel nicht; für die deno-Aufrufe der Tests
 setzt die conftest DENO_NO_UPDATE_CHECK (sonst fragt deno einmal am Tag im
 Netz nach einer neuen Version).
 
+Verweise (Gesamtprüfung Y2 ff., 25.09.2026): Wandert Code aus youtube_app in
+ein eigenes Modul (links, …), bleibt `youtube_app.X` nur ein Verweis
+(`from links import …`), und die App ruft `links.X`. Ein Test, der den
+Verweis ersetzt, träfe keinen Aufrufer: er liefe still ins Echte. Darum muss
+am Ende jedes Tests jeder Verweis noch das Original sein; ersetzt wird
+`links.X`. Die Verweise stehen im Quelltext der App (VERWEISE), nicht in
+einer Handliste. `tests/test_struktur_module.py` prüft dazu die Quelltexte
+aller Tests (auch Ersatz mit eigenem Rückweg im finally) und der App.
+
 `tests/test_wachen.py` prüft die Wachen, `test_cookies_wal.py::test_i` die
 Firefox-Wache gegen die echte Suche.
 """
@@ -591,3 +600,44 @@ def _daten_wache(tmp_path, monkeypatch):
     _papierkorb_setzen()
     _netz_sperren_setzen()
     _wache_meldung()
+
+
+# ---------------------------------------------------------------- Verweise auf ausgelagerte Module (Y2 ff.)
+
+def _verweise_der_app():
+    """Name → Heimatmodul jedes Namens, den youtube_app aus einem EIGENEN Modul
+    (Datei in System\\) per `from M import …` bereitstellt. Im Quelltext der App
+    gefunden: ein neues ausgelagertes Modul ist ohne Nachtrag dabei."""
+    with open(youtube_app.__file__, encoding="utf-8") as f:
+        baum = ast.parse(f.read())
+    verweise = {}
+    for k in baum.body:
+        if (isinstance(k, ast.ImportFrom) and k.module and not k.level
+                and os.path.isfile(os.path.join(MODUL_DIR, k.module + ".py"))):
+            for a in k.names:
+                verweise[a.asname or a.name] = k.module
+    return verweise
+
+
+VERWEISE = _verweise_der_app()
+_VERWEIS_ORIGINAL = {n: getattr(youtube_app, n) for n in VERWEISE}
+
+
+def umgebogene_verweise():
+    """Namen, deren Verweis in youtube_app gerade nicht mehr das Original ist."""
+    return sorted(n for n, v in _VERWEIS_ORIGINAL.items() if getattr(youtube_app, n, None) is not v)
+
+
+@pytest.fixture(autouse=True)
+def _verweise_unberuehrt(monkeypatch):
+    """Am Testende, noch vor dem Zurücksetzen durch monkeypatch (diese Fixture
+    hängt an monkeypatch und endet darum vorher): ein ersetzter Verweis ist ein
+    vergessenes Patch-Ziel und scheitert laut."""
+    yield
+    krumm = umgebogene_verweise()
+    if krumm:
+        for n in krumm:                          # nichts in den nächsten Test tragen
+            setattr(youtube_app, n, _VERWEIS_ORIGINAL[n])
+        pytest.fail("Test ersetzte " + ", ".join(f"youtube_app.{n}" for n in krumm)
+                    + ": die App ruft das Heimatmodul, der Ersatz träfe keinen Aufrufer. Ersetze "
+                    + ", ".join(f"{VERWEISE[n]}.{n}" for n in krumm) + ".", pytrace=False)
