@@ -302,15 +302,24 @@ def kandidaten(laender, cfg):
         liste.append(Versuch(f"Header-Trick ({codes[0]})",
                              {"geo_bypass": True, "geo_bypass_country": codes[0]}))
 
+    # Jeder Proxy nur einmal (F21): ein eigener Proxy ohne Land galt für jedes
+    # erlaubte Land und stand sonst je Land in der Kette, je Versuch bis zu 30 s.
+    # Der erste Treffer behält seine Beschriftung, ein dict hält die Reihenfolge.
     if "proxy_manuell" in methoden:
+        eigene = {}
         for c in codes or ["*"]:
             for url in manuelle_proxys(c, cfg):
-                liste.append(Versuch(f"eigener Proxy ({c})", {"proxy": url}))
+                eigene.setdefault(url, c)
+        for url, c in eigene.items():
+            liste.append(Versuch(f"eigener Proxy ({c})", {"proxy": url}))
 
     if "proxy_frei" in methoden and cfg.get("geo_gratis_proxy", True):
+        gratis = {}
         for c in codes[:2]:
             for url in freie_proxys(c):
-                liste.append(Versuch(f"Gratis-Proxy ({c})", {"proxy": url}))
+                gratis.setdefault(url, c)
+        for url, c in gratis.items():
+            liste.append(Versuch(f"Gratis-Proxy ({c})", {"proxy": url}))
 
     if "vpn" in methoden:
         ad = vpn_adapter(cfg)

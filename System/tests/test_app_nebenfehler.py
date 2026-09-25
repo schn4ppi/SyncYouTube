@@ -97,3 +97,26 @@ def test_playlist_anlage_antwortet_mit_id(monkeypatch):
     st, _, koerper = _anfrage("/api/playlist", methode="POST",
                               rumpf={"art": "rename", "id": "alt00001", "name": "Umbenannt"})
     assert st == 200 and json.loads(koerper) == {"ok": True}, "die übrigen Aktionen antworten wie bisher"
+
+
+# ------------------------------------------------------------------ F21
+# Eigene Proxys ohne Land (für alle) standen je erlaubtem Land einmal in der
+# Kette: bei drei Ländern wurde derselbe Proxy dreimal versucht, je bis zu 30 s.
+
+def test_eigener_proxy_nur_einmal_in_der_kette():
+    import geo
+    cfg = {"geo_methoden": ["proxy_manuell"], "geo_gratis_proxy": False,
+           "geo_proxies": ["socks5://10.0.0.1:1080", "GB=socks5://10.0.0.2:1080",
+                           "IE=socks5://10.0.0.1:1080"]}
+    liste = geo.kandidaten(["United Kingdom", "Ireland", "Guernsey"], cfg)
+    proxys = [v.opts["proxy"] for v in liste]
+    assert proxys == ["socks5://10.0.0.1:1080", "socks5://10.0.0.2:1080"], proxys
+
+
+def test_gratis_proxys_ohne_doppel(monkeypatch):
+    import geo
+    monkeypatch.setattr(geo, "freie_proxys", lambda code: ["http://10.1.1.1:80", f"http://{code}:80"])
+    cfg = {"geo_methoden": ["proxy_frei"], "geo_proxies": []}
+    liste = geo.kandidaten(["United Kingdom", "Ireland"], cfg)
+    proxys = [v.opts["proxy"] for v in liste]
+    assert proxys == ["http://10.1.1.1:80", "http://GB:80", "http://IE:80"], proxys
