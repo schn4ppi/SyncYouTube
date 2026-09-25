@@ -7145,9 +7145,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._anfrage_vertraut():
             return _antwort(self, 403, {"fehler": "Anfrage von fremder Seite abgelehnt."})
-        if not self._ist_lokal() and not CFG.get("fernsteuerung"):
-            return self._fernsteuerung_aus()
         if not self._hat_zugriff():
+            if not CFG.get("fernsteuerung"):         # der PC selbst kommt hier nie an
+                return self._fernsteuerung_aus()
             # Nicht gekoppeltes LAN-Gerät auf der Startseite? Dann die
             # Pairing-Seite statt einer kalten 403 (Teilprojekt 3).
             if (urlparse(self.path).path in ("/", "/index.html")
@@ -7551,11 +7551,10 @@ class Handler(BaseHTTPRequestHandler):
         if not self._anfrage_vertraut():
             self.close_connection = True
             return _antwort(self, 403, {"fehler": "Anfrage von fremder Seite abgelehnt."})
-        if not self._ist_lokal() and not CFG.get("fernsteuerung"):
-            self.close_connection = True
-            return self._fernsteuerung_aus()
         if not self._hat_zugriff():
             self.close_connection = True
+            if not CFG.get("fernsteuerung"):         # der PC selbst kommt hier nie an
+                return self._fernsteuerung_aus()
             return _antwort(self, 403, {"fehler": "Kein Zugriff — Fernsteuerung aus oder falscher Code."})
         # S14: negative oder unlesbare Länge -> 400, über 2 MB -> 413; in beiden
         # Fällen wird der Körper nicht gelesen und die Verbindung geschlossen.
