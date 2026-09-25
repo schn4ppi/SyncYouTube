@@ -120,3 +120,137 @@ def test_gratis_proxys_ohne_doppel(monkeypatch):
     liste = geo.kandidaten(["United Kingdom", "Ireland"], cfg)
     proxys = [v.opts["proxy"] for v in liste]
     assert proxys == ["http://10.1.1.1:80", "http://GB:80", "http://IE:80"], proxys
+
+
+# ------------------------------------------------------------------ F22
+# Die VPN-Adapter der Geo-Umgehung: Windscribe und WireGuard meldeten Erfolg
+# ohne Prüfung und trennten danach auch eine Verbindung, die der Nutzer selbst
+# aufgebaut hatte; NordVPN trennte die eigene Verbindung des Nutzers, wenn die
+# Insights-Abfrage scheiterte (Status unbekannt galt als „nicht verbunden“).
+
+def _nord(monkeypatch, status):
+    import geo
+    rufe = []
+    monkeypatch.setattr(geo._nord, "status", lambda timeout=6: dict(status))
+    monkeypatch.setattr(geo._nord, "verbinden", lambda land, timeout=60: rufe.append(("verbinden", land)) or True)
+    monkeypatch.setattr(geo._nord, "trennen", lambda timeout=20: rufe.append(("trennen",)) or True)
+    return geo._NordAdapter(), rufe
+
+
+def test_nord_status_unbekannt_fasst_nichts_an(monkeypatch):
+    ad, rufe = _nord(monkeypatch, {})                  # Insights nicht erreichbar
+    assert ad.verbinden_wenn_noetig("United Kingdom") is False
+    ad.trennen_wenn_selbst()
+    assert rufe == [], "bei unbekanntem Status wurde umgeschaltet oder getrennt"
+
+
+def test_nord_eigene_verbindung_bleibt(monkeypatch):
+    ad, rufe = _nord(monkeypatch, {"protected": True, "country_code": "DE"})
+    assert ad.verbinden_wenn_noetig("United Kingdom") is True
+    ad.trennen_wenn_selbst()
+    assert rufe == []
+
+
+def test_nord_verbindet_und_trennt_selbst(monkeypatch):
+    ad, rufe = _nord(monkeypatch, {"protected": False, "country_code": "DE"})
+    assert ad.verbinden_wenn_noetig("United Kingdom") is True
+    ad.trennen_wenn_selbst()
+    assert rufe == [("verbinden", "United Kingdom"), ("trennen",)]
+
+
+class _Cli:
+    """Attrappe für subprocess in geo: Antworten je Befehl, Mitschrift."""
+
+    def __init__(self, antworten):
+        import subprocess
+        self.antworten, self.rufe = dict(antworten), []
+        self.DEVNULL, self.PIPE = subprocess.DEVNULL, subprocess.PIPE
+        self.SubprocessError, self.CREATE_NO_WINDOW = subprocess.SubprocessError, 0
+
+    def run(self, befehl, **kw):
+        wort = befehl[1]
+        self.rufe.append(wort)
+        a = self.antworten.get(wort, (0, ""))
+        if callable(a):
+            a = a()
+        return types.SimpleNamespace(returncode=a[0], stdout=a[1], stderr="")
+
+
+def _windscribe(monkeypatch, antworten):
+    import geo
+    cli = _Cli(antworten)
+    monkeypatch.setattr(geo, "subprocess", cli)
+    ad = geo._WindscribeAdapter()
+    monkeypatch.setattr(ad, "_exe", lambda: r"C:\Programme\Windscribe\windscribe-cli.exe")
+    return ad, cli
+
+
+def test_windscribe_eigene_verbindung_bleibt(monkeypatch):
+    ad, cli = _windscribe(monkeypatch, {"status": (0, "Connect state: Connected: London")})
+    assert ad.verbinden_wenn_noetig("United Kingdom") is True
+    ad.trennen_wenn_selbst()
+    assert "connect" not in cli.rufe and "disconnect" not in cli.rufe, cli.rufe
+
+
+def test_windscribe_prueft_den_rueckgabecode(monkeypatch):
+    ad, cli = _windscribe(monkeypatch, {"status": (0, "Connect state: Disconnected"),
+                                        "connect": (1, "Error: not logged in")})
+    assert ad.verbinden_wenn_noetig("United Kingdom") is False
+    assert cli.rufe[:2] == ["status", "connect"]
+
+
+def test_windscribe_verbindet_und_trennt_selbst(monkeypatch):
+    zustand = ["Connect state: Disconnected"]
+
+    def verbinden():
+        zustand[0] = "Connect state: Connected: London"
+        return (0, "")
+    ad, cli = _windscribe(monkeypatch, {"status": lambda: (0, zustand[0]), "connect": verbinden})
+    assert ad.verbinden_wenn_noetig("United Kingdom") is True
+    ad.trennen_wenn_selbst()
+    assert cli.rufe == ["status", "connect", "status", "disconnect"], cli.rufe
+
+
+def test_windscribe_unlesbarer_status_fasst_nichts_an(monkeypatch):
+    ad, cli = _windscribe(monkeypatch, {"status": (0, "")})
+    assert ad.verbinden_wenn_noetig("United Kingdom") is False
+    ad.trennen_wenn_selbst()
+    assert cli.rufe == ["status"]
+
+
+def _wireguard(monkeypatch, tmp_path, dienst_da, antworten):
+    import geo
+    (tmp_path / "GB.conf").write_text("[Interface]\n", encoding="utf-8")
+    cli = _Cli(antworten)
+    monkeypatch.setattr(geo, "subprocess", cli)
+    monkeypatch.setattr(geo, "_dienst_da", lambda name: dienst_da, raising=False)
+    ad = geo._WireguardAdapter(str(tmp_path))
+    monkeypatch.setattr(ad, "_exe", lambda: r"C:\Programme\WireGuard\wireguard.exe")
+    return ad, cli
+
+
+def test_wireguard_eigener_tunnel_bleibt(monkeypatch, tmp_path):
+    ad, cli = _wireguard(monkeypatch, tmp_path, True, {})
+    assert ad.verbinden_wenn_noetig("United Kingdom") is True
+    ad.trennen_wenn_selbst()
+    assert cli.rufe == [], "der schon laufende Tunnel des Nutzers wurde angefasst"
+
+
+def test_wireguard_prueft_den_rueckgabecode(monkeypatch, tmp_path):
+    ad, cli = _wireguard(monkeypatch, tmp_path, False, {"/installtunnelservice": (1, "")})
+    assert ad.verbinden_wenn_noetig("United Kingdom") is False
+    ad.trennen_wenn_selbst()
+    assert cli.rufe == ["/installtunnelservice"], cli.rufe
+
+
+def test_wireguard_verbindet_und_trennt_selbst(monkeypatch, tmp_path):
+    ad, cli = _wireguard(monkeypatch, tmp_path, False, {"/installtunnelservice": (0, "")})
+    assert ad.verbinden_wenn_noetig("United Kingdom") is True
+    ad.trennen_wenn_selbst()
+    assert cli.rufe == ["/installtunnelservice", "/uninstalltunnelservice"], cli.rufe
+
+
+def test_dienst_abfrage_echt_und_lokal():
+    import geo
+    assert geo._dienst_da("EventLog") is True, "den Ereignisprotokoll-Dienst hat jedes Windows"
+    assert geo._dienst_da("WireGuardTunnel$gibt-es-nicht-7f3a") is False

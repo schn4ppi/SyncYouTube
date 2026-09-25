@@ -60,10 +60,6 @@ def status(timeout=6):
         return {}
 
 
-def aktiv():
-    return bool(status().get("protected"))
-
-
 def land_waehlen(laender):
     """Bevorzugtes NordVPN-Land aus der erlaubten Liste; None wenn keins passt."""
     for name in LAENDER:

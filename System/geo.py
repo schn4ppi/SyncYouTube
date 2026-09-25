@@ -131,6 +131,38 @@ def manuelle_proxys(code, cfg):
 
 
 # ---------------------------------------------------------------- VPN-Adapter
+# Gemeinsame Regel (F22, 25.09.2026): vorher den Zustand fragen. Ist der
+# Nutzer schon verbunden, wird durch seinen Tunnel versucht und danach nichts
+# getrennt; ist der Zustand unbekannt, wird gar nichts angefasst. Getrennt wird
+# nur, was der Adapter selbst verbunden hat, und Erfolg meldet er erst nach dem
+# Rückgabecode des Werkzeugs.
+
+def _dienst_da(name):
+    """Gibt es den Windows-Dienst `name`? (Dienststeuerung über ctypes, nur
+    lesend; WireGuard legt je Tunnel einen Dienst `WireGuardTunnel$<Name>` an.)"""
+    import ctypes
+    from ctypes import wintypes
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    advapi.OpenSCManagerW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD]
+    advapi.OpenSCManagerW.restype = wintypes.HANDLE
+    advapi.OpenServiceW.argtypes = [wintypes.HANDLE, wintypes.LPCWSTR, wintypes.DWORD]
+    advapi.OpenServiceW.restype = wintypes.HANDLE
+    advapi.CloseServiceHandle.argtypes = [wintypes.HANDLE]
+    scm = advapi.OpenSCManagerW(None, None, 0x0001)          # SC_MANAGER_CONNECT
+    if not scm:
+        raise OSError(ctypes.get_last_error(), "Dienststeuerung nicht erreichbar")
+    try:
+        dienst = advapi.OpenServiceW(scm, name, 0x0004)       # SERVICE_QUERY_STATUS
+        if dienst:
+            advapi.CloseServiceHandle(dienst)
+            return True
+        fehler = ctypes.get_last_error()
+        if fehler == 1060:                                     # ERROR_SERVICE_DOES_NOT_EXIST
+            return False
+        raise OSError(fehler, f"Dienst {name} nicht abfragbar")
+    finally:
+        advapi.CloseServiceHandle(scm)
+
 
 class _NordAdapter:
     name = "NordVPN"
@@ -139,8 +171,11 @@ class _NordAdapter:
         return _nord.verfuegbar()
 
     def verbinden_wenn_noetig(self, land):
-        if _nord.aktiv():                            # JB ist selbst verbunden -> nichts anfassen
-            self._selbst = False
+        self._selbst = False
+        zustand = _nord.status()
+        if not zustand:                              # Insights nicht erreichbar: nichts anfassen
+            return False
+        if zustand.get("protected"):                 # JB ist selbst verbunden -> nichts anfassen
             return True
         self._selbst = True
         return _nord.verbinden(land)
@@ -167,19 +202,41 @@ class _WindscribeAdapter:
     def verfuegbar(self):
         return self._exe() is not None
 
+    def _verbunden(self, exe):
+        """Nach `windscribe-cli status`: True, False oder None (Ausgabe sagt es
+        nicht, Werkzeug scheitert). Die CLI schreibt „Connect state: Connected: …“
+        bzw. „… Disconnected“; „Disconnected“ enthält „connected“, darum zuerst."""
+        try:
+            r = subprocess.run([exe, "status"], timeout=20, capture_output=True, text=True,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except (OSError, subprocess.SubprocessError):
+            return None
+        text = ((r.stdout or "") + (r.stderr or "")).lower()
+        if "disconnected" in text:
+            return False
+        if "connected" in text:
+            return True
+        return None
+
     def verbinden_wenn_noetig(self, land):
+        self._selbst = False
         exe = self._exe()
         if not exe:
             return False
-        code = iso(land) or land
-        self._selbst = True
-        try:
-            subprocess.run([exe, "connect", code], timeout=60,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        vorher = self._verbunden(exe)
+        if vorher is None:                           # Zustand unbekannt: nichts anfassen
+            return False
+        if vorher:                                   # der Nutzer ist schon verbunden
             return True
+        code = iso(land) or land
+        try:
+            r = subprocess.run([exe, "connect", code], timeout=60,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.SubprocessError):
             return False
+        self._selbst = True                          # eigener Versuch: danach trennen
+        return r.returncode == 0 and self._verbunden(exe) is True
 
     def trennen_wenn_selbst(self):
         exe = self._exe()
@@ -227,18 +284,28 @@ class _WireguardAdapter:
         return None
 
     def verbinden_wenn_noetig(self, land):
+        self._tunnel = None
         exe = self._exe()
         conf = self._conf_fuer(land)
         if not (exe and conf):
             return False
-        self._tunnel = os.path.splitext(os.path.basename(conf))[0]
+        name = os.path.splitext(os.path.basename(conf))[0]
         try:
-            subprocess.run([exe, "/installtunnelservice", conf], timeout=40,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            schon_da = _dienst_da("WireGuardTunnel$" + name)
+        except OSError:                              # Zustand unbekannt: nichts anfassen
+            return False
+        if schon_da:                                 # der Nutzer hat diesen Tunnel selbst an
             return True
+        try:
+            r = subprocess.run([exe, "/installtunnelservice", conf], timeout=40,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.SubprocessError):
             return False
+        if r.returncode != 0:
+            return False
+        self._tunnel = name                          # nur der eigene Tunnel wird wieder entfernt
+        return True
 
     def trennen_wenn_selbst(self):
         exe = self._exe()
@@ -295,7 +362,7 @@ def status(cfg):
 def kandidaten(laender, cfg):
     """Alle Geo-Versuche in Reihenfolge (billig -> aufwändig) als Liste."""
     methoden = cfg.get("geo_methoden") or ["geobypass", "proxy_manuell", "proxy_frei", "vpn"]
-    codes = [c for c in (iso(l) for l in laender) if c]
+    codes = [c for c in (iso(name) for name in laender) if c]
     liste = []
 
     if "geobypass" in methoden and codes:
@@ -328,6 +395,6 @@ def kandidaten(laender, cfg):
             if land:
                 liste.append(Versuch(
                     f"{ad.name} → {land}",
-                    setup=(lambda a=ad, l=land: a.verbinden_wenn_noetig(l)),
+                    setup=(lambda a=ad, ziel=land: a.verbinden_wenn_noetig(ziel)),
                     teardown=(lambda a=ad: a.trennen_wenn_selbst())))
     return liste
