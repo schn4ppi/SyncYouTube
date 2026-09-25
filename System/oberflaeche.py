@@ -5483,15 +5483,6 @@ function dubBody(){
     g.items.map(x=>`<div class="dub-item"><span class="dub-q">${esc(x.qualitaet)} · ${mb(x.groesse)}${x.vorhanden?'':' · verschoben'}</span>`+
       `<button class="ib" title="In den Papierkorb" data-key="${esc(x.id)}" onclick="dubDelete(this.dataset.key)">🗑</button></div>`).join('')+`</div>`).join('');
 }
-async function ordnerImportieren(){
-  plInfo('📥 Ordner wird durchsucht …', true);        // Fortschritt: bleibt
-  const info=document.getElementById('plinfo');      // 06.09.: war undeklariert (ReferenceError)
-  try{
-    const r=await fetch('/api/importieren',{method:'POST'}); const d=await r.json();
-    if(info)info.textContent=d.neu?('📥 '+d.neu+' neue Datei(en) aufgenommen ✓'):'📥 Nichts Neues im Ordner gefunden';
-    libLaden();
-  }catch(e){ if(info)info.textContent='📥 Import fehlgeschlagen'; }
-}
 function dublettenPopover(ev){
   const alt=document.getElementById('dubpop'); if(alt){alt.remove(); return;}     // zweiter Klick = zu
   const m=document.createElement('div'); m.className='panelmenu'; m.id='dubpop';
@@ -5791,33 +5782,6 @@ function delEinzeln(id){
   const x=libFind(id)||{titel:''};
   if(confirm('„'+(x.titel||'').slice(0,40)+'“ in den Papierkorb verschieben?\\nDie Datei wird gelöscht (aus dem Windows-Papierkorb wiederherstellbar).'))
     biblio(id,'loeschen');
-}
-async function bulkAktion(op){
-  const keys=[...libAuswahl]; if(!keys.length)return;
-  if(op==='loeschen'&&!confirm(keys.length+' Titel in den Papierkorb verschieben?\\nDie Dateien werden gelöscht (aus dem Windows-Papierkorb wiederherstellbar).'))return;
-  await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'bulk',op,keys})});
-  libAuswahl.clear(); libLaden();
-}
-function bulkPlay(){ const arr=libGefiltert().filter(x=>libAuswahl.has(x.id)&&x.vorhanden).map(x=>x.id);
-  if(arr.length)playerPlay(arr,0,'Auswahl'); }
-async function bulkTags(){                              // Batch-Tag-Editor: Kanal + Titel suchen/ersetzen
-  const keys=[...libAuswahl]; if(!keys.length)return;
-  const uploader=prompt('Kanal / Künstler für alle '+keys.length+' Titel setzen?\\n(leer lassen = unverändert)','');
-  if(uploader===null)return;
-  const suchen=prompt('Im Titel suchen … (leer = nichts am Titel ändern)\\nz.B.  [Official Video]','');
-  if(suchen===null)return;
-  const ersetzen=suchen?(prompt('… ersetzen durch (leer = löschen):','')||''):'';
-  const felder={}; if(uploader.trim())felder.uploader=uploader.trim();
-  if(suchen){felder.titel_suchen=suchen; felder.titel_ersetzen=ersetzen;}
-  if(!felder.uploader&&!felder.titel_suchen)return;
-  await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'bulk',op:'tag',keys,felder})});
-  libAuswahl.clear(); libLaden();
-}
-async function bulkMetadaten(){                         // Auto-Metadaten für die Auswahl neu von YouTube laden
-  const keys=[...libAuswahl]; if(!keys.length)return;
-  await fetch('/api/biblio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({art:'bulk',op:'enrich',keys})});
-  plInfo('Metadaten für '+keys.length+' Titel werden nachgeladen …', true);
-  libAuswahl.clear(); libMalen(); setTimeout(libLaden,4000);
 }
 function bulkPlaylist(ev){
   // Build 142 (JB): „Wenn ich + Playlist anklicke, dann sollte die Option
@@ -6565,11 +6529,6 @@ function albenHTML(arr){
 async function autotagAlle(){
   if(!confirm('Auto-Tagging: Musik ohne Album-Info bei MusicBrainz nachschlagen und\\nKünstler / Titel / Album eintragen (auch in die MP3-Dateien).\\n\\nLäuft im Hintergrund, ca. 1 Titel pro Sekunde. Starten?'))return;
   await fetch('/api/autotag',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-}
-async function bulkAutotag(){
-  const keys=[...libAuswahl]; if(!keys.length)return;
-  await fetch('/api/autotag',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keys})});
-  libAuswahl.clear(); libMalen();
 }
 // Symbol für die Art des Titels: 🎵 Musik/MP3, 🎬 hochauflösend, 🎥 normales Video.
 function katIcon(x){

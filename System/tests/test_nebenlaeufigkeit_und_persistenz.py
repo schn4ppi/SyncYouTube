@@ -626,14 +626,14 @@ def test_netzfehler_ohne_zweitversuch(youtube, tmp_path, art):
 def test_nach_einer_sperre_pausieren_die_serien_schleifen_eine_halbe_stunde(youtube, tmp_path, monkeypatch):
     monkeypatch.setattr(app.time, "sleep", lambda s: None)       # die 0,4-s-Pausen der Schleife
     attrappe = youtube(BOT)
-    keys = [_eintrag(tmp_path, f"vid{i:08d}") for i in range(3)]
+    for i in range(3):
+        _eintrag(tmp_path, f"vid{i:08d}")
     _abo_anlegen()
     app.biblio_enrich_alle()                         # erster Abruf: Sperre, die anderen warten
     assert len(attrappe.abrufe) == 1, f"{len(attrappe.abrufe)} Abrufe trotz Sperre"
-    app._enrich_keys(keys)
     app.abos_pruefen()
     assert app.entdecken("").get("fehler"), "Entdecken muss die Pause melden"
-    assert len(attrappe.abrufe) == 1, "Nachreichern, Abo-Prüfung oder Entdecken fragten trotz Sperre"
+    assert len(attrappe.abrufe) == 1, "Abo-Prüfung oder Entdecken fragten trotz Sperre"
     _uhr_vor(monkeypatch, 31 * 60)
     app.abos_pruefen()
     assert len(attrappe.abrufe) == 2, "nach der Pause muss es weitergehen"

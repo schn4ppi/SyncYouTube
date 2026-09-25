@@ -264,7 +264,6 @@ JB_NUR_PC = [
     ("Dateien löschen: Bibliothek", "POST", "/api/biblio", {"art": "loeschen", "id": "k"}, ("handler", "_biblio")),
     ("Dateien löschen: Abo samt Videos", "POST", "/api/abo",
      {"art": "entfernen", "id": "a", "mit_videos": True}, ("app", "abo_aktion")),
-    ("Dateien aufnehmen", "POST", "/api/importieren", {}, ("app", "ordner_importieren")),
     ("Programm beenden", "POST", "/api/beenden", {}, ("server", "shutdown")),
     ("WireGuard-Dateien ablegen", "POST", "/api/geo_wireguard",
      {"land": "DE", "content": "[Interface]\nPrivateKey = x\n"}, ("handler", "_geo_wireguard")),

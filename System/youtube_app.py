@@ -6021,17 +6021,6 @@ def biblio_enrich_alle():
         _enrich_lauf.fertig()
 
 
-def _enrich_keys(keys):
-    """Metadaten für BESTIMMTE Einträge neu laden (Batch-Auswahl, erzwingt Nachladen)."""
-    for k in list(keys):
-        if youtube_gesperrt():                        # F4: Sperre -> Pause
-            break
-        e = _geladen.get(k)
-        if e and _enrich_eintrag(k, e):
-            _geladen_speichern()
-        time.sleep(0.4)
-
-
 def _finde_datei(url, e):
     """Datei zu einem DB-Eintrag finden: gespeicherter Pfad, Zielordner/Name,
     zuletzt rekursiv über die eindeutige Video-ID im Dateinamen ('[<id>]')
@@ -7309,7 +7298,6 @@ NUR_PC = {
     ("POST", "/api/beenden"): "beendet das Programm",
     ("GET", "/api/migration_probelauf"): "Umbenennen verschiebt Dateien",
     ("POST", "/api/umbenennen"): "verschiebt Dateien",
-    ("POST", "/api/importieren"): "nimmt Dateien in die Bibliothek auf",
     ("POST", "/api/biblio_enrich"): "schreibt Metadaten",
     ("POST", "/api/autotag"): "schreibt Tags in Dateien",
     ("POST", "/api/clip"): "erzeugt Clips",
@@ -8045,9 +8033,6 @@ class Handler(BaseHTTPRequestHandler):
                     schema = [b for b in (daten.get("schema") or []) if b in NAME_BAUSTEINE] or None
                     _antwort(self, 200, migration_anwenden(go=bool(daten.get("go")), schema=schema,
                                                            keys=daten.get("keys") or None))
-            elif pfad == "/api/importieren":     # fremde Dateien im Ordner aufnehmen
-                n = ordner_importieren()
-                return _antwort(self, 200, {"neu": n})
             elif pfad == "/api/playlist":
                 if daten.get("art") == "sync":
                     pl = next((p for p in _playlists if p.get("id") == daten.get("id")), None)
@@ -8339,42 +8324,13 @@ class Handler(BaseHTTPRequestHandler):
         art = daten.get("art")
         if art == "herz":                            # ❤ Lieblingssong umschalten (JB 05.08.)
             return herz_umschalten(key)
-        # Nachtprüfung 06.08.: alles Verändernde (löschen/vergessen/bulk) und
+        # Nachtprüfung 06.08.: alles Verändernde (löschen/vergessen) und
         # alles, was Prozesse auf JBs PC startet (extern/ordner), bleibt dem
         # PC selbst vorbehalten (Prüfer _lan_biblio im WLAN-Tor: aus dem WLAN
         # gehen nur ❤ und „neuladen“, seit 25.09.2026 mit 403 statt still).
-        if art == "bulk":                            # mehrere auf einmal (Mehrfachauswahl)
-            op = daten.get("op")
-            keys = [k for k in (daten.get("keys") or []) if k in _geladen]
-            if op == "enrich":                       # Metadaten der Auswahl neu laden (Hintergrund)
-                threading.Thread(target=_enrich_keys, args=(keys,), daemon=True).start()
-                return
-            felder = daten.get("felder") or {}       # für op == "tag"
-            with _io_lock:
-                for k in keys:
-                    e = _geladen.get(k)
-                    if not e:
-                        continue
-                    if op == "archiv":
-                        e["archiviert"] = True
-                    elif op == "entarchiv":
-                        e["archiviert"] = False
-                    elif op == "loeschen":
-                        _datei_loeschen(k)
-                        _geladen.pop(k, None)
-                    elif op == "vergessen":
-                        _geladen.pop(k, None)
-                    elif op == "tag":                # Batch-Tag: Kanal setzen + Titel-Ersetzung
-                        up = felder.get("uploader")
-                        if isinstance(up, str) and up.strip():
-                            e["uploader"] = up.strip()[:200]
-                        such = felder.get("titel_suchen")
-                        if isinstance(such, str) and such:
-                            ers = str(felder.get("titel_ersetzen") or "")
-                            e["titel"] = ((e.get("titel") or "").replace(such, ers)).strip()[:300]
-                _geladen_speichern()
-                _json_speichern(PLAYLIST_PFAD, _playlists)
-            return
+        # Der Zweig art:'bulk' (Mehrfachauswahl) ist entfallen (Gesamtprüfung
+        # Gruppe 7): Seine Oberfläche gab es nicht mehr, er trug aber eine
+        # Lösch-Operation. Rückweg: git-Historie.
         if art == "ordner":                          # Datei im Explorer zeigen (markiert)
             e = _geladen.get(key)                    # F7: Ordnerlauf + Explorer ohne Sperre
             if not e:
