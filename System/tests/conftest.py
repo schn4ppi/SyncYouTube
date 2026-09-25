@@ -562,6 +562,17 @@ def _youtube_sperre_frei(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _aufloese_plaetze_frisch(monkeypatch):
+    """Die zwei Plätze des Auflösens (F2) sind Modul-Zustand. Steckt unter Last
+    noch ein Faden eines früheren Tests in seinem Platz, fehlte er dem nächsten
+    Test (Befund der Abnahme 25.09.2026: ein Test fiel so in einer vollen Suite
+    einmal durch). Ein alter Faden gibt seinen Platz am alten Objekt zurück, weil
+    `aufloesen` die Plätze je Aufruf einmal holt."""
+    monkeypatch.setattr(youtube_app, "_aufloese_plaetze", youtube_app._AufloesePlaetze(2))
+    monkeypatch.setattr(youtube_app, "_prueft_wartet", set())
+
+
+@pytest.fixture(autouse=True)
 def _daten_wache(tmp_path, monkeypatch):
     """Eigene Daten je Test in tmp_path, leere Zustände; liefert die Liste der
     Funde (ein Test, der den Alarm selbst prüft, leert sie). Was die Wache

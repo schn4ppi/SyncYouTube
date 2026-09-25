@@ -1329,3 +1329,38 @@ def test_json_laden_legt_eine_kaputte_datei_ohne_warten_beiseite(tmp_path):
     assert app._json_laden(str(pfad), {}) == {}
     assert time.monotonic() - start < 0.5
     assert any(p.name.endswith(".defekt") for p in tmp_path.iterdir())
+
+
+# Befund der Abnahme 25.09.2026: test_aufloesen_hoechstens_zwei_… fiel in einer
+# vollen Suite unter Last einmal durch und war danach 7 von 7 grün. Die Plätze des
+# Auflösens sind Modul-Zustand; ein Faden eines früheren Tests, der unter Last
+# noch in seinem Platz steckt, nahm dem nächsten Test einen der zwei Plätze weg.
+# Jeder Test bekommt deshalb frische Plätze (conftest). Die zwei Tests hier
+# belegen das in fester Reihenfolge: der erste lässt einen Platz belegt zurück.
+_liegengelassen = {}
+
+
+def test_plaetze_a_ein_test_laesst_einen_platz_belegt_zurueck():
+    plaetze = app._aufloese_plaetze
+    drin, raus = threading.Event(), threading.Event()
+
+    def halten():
+        with plaetze.platz():
+            drin.set()
+            raus.wait(30)
+
+    threading.Thread(target=halten, daemon=True).start()
+    assert drin.wait(5)
+    _liegengelassen["plaetze"] = plaetze
+    _liegengelassen["raus"] = raus
+
+
+def test_plaetze_b_der_naechste_test_hat_beide_plaetze_frei():
+    try:
+        assert app._aufloese_plaetze is not _liegengelassen.get("plaetze"), \
+            "die Plätze des Auflösens werden zwischen den Tests nicht erneuert"
+        assert app._aufloese_plaetze._inhaber == {}
+        assert app._prueft_wartet == set()
+    finally:
+        if "raus" in _liegengelassen:
+            _liegengelassen["raus"].set()
