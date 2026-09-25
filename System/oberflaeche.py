@@ -3569,7 +3569,6 @@ function fernFenster(ev){
     (f.url?'<div class="mzeile"><span>Am Handy öffnen</span><b style="font-size:11.5px">'+esc(f.url)+'</b></div>'
           :'<div class="mzeile"><span style="font-size:11.5px">Handy-Link erscheint nach einem App-Neustart</span></div>')+
     '<div class="msep"></div>'+
-    '<button class="mbtn" onclick="document.getElementById(\\'fernfly\\').remove();fernCodeErneuern()">🔄 Code erneuern</button>'+
     '<button class="mbtn" onclick="document.getElementById(\\'fernfly\\').remove();fernToggle()">Fernsteuerung ausschalten</button>';
   document.body.appendChild(m);
   popoverBei(m, ev.currentTarget.getBoundingClientRect());

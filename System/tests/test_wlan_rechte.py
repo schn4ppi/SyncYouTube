@@ -653,6 +653,27 @@ def test_knopf_code_erneuern_in_den_einstellungen(tmp_path):
     assert "fernCodeErneuern" not in aus_["html"], "ausgeschaltet gibt es keinen Code zu erneuern"
 
 
+def test_code_erneuern_nur_im_einstellungs_menue(tmp_path):
+    """JB-Entscheid 7a Punkt 3 nennt EINEN Knopf „Code erneuern“ in den
+    Einstellungen. Ein zweiter im 📱-Fenster der Kopfleiste war nicht
+    beauftragt (Abnahme 25.09.2026, Regel „jeden Knopf rechtfertigen“); ob er
+    dort erwünscht ist, fragt der Bericht JB. Das Fenster zeigt Code und Link."""
+    from test_medientasten_verhalten import _js_funktion, _lauf, _pc
+    q = _pc()
+    (e,) = _lauf(
+        tmp_path,
+        "function esc(t){return String(t==null?'':t);} function menuGeradeZu(){return false;}",
+        "function popoverBei(){} function menuSchliesser(){}",
+        "const _m=[]; document.createElement=()=>{const m={style:{}}; _m.push(m); return m;};",
+        "document.body={appendChild(){}}; document.querySelectorAll=()=>[];",
+        "let daten={fernsteuerung:{aktiv:true,code:'ABCDEFGHJK',url:'http://pc:8776/m'}};",
+        _js_funktion(q, "fernFenster"),
+        "fernFenster({currentTarget:{getBoundingClientRect(){return {};}}}); aus({html:_m[0].innerHTML});")
+    assert "ABCDEFGHJK" in e["html"] and "http://pc:8776/m" in e["html"], e
+    assert "fernCodeErneuern" not in e["html"], "der Knopf gehört ins ⚙-Menü, nicht zusätzlich hierher"
+    assert "fernToggle()" in e["html"], "Ausschalten bleibt im Fenster"
+
+
 def test_code_erneuern_fragt_und_holt_den_neuen_stand(tmp_path):
     from test_medientasten_verhalten import _js_funktion, _lauf, _pc
     q = _pc()
