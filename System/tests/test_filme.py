@@ -13,7 +13,33 @@ MODUL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if MODUL_DIR not in sys.path:
     sys.path.insert(0, MODUL_DIR)
 
+import pytest  # noqa: E402
+
 import filme  # noqa: E402
+
+# Unerwartete Rufe laut machen (Prüfung Runde 3): `_jellyfin_ruf` fängt JEDE
+# Ausnahme — auch den AssertionError einer Attrappe („unerwarteter Pfad") — und
+# macht daraus einen Netzfehler. Ein Test, dessen `antworten`-Schlüssel die
+# Nachfolge-Form verfehlt, prüfte dann still den Netz-Zweig. Die Attrappen tragen
+# jeden unerwarteten Ruf hier ein, und die Fixture macht den Test am Ende rot.
+# Sie gilt in jedem Modul, das sie importiert (test_jellyfin_zugang, test_film_ende).
+UNERWARTETE_RUFE = []
+
+
+@pytest.fixture(autouse=True)
+def _attrappen_ohne_unerwartete_rufe():
+    UNERWARTETE_RUFE.clear()
+    yield
+    if UNERWARTETE_RUFE:
+        rufe = list(UNERWARTETE_RUFE)
+        UNERWARTETE_RUFE.clear()
+        pytest.fail(f"Jellyfin-Attrappe bekam unerwartete Rufe (im Code als Netzfehler "
+                    f"verschluckt): {rufe}", pytrace=False)
+
+
+def _unerwartet(text):
+    UNERWARTETE_RUFE.append(text)
+    raise AssertionError(text)
 
 FAKE_AUTH = {"AccessToken": "GEHEIM-TOKEN", "User": {"Id": "u1"}}
 FAKE_INFO = {"Version": "10.9.7"}
@@ -126,7 +152,7 @@ def _fake_http(antworten, server="12", mitschrift=None):
         for teil, status, obj in antworten:
             if teil in url:
                 return status, json.dumps(obj).encode("utf-8")
-        raise AssertionError("unerwartete URL: " + url)
+        _unerwartet("unerwartete URL: " + url)
     return http
 
 
@@ -180,7 +206,8 @@ class JellyfinAttrappe:
         return self(url, kopf=kopf or {})
 
     def __call__(self, url, daten=None, kopf=None, timeout=15):
-        assert url.startswith(BASIS), "nur Renés (Attrappen-)Server: " + url
+        if not url.startswith(BASIS):
+            _unerwartet("nur Renés (Attrappen-)Server: " + url)
         pfad, kopf = url[len(BASIS):], dict(kopf or {})
         self.rufe.append((pfad, kopf, daten))
         if pfad.startswith(FREI[0]):
@@ -211,7 +238,7 @@ class JellyfinAttrappe:
         for teil, status, obj in self.antworten:
             if teil in neu:
                 return status, obj if isinstance(obj, bytes) else json.dumps(obj).encode()
-        raise AssertionError("unerwarteter Pfad: " + pfad)
+        _unerwartet("unerwarteter Pfad: " + pfad)
 
 
 def _einrichten(tmp_path, monkeypatch):
@@ -222,6 +249,10 @@ def _einrichten(tmp_path, monkeypatch):
     filme._merkmal_ruhe_ts = 0.0
     monkeypatch.setattr(filme, "_zugang", lambda: {
         "url": "https://jelly.example", "benutzer": "JBK", "passwort": "pw"})
+    # Ohne Metadaten-Schlüssel fragt filme TMDB/OMDb gar nicht erst. Vorher las
+    # es hier JBs echten Schlüsselbund (Prüfung Runde 3); wer Schlüssel braucht,
+    # setzt sie im Test.
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "", "omdb": ""})
 
 
 # ---------------------------------------------------------------- Task 1
@@ -332,7 +363,8 @@ def test_detail_anreicherung(tmp_path, monkeypatch):
     monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "T", "omdb": "O"})
     monkeypatch.setattr(filme, "_http", _fake_http([
         ("api.themoviedb.org", 200, FAKE_TMDB),
-        ("omdbapi.com", 200, FAKE_OMDB)]))
+        ("omdbapi.com", 200, FAKE_OMDB),
+        ("/Items/f1", 200, FAKE_ITEMS["Items"][0])]))     # Technik-Abruf bei Jellyfin
     d = filme.detail("f1")
     assert d["titel"] == "Der Marsianer"
     assert d["cast"] == ["Matt Damon", "Jessica Chastain"]
@@ -425,7 +457,9 @@ def test_play_und_fortschritt_queue(tmp_path, monkeypatch):
     url = filme.stream_url("f1")
     assert url and "/Videos/f1/stream" in url and "GEHEIM-TOKEN" in url
     # Ausfall => Queue statt Verlust:
-    monkeypatch.setattr(filme, "_http", _fake_http([]))  # jede URL knallt
+    def netz_weg(url, daten=None, kopf=None, timeout=15):
+        raise OSError("Netz weg")                    # so sieht urlopen ohne Netz aus
+    monkeypatch.setattr(filme, "_http", netz_weg)
     assert filme.fortschritt("f1", 623) is False
     q = json.load(open(filme._pfade["queue"], encoding="utf-8"))
     assert q[0]["item"] == "f1" and q[0]["position_s"] == 623
@@ -520,14 +554,20 @@ def test_episoden(tmp_path, monkeypatch):
     # JB-Go "weiter mit den serien episoden": ein Ruf liefert Staffel/Folge/
     # Seh-Stand; Sortierung Staffel->Folge (Jellyfin liefert ungeordnet).
     _einrichten(tmp_path, monkeypatch)
+    rufe = []
     monkeypatch.setattr(filme, "_http", _fake_http([
         ("AuthenticateByName", 200, FAKE_AUTH), ("/System/Info", 200, FAKE_INFO),
-        ("/Shows/s1/Episodes", 200, FAKE_EPS)]))
+        ("/Shows/s1/Episodes", 200, FAKE_EPS),
+        ("/Shows/boese/Episodes", 404, {})], mitschrift=rufe))   # bereinigte Kennung: unbekannt
     eps = filme.episoden("s1")
     assert [e["id"] for e in eps] == ["e1", "e2", "e3"], "Sortierung Staffel->Folge"
     assert eps[0]["gesehen"] is True and eps[0]["laufzeit_min"] == 30
     assert eps[1]["position_s"] == 300 and eps[1]["staffel"] == 1 and eps[1]["folge"] == 2
     assert filme.episoden("../boese") == [], "Pfad-Ausbruch verboten"
+    # Die Kennung wird bereinigt (nur Buchstaben/Ziffern), nie mit ../ gesendet.
+    # Vorher lief dieser Ruf in eine unerwartete URL der Attrappe, die filme
+    # als Netzfehler verschluckte — die Prüfung hing daran (Prüfung Runde 3).
+    assert not [u for u, _k in rufe if ".." in u], rufe
 
 
 def test_merkliste(tmp_path, monkeypatch):
@@ -759,6 +799,9 @@ def test_ausfall_bleibt_nicht_still(tmp_path, monkeypatch):
     # Und er überlebt den Prozess: frisch geladen ist er immer noch da.
     import importlib
     importlib.reload(filme)
+    # Der Neuladen definiert auch _zugang/_meta_keys/_http neu — die echten, also
+    # JBs Schlüsselbund (Prüfung Runde 3: zustand() las ihn hier). Attrappen neu.
+    _einrichten(tmp_path, monkeypatch)
     filme.einrichten(str(tmp_path))
     assert filme.zustand()["fehler"], "Zustand überlebt den Neustart nicht"
 
@@ -1096,6 +1139,18 @@ def _merkmale(pfad):
     return urllib.parse.parse_qs(pfad.partition("?")[2])
 
 
+def test_unerwarteter_ruf_der_attrappe_bleibt_nicht_still(tmp_path, monkeypatch):
+    """Gegenprobe zur Fixture oben: ein `antworten`-Schlüssel, der die
+    Nachfolge-Form verfehlt (hier: gar keine Antworten). `_jellyfin_ruf`
+    verschluckt den AssertionError der Attrappe weiterhin als Netzfehler — aber
+    er steht jetzt in UNERWARTETE_RUFE, und die Fixture macht den Test rot."""
+    _einrichten(tmp_path, monkeypatch)
+    monkeypatch.setattr(filme, "_http", JellyfinAttrappe("12", antworten=[]))
+    assert filme.episoden_mit_grund("s1") == ([], "netz"), "still als Netzfehler verschluckt"
+    assert any("unerwarteter Pfad: /Shows/s1/Episodes" in r for r in UNERWARTETE_RUFE), UNERWARTETE_RUFE
+    UNERWARTETE_RUFE.clear()                             # hier gewollt
+
+
 def test_jellyfin12_jeder_weg_ruft_die_nachfolge_route(tmp_path, monkeypatch):
     """Jellyfin 12.1 beantwortet /Users/{uid}/Items, /Users/{uid}/Items/{id} und
     /Users/{uid}/PlayedItems/{id} noch, markiert sie aber [Obsolete] und blendet
@@ -1131,8 +1186,8 @@ def test_jellyfin12_jeder_weg_ruft_die_nachfolge_route(tmp_path, monkeypatch):
         assert {p.partition("?")[0] for p in einzeln} == {"/Items/f1", "/Items/" + FOLGE_ID}, \
             (version, rufe)
         assert all(_merkmale(p) == {"userId": ["u1"]} for p in einzeln), (version, einzeln)
-        gesehen = [(p, d) for p, _k, d in jf.rufe if "PlayedItems" in p]
-        assert gesehen == [("/UserPlayedItems/f1?userId=u1", {})], (version, gesehen)
+        gesehen = [(p.partition("?")[0], _merkmale(p), d) for p, _k, d in jf.rufe if "PlayedItems" in p]
+        assert gesehen == [("/UserPlayedItems/f1", {"userId": ["u1"]}, {})], (version, gesehen)
 
 
 def test_jellyfin12_strom_adresse_gehoert_zu_jbs_konto(tmp_path, monkeypatch):

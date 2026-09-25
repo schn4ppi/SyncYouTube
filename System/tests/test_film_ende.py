@@ -37,6 +37,7 @@ if HIER not in sys.path:
 
 import test_medien_smtc  # noqa: E402  (nachgebautes libvlc für die Server-Hälfte)
 from test_filme import FAKE_ITEMS, JellyfinAttrappe, filme  # noqa: E402
+from test_filme import _attrappen_ohne_unerwartete_rufe  # noqa: E402,F401  (autouse: unerwartete Rufe laut)
 from test_medientasten_verhalten import (  # noqa: E402
     _js_funktion,
     _js_zeile,
@@ -73,8 +74,9 @@ globalThis.fetch=(u,o)=>{u=String(u); netz.push([u, o&&o.body?JSON.parse(o.body)
   return Promise.resolve({json:async()=>(a?a[1]:{ok:true})});};
 // Der Takt fragt den Motor; alles andere, was an ihn geht, wird mitgeschrieben.
 function tvpBefehl(c,d){if(c==='status')return Promise.resolve(antwort); vlc.push('tvp:'+c); return Promise.resolve({});}
+let vlcAntwort={};                                      // was der Geräte-VLC auf 'status' sagt (Esc ohne Player)
 function vlcBefehl(c,d){vlc.push('vlc:'+c+(d&&d.nur_key?'@'+d.nur_key:''));
-  if(c==='play'||c==='toggle')starts.push('vlc:'+c); return Promise.resolve({});}
+  if(c==='play'||c==='toggle')starts.push('vlc:'+c); return Promise.resolve(c==='status'?vlcAntwort:{});}
 function vlcAktiv(){return plGeraet==='vlc';}
 // Alles, womit nach einem Filmende etwas LOSLAUFEN könnte (Folge, Musik):
 function filmePlay(id,pos){starts.push('film:'+id+'@'+(pos||0));}
@@ -114,6 +116,7 @@ function lage(o){
   tvpFolgenCache={sid:'s9', eps:folgen()};
   tvFilmReihen=o.reihen??null; tvHeroDaten=o.hero??null;
   vlcKeyLetzter=o.key??''; vlcSpielt=!!o.vlcSpielt; _vlcPos=0; plGeraet=o.geraet||'browser';
+  vlcAntwort=o.vlcAntwort??{};
   netz.length=0; vlc.length=0; starts.length=0; zeichnungen.length=0; infos.length=0; toasts.length=0;
   _log.length=0;
 }
@@ -376,7 +379,8 @@ def test_esc_im_abspann_ist_gesehen(tmp_path):
     und Stelle 0 DANACH, sonst stünde wieder die Stelle kurz vor dem Ende dort.
     Mittendrin bleibt es beim Merken der Stelle (Körper wie bisher). Ohne offenen
     Player (VLC, Esc aus der Musik-Leiste) sind Dauer und Meta vom vorigen Film
-    übrig: dann nie „gesehen"."""
+    übrig: dann nie „gesehen"; die Dauer für Jellyfins Grenze kommt seit der
+    Nacharbeit Runde 3 vom VLC selbst (5000 von 6000 s liegt darunter)."""
     (e,) = _lauf(tmp_path, *_teile(), r"""
 const r={};
 lage({pos:2300, dauer:2400}); await filmStopp();
@@ -384,7 +388,9 @@ r.abspann={koerper:koerper(), info:folge(tvInfoDaten.eps,'e3'), cache:folge(tvpF
            bilder:[...zeichnungen], toast:toasts.at(-1)};
 lage({pos:1234, dauer:2400}); await filmStopp();
 r.mitte={koerper:koerper(), info:folge(tvInfoDaten.eps,'e3'), toast:toasts.at(-1)};
-lage({offen:false, pos:2300, dauer:2400, key:'film:F7', vlcSpielt:true}); _vlcPos=5000; await filmStopp();
+lage({offen:false, pos:2300, dauer:2400, key:'film:F7', vlcSpielt:true,
+      vlcAntwort:{zustand:'spielt', key:'film:F7', pos:5000, dauer:6000, verfuegbar:true}});
+_vlcPos=5000; await filmStopp();
 r.ohnePlayer={koerper:koerper()};
 aus(r);
 """)
@@ -602,6 +608,7 @@ def _spiegel(tmp_path, monkeypatch):
     filme._merkmal_ruhe_ts = 0.0
     monkeypatch.setattr(filme, "_zugang", lambda: {
         "url": "https://jelly.example", "benutzer": "JBK", "passwort": "pw"})
+    monkeypatch.setattr(filme, "_meta_keys", lambda: {"tmdb": "", "omdb": ""})   # nie JBs Schlüsselbund
     filme.fam.json_schreiben(filme._pfade["katalog"], {
         "stand": time.time() - 3600, "server_version": "12.1.0",
         "eintraege": [filme._eintrag(it) for it in FAKE_ITEMS["Items"]]})

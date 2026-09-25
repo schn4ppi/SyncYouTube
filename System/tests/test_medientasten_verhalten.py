@@ -460,7 +460,7 @@ def test_zurueck_regel_fuer_serien(tmp_path):
     Zu Ende = gesehen oder ab 90 % (Jellyfins Standard-Grenze für „gespielt");
     unter 30 s gilt wie bei den Folgen-Kacheln „von vorn"."""
     q = _pc()
-    (e,) = _lauf(tmp_path, FOLGEN, _js_funktion(q, "tvpLandePos"),
+    (e,) = _lauf(tmp_path, FOLGEN, _js_zeile(q, "const SEHZEIT="), _js_funktion(q, "tvpLandePos"),
                  _js_funktion(q, "tvpZurueckZiel"), _js_funktion(q, "tvpWeiterZiel"), r"""
 aus({
  jb_beispiel: kurz(tvpZurueckZiel(eps,'e6',1200,'normal')),  // Folge 6, Min 20 -> Folge 5 an ihrer Stelle
@@ -496,7 +496,8 @@ def test_film_overlay_titel_und_knoepfe(tmp_path):
     Musik bzw. wird geräumt."""
     q = _pc()
     teile = [FOLGEN, _modul_js(), _js_zeile(q, "const medienS="), _js_zeile(q, "let _medienLetzte"),
-             _js_zeile(q, "let _medienAngemeldet"), _js_zeile(q, "let tvpMedienGen")]
+             _js_zeile(q, "let _medienAngemeldet"), _js_zeile(q, "let tvpMedienGen"),
+             _js_zeile(q, "const SEHZEIT=")]
     teile += [_js_funktion(q, n) for n in (
         "filmTasten", "medienEinmal", "medienPlay", "medienPause", "medienSpringe", "medienRelativ",
         "medienWeiter", "medienZurueck", "_msPlay", "_msPause", "_msWeiter", "_msZurueck",
@@ -531,7 +532,8 @@ def test_vlc_film_meldet_metadaten_an_den_server(tmp_path):
     liefert ihm Titel, Bild und ob es Weiter/Zurück gibt (Vertrag cmd 'medien')."""
     q = _pc()
     teile = [FOLGEN, _modul_js(), _js_zeile(q, "const medienS="), _js_zeile(q, "let _medienLetzte"),
-             _js_zeile(q, "let _medienAngemeldet"), _js_zeile(q, "let tvpMedienGen")]
+             _js_zeile(q, "let _medienAngemeldet"), _js_zeile(q, "let tvpMedienGen"),
+             _js_zeile(q, "const SEHZEIT=")]
     teile += [_js_funktion(q, n) for n in (
         "filmTasten", "medienEinmal", "medienPlay", "medienPause", "medienSpringe", "medienRelativ",
         "medienWeiter", "medienZurueck", "_msPlay", "_msPause", "_msWeiter", "_msZurueck",

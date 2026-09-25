@@ -9,8 +9,10 @@ Regel (Hauptagent, Runde 3): „gesehen" nur, wenn
   (a) die Stelle 90 % der Dauer erreicht (das natürliche Ende liegt dahinter) UND
   (b) in DIESER Wiedergabe wirklich geschaute Zeit W >= M,
       M = min(5 min, 50 % × max(0, 0,9·Dauer − Startstelle)).
-W = Summe der Spiel-Intervalle in Medienzeit (Tempo egal); ein Schritt über 3 s
-gilt als Sprung und zählt nicht. Startstelle = Stelle, mit der diese Wiedergabe
+W = Summe der Spiel-Intervalle in Medienzeit (Tempo egal); ein Schritt, der mehr
+als 3 s SCHNELLER lief als die Wanduhr (× Tempo), gilt als Sprung und zählt nicht
+(Nacharbeit Runde 3: vorher jeder Schritt über 3 s — der im verdeckten Tab
+gedrosselte VLC-Takt verlor so den ganzen Film). Startstelle = Stelle, mit der diese Wiedergabe
 öffnet (Start oder Weiterschauen). Gemessen im Browser am <video> (timeupdate),
 im VLC aus den Stellen des 1-s-Takts — für natürliches Ende, Esc und ⏭ gleich.
 
@@ -57,7 +59,7 @@ from test_medientasten_verhalten import (  # noqa: E402
 # In dieser Runde neu: fehlen sie (Rot-Lauf am alten Stand), bleiben sie weg —
 # dann läuft der alte Weg, und die Tests scheitern am VERHALTEN.
 NEU_ZEILEN = ("const SEHZEIT=",)
-NEU = ("sehzeitUrteil", "tvpSehzeitZaehlen")
+NEU = ("sehzeitUrteil", "tvpSehzeitZaehlen", "filmAbschied")   # filmAbschied: Nacharbeit Runde 3
 NAMEN = ("tvpDirektSrc", "tvpBefehl", "tvpAbgeloestFreigeben", "tvpVideoVerdrahten", "tvpVideoTauschen",
          "tvFilmPlayer", "tvpZu", "tvpTick", "tvpFilmEnde", "tvpMeldeDauer", "filmFortschrittMelden",
          "filmGemeldetAnwenden", "filmReihenAnwenden", "filmLokalNachziehen", "filmStopp", "tvpFolge",
@@ -66,12 +68,16 @@ NAMEN = ("tvpDirektSrc", "tvpBefehl", "tvpAbgeloestFreigeben", "tvpVideoVerdraht
 UMFELD = r"""
 globalThis.setTimeout=()=>0; globalThis.setInterval=()=>0;      // kein echter Takt: die Tests treiben tvpTick
 globalThis.clearTimeout=()=>{}; globalThis.clearInterval=()=>{};
+// Die Wanduhr steht, solange ein Test sie nicht weiterdreht (UHR in Sekunden):
+// schaue() und springe() kommen ohne Wartezeit — genau so sieht ein Sprung aus.
+// Der gedrosselte Takt (schaueGedrosselt) dreht sie je Takt weiter.
+let UHR=1e6; Date.now=()=>UHR*1000;
 var tvpWechselGen=0, tvpFolgenCache=null;
 const netz=[], starts=[];
-globalThis.fetch=(u,o)=>{u=String(u); netz.push([u, o&&o.body?JSON.parse(o.body):null]);
+globalThis.fetch=(u,o)=>{u=String(u); netz.push([u, o&&o.body?JSON.parse(o.body):null, !!(o&&o.keepalive)]);
   return Promise.resolve({json:async()=>({})});};
 const koerper=()=>netz.filter(n=>n[0]==='/api/filme/fortschritt').map(n=>n[1]);
-function tvInfo(){} function vlcPosGeschaetzt(){return 0;}
+function tvInfo(){} function vlcPosGeschaetzt(){return vlcStatus.pos;}   // die Musik-Leiste schätzt die VLC-Stelle
 function filmePlay(id,pos){starts.push(id+'@'+(pos||0));}
 let EPS=[], D=0, ID='';
 async function tvpFolgenHolen(){return EPS;}
@@ -115,6 +121,15 @@ async function schaue(bis,schritt){
       await tvpTick();}
   }
   await tvpTick();
+}
+/* VLC-Takt im verdeckten Tab (Chrome drosselt setInterval dort auf einmal je
+   Minute): je Takt vergehen `takt` Sekunden Wanduhr, und der Film läuft
+   `takt × tempo` Sekunden weiter — durchgeschaut, nur selten gefragt. */
+async function schaueGedrosselt(bis,takt,tempo){
+  tempo=tempo||1;
+  while(vlcStatus.pos+takt*tempo<=bis+1e-9){
+    UHR+=takt; vlcStatus={...vlcStatus, zustand:'spielt', pos:vlcStatus.pos+takt*tempo, rate:tempo};
+    await tvpTick();}
 }
 /* Sprung wie tvpSeek/tvpRel: Stelle merken, Motor springen lassen. */
 async function springe(ziel){
@@ -269,7 +284,8 @@ for(const [modus,o] of MODI){
 # ------------------------------------------------------------- Messung
 
 def test_sprung_regel_tempo_rueckwaerts_und_pause(tmp_path):
-    """Nur Spiel-Intervalle zählen, in Medienzeit: ein Schritt von genau 3 s
+    """Nur Spiel-Intervalle zählen, in Medienzeit. Die Schritte kommen hier ohne
+    verstrichene Wanduhr (so sieht ein Sprung aus): ein Schritt von genau 3 s
     zählt, einer von 3,25 s ist ein Sprung; bei 1,5x kommen 0,375 s Medienzeit
     je timeupdate (Tempo egal, es zählt die Medienzeit). Rückwärts zählt nicht
     (auch nicht in kleinen Schritten), und Ziehen am Regler in kleinen
@@ -372,6 +388,139 @@ aus({vorige, ziel, naechste:koerper()});
     assert e["naechste"] == [{"id": "e3n", "position_s": 0}], e
 
 
+def test_gedrosselter_vlc_takt_zaehlt_durchgeschaute_zeit(tmp_path):
+    """Prüfung Runde 3 (mittel): Im VLC-Modus eines normalen Browser-Tabs liegt
+    das VLC-Fenster oft über dem Tab; der Tab gilt dann als verdeckt, und Chrome
+    drosselt den 1-s-Takt nach 5 Minuten auf einmal je Minute. Jeder Takt-Schritt
+    über 3 s galt als Sprung: ein von 0 bis zum Ende durchgeschauter Film kam
+    ohne „gesehen" an, und seine Stelle fiel auf den Anfang zurück (Probe P3:
+    gemeldet 0). Ein Sprung ist jetzt nur, was SCHNELLER lief als die Wanduhr
+    (mehr als 3 s über verstrichener Zeit × Tempo).
+    (a) P3: ab 0, jeder Takt 60 s, bis zum natürlichen Ende — 1x und 1,5x.
+    (b) P2: 250 s im 1-s-Takt, danach gedrosselt bis ins Ende.
+    (c) Gegenstück: im gedrosselten Takt ein echter Sprung (+2000 s in 60 s
+        Wanduhr) zählt weiter nicht, die Stelle bleibt die echt geschaute (60).
+    (d) Gegenstück Tempo: 90 s Film in 60 s Wanduhr bei 1x ist ein Sprung."""
+    e = _lauf(tmp_path, *_teile(), r"""
+async function ende(){UHR+=60; vlcStatus={...vlcStatus, zustand:'ende', pos:0, dauer:0}; await tvpTick();}
+for(const tempo of [1,1.5]){
+  await start('e3',0,{vlc:true}); await schaueGedrosselt(D-60,60,tempo); const w=tvpSeh.w; await ende();
+  aus({fall:'P3 '+tempo, w, k:koerper(), offen:tvpOffen});
+}
+await start('e3',0,{vlc:true}); await schaue(250); await schaueGedrosselt(D-60,60); await ende();
+aus({fall:'P2', k:koerper()});
+await start('e3',0,{vlc:true}); await schaue(60);
+UHR+=60; vlcStatus={...vlcStatus, pos:D-5}; await tvpTick();                // Sprung im gedrosselten Takt
+await filmStopp();
+aus({fall:'Sprung', k:koerper(), w:tvpSeh.w});
+await start('e3',0,{vlc:true}); await schaue(10);
+for(let i=0;i<25;i++){UHR+=60; vlcStatus={...vlcStatus, pos:vlcStatus.pos+90}; await tvpTick();}
+await filmStopp();
+aus({fall:'zu schnell', k:koerper(), w:tvpSeh.w});
+""")
+    r = {x["fall"]: x for x in e}
+    for fall in ("P3 1", "P3 1.5"):
+        (k,) = r[fall]["k"]
+        assert k.get("gesehen") is True, f"{fall}: durchgeschaut, aber nicht gesehen: {r[fall]}"
+        assert r[fall]["offen"] is False
+    assert r["P3 1"]["w"] == 2340, r["P3 1"]
+    (k,) = r["P2"]["k"]
+    assert k.get("gesehen") is True, r["P2"]
+    assert r["Sprung"]["k"] == [{"id": "e3", "position_s": 60}], r["Sprung"]
+    assert r["Sprung"]["w"] == 60, "der Sprung im gedrosselten Takt zählte als geschaut"
+    assert r["zu schnell"]["w"] == 10, r["zu schnell"]
+    assert r["zu schnell"]["k"] == [{"id": "e3", "position_s": 10}], r["zu schnell"]
+    _bleibt_offen(r["zu schnell"]["k"][0], 2400)
+
+
+def test_natuerliches_ende_zaehlt_auch_bei_gerundeter_laufzeit(tmp_path):
+    """Prüfung Runde 3 (niedrig): Im Transcoder ist die Dauer laufzeit_min × 60,
+    auf Minuten gerundet — bis zu 30 s zu lang. Ein 151-s-Stück (laufzeit_min 3,
+    also 180 s) endete natürlich bei 151 s < 90 % von 180 s: kein „gesehen", und
+    weil 180 − 30 unter 300 s liegt, ging Stelle 0 hinaus (Probe P6). Das eigene
+    Ende erfüllt (a) jetzt, sobald es hinter 90 % der KLEINSTEN möglichen Laufzeit
+    liegt (Dauer − 30 s). Gegenstück: reißt der Strom mitten im Film ab (auch das
+    meldet der Browser als Ende), bleibt es bei der Stelle — kein „gesehen"."""
+    e = _lauf(tmp_path, *_teile(), r"""
+async function endeBei(bis){await schaue(bis); const v=video(); v.ended=true; v.paused=true; await tvpTick();}
+await start('e3',0,{tc:true, min:3}); await endeBei(151);
+aus({fall:'kurz', k:koerper(), dauer:D});
+await start('e3',0,{tc:true}); await endeBei(1200);
+aus({fall:'abriss', k:koerper()});
+await start('e3',0,{tc:true}); await endeBei(2100);
+aus({fall:'abriss spät', k:koerper()});
+""")
+    r = {x["fall"]: x for x in e}
+    assert r["kurz"]["k"] == [{"id": "e3", "position_s": 151, "gesehen": True}], r["kurz"]
+    assert r["abriss"]["k"] == [{"id": "e3", "position_s": 1200}], r["abriss"]
+    assert r["abriss spät"]["k"] == [{"id": "e3", "position_s": 2100}], r["abriss spät"]
+    _bleibt_offen(r["abriss spät"]["k"][0], 2400)
+
+
+def test_esc_ohne_fernbedienung_bleibt_unter_jellyfins_grenze(tmp_path):
+    """Prüfung Runde 3 (mittel): Esc ohne offene Fernbedienung (Seite neu
+    geladen, der VLC spielt weiter) kannte keine Dauer und meldete die Stelle
+    ungekappt — über 90 % hakte Jellyfin selbst, ohne jede gemessene Sehzeit.
+    Jetzt fragt filmStopp den VLC nach Schlüssel und Dauer: gehört der Status
+    diesem Film, gilt Jellyfins Grenze, „gesehen" nie (keine Sehzeit dieser
+    Wiedergabe). Ist die Dauer unbekannt oder spielt der VLC schon etwas anderes,
+    lässt sich keine Grenze beweisen: dann geht nichts hinaus."""
+    e = _lauf(tmp_path, *_teile(), r"""
+for(const [fall,key,pos,dauer] of [['mitte','film:F7',3000,6000],['abspann','film:F7',5900,6000],
+                                   ['ohne Dauer','film:F7',5900,0],['Musik','abc|mp3',5900,6000]]){
+  // vorher eine Wiedergabe mit reichlich Sehzeit: sie gehört nicht zu dieser
+  await start('F7',0,{vlc:true, min:100}); await schaue(5950,3); tvpZu();
+  netz.length=0; toasts.length=0; tvpGesehenGemeldet=''; filmGemeldet={};
+  vlcKeyLetzter='film:F7'; vlcSpielt=true; vlcStatus={zustand:'spielt', key, pos, dauer};
+  await filmStopp();
+  aus({fall, k:koerper(), toast:toasts.at(-1)||''});
+}
+""")
+    r = {x["fall"]: x for x in e}
+    assert r["mitte"]["k"] == [{"id": "F7", "position_s": 3000}], r["mitte"]
+    assert r["abspann"]["k"] == [{"id": "F7", "position_s": 5373}], r["abspann"]
+    _bleibt_offen(r["abspann"]["k"][0], 6000)
+    for fall in ("ohne Dauer", "Musik"):
+        assert r[fall]["k"] == [], f"{fall}: ohne beweisbare Grenze geht nichts hinaus: {r[fall]}"
+        assert r[fall]["toast"] == "🎬 Film beendet.", r[fall]
+
+
+def test_seite_geht_meldet_wie_esc(tmp_path):
+    """Prüfung Runde 3 (mittel): Schließt JB die Hülle, geht die Seite mit — sie
+    meldete bis dahin nichts, der Server schickte die rohe VLC-Stelle, und über
+    90 % hakte Jellyfin selbst, an der Mindest-Sehzeit vorbei. Entscheidung
+    (Hauptagent, analog zu JBs Esc-Regel vom 24.09.): Das Schließen im Abspann
+    ist dieselbe Art Beenden. Die Seite meldet darum beim Entladen (pagehide)
+    über die EINE Meldestelle, mit keepalive, damit die Meldung das Entladen
+    überlebt:
+    (a) Abspann nach echter Sehzeit: „gesehen".
+    (b) ans Ende gesprungen: die letzte echt geschaute Stelle, kein „gesehen".
+    (c) mittendrin im Browser: die Stelle.
+    (d) nichts offen, oder der Film steht noch auf 0 (lädt): nichts —
+        eine 0 setzte die Weiterschauen-Stelle zurück.
+    (e) schon als gesehen gemeldet (⏭ im Abspann, Folge lädt): nichts mehr."""
+    e = _lauf(tmp_path, *_teile(), r"""
+const geht=()=>{if(typeof filmAbschied==='function')filmAbschied();};
+const r={};
+await start('e3',0,{vlc:true}); await schaue(2300); geht();
+r.a={k:koerper(), keepalive:netz.map(n=>n[2])};
+await start('e3',0,{vlc:true}); await schaue(10); await springe(D-5); geht(); r.b=koerper();
+await start('e3',0); await schaue(1200); geht(); r.c=koerper();
+tvpZu(); netz.length=0; geht(); r.dZu=koerper();
+await start('e3',0,{vlc:true}); netz.length=0; geht(); r.dLaedt=koerper();   // steht noch auf 0
+await start('e3',0,{vlc:true}); await schaue(2300); await tvpFolge(1); netz.length=0; geht();
+r.e=koerper();
+aus(r);
+""")
+    (r,) = e
+    assert r["a"]["k"] == [{"id": "e3", "position_s": 2300, "gesehen": True}], r["a"]
+    assert r["a"]["keepalive"] == [True], "ohne keepalive bricht das Entladen die Meldung ab"
+    assert r["b"] == [{"id": "e3", "position_s": 10}], r["b"]
+    assert r["c"] == [{"id": "e3", "position_s": 1200}], r["c"]
+    assert r["dZu"] == [] and r["dLaedt"] == [], r
+    assert r["e"] == [], r["e"]
+
+
 # --------------------------------------------- Jellyfin darf nicht selbst haken
 
 def test_verweigert_meldet_die_stelle_unter_jellyfins_grenze(tmp_path):
@@ -435,3 +584,31 @@ def test_regel_steht_an_einer_stelle():
     assert "sehzeitUrteil(" in _js_funktion(q, "filmFortschrittMelden"), "die EINE Meldestelle entscheidet"
     assert "tvpSehzeitZaehlen(" in _js_funktion(q, "tvpVideoVerdrahten"), "Browser: das <video> misst"
     assert "tvpSehzeitZaehlen(" in _js_funktion(q, "tvpTick"), "VLC: der 1-s-Takt misst"
+    # Nacharbeit Runde 3: auch die Lande-Stelle der Folgenliste nimmt Jellyfins
+    # Grenze aus SEHZEIT, die Schwellen stehen als unbestätigt im Kommentar, und
+    # die Seite meldet beim Entladen (die Registrierung ist eine Zeile auf oberster
+    # Ebene — das Verhalten prüft test_seite_geht_meldet_wie_esc).
+    lande = _js_funktion(q, "tvpLandePos")
+    assert "0.9" not in lande and "SEHZEIT.jfMaxResume" in lande, lande
+    assert "von JB zu bestätigen" in kopf, "die Schwellen sind die Regel des Hauptagenten, nicht JBs"
+    _js_zeile(q, "window.addEventListener('pagehide',filmAbschied)")
+
+
+def test_seite_und_server_rechnen_dieselbe_grenze(tmp_path):
+    """Hülle zu, ohne dass die Meldung der Seite ankommt: dann kappt der Server
+    die VLC-Stelle selbst (youtube_app._stelle_unter_jf_grenze). Er kennt keine
+    Sehzeit, nur die Länge. Seine Grenze ist dieselbe wie die der Seite ohne
+    Messung (sehzeitUrteil mit seh=null, „gesehen" ausgeschlossen) — geprüft am
+    Ergebnis über kurze Stücke, die Kante bei 330 s und lange Filme."""
+    import json
+
+    import youtube_app as app
+    faelle = []
+    for d in (240, 329, 330, 331, 1500, 2400, 6000, 7321):
+        g = int(0.9 * (d - 30))
+        faelle += [(p, d) for p in (1, 12, 150, 299, int(d * 0.85), g - 1, g, g + 1, int(d * 0.9) + 1, d - 1, d)]
+    (js,) = _lauf(tmp_path, *_teile(), "aus({r:" + json.dumps(faelle)
+                  + ".map(([p,d])=>sehzeitUrteil(p,d,null,false).stelle)});")
+    py = [app._stelle_unter_jf_grenze(p, d) for p, d in faelle]
+    abweichend = [(f, j, p) for f, j, p in zip(faelle, js["r"], py) if j != p]
+    assert not abweichend, abweichend

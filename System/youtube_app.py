@@ -19,6 +19,7 @@ import contextlib
 import glob
 import hashlib
 import json
+import math
 import mimetypes
 import os
 import random
@@ -2653,7 +2654,8 @@ def _video_im_panel_pausieren(panel):
     stehen. Nur unter _vlc_lock rufen. True = pausiert.
 
     Ein Jellyfin-Film meldet dabei seine Stelle (Prüfung Runde 2, s.
-    _film_stelle_melden): mit der Hülle geht auch die Seite, die sonst meldet."""
+    _film_stelle_melden): mit der Hülle geht auch die Seite — sie meldet beim
+    Entladen selbst, der Server nur als Rückfall, gekappt (Nacharbeit Runde 3)."""
     try:
         panel = int(panel or 0)
     except (TypeError, ValueError):
@@ -2677,29 +2679,90 @@ def _video_im_panel_pausieren(panel):
     return True
 
 
+# Hülle zu (Nacharbeit Runde 3): die SEITE meldet beim Entladen selbst
+# (oberflaeche.py filmAbschied — sie kennt die Mindest-Sehzeit). Der Server wartet
+# kurz auf diese Meldung und meldet nur, wenn sie ausbleibt, und dann nur eine
+# Stelle UNTER Jellyfins „gesehen"-Grenze — kein „gesehen" ohne Sehzeit-Beleg.
+HUELLE_GNADE_S = 2.0         # so lange wartet der Rückfall nach dem Pausieren auf die Seite
+HUELLE_VORLAUF_S = 10.0      # so kurz VOR dem Pausieren zählt ihre Meldung mit (pagehide kommt zuerst)
+# Jellyfins Grenze, dieselbe wie SEHZEIT in oberflaeche.py (jfMaxResume, jfKurzS,
+# jfSpielraumS; Gleichheit am Ergebnis geprüft in test_mindest_sehzeit.py).
+JF_MAX_RESUME, JF_KURZ_S, JF_SPIELRAUM_S = 0.9, 300, 30
+_seiten_meldung = {}         # Film-Kennung -> time.monotonic() der letzten Meldung der Seite
+_seiten_meldung_cv = threading.Condition()
+
+
+def _seiten_meldung_merken(item_id):
+    """Die Seite hat für diesen Film gemeldet (/api/filme/fortschritt) — ein
+    wartender Hüllen-Rückfall für denselben Film schweigt dann."""
+    if not item_id:
+        return
+    with _seiten_meldung_cv:
+        jetzt = time.monotonic()
+        for k in [k for k, t in _seiten_meldung.items() if jetzt - t > 600]:
+            del _seiten_meldung[k]                   # nicht endlos wachsen
+        _seiten_meldung[item_id] = jetzt
+        _seiten_meldung_cv.notify_all()
+
+
+def _seite_hat_gemeldet(item_id, t0):
+    """Wartet bis HUELLE_GNADE_S nach t0 auf eine Meldung der Seite für diesen
+    Film. True, wenn eine kam — auch eine bis HUELLE_VORLAUF_S VOR t0."""
+    frist = t0 + HUELLE_GNADE_S
+    with _seiten_meldung_cv:
+        while True:
+            if _seiten_meldung.get(item_id, float("-inf")) >= t0 - HUELLE_VORLAUF_S:
+                return True
+            rest = frist - time.monotonic()
+            if rest <= 0:
+                return False
+            _seiten_meldung_cv.wait(rest)
+
+
+def _stelle_unter_jf_grenze(pos_s, laenge_s):
+    """Die Stelle, die Jellyfin sicher NICHT selbst zum „gesehen"-Haken bringt
+    (12.1, UserDataManager.UpdatePlayState: > 90 % der Laufzeit, ab Laufzeit − 1 s,
+    unter 5 min Laufzeit schon ab 5 %). Gerechnet wie die Seite: Grenze
+    floor(0,9 × (Länge − 30 s)), bei weniger als 300 s: 0. Ohne bekannte Länge
+    (libvlc −1/0) lässt sich keine Grenze beweisen: 0. Gerundet wie Math.round."""
+    if not laenge_s or laenge_s <= 0:
+        return 0
+    laufzeit = laenge_s - JF_SPIELRAUM_S
+    grenze = 0 if laufzeit < JF_KURZ_S else math.floor(JF_MAX_RESUME * laufzeit)
+    return max(0, min(int(math.floor(pos_s + 0.5)), grenze))
+
+
 def _film_stelle_melden(sp, key):
     """Hülle zu mit einem Jellyfin-Film im Panel (Prüfung Runde 2): die Stelle
     an Jellyfin, über DIESELBE Meldestelle wie /api/filme/fortschritt. Vorher
     stand der Film nur pausiert im Server-VLC — Jellyfin und „Weiterschauen"
     behielten die alte Stelle, und nach der Neustart-Sperre (30 Min) oder beim
-    Herunterfahren war sie weg. Die Seite, die sonst meldet (Ende, ⏭/⏮, Esc),
-    geht mit der Hülle.
+    Herunterfahren war sie weg.
 
-    Nur eine echte Stelle (> 0): ein Film, der noch öffnet, stünde auf 0 und
-    setzte die Weiterschauen-Stelle zurück. „gesehen" geht NICHT mit — ob das
-    Schließen im Abspann wie Esc zählt, entscheidet JB (offen). Gemeldet wird
-    in einem eigenen Faden: Jellyfin (bis 15 s) darf _vlc_lock nicht halten.
-    Unter _vlc_lock rufen (get_time ist ein libvlc-Ruf)."""
+    Nacharbeit Runde 3: Das Schließen im Abspann ist dieselbe Art Beenden wie
+    Esc (Entscheidung des Hauptagenten, analog zu JBs Regel vom 24.09.); ob es
+    „gesehen" ist, entscheidet die Mindest-Sehzeit, und die kennt nur die Seite.
+    Sie meldet beim Entladen selbst (filmAbschied). Dieser Rückfall wartet bis
+    HUELLE_GNADE_S auf ihre Meldung und schweigt, wenn sie kam. Sonst meldet er
+    die Stelle unter Jellyfins Grenze (vorher die rohe Stelle: über 90 % setzte
+    Jellyfin „gesehen" selbst), nie „gesehen". Nichts, wenn die Stelle 0 wäre:
+    ein Film, der noch öffnet, ein kurzes Stück (Grenze 0) oder eine unbekannte
+    Länge — eine 0 setzte nur die Weiterschauen-Stelle zurück.
+    Gemeldet wird in einem eigenen Faden: Warten und Jellyfin (bis 15 s) dürfen
+    _vlc_lock nicht halten. Unter _vlc_lock rufen (libvlc-Rufe)."""
     if not key.startswith("film:") or len(key) <= 5:
         return
     try:
-        ms = int(sp.get_time() or 0)
+        ms, laenge_ms = int(sp.get_time() or 0), int(sp.get_length() or 0)
     except Exception:                                # noqa: BLE001 — ohne Stelle nichts zu melden
         return
-    if ms <= 0:
+    pos = _stelle_unter_jf_grenze(ms / 1000, laenge_ms / 1000) if ms > 0 else 0
+    if pos <= 0:
         return
 
-    def senden(item_id=key[5:], pos=int(round(ms / 1000))):
+    def senden(item_id=key[5:], t0=time.monotonic()):
+        if _seite_hat_gemeldet(item_id, t0):
+            return                                   # die Seite kennt die Sehzeit: ihr Urteil gilt
         try:
             filme.fortschritt(item_id, pos, gesehen=False)   # scheitert es, reiht filme es ein
         except Exception:                            # noqa: BLE001 — die Hülle ist schon zu
@@ -6620,6 +6683,9 @@ class Handler(BaseHTTPRequestHandler):
                      "key": "live:" + (daten.get("name") or ""),
                      "vol": daten.get("vol"), "vollbild": True}))
             elif self.path == "/api/filme/fortschritt":
+                # Vor dem Senden merken: ein wartender Hüllen-Rückfall für diesen
+                # Film schweigt dann (_film_stelle_melden, Nacharbeit Runde 3).
+                _seiten_meldung_merken(str(daten.get("id") or ""))
                 return _antwort(self, 200, {"ok": filme.fortschritt(
                     daten.get("id") or "", daten.get("position_s") or 0,
                     bool(daten.get("gesehen")))})

@@ -177,7 +177,7 @@ def test_leere_folgenliste_wird_nicht_festgeschrieben(tmp_path):
     die Liste bleibt leer). Die durfte nicht für die ganze Sitzung gelten — und ⏮
     auf eine Folge, die nicht in der Liste steht, darf sie nicht neu starten."""
     q = _pc()
-    (e,) = _lauf(tmp_path, FOLGEN, _js_zeile(q, "let tvpMedienGen"),
+    (e,) = _lauf(tmp_path, FOLGEN, _js_zeile(q, "let tvpMedienGen"), _js_zeile(q, "const SEHZEIT="),
                  _js_funktion(q, "tvpFolgenHolen"), _js_funktion(q, "tvpLandePos"),
                  _js_funktion(q, "tvpZurueckZiel"), r"""
 var tvInfoDaten=null, tvpMeta={typ:'folge', serie_id:'s9'};
@@ -579,7 +579,7 @@ def test_esc_speichert_die_offene_folge(tmp_path):
     (e,) = _lauf(tmp_path, r"""
 var tvpOffen=true, tvpIdAkt='F9', tvpPos=1234, vlcKeyLetzter='k1', vlcSpielt=true, tvFilmReihen=null,
     tvInfoDaten=null, tvInfoOffen=true, tvpWechselGen=1, tvpWechsel=null, tvpModusNaechster=null, tvpMeta=null,
-    tvpDauer=0, tvpFolgenCache=null;
+    tvpDauer=2400, tvpFolgenCache=null;   // Dauer bekannt: ohne sie geht keine Stelle hinaus (Nacharbeit Runde 3)
 const merk=[], vlc=[], zu=[];
 globalThis.fetch=(u,o)=>{merk.push(JSON.parse(o.body)); return Promise.resolve({});};
 function tvpBefehl(){} function vlcBefehl(c){vlc.push(c);} function tvpZu(){zu.push(1); tvpOffen=false;}

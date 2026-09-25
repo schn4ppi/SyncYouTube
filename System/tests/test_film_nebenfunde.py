@@ -89,7 +89,8 @@ def test_serien_weiterschauen_setzt_an_der_gemerkten_stelle_fort(tmp_path):
     ab 90 % der Laufzeit oder bis 30 s zählt als Anfang. Die Auswahl der Folge
     (angefangene vor erster ungesehener, sonst die erste) bleibt unverändert."""
     q = _pc()
-    (e,) = _lauf(tmp_path, _js_funktion(q, "tvpLandePos"), _js_funktion(q, "tvSerienPlay"), r"""
+    (e,) = _lauf(tmp_path, _js_zeile(q, "const SEHZEIT="), _js_funktion(q, "tvpLandePos"),
+                 _js_funktion(q, "tvSerienPlay"), r"""
 var tvInfoDaten={d:{id:'s9', typ:'serie'}, eps:[]};
 const plays=[];
 function filmePlay(id,pos){plays.push([id, pos===undefined?null:pos]);}
@@ -177,9 +178,10 @@ const r={};
 lage({id:'e3', pos:1500, meta:{typ:'folge', serie_id:'s9'}, info:true,
       daten:{d:{id:'s9', typ:'serie'}, eps:[E('e2',1200), E('e3',0), E('e4',0)]}});
 await filmStopp(); r.serie={bilder:[...bilder], infos:[...infos]};
-lage({id:'F1', pos:700, meta:{typ:'film'}, info:true, daten:{d:{id:'F1', typ:'film', position_s:0}, eps:[]}});
+lage({id:'F1', pos:700, meta:{typ:'film', laufzeit_min:100}, info:true,   // Dauer bekannt: ohne sie geht nichts hinaus
+      daten:{d:{id:'F1', typ:'film', position_s:0}, eps:[]}});
 await filmStopp(); r.film={bilder:[...bilder], infos:[...infos]};
-lage({id:'F1', pos:700, meta:{typ:'film'}});
+lage({id:'F1', pos:700, meta:{typ:'film', laufzeit_min:100}});
 await filmStopp(); r.zu={bilder:[...bilder], infos:[...infos]};
 aus(r);
 """)

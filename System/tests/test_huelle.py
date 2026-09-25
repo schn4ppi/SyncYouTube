@@ -993,14 +993,25 @@ def test_abmelden_geht_auch_wenn_die_videopruefung_wirft(video, fenster_welt, mo
 # oder beim Herunterfahren war sie ganz weg. Jetzt meldet der Server beim
 # Pausieren selbst — dieselbe Meldestelle wie /api/filme/fortschritt
 # (filme.fortschritt), in einem eigenen Faden, damit Jellyfin den VLC nicht
-# aufhält. „gesehen" meldet er dabei NICHT: ob das Schließen im Abspann wie
-# Esc zählt, ist JBs Entscheidung (offen).
+# aufhält. „gesehen" meldet er dabei NICHT.
+#
+# Nacharbeit Runde 3: Die rohe Stelle hakte Jellyfin im Abspann selbst ab (12.1:
+# > 90 % der Laufzeit ⇒ Played) — an JBs Mindest-Sehzeit vorbei. Das Schließen
+# im Abspann ist dieselbe Art Beenden wie Esc (Entscheidung des Hauptagenten,
+# analog zu JBs Regel vom 24.09.): die SEITE kennt die Sehzeit und meldet beim
+# Entladen selbst (filmAbschied, test_mindest_sehzeit.py). Der Server bleibt
+# Rückfall für den Fall, dass ihre Meldung nicht ankommt, und meldet dann nur
+# eine Stelle UNTER Jellyfins Grenze — kein „gesehen" ohne Sehzeit-Beleg.
 
 @pytest.fixture
 def meldungen(monkeypatch):
     """filme.fortschritt als Attrappe: zeichnet auf, und prüft, dass die
     Meldung NICHT unter _vlc_lock läuft (ein anderer Faden muss die Sperre
-    bekommen, während gemeldet wird)."""
+    bekommen, während gemeldet wird). Die Wartezeit des Rückfalls auf die
+    Meldung der Seite ist kurz (raising=False: am alten Stand gibt es sie nicht,
+    der Test wird dann am Verhalten rot)."""
+    monkeypatch.setattr(app, "HUELLE_GNADE_S", 0.05, raising=False)
+    monkeypatch.setattr(app, "_seiten_meldung", {}, raising=False)   # Meldungen der Seite: je Test frisch
     aufgezeichnet, fertig = type("Meldungen", (list,), {})(), threading.Event()
 
     def fortschritt(item_id, position_s, gesehen=False):
@@ -1042,13 +1053,103 @@ def test_huelle_zu_meldet_die_stelle_des_films(video, fenster_welt, meldungen):
         list(meldungen)
 
 
-def test_huelle_zu_meldet_auch_im_abspann_nur_die_stelle(video, fenster_welt, meldungen):
-    """Im Abspann (95 %): die Stelle ja, „gesehen" nicht — offen für JB."""
+def _alle(meldungen, sekunden=0.6):
+    """Alles, was in `sekunden` ankommt — für „genau diese und keine weitere"."""
+    import time
+    time.sleep(sekunden)
+    return list(meldungen)
+
+
+def test_huelle_zu_im_abspann_bringt_jellyfin_nicht_zum_haken(video, fenster_welt, meldungen):
+    """Prüfung Runde 3 (mittel): Im Abspann (95 %) meldete der Server die rohe
+    Stelle, und Jellyfin 12.1 setzte daraufhin selbst „gesehen" (> 90 % der
+    Laufzeit) — ohne dass die Seite je die Sehzeit prüfen konnte. Ohne ihre
+    Meldung geht jetzt Jellyfins Grenze hinaus, wie bei der Seite gerechnet:
+    0,9 × (Länge − 30 s) = 0,9 × 5970 = 5373 s. Geprüft an der WIRKUNG: das
+    Orakel (UserDataManager.UpdatePlayState, v12.1) hakt bei keiner Laufzeit
+    ab, die Jellyfin um die libvlc-Länge herum haben kann."""
+    from test_mindest_sehzeit import _jellyfin_setzt_played
     sp = _spielt_im_panel(fenster_welt, FILM)
     sp.zeit = 5_700_000
     sp.get_length = lambda: 6_000_000
     app.vlc_kommando(dict(ZU))
-    assert _warten(meldungen) == [{"id": "f1", "pos": 5700, "gesehen": False, "vlc_frei": True}]
+    gemeldet = _warten(meldungen)
+    assert gemeldet == [{"id": "f1", "pos": 5373, "gesehen": False, "vlc_frei": True}], gemeldet
+    hakt = [lz for lz in range(6000 - 30, 6000 + 31) if _jellyfin_setzt_played(gemeldet[0]["pos"], lz)]
+    assert not hakt, f"Jellyfin setzt „gesehen“ bei Laufzeit {hakt[:3]} …"
+
+
+@pytest.mark.parametrize("fall", ["laenge_unbekannt", "kurz_hinten", "kurz_vorn"])
+def test_huelle_zu_ohne_beweisbare_grenze_meldet_nichts(video, fenster_welt, meldungen, fall):
+    """Ohne bekannte Länge (libvlc: -1 oder 0) lässt sich keine Grenze beweisen;
+    bei einem kurzen Stück (Laufzeit unter 5 min) setzt Jellyfin schon ab 5 %
+    „gesehen" — dort ist die Grenze 0, und eine 0 setzte nur die
+    Weiterschauen-Stelle zurück. In beiden Fällen meldet der Rückfall nichts
+    (vorher: die rohe Stelle, also „gesehen" in Jellyfin)."""
+    sp = _spielt_im_panel(fenster_welt, FILM)
+    sp.zeit, laenge = {"laenge_unbekannt": (3_000_000, -1), "kurz_hinten": (230_000, 240_000),
+                       "kurz_vorn": (20_000, 240_000)}[fall]
+    sp.get_length = lambda: laenge
+    app.vlc_kommando(dict(ZU))
+    assert _alle(meldungen, 0.4) == [], (fall, list(meldungen))
+
+
+def test_huelle_zu_nach_der_meldung_der_seite_schweigt_der_server(video, fenster_welt, meldungen,
+                                                                   monkeypatch):
+    """Die Seite meldet beim Entladen selbst (sie kennt die Sehzeit, s.
+    test_mindest_sehzeit.test_seite_geht_meldet_wie_esc) — über die Route
+    /api/filme/fortschritt. Der Rückfall des Servers darf ihr Urteil nicht
+    überschreiben: ein „gesehen" mit Stelle 0 bekäme sonst eine gekappte Stelle
+    hinterher (Jellyfin hätte wieder einen Weiterschauen-Punkt).
+    (a) Die Seite meldet VOR dem Pausieren (pagehide kommt vor dem Abmelden).
+    (b) Ihre Meldung kommt erst in der Wartezeit nach dem Pausieren an.
+    (c) Eine Meldung für einen ANDEREN Film zählt nicht.
+    (d) Eine alte Meldung (vor dem Vorlauf) zählt nicht."""
+    import time
+
+    from test_jellyfin_zugang import _post
+    seite = {"id": "f1", "position_s": 5700, "gesehen": True}
+
+    def huelle_zu():
+        sp = _spielt_im_panel(fenster_welt, FILM)
+        sp.zeit = 5_700_000
+        sp.get_length = lambda: 6_000_000
+        app.vlc_kommando(dict(ZU))
+
+    # (a)
+    assert _post("/api/filme/fortschritt", seite)[0] == 200
+    huelle_zu()
+    a = _alle(meldungen)
+    # (b) — die Wartezeit lang genug, dass die Seite sicher hineinfällt
+    meldungen.clear()
+    monkeypatch.setattr(app, "HUELLE_GNADE_S", 2.0, raising=False)
+    app._vlc_reset()
+    huelle_zu()
+    assert _post("/api/filme/fortschritt", seite)[0] == 200
+    b = _alle(meldungen, 2.5)
+    # (c)
+    meldungen.clear()
+    monkeypatch.setattr(app, "_seiten_meldung", {}, raising=False)
+    monkeypatch.setattr(app, "HUELLE_GNADE_S", 0.05, raising=False)
+    app._vlc_reset()
+    assert _post("/api/filme/fortschritt", {"id": "f2", "position_s": 100})[0] == 200
+    huelle_zu()
+    c = _alle(meldungen)
+    # (d)
+    meldungen.clear()
+    monkeypatch.setattr(app, "_seiten_meldung", {}, raising=False)
+    monkeypatch.setattr(app, "HUELLE_VORLAUF_S", 0.0, raising=False)
+    app._vlc_reset()
+    assert _post("/api/filme/fortschritt", seite)[0] == 200
+    time.sleep(0.05)
+    huelle_zu()
+    d = _alle(meldungen)
+    seite_gemeldet = {"id": "f1", "pos": 5700, "gesehen": True, "vlc_frei": True}
+    rueckfall = {"id": "f1", "pos": 5373, "gesehen": False, "vlc_frei": True}
+    assert a == [seite_gemeldet], a
+    assert b == [seite_gemeldet], b
+    assert c == [{"id": "f2", "pos": 100, "gesehen": False, "vlc_frei": True}, rueckfall], c
+    assert d == [seite_gemeldet, rueckfall], d
 
 
 @pytest.mark.parametrize("fall", ["ladend", "live", "bibliothek", "musik", "eigenes_fenster",

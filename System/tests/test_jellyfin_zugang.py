@@ -31,6 +31,7 @@ if HIER not in sys.path:
     sys.path.insert(0, HIER)
 
 from test_filme import FAKE_ITEMS, JellyfinAttrappe, filme  # noqa: E402
+from test_filme import _attrappen_ohne_unerwartete_rufe  # noqa: E402,F401  (autouse: unerwartete Rufe laut)
 
 PASSWORT = "GEHEIMES-PASSWORT-7Q"
 
@@ -333,6 +334,51 @@ def test_film_start_versucht_es_trotz_merkmal_ruhe(tmp_path, monkeypatch):
     monkeypatch.setattr(filme, "_http", jf)
     assert filme.stream_url("f1") is None and jf.anmeldungen() == 1
     assert filme.stream_url("f1") is None and jf.anmeldungen() == 1, "Drossel übergangen"
+
+
+def test_gescheiterter_druck_verbraucht_die_ruhe_nicht(tmp_path, monkeypatch):
+    """Prüfung Runde 3 (niedrig): `_druck_in_ruhe` verbrauchte den EINEN Versuch
+    je Merkmal-Ruhe schon vor der Anmeldung — auch wenn Jellyfin gar nicht
+    antwortete (Netz kurz weg, 5xx, 200 ohne Token). Jeder weitere Film-Start
+    derselben Ruhe bekam dann None (/api/filme/play 503), bis zu 10 Minuten
+    lang, obwohl JBs Entscheid aus Runde 1 lautet „Film-Start darf trotz Ruhe".
+    Jetzt zählt der Versuch nur, wenn Jellyfin wirklich geantwortet hat (Erfolg,
+    401, 403); nach dem normalen 60-s-Backoff darf der nächste Druck erneut —
+    und es bleibt bei höchstens EINER erfolgreichen Anmeldung je Ruhe."""
+    anmeldungen, plan = [], []
+
+    def http(url, daten=None, kopf=None, timeout=15):
+        if url.endswith("/Users/AuthenticateByName"):
+            art = plan.pop(0) if plan else "ok"
+            anmeldungen.append(art)
+            if art == "netz":
+                raise OSError("Netz kurz weg")
+            if art in ("500", "401"):
+                return int(art), b""
+            if art == "leer":
+                return 200, b"{}"
+            return 200, json.dumps({"AccessToken": f"T{len(anmeldungen)}", "User": {"Id": "u1"}}).encode()
+        if url.endswith("/System/Info"):
+            return 200, b'{"Version":"12.1.0"}'
+        return 401, b""
+
+    for art in ("netz", "500", "leer", "401"):
+        _einrichten(tmp_path / art, monkeypatch)
+        monkeypatch.setattr(filme, "_http", http)
+        filme._merkmal_ruhe_ts = time.time() + 600       # die Automatik ruht
+        anmeldungen.clear()
+        plan[:] = [art]
+        assert filme.stream_url("f1", druck=True) is None, art
+        filme._anmelde_sperre_ts = 0.0                    # der 60-s-Backoff ist abgelaufen
+        zweiter = filme.stream_url("f1", druck=True)
+        if art == "401":                                  # Jellyfin hat geantwortet: der Versuch ist verbraucht
+            assert zweiter is None and anmeldungen == ["401"], (art, anmeldungen)
+            continue
+        assert zweiter and _strom_token(zweiter) == "T2", (art, zweiter, anmeldungen)
+        filme._sitzung.clear()                            # die Automatik verwirft die Sitzung wieder
+        dritter = filme.stream_url("f1", druck=True)
+        assert _strom_token(dritter or "") == "T2", "derselbe Druck-Token der Ruhe"
+        assert anmeldungen == [art, "ok"], f"{art}: höchstens eine erfolgreiche Anmeldung je Ruhe"
 
 
 def test_merkmal_ruhe_haelt_die_hover_vorschau_und_bremst_den_strom(tmp_path, monkeypatch):

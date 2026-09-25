@@ -248,14 +248,24 @@ def _druck_in_ruhe():
     weitere Druck derselben Ruhe die Sitzung dieser einen Anmeldung, auch wenn
     die Automatik sie inzwischen verworfen hat: ein laufender Browser-Film holt
     seine nächste Range-Anfrage mit demselben Token. Eine neue Ruhe (neuer
-    Zeitstempel) gibt wieder genau einen Versuch."""
+    Zeitstempel) gibt wieder genau einen Versuch.
+
+    Verbraucht ist der Versuch nur, wenn Jellyfin wirklich geantwortet hat
+    (Prüfung Runde 3): Erfolg, 401 (Benutzer/Passwort) oder 403 (Drossel). Bei
+    Netzfehler, 5xx oder 200 ohne Token bleibt er frei — sonst sperrte ein
+    Netz-Wackler jeden Film-Start bis zum Ende der Ruhe (bis 10 Min), gegen
+    JBs Entscheid „Film-Start darf trotz Ruhe". Der normale 60-s-Backoff
+    (_anmelde_sperre_ts) gilt weiter."""
     ruhe = _merkmal_ruhe_ts
     if _druck_sitzung["ruhe"] != ruhe:
-        if time.time() < _anmelde_sperre_ts:   # 403-Drossel: kein Versuch, der eine bleibt frei
+        if time.time() < _anmelde_sperre_ts:   # Backoff/403-Drossel: kein Versuch, der eine bleibt frei
             return None
+        vorher = _druck_sitzung["ruhe"]
         _druck_sitzung["ruhe"] = ruhe
         s = _anmelden_ungesperrt(merkmal_ruhe=False)
         _druck_sitzung["sitzung"] = dict(s) if s else None
+        if not s and _anmelde_art not in (ART_ANMELDUNG, ART_DROSSEL):
+            _druck_sitzung["ruhe"] = vorher      # Jellyfin hat nicht geantwortet: der Versuch bleibt frei
     s = _druck_sitzung["sitzung"]
     return dict(s) if s else None
 

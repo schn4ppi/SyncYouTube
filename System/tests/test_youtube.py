@@ -2045,6 +2045,58 @@ def test_cover_und_genre_wandern_in_datei_und_bibliothek():
     assert "/api/cover" in ui, "Der Player nutzt das eingebettete Cover nicht"
 
 
+_PROTOKOLL_KIND = r'''
+import email.message, io, json, sys
+modul, ziel = sys.argv[1], sys.argv[2]
+sys.path.insert(0, modul)
+sys.argv = ["youtube_app.py", "--testmodus", ziel]
+import youtube_app as app
+app.fehler_merken("https://probe.invalid/x", "Probe-Fehler aus dem Testmodus", art="probe")
+h = object.__new__(app.Handler)                  # die echte Route, ohne Server und Socket
+rumpf = json.dumps({"text": "Probe-JS-Fehler aus dem Testmodus"}).encode()
+h.path, h.command, h.request_version = "/api/js_fehler", "POST", "HTTP/1.1"
+h.requestline = "POST /api/js_fehler HTTP/1.1"
+h.client_address = ("127.0.0.1", 50000)
+h.headers = email.message.Message()
+h.headers["Content-Length"] = str(len(rumpf))
+h.rfile, h.wfile = io.BytesIO(rumpf), io.BytesIO()
+h._hat_zugriff = lambda: True
+h.do_POST()
+print(json.dumps({"daten": app.DATEN_DIR, "antwort": h.wfile.getvalue().split(b" ")[1].decode()}))
+'''
+
+
+def test_testmodus_schreibt_die_protokolle_in_den_probenordner(tmp_path):
+    """Prüfung Runde 3 (niedrig): FEHLER_LOG und JS_FEHLER_LOG hängen seit
+    Runde 2 am DATEN_DIR — belegt war das nur über einen Quelltext-Regex (eine
+    andere Schreibweise bliebe grün). Hier das Verhalten: ein Kindlauf mit
+    --testmodus schreibt einen Download-Fehler (fehler_merken) und einen
+    JS-Fehler (echte Route /api/js_fehler). Beide landen im Probenordner, und
+    JBs Protokolle am System-Ordner bleiben unberührt (nur Größe und Zeitstempel
+    gelesen, vorher und nachher)."""
+    import json
+    import subprocess
+
+    def stand():
+        out = {}
+        for name in ("yt_fehler.jsonl", "js_fehler.jsonl"):
+            p = os.path.join(MODUL_DIR, name)
+            out[name] = (os.path.getsize(p), os.stat(p).st_mtime_ns) if os.path.exists(p) else None
+        return out
+    vorher = stand()
+    probe = tmp_path / "probe"
+    lauf = subprocess.run([sys.executable, "-c", _PROTOKOLL_KIND, MODUL_DIR, str(probe)],
+                          capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          timeout=180, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    assert lauf.returncode == 0, (lauf.stderr or lauf.stdout)[-2000:]
+    ergebnis = json.loads(lauf.stdout.strip().splitlines()[-1])
+    assert os.path.normcase(ergebnis["daten"]) == os.path.normcase(str(probe)), ergebnis
+    assert ergebnis["antwort"] == "200", ergebnis
+    assert "Probe-Fehler aus dem Testmodus" in (probe / "yt_fehler.jsonl").read_text(encoding="utf-8")
+    assert "Probe-JS-Fehler aus dem Testmodus" in (probe / "js_fehler.jsonl").read_text(encoding="utf-8")
+    assert stand() == vorher, "eine --testmodus-Probe schrieb in JBs Protokolle am System-Ordner"
+
+
 def test_testmodus_leitet_alle_daten_um(tmp_path):
     # JB (alter Plan, "finde ich gut"; go 05.08.): Proben laufen ausserhalb
     # der echten Ordner. Hintergrund-Vorfall: ein Auto-Import-Test legte eine
@@ -4851,16 +4903,17 @@ def test_genre_reihen_zeigen_das_beste_nicht_den_anfang_des_alphabets():
                 "bild_tag": "", "hinzugefuegt": "2026-01-01T00:00:00.0000000Z",
                 "position_s": 0, "gesehen": False})
     alt_lesen, alt_merk = filme.katalog_lesen, filme.merkliste_lesen
-    alt_http, alt_meta = filme._http, filme._meta_cache
+    alt_http, alt_meta, alt_keys = filme._http, filme._meta_cache, filme._meta_keys
     try:
         filme.katalog_lesen = lambda: {"stand": 0, "server_version": "?", "eintraege": eintraege}
         filme.merkliste_lesen = lambda profil="standard": []
         filme._meta_cache = lambda: {}
+        filme._meta_keys = lambda: {"tmdb": "", "omdb": ""}   # nie JBs Schlüsselbund (Prüfung Runde 3)
         filme._http = lambda *a, **k: (_ for _ in ()).throw(AssertionError("kein Netz"))
         g = filme.reihen()["genres"]
     finally:
         filme.katalog_lesen, filme.merkliste_lesen = alt_lesen, alt_merk
-        filme._http, filme._meta_cache = alt_http, alt_meta
+        filme._http, filme._meta_cache, filme._meta_keys = alt_http, alt_meta, alt_keys
 
     assert "Comedy" not in g, "englische und deutsche Schreibweise wurden nicht zusammengeführt"
     assert "Komödie" in g, f"erwartete Reihe 'Komödie', bekam {list(g)}"

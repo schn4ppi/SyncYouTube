@@ -97,3 +97,88 @@ def test_firefox_wache_deckt_auch_yt_dlps_eigene_suche(monkeypatch, tmp_path):
     assert any(p.startswith(str(tmp_path))
                for p in map(os.path.abspath, conftest.ECHTE_FIREFOX_SUCHE())), (
         "ECHTE_FIREFOX_SUCHE ist nicht mehr yt-dlps echte Suche")
+
+
+def test_film_wache_sperrt_schluesselbund_und_netz(request, tmp_path):
+    """Prüfung Runde 3: Nach dem frühen youtube_app-Import zeigte `filme` für
+    jeden Test ohne eigenes einrichten() auf JBs echte filme_*.json, und
+    `_zugang`/`_meta_keys`/`_seerr_url` lasen seinen echten Schlüsselbund
+    (nachgemessen: vier Tests lasen den echten TMDB-Schlüssel). Jetzt zeigen die
+    Film-Pfade in tmp_path, und jeder Zugriff auf Schlüsselbund oder Netz
+    scheitert laut — auch an `except Exception` vorbei (pytest.fail)."""
+    import filme
+    zugriffe = request.getfixturevalue("_film_pfade_im_tmp")
+    assert all(p.startswith(str(tmp_path)) for p in filme._pfade.values()), filme._pfade
+    for name, args in (("_zugang", ()), ("_meta_keys", ()), ("_seerr_url", ()),
+                       ("_http", ("https://jelly.example/Items",)),
+                       ("_seerr_http", ("https://seerr.example/api/v1/search",))):
+        with pytest.raises(pytest.fail.Exception):
+            getattr(filme, name)(*args)
+    assert zugriffe == ["_zugang", "_meta_keys", "_seerr_url", "_http", "_seerr_http"], zugriffe
+    # Der echte Weg durch filme: _jellyfin_ruf fängt `except Exception` — die
+    # Sperre kommt trotzdem durch (vorher wäre das ein stiller Netzfehler).
+    zugriffe.clear()
+    filme._sitzung.clear()
+    filme._anmelde_sperre_ts = filme._merkmal_ruhe_ts = 0.0
+    with pytest.raises(pytest.fail.Exception):
+        filme.fortschritt("f1", 100)
+    assert zugriffe == ["_zugang"], zugriffe
+    zugriffe.clear()                                       # der Alarm war hier gewollt
+
+
+def test_film_zugriff_im_faden_macht_den_test_rot(tmp_path):
+    """Der Hüllen-Rückfall meldet in einem Hintergrundfaden (und wartet dort
+    auf die Seite). Stirbt nur der Faden an der Sperre, machte pytest daraus
+    bloß eine Warnung — die Wache meldet den Zugriff darum am Testende noch
+    einmal. Geprüft in einem Kindlauf, dessen einziger Test nichts selbst prüft:
+    er muss trotzdem rot enden."""
+    probe = tmp_path / "test_probe_film_faden.py"
+    probe.write_text(textwrap.dedent('''
+        import threading
+        import pytest
+        import filme
+
+        @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+        def test_meldung_nur_im_faden():
+            f = threading.Thread(target=lambda: filme.fortschritt("f1", 100))
+            f.start()
+            f.join(30)
+        '''), encoding="utf-8")
+    lauf = subprocess.run(
+        [sys.executable, "-m", "pytest", str(probe), "-q", "-p", "no:cacheprovider", "-p", "conftest",
+         "--rootdir", str(tmp_path), "--basetemp", str(tmp_path / "kind")],
+        cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=180, env=dict(os.environ, PYTHONPATH=HIER, PYTHONIOENCODING="utf-8"))
+    aus = lauf.stdout + lauf.stderr
+    assert lauf.returncode != 0 and "Schlüsselbund bzw. Netz des Film-Teils" in aus, aus[-2000:]
+    assert "1 passed, 1 error" in aus, aus[-2000:]
+
+
+def test_film_wache_ueberlebt_das_neuladen_von_filme(tmp_path):
+    """test_filme lädt `filme` neu („Zustand überlebt den Neustart"); das
+    definiert die echten Funktionen neu. Im vollen Lauf sperrte danach
+    `_seerr_url` nicht mehr (gefunden am 25.09.). Die Wache setzt ihre Sperren
+    darum vor und nach jedem Test wieder ein. Geprüft in einem Kindlauf: ein
+    Test lädt neu, der nächste findet alle Sperren wieder vor — geprüft am
+    Zustand, ohne die Funktionen aufzurufen (kein Weg zum echten Schlüsselbund)."""
+    probe = tmp_path / "test_probe_film_neuladen.py"
+    probe.write_text(textwrap.dedent('''
+        import importlib
+        import conftest
+        import filme
+
+        def test_a_laedt_neu():
+            importlib.reload(filme)
+
+        def test_b_findet_alle_sperren():
+            offen = [n for n in conftest.FILM_SPERREN
+                     if getattr(getattr(filme, n), "film_sperre", None) != n]
+            assert not offen, f"nach dem Neuladen ungesperrt: {offen}"
+        '''), encoding="utf-8")
+    lauf = subprocess.run(
+        [sys.executable, "-m", "pytest", str(probe), "-q", "-p", "no:cacheprovider", "-p", "conftest",
+         "--rootdir", str(tmp_path), "--basetemp", str(tmp_path / "kind")],
+        cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=180, env=dict(os.environ, PYTHONPATH=HIER, PYTHONIOENCODING="utf-8"))
+    aus = lauf.stdout + lauf.stderr
+    assert lauf.returncode == 0 and "2 passed" in aus, aus[-2000:]
