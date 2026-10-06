@@ -152,6 +152,12 @@ def json_aendern(pfad, aenderung, standard=None, wartezeit_s=5.0):
             except OSError:
                 pass
             time.sleep(0.01)
+        except PermissionError:
+            # Windows (06.10.2026): Die Sperre des Vorgängers ist gelöscht, aber noch
+            # nicht weg („Löschen ausstehend", solange jemand sie offen hält, auch ein
+            # Virenscanner). Das ist belegt, nicht kaputt: weiter warten. Sofort None
+            # verbrannte alle Versuche in Millisekunden (Wächter test_nebenlaeufigkeit).
+            time.sleep(0.01)
         except OSError:
             return None
     if griff is None:
