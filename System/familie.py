@@ -118,7 +118,7 @@ def _aufraeumen(tmp):
 SPERRE_ALT_S = 30.0                 # so alt darf eine Sperre höchstens sein
 
 
-def json_aendern(pfad, aenderung, standard=None, wartezeit_s=5.0):
+def json_aendern(pfad, aenderung, standard=None, wartezeit_s=5.0, streng=False):
     """Lesen-Ändern-Schreiben UNTER EINER SPERRE — für gemeinsam geführte Dateien.
 
     `json_schreiben` allein genügt dafür nicht: Es schreibt zwar heil, aber zwei
@@ -134,6 +134,12 @@ def json_aendern(pfad, aenderung, standard=None, wartezeit_s=5.0):
     Nicht-destruktiv im Zweifel: Bekommt niemand die Sperre, wird NICHT blind
     geschrieben — lieber diese Änderung auslassen als die Arbeit anderer wegwerfen.
     Eine verwaiste Sperre (Prozess abgestürzt) verfällt nach `SPERRE_ALT_S`.
+
+    `streng=True` (Register JR68, 21.10.2026): Liegt die Datei vor, ist aber nicht lesbar
+    (kaputt oder gerade blockiert), wird NICHT geschrieben — Rückgabe None. Für Dateien, die
+    ein Ersatzstand nie überschreiben darf (große Caches, handgepflegte Korrekturen,
+    Historien). Ohne `streng` heilt die Funktion eine kaputte Datei mit `standard`.
+    None kommt auch, wenn das Schreiben selbst scheitert (bis 21.10. verschwiegen).
     """
     pfad = str(pfad)          # auch Path-Objekte annehmen (10.08.: stuerzte sonst ab)
     sperre = pfad + ".sperre"
@@ -163,12 +169,14 @@ def json_aendern(pfad, aenderung, standard=None, wartezeit_s=5.0):
     if griff is None:
         return None
     try:
-        daten = json_laden(pfad, standard)
+        leer = {} if standard is None else standard
+        daten = json_laden(pfad, leer)      # bei Fehler: genau `leer` (Identität zählt)
+        if streng and daten is leer and os.path.exists(pfad):
+            return None
         neu = aenderung(daten)
         if neu is None:
             neu = daten
-        json_schreiben(pfad, neu)
-        return neu
+        return neu if json_schreiben(pfad, neu) else None
     finally:
         os.close(griff)
         try:
