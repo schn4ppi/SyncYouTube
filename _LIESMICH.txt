@@ -130,14 +130,16 @@ Player:     ▶ auf einem Titel (oder Klick aufs THUMBNAIL) öffnet das
             vertikal an.
 
 Auswählen:  In der Bibliothek mehrere Titel markieren wie in Windows:
-            Strg+Klick = einzeln an/aus, Shift+Klick = Bereich. Oder den Knopf
-            „☑ Auswählen" — dann markiert jeder Klick. Bei Auswahl erscheint
-            oben eine Leiste: Abspielen / zu Playlist / Archivieren / Aus Archiv
-            / 🗑 Löschen / Aufheben — alles für alle Markierten auf einmal.
+            Strg+Klick = einzeln an/aus, Shift+Klick = Bereich, Strg+A = alles
+            in der gefilterten Sicht. Oder „☑ Mehrfach-Auswahl" unter
+            „⚙ Ansicht" — dann markiert jeder Klick. Die Leiste oben zeigt, wie
+            viele markiert sind. Rechtsklick auf einen markierten Titel wirkt
+            auf alle Markierten (zu Playlist, Wiedergabe, Papierkorb).
 
-Löschen:    Der 🗑-Knopf (an jedem Titel und in der Auswahl-Leiste) verschiebt
-            die Datei in den WINDOWS-PAPIERKORB (wiederherstellbar!) und nimmt
-            den Titel aus Liste und Playlists. Gut fürs Aufräumen im Archiv.
+Löschen:    Rechtsklick → „🗑 In den Papierkorb" oder die Entf-Taste verschiebt
+            die markierten Dateien nach einer Rückfrage in den WINDOWS-PAPIERKORB
+            (wiederherstellbar!) und nimmt die Titel aus Liste und Playlists.
+            In einer Playlist-Ansicht nimmt Entf die Titel nur aus der Playlist.
 
 Build:      Unten in der Leiste steht der Baustand (z.B. „Build 2026-07-09 · 9").
             Wenn eine neue Funktion fehlt: App einmal neu starten (beenden wie

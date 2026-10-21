@@ -5449,14 +5449,17 @@ function dublettenPopover(ev){
   const r=ev.currentTarget.getBoundingClientRect();
   popoverBei(m,r);
   setTimeout(()=>document.addEventListener('pointerdown',function zu(e2){const p=document.getElementById('dubpop');
-    if(p&&!p.contains(e2.target)&&!(e2.target.closest&&e2.target.closest('[onclick*="dublettenPopover"]'))){
+    // Klicks in die Lösch-Rückfrage (.modal) schließen das Fenster nicht: danach malt dubDelete es neu.
+    if(p&&!p.contains(e2.target)&&!(e2.target.closest&&e2.target.closest('[onclick*="dublettenPopover"],.modal'))){
       p.remove(); document.removeEventListener('pointerdown',zu);}},true),0);
 }
-async function dubDelete(id){
+function dubDelete(id){
+  // App-eigene Rückfrage statt confirm(): der native Dialog hält in Firefox die Musik an (s. libLoeschen).
   const x=libFind(id)||{titel:''};
-  if(!confirm('„'+(x.titel||'').slice(0,40)+'" ('+x.qualitaet+') in den Papierkorb?'))return;
-  await api('/api/biblio',{id,art:'loeschen'});
-  await libLaden(); const m=document.getElementById('dubpop'); if(m)m.innerHTML=dubBody();   // in place neu füllen
+  frageModal('„'+(x.titel||'').slice(0,40)+'" ('+x.qualitaet+') in den Papierkorb?','🗑 In den Papierkorb',async()=>{
+    await api('/api/biblio',{id,art:'loeschen'});
+    await libLaden(); const m=document.getElementById('dubpop'); if(m)m.innerHTML=dubBody();   // in place neu füllen
+  });
 }
 async function configSpeichern(){
   await api('/api/config',{
@@ -5734,10 +5737,30 @@ function kachelDblClick(ev,id){
   if(libSelektierend(ev))return;                       // im Auswahl-Modus nie abspielen
   if(klickArt()==='doppel'){ ev.preventDefault(); playerPlay([id]); }
 }
-function delEinzeln(id){
-  const x=libFind(id)||{titel:''};
-  if(confirm('„'+(x.titel||'').slice(0,40)+'“ in den Papierkorb verschieben?\\nDie Datei wird gelöscht (aus dem Windows-Papierkorb wiederherstellbar).'))
-    biblio(id,'loeschen');
+/* Titel in den Papierkorb: einer oder die ganze Auswahl (Rückmeldung 19.10.:
+   „Trotz Mehrfachauswahl konnte ich nicht mehrere Songs auf einmal löschen“).
+   Gefragt wird im app-eigenen frageModal, nie per confirm(): Firefox hält den
+   Web-Audio-Graphen an, solange ein nativer Dialog offen ist, und die Musik
+   läuft über ihn (vizVerbinde) — gemessen 21.10. in Firefox 158: Stille für
+   die ganze Dialog-Zeit, während der Titel weiterlief („der aktuelle Song wird
+   kurz pausiert“). Der Server löscht je Titel wie bisher (Papierkorb, sonst
+   rückholbar nach _Papierkorb); neu geladen wird einmal am Ende. */
+function libLoeschen(keys){
+  keys=(keys||[]).filter(k=>libFind(k)); if(!keys.length)return;
+  const x=libFind(keys[0]);
+  const text=keys.length>1
+    ?keys.length+' Titel in den Papierkorb verschieben?\\nDie Dateien werden gelöscht (aus dem Windows-Papierkorb wiederherstellbar).'
+    :'„'+(x.titel||'').slice(0,40)+'“ in den Papierkorb verschieben?\\nDie Datei wird gelöscht (aus dem Windows-Papierkorb wiederherstellbar).';
+  frageModal(text,'🗑 In den Papierkorb',async()=>{
+    let weg=0;
+    for(const k of keys){                              // nacheinander: der Server speichert je Titel
+      try{const d=await api('/api/biblio',{id:k,art:'loeschen'}); if(!(d&&d.fehler)){weg++; libAuswahl.delete(k);}}
+      catch(e){}
+    }
+    await libLaden();
+    toast(weg===keys.length?'🗑 '+(weg>1?weg+' Titel':'Titel')+' in den Papierkorb.'
+                           :'🗑 '+weg+' von '+keys.length+' Titeln in den Papierkorb, der Rest blieb.');
+  });
 }
 function bulkPlaylist(ev){
   // Build 142 (JB): „Wenn ich + Playlist anklicke, dann sollte die Option
@@ -6402,7 +6425,7 @@ function bulkMalen(){
   // uebrig, der seine Zeile wert waere. JB: „Die simplen Dinge sind oft die
   // schoensten." Es bleibt die reine Anzeige, WIE VIELE markiert sind.
   bulk.innerHTML=`<b>${libAuswahl.size} ausgewählt</b>`+
-    `<span class="muted2" style="font-size:11.5px">· ziehen = in den Player oder auf „Playlist:" · Rechtsklick = alles Weitere · Klick ins Leere hebt auf</span>`;
+    `<span class="muted2" style="font-size:11.5px">· ziehen = in den Player oder auf „Playlist:" · Rechtsklick = alles Weitere${NUR_FERN?'':libPlaylistView?' · Entf = aus der Playlist':' · Entf = in den Papierkorb'} · Klick ins Leere hebt auf</span>`;
 }
 function libMalen(){
   fuelleSortSelect();
@@ -6787,7 +6810,8 @@ function libItemMenu(ev,id){
   eintraege.push(nurPc(['🎚 Wiedergabe…'+(wgKeys.length>1?' ('+wgKeys.length+' Titel)':''),
     ()=>wiedergabeDialog({keys:wgKeys}, wgKeys.length>1?wgKeys.length+' Titel':(x.titel||'Titel'))]));
   eintraege.push(['ℹ Eigenschaften…', ()=>eigenschaften(id)]);
-  eintraege.push(nurPc(['🗑 In den Papierkorb', ()=>delEinzeln(id)]));
+  // Löschen nimmt dieselbe Regel: Teil der Auswahl = die ganze Auswahl.
+  eintraege.push(nurPc(['🗑 In den Papierkorb'+(wgKeys.length>1?' ('+wgKeys.length+')':''), ()=>libLoeschen(wgKeys)]));
   // Derselbe Motor wie jeder Rechtsklick (JB-Entscheid 7a Punkt 8): am Knopf
   // bzw. an der Mausposition, die kachelKontext als currentTarget mitgibt.
   kontextMenuBauen({currentTarget:ev.currentTarget}, eintraege);
@@ -6808,6 +6832,9 @@ function frageModal(text, jaLabel, onJa){
   ov.onclick=e=>{if(e.target===ov)ov.remove();};
   ov.querySelector('[data-nein]').onclick=()=>ov.remove();
   ov.querySelector('[data-ja]').onclick=()=>{ov.remove(); onJa&&onJa();};
+  // Esc bricht ab (Enter bestätigt über den fokussierten Ja-Knopf) — wer per
+  // Entf löscht, hat die Hände an der Tastatur.
+  ov.addEventListener('keydown',e=>{if(e.key==='Escape'){ov.remove(); e.stopPropagation();}});
   document.body.appendChild(ov);
   try{ov.querySelector('[data-ja]').focus();}catch(e){}
 }
@@ -10641,13 +10668,17 @@ async function plRemove(key){
    Sicherheitsfrage ab 5 Titeln. */
 async function plAuswahlEntfernen(){
   if(!libPlaylistView||!libAuswahl.size)return;
-  const keys=[...libAuswahl];
-  const p=plState.find(x=>x.id===libPlaylistView);
-  if(keys.length>=5&&!confirm(keys.length+' Titel aus „'+((p&&p.name)||'')+
-     '" entfernen? Die Dateien bleiben auf der Platte.'))return;
-  for(const k of keys)await plApi({art:'remove',id:libPlaylistView,key:k});
-  libAuswahl.clear(); libMalen();
-  plInfo(keys.length+(keys.length===1?' Titel':' Titel')+' aus der Playlist entfernt (Dateien bleiben)');
+  const keys=[...libAuswahl], plid=libPlaylistView;    // Liste festhalten: die Ansicht kann während der Rückfrage wechseln
+  const p=plState.find(x=>x.id===plid);
+  const raus=async()=>{
+    for(const k of keys)await plApi({art:'remove',id:plid,key:k});
+    libAuswahl.clear(); libMalen();
+    plInfo(keys.length+(keys.length===1?' Titel':' Titel')+' aus der Playlist entfernt (Dateien bleiben)');
+  };
+  // App-eigene Rückfrage statt confirm(): der native Dialog hält in Firefox die Musik an (s. libLoeschen).
+  if(keys.length>=5)frageModal(keys.length+' Titel aus „'+((p&&p.name)||'')+
+     '" entfernen? Die Dateien bleiben auf der Platte.','✖ Entfernen',raus);
+  else await raus();
 }
 async function plApi(body){await api('/api/playlist',body); await plLaden();}
 /* Neue Playlist anlegen -> ihre id ('' bei einem Fehler). Der Server nennt
@@ -11066,7 +11097,8 @@ function tastenLegende(){
     ['Springen',  t('rueck10')+'/'+t('vor10')+' −/+10 s · '+t('sprungzurueck')+'/'+t('sprungvor')+' −/+'+sprungWeite()+' s · 0–9 zu 0–90 % · '+t('anfang')+'/'+t('ende')+' Anfang/Ende'],
     ['Ton',       t('lauter')+'/'+t('leiser')+' Lautstärke · '+t('stumm')+' stumm · '+t('langsamer')+'/'+t('schneller')+' Tempo'],
     ['Bild',      t('vollbild')+' Vollbild · '+t('pip')+' Bild-in-Bild · '+t('untertitel')+' Untertitel · '+t('subfrueher')+'/'+t('subspaeter')+' Untertitel-Versatz'],
-    ['Playlist',  'Klick wählt · Doppelklick/Enter spielt · Entf löscht · ↑/↓ Auswahl']];
+    ['Playlist',  'Klick wählt · Doppelklick/Enter spielt · Entf löscht · ↑/↓ Auswahl'],
+    ['Bibliothek','Strg/Umschalt+Klick markiert · Strg+A alles'+(NUR_FERN?'':' · Entf legt Markiertes in den Papierkorb')]];
   toastHTML('<div style="font-size:11px;color:var(--gedaempft);margin-bottom:5px">Tastenkürzel</div>'+
     gruppen.map(([k,v])=>'<div style="display:flex;gap:10px;padding:2px 0;line-height:1.5">'+
       '<b style="flex:none;min-width:74px;color:var(--akz2)">'+k+'</b>'+
@@ -11180,6 +11212,16 @@ document.addEventListener('keydown',e=>{
   if((e.key==='Delete'||e.key==='Backspace')&&libPlaylistView&&libAuswahl.size){
     const lib=document.getElementById('view-lib');
     if(lib&&lib.offsetParent){e.preventDefault(); plAuswahlEntfernen(); return;}
+  }
+  // Übrige Bibliothek (Rückmeldung 19.10.: „Entf. ging auch nicht"): Entf legt
+  // die markierten Titel in den Papierkorb — nach Rückfrage, nur am PC (wie der
+  // Menüpunkt), und nicht, solange ein Fenster offen ist (Rückfrage, Einstellungen).
+  // Sichtbarkeit zählt: Legende, Einstellungen und Geo-Assistent stehen als
+  // versteckte .modal dauerhaft im Dokument.
+  if((e.key==='Delete'||e.key==='Backspace')&&!libPlaylistView&&libAuswahl.size&&!NUR_FERN
+     &&![...document.querySelectorAll('.modal')].some(m=>getComputedStyle(m).display!=='none')){
+    const lib=document.getElementById('view-lib');
+    if(lib&&lib.offsetParent){e.preventDefault(); libLoeschen([...libAuswahl]); return;}
   }
   const el=document.getElementById('pl-el');
   // Build 132: springt UND zeigt es an (JB). J/L bleiben bei 10 s wie bisher,

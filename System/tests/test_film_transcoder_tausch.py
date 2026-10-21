@@ -36,6 +36,7 @@ if HIER not in sys.path:
     sys.path.insert(0, HIER)
 
 from test_medientasten_verhalten import (  # noqa: E402
+    _block_ende,
     _js_funktion,
     _js_zeile,
     _lauf,
@@ -332,9 +333,12 @@ aus({spielt, gehalten, nachher, nieGespielt});
     assert g["sitzung"] is True, "das gehaltene, gespielte Video hält die Sitzung: kein keydown-Rückfall"
     assert e["nachher"] == {"sitzung": True, "aSrc": ""}, e["nachher"]
     assert e["nieGespielt"] == {"sitzung": False, "gehalten": 1}, e["nieGespielt"]
-    # …und der keydown-Rückfall fragt genau diese Funktion.
+    # …und der keydown-Rückfall fragt genau diese Funktion — gesucht im ganzen
+    # Zuhörer, klammergenau (ein festes Zeichenfenster brach, sobald der
+    # Zuhörer vorn wuchs: Entf in der Bibliothek, 21.10.2026).
     i = q.index("document.addEventListener('keydown',e=>{")
-    assert "medienTasteHatSitzung()" in q[i:i + 6000], "der keydown-Rückfall muss die Sitzung prüfen"
+    auf = q.index("{", i)
+    assert "medienTasteHatSitzung()" in q[auf:_block_ende(q, auf) + 1], "der keydown-Rückfall muss die Sitzung prüfen"
 
 
 # ------------------------------------------------------------ Quelltext-Wächter
