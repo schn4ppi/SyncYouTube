@@ -1151,14 +1151,17 @@ def aufloesen(url, qualitaet, ganze_liste=False, abo="", ersetzt=None, limit=Non
     Den Status ändert das Ergebnis nur, solange der Eintrag noch „prueft“
     (Gesamtprüfung F3): hat ihn die Heilung derweil eingereiht und ein Worker
     übernommen, bleibt er in Ruhe — sonst lüde ein zweiter Worker dasselbe."""
-    platzhalter = Q.neu(url, None, qualitaet)
-    if abo:
-        platzhalter["abo"] = abo
-    if ersetzt:
-        platzhalter["abo_ersetzt"] = list(ersetzt)
+    # Anlegen und „prueft“ unter EINER Sperre (Lücke 21.10.2026): Q.neu hängt
+    # mit „wartend“ an; dazwischen griff ein Worker den unaufgelösten Link und
+    # lud ihn, während er zugleich aufgelöst wurde. Q.lock ist ein RLock.
     with Q.lock:
+        platzhalter = Q.neu(url, None, qualitaet)
         platzhalter["status"] = "prueft"
         _prueft_wartet.add(platzhalter["id"])        # wartet auf einen Platz: heilt nicht
+        if abo:
+            platzhalter["abo"] = abo
+        if ersetzt:
+            platzhalter["abo_ersetzt"] = list(ersetzt)
     try:
         Q.speichern()
         opts = _ydl_basis_opts()

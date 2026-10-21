@@ -407,6 +407,39 @@ def test_aufloesen_hoechstens_zwei_zugleich_und_wartende_heilen_nicht(monkeypatc
     assert all(it["status"] == "wartend" for it in app.Q.items), [it["status"] for it in app.Q.items]
 
 
+def test_platzhalter_ist_nie_als_wartend_greifbar(monkeypatch):
+    """Lücke (gefunden 21.10.2026 am wackelnden Test oben): `Q.neu` hängt den
+    Platzhalter mit „wartend“ an und gibt die Sperre frei; erst danach setzte
+    `aufloesen` ihn auf „prueft“. Fragte ein Worker genau dazwischen nach
+    Arbeit, griff er den noch UNAUFGELÖSTEN Link (bei einer Playlist die Liste
+    selbst) und lud ihn als Einzelvideo. Hier fragt ein Worker-Faden genau in
+    diesem Augenblick: er darf nichts bekommen."""
+    attrappe = _aufloesen_vorbereiten(monkeypatch)
+    attrappe.tore[_url(0)] = threading.Event()          # Auflösen bleibt hängen: Eintrag bleibt „prueft“
+    echt_neu = app.Q.neu
+    gegriffen, greifer = [], []
+
+    def neu_und_sofort_greifen(*args, **kwargs):
+        it = echt_neu(*args, **kwargs)
+        f = threading.Thread(target=lambda: gegriffen.append(app.Q.naechster()), daemon=True)
+        f.start()
+        f.join(0.5)                                     # hält der Aufrufer die Sperre, wartet der Worker
+        greifer.append(f)
+        return it
+
+    monkeypatch.setattr(app.Q, "neu", neu_und_sofort_greifen)
+    faden = _im_faden(app.aufloesen, _url(0), "beste")
+    try:
+        assert _warten(lambda: greifer and not greifer[0].is_alive()), "der Worker-Faden kam nie dran"
+        assert gegriffen == [None], f"ein Worker griff den unaufgelösten Platzhalter: {gegriffen}"
+        assert [it["status"] for it in app.Q.items] == ["prueft"], [it["status"] for it in app.Q.items]
+    finally:
+        attrappe.frei.set()
+        for tor in attrappe.tore.values():
+            tor.set()
+        faden.join(20)
+
+
 def _stellbare_uhr(monkeypatch):
     """time.time der App plus `uhr["plus"]` Sekunden."""
     echt = app.time.time
