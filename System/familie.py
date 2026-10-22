@@ -62,13 +62,85 @@ def nachbar(name, *teile):
     return os.path.join(familie(), name, *teile)
 
 
+def _json_lesegriff(pfad, flags):
+    """Windows-Leser geben Lesen, Schreiben und Löschen der Datei frei (JR61)."""
+    import _winapi
+    import msvcrt
+
+    # 0x7 = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE.
+    griff = _winapi.CreateFile(
+        os.fsdecode(pfad), _winapi.GENERIC_READ, 0x7, _winapi.NULL,
+        _winapi.OPEN_EXISTING, 0x80, _winapi.NULL)
+    try:
+        return msvcrt.open_osfhandle(griff, flags)
+    except BaseException:
+        # Vor der erfolgreichen Übergabe gehört der native Griff noch uns.
+        _winapi.CloseHandle(griff)
+        raise
+
+
 def json_laden(pfad, standard=None):
     """JSON lesen; fehlt/defekt -> standard (nie eine Exception)."""
     try:
-        with open(pfad, encoding="utf-8") as f:
+        if os.name == "nt":
+            datei = open(pfad, encoding="utf-8", opener=_json_lesegriff)
+        else:
+            datei = open(pfad, encoding="utf-8")
+        with datei as f:
             return json.load(f)
     except (OSError, ValueError):
         return {} if standard is None else standard
+
+
+def _win_posix_ersetzen(quelle, ziel):
+    """Offenes Ziel atomar ersetzen: FileRenameInfoEx, Windows 10 1809/NTFS."""
+    import _winapi
+    import ctypes
+    from ctypes import wintypes
+
+    class _UMBENENNUNG(ctypes.Structure):
+        _fields_ = [("Flags", wintypes.DWORD), ("RootDirectory", wintypes.HANDLE),
+                    ("FileNameLength", wintypes.DWORD), ("FileName", wintypes.WCHAR * 1)]
+
+    kern = ctypes.WinDLL("kernel32", use_last_error=True)
+    setzen = kern.SetFileInformationByHandle
+    setzen.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
+    setzen.restype = wintypes.BOOL
+    name = os.fsdecode(os.path.abspath(ziel)).encode("utf-16-le", errors="surrogatepass")
+    # Unter x64 liegt FileName bei Byte 20, sizeof liefert wegen Auffüllung 24.
+    # Platz für ein abschließendes Nullzeichen: Ohne liest Windows beim Ersetzen einer
+    # VORHANDENEN Datei über das Namensende hinaus und legt „r.json翸“ an, statt r.json
+    # zu ersetzen — und meldet Erfolg (gemessen 22.10.2026, JR61).
+    versatz = _UMBENENNUNG.FileName.offset
+    groesse = max(ctypes.sizeof(_UMBENENNUNG), versatz + len(name) + 2)
+    puffer = ctypes.create_string_buffer(groesse)
+    info = _UMBENENNUNG.from_buffer(puffer)
+    info.Flags = 0x3  # FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS
+    info.RootDirectory = None
+    info.FileNameLength = len(name)  # UTF-16-Bytes, ohne Abschlussnull, auch für Emoji.
+    ctypes.memmove(ctypes.addressof(puffer) + versatz, name, len(name))
+    # DELETE-Recht auf der Quelle; alle Freigaben, damit kein eigener Griff sperrt.
+    griff = _winapi.CreateFile(
+        os.fsdecode(quelle), 0x10000, 0x7, _winapi.NULL,
+        _winapi.OPEN_EXISTING, 0x80, _winapi.NULL)
+    try:
+        if not setzen(griff, 22, puffer, groesse):  # FileRenameInfoEx = 22.
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        _winapi.CloseHandle(griff)
+
+
+def _json_ersetzen(quelle, ziel):
+    """Nur bei fehlender POSIX-Unterstützung den bisherigen Ersetzer verwenden."""
+    try:
+        _win_posix_ersetzen(quelle, ziel)
+    except OSError as fehler:
+        # INVALID_FUNCTION, NOT_SUPPORTED, INVALID_PARAMETER, CALL_NOT_IMPLEMENTED.
+        if getattr(fehler, "winerror", None) not in (1, 50, 87, 120):
+            raise
+        # Der native Quellgriff ist bereits geschlossen. Nicht global merken:
+        # Unterstützung kann sich zwischen zwei Ziel-Dateisystemen unterscheiden.
+        os.replace(quelle, ziel)
 
 
 def json_schreiben(pfad, daten):
@@ -86,9 +158,12 @@ def json_schreiben(pfad, daten):
     **Zweiter Windows-Befund derselben Messung:** `os.replace` scheitert, solange ein
     LESER die Zieldatei geöffnet hat (Freigabekonflikt) — bei 4 Dauer-Lesern schlugen
     so noch 2.984 von 3.200 Schreibvorgängen fehl, obwohl niemand etwas falsch machte.
-    Unter Linux gibt es das nicht; die Familie läuft aber auf Windows. Deshalb ein
-    kurzer Wiederholungs-Anlauf (~0,5 s) statt sofort aufzugeben: der Leser ist im
-    Millisekundenbereich wieder weg.
+    JR61 (22.10.2026): Löschfreigabe allein genügte im roten Zwischenstand nicht:
+    **240 von 240 Schreibvorgängen** scheiterten bei gehaltenen freigegebenen Lesern.
+    Deshalb gibt `json_laden` alle 3 Freigaben und der Windows-Ersetzer nutzt
+    FileRenameInfoEx mit POSIX-Semantik. Alte Leser behalten den alten Inhalt,
+    neue Leser bekommen den neuen. Ohne Unterstützung bleibt `os.replace` mit
+    den bisherigen 25 Wiederholungen; Linux/macOS verwenden es unverändert.
     """
     tmp = f"{pfad}.{os.getpid()}.{threading.get_ident():x}.tmp"
     try:
@@ -98,9 +173,10 @@ def json_schreiben(pfad, daten):
     except (OSError, TypeError, ValueError):
         _aufraeumen(tmp)
         return False
+    ersetzen = _json_ersetzen if os.name == "nt" else os.replace
     for versuch in range(25):
         try:
-            os.replace(tmp, pfad)
+            ersetzen(tmp, pfad)
             return True
         except OSError:
             time.sleep(0.02 * (versuch + 1) if versuch < 5 else 0.02)
