@@ -54,6 +54,7 @@
 !System/musik_einstufung.py
 !System/tests/*.py
 !System/tools/quellstart_paket.py
+!System/tools/bibliothek_zusammenfuehren.py
 # 24.09.2026: Lizenztexte fremder Bestandteile, deren Paket keinen mitbringt
 # (pywinrt: dist-info ohne LICENSE) — gehen mit ins Quellstart-Paket.
 !System/lizenzen/*.txt

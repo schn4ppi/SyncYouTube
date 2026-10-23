@@ -65,17 +65,29 @@ from musik_einstufung import (  # noqa: F401
 
 __version__ = "1.3.1"
 
-# Als .exe (PyInstaller, sys.frozen): alle Daten/bin NEBEN der exe, nicht im
-# Temp-Entpackordner — sonst verschwänden Warteschlange/Config bei jedem Start.
-# JB-Ordnerstandard: Quellcode + Technik liegen in System\, der Downloads-Ordner
-# (extern) eine Ebene darüber im Programmordner. Bei der exe ist beides die
-# exe-Ebene (exe liegt oben im Programmordner).
+# Code-/Technikpfade bleiben wie bisher: beim Quellstart System\, bei der exe
+# deren Ebene (nie der flüchtige PyInstaller-Entpackordner). Downloads liegen
+# im Programmordner. Die Datenwahl darunter erkennt zusätzlich JBs Layout.
 if getattr(sys, "frozen", False):
     SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.executable))
     PROGRAMM_DIR = SCRIPT_DIR
 else:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))        # System\
     PROGRAMM_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, ".."))
+
+
+def _standard_daten_dir():
+    """Exe und Quellstart teilen im Programmordner-Layout die System-Daten.
+
+    Eine verteilte exe ohne System/youtube_app.py behält ihre Daten daneben.
+    Nur die Zustandsdateien wechseln: bin, Add-on und Code-Signatur bleiben
+    am SCRIPT_DIR, Downloads am PROGRAMM_DIR und Medien-Sidecars an der Datei.
+    """
+    if getattr(sys, "frozen", False):
+        system_dir = os.path.join(SCRIPT_DIR, "System")
+        if os.path.isfile(os.path.join(system_dir, "youtube_app.py")):
+            return system_dir
+    return SCRIPT_DIR
 
 
 def _daten_dir(argv, env):
@@ -95,7 +107,7 @@ def _daten_dir(argv, env):
                                 "ytdl-testmodus")
         os.makedirs(pfad, exist_ok=True)
         return os.path.abspath(pfad), True
-    return SCRIPT_DIR, False
+    return _standard_daten_dir(), False
 
 
 # Produktiv-Ports der Familie (CLAUDE.md): 8776 YouTube · 8778 Docs · 8779 Findus ·
@@ -2274,6 +2286,45 @@ def _cover_sidecar(key):
     return _id_datei(os.path.join(ziel_ordner(), "Cover"), key.split("|")[0], ".jpg")
 
 
+_COVER_BILDSPUR_MAX = 128
+_COVER_BILDSPUR_BYTES = 16 * 1024 * 1024
+_cover_bildspur_cache = {}
+_cover_bildspur_lock = threading.Lock()
+
+
+def _cover_bildspur(key, pfad, stream, ffmpeg):
+    """Nur extrahierte Bildspuren puffern; Änderungen der Datei werden neu gelesen."""
+    try:
+        stat = os.stat(pfad)
+    except OSError:
+        return None
+    signatur = (key, os.path.normcase(os.path.abspath(pfad)), stat.st_size,
+                stat.st_mtime_ns, stream, ffmpeg)
+    with _cover_bildspur_lock:
+        if signatur in _cover_bildspur_cache:
+            bild = _cover_bildspur_cache.pop(signatur)
+            _cover_bildspur_cache[signatur] = bild     # zuletzt benutzt: hinten
+            return bild
+    try:
+        out = subprocess.run(
+            [ffmpeg, "-v", "error", "-i", pfad, "-map", f"0:{stream}",
+             "-frames:v", "1", "-c:v", "mjpeg", "-f", "image2pipe", "pipe:1"],
+            capture_output=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return None                                  # vorübergehende Fehler erneut versuchen
+    if out.returncode != 0 or not out.stdout:
+        return None
+    bild = out.stdout
+    if len(bild) <= _COVER_BILDSPUR_BYTES:
+        with _cover_bildspur_lock:
+            _cover_bildspur_cache.pop(signatur, None)
+            _cover_bildspur_cache[signatur] = bild
+            while (len(_cover_bildspur_cache) > _COVER_BILDSPUR_MAX
+                   or sum(map(len, _cover_bildspur_cache.values())) > _COVER_BILDSPUR_BYTES):
+                del _cover_bildspur_cache[next(iter(_cover_bildspur_cache))]
+    return bild
+
+
 def cover_aus_datei(key):
     """Lokales Bild für /api/cover: MP3-APIC, Video-Sidecar oder Bildspur."""
     pfad = _pfad_zu_key(key)
@@ -2300,15 +2351,7 @@ def cover_aus_datei(key):
     stream = e.get("cover_stream")
     ffmpeg = _ffmpeg_exe() if type(stream) is int and stream >= 0 else None
     if pfad and ffmpeg:
-        try:
-            out = subprocess.run(
-                [ffmpeg, "-v", "error", "-i", pfad, "-map", f"0:{stream}",
-                 "-frames:v", "1", "-c:v", "mjpeg", "-f", "image2pipe", "pipe:1"],
-                capture_output=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
-            if out.returncode == 0 and out.stdout:
-                return out.stdout
-        except (OSError, subprocess.SubprocessError):
-            pass
+        return _cover_bildspur(key, pfad, stream, ffmpeg)
     return None
 
 
