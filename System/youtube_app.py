@@ -839,24 +839,45 @@ def _hoehe_ffprobe(pfad):
 
 def _technik(pfad):
     """Codec-/Qualitäts-Infos der fertigen Datei per ffprobe:
-    {vcodec, height, acodec, abr(kbps), asr(Hz)}. Das eingebettete Cover (mjpeg
-    mit attached_pic) wird als Videospur ignoriert."""
+    Codecs, Dauer, Quelladresse/Kanal und Bildspur. Das eingebettete Cover
+    (mjpeg mit attached_pic) wird als Videospur ignoriert."""
     if not pfad or not os.path.isfile(pfad) or not _ffmpeg_exe():
         return {}
     try:
         out = subprocess.run(
             [os.path.join(BIN_DIR, "ffprobe.exe"), "-v", "error", "-print_format", "json",
              "-show_entries",
-             "stream=codec_type,codec_name,height,bit_rate,sample_rate:stream_disposition=attached_pic"
-             ":format=bit_rate", pfad],
-            capture_output=True, text=True, timeout=25,
+             "stream=index,codec_type,codec_name,height,bit_rate,sample_rate:stream_disposition=attached_pic"
+             ":format=bit_rate,duration:format_tags=artist,comment,purl", pfad],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25,
             creationflags=subprocess.CREATE_NO_WINDOW)
         data = json.loads(out.stdout or "{}")
+        if out.returncode or not data:
+            return {}
     except (OSError, ValueError, subprocess.SubprocessError):
         return {}
     res = {"vcodec": "", "height": 0, "acodec": "", "abr": 0, "asr": 0}
+    fmt = data.get("format") or {}
+    tags = {k.lower(): v for k, v in (fmt.get("tags") or {}).items()}
+    try:
+        dauer = float(fmt.get("duration") or 0)
+        if math.isfinite(dauer) and dauer > 0:
+            res["dauer"] = dauer
+    except (TypeError, ValueError):
+        pass
+    res["uploader"] = tags.get("artist") or ""
+    # yt-dlp hinterlegt die Quelladresse auch ohne unseren eigenen YTDL_ID-Tag.
+    # Nur vollständige YouTube-Adressen gelten; keine Titel-/Text-Heuristik.
+    for feld in ("purl", "comment"):
+        url = tags.get(feld)
+        if links.ist_youtube_link(url) and links._plausible_id(links._video_id(url)):
+            res["quell_id"] = links._video_id(url)
+            res["url"] = f"https://www.youtube.com/watch?v={res['quell_id']}"
+            break
     for s in data.get("streams", []):
         cover = (s.get("disposition") or {}).get("attached_pic")
+        if cover and isinstance(s.get("index"), int):
+            res["cover_stream"] = s["index"]
         if s.get("codec_type") == "video" and not cover and not res["vcodec"]:
             res["vcodec"] = s.get("codec_name", "")
             res["height"] = int(s.get("height") or 0)
@@ -876,6 +897,17 @@ def _technik(pfad):
         except (TypeError, ValueError):
             pass
     return res
+
+
+def _datei_metadaten_uebernehmen(e, t):
+    """Vorhandene Datei-Infos additiv übernehmen; lokale Schlüssel behalten.
+    Dadurch bleiben Playlists/Zähler und mehrere Fassungen derselben Id erhalten."""
+    for feld in ("dauer", "uploader", "url", "quell_id"):
+        if not e.get(feld) and t.get(feld):
+            e[feld] = t[feld]
+    if "cover_stream" in t:
+        e.setdefault("cover_stream", t["cover_stream"])
+    e["datei_metadaten"] = True                     # pro Import einmal lokal prüfen
 
 
 def _sidecars_mit(alt, neu):
@@ -1442,6 +1474,9 @@ def bibliothek_liste():
         art = ""
         if pfad:
             art = "audio" if pfad.lower().endswith(musik_einstufung.AUDIO_EXT) else "video"
+        quell_id = vid if links._plausible_id(vid) else e.get("quell_id", "")
+        lokalbild = e.get("cover_stream") is not None or any(
+            sc and os.path.isfile(sc) for sc in (_cover_sidecar(key), _cover_sidecar(quell_id)))
         out.append({
             "id": key, "videoid": vid, "dateiart": art,
             "qualitaet": e.get("qualitaet") or qual or "",
@@ -1452,7 +1487,8 @@ def bibliothek_liste():
             "vcodec": e.get("vcodec", ""), "acodec": e.get("acodec", ""),
             "abr": e.get("abr", 0), "asr": e.get("asr", 0), "hoehe": e.get("hoehe", 0),
             "groesse": e.get("groesse", 0), "name": e.get("name", ""),
-            "thumb": f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg" if links._plausible_id(vid) else "",
+            "thumb": ("/api/cover?" + urlencode({"id": key}) if lokalbild else
+                      f"https://i.ytimg.com/vi/{quell_id}/mqdefault.jpg" if links._plausible_id(quell_id) else ""),
             "url": e.get("url") or (f"https://www.youtube.com/watch?v={vid}" if links._plausible_id(vid) else ""),
             "vorhanden": bool(pfad), "archiviert": bool(e.get("archiviert")),
             "plays": e.get("plays", 0), "blacklist": bool(e.get("blacklist")),
@@ -2239,8 +2275,7 @@ def _cover_sidecar(key):
 
 
 def cover_aus_datei(key):
-    """Echtes Album-Cover für /api/cover: aus der MP3 (APIC) oder — bei
-    Videos — aus dem Sidecar; Player/Kacheln zeigen es statt des Thumbnails."""
+    """Lokales Bild für /api/cover: MP3-APIC, Video-Sidecar oder Bildspur."""
     pfad = _pfad_zu_key(key)
     if pfad and os.path.isfile(pfad) and pfad.lower().endswith(".mp3"):
         try:
@@ -2252,12 +2287,27 @@ def cover_aus_datei(key):
         except Exception:                            # noqa: BLE001 — kein/valides Tag
             pass
         return None
-    sc = _cover_sidecar(key)
-    if sc and os.path.isfile(sc):
+    e = _geladen.get(key, {})
+    for sc in (_cover_sidecar(key), _cover_sidecar(e.get("quell_id") or key)):
+        if sc and os.path.isfile(sc):
+            try:
+                with open(sc, "rb") as f:
+                    return f.read()
+            except OSError:
+                pass
+    # Importierte Videos haben oft bereits ein eingebettetes Vorschaubild.
+    # Nur die von ffprobe erkannte Bildspur lesen; nie die Mediendatei remuxen.
+    stream = e.get("cover_stream")
+    ffmpeg = _ffmpeg_exe() if type(stream) is int and stream >= 0 else None
+    if pfad and ffmpeg:
         try:
-            with open(sc, "rb") as f:
-                return f.read()
-        except OSError:
+            out = subprocess.run(
+                [ffmpeg, "-v", "error", "-i", pfad, "-map", f"0:{stream}",
+                 "-frames:v", "1", "-c:v", "mjpeg", "-f", "image2pipe", "pipe:1"],
+                capture_output=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+            if out.returncode == 0 and out.stdout:
+                return out.stdout
+        except (OSError, subprocess.SubprocessError):
             pass
     return None
 
@@ -5137,19 +5187,21 @@ def technik_backfill():
         idx = _datei_index()
         geaendert = False
         for k, e in _geladen_schnappschuss():
-            if e.get("acodec") and e.get("fp") and e.get("idtag") is not None:
+            datei_meta_fehlt = e.get("importiert") and not e.get("datei_metadaten")
+            if e.get("acodec") and e.get("fp") and e.get("idtag") is not None and not datei_meta_fehlt:
                 continue
             vid = k.split("|")[0]
             pfad = (e.get("pfad") if e.get("pfad") and os.path.isfile(e.get("pfad"))
                     else _datei_aus(idx.get(vid), k.partition("|")[2]))
             if not pfad:
                 continue
-            if not e.get("acodec"):
+            if not e.get("acodec") or datei_meta_fehlt:
                 t = _technik(pfad)
                 if t:
                     e.update({"vcodec": t.get("vcodec", ""), "acodec": t.get("acodec", ""),
                               "abr": t.get("abr", 0), "asr": t.get("asr", 0),
                               "hoehe": t.get("height", 0) or e.get("hoehe", 0)})
+                    _datei_metadaten_uebernehmen(e, t)
                     geaendert = True
             if e.get("idtag") is None:
                 # Id-Tag nur in EIGENE Downloads (nie in importierte Fremd-
@@ -5192,9 +5244,10 @@ NAME_STANDARD = ["kuenstler", "titel", "zusatz"]      # JB-Entscheid: Künstler 
 # Acoustic/Cover/Instrumental/Remastered" beschreiben die AUFNAHME -> bleiben
 # (als Baustein „zusatz").
 _NAME_MUELL = re.compile(
-    r"(?i)[\(\[]\s*(?:official\s*)?(?:music\s*)?(?:video|audio|hd|hq|full\s*hd|4k|8k|uhd"
+    r"(?i)[\(\[]\s*(?:official\s*)?(?:music\s*)?"
+    r"(?:(?:hd|hq|full\s*hd|4k|8k|uhd)\s*)?(?:video|audio|hd|hq|full\s*hd|4k|8k|uhd"
     r"|lyrics?|lyric\s*video|visualiz\w*|mv|m/v|clip|videoclip|hq\s*audio|explicit|clean"
-    r"|official|offizielles?\s*\w*)\s*[\)\]]")
+    r"|official|offizielles?\s*\w*)(?:\s*(?:hd|hq|full\s*hd|4k|8k|uhd))?\s*[\)\]]")
 _NAME_ZUSATZ = re.compile(
     r"(?i)[\(\[]\s*((?:live|akustik|acoustic|unplugged|remix|rmx|cover|instrumental"
     r"|karaoke|remaster\w*|demo|radio\s*edit|extended|edit)[^\)\]]*)\s*[\)\]]")
@@ -5565,6 +5618,9 @@ def ordner_importieren():
                 "qualitaet": "audio" if audio else "lokal",
                 "importiert": True, "ts": time.time(),
                 "fp": _datei_fp(pfad)}               # Content-Ausweis (Bibliothek 2.0)
+            t = _technik(pfad)
+            if t:
+                _datei_metadaten_uebernehmen(eintrag, t)
             with _io_lock:                           # F6: prüfen und eintragen in einem Schritt
                 if key in _geladen:
                     continue

@@ -873,6 +873,8 @@ select,input[type=text]{background:#171310;border:1px solid #3a332e;border-radiu
    bekommt schmale dunkle Raender; 16:9-Vorschaubilder fuellen weiterhin exakt. */
 .thumb{width:100%;height:100%;object-fit:contain;display:block}
 .thumbwrap.platzhalter::after{content:'▶';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#3a332e;font-size:34px}
+.thumbwrap.spielt::before,.thumbwrap.platzhalter.spielt::after{content:'⏸'}
+.thumbwrap.spielt::before{opacity:.92}
 .kdauer{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.8);color:#fff;font-size:11px;padding:1px 6px;border-radius:5px}
 .wegbadge{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.78);color:#f0a35e;font-size:11px;padding:1px 7px;border-radius:5px;border:1px solid #6b4a2a}
 /* Build 144o: ✂-Abzeichen oben rechts auf einer Ausschnitt-Kachel (JB). */
@@ -5969,6 +5971,11 @@ function transportRender(){
   document.querySelectorAll('[data-tr="pp"]').forEach(b=>{
     b.innerHTML=ico(spielt?'pause':'play');
     b.title=spielt?'Pause':'Abspielen';});
+  // Bild und Platzhalter haben getrennte Pseudoelemente, aber denselben Zustand.
+  const key=aktKey();
+  document.querySelectorAll('.thumbwrap[data-key]').forEach(b=>{
+    const laeuft=spielt&&b.dataset.key===key;
+    b.classList.toggle('spielt',laeuft); b.title=laeuft?'Pause':'Abspielen';});
   document.querySelectorAll('[data-tr="radio"]').forEach(b=>b.classList.toggle('an',radioAktiv));
   document.querySelectorAll('[data-tr="art"]').forEach(b=>{
     const o=PLAYART.find(o=>o[0]===playArt)||PLAYART[0];
@@ -6461,6 +6468,7 @@ function libMalen(){
     }
     el.innerHTML='<div class="libleer">'+(libPlaylistView?'Diese Playlist ist noch leer — füge mit ＋ Titel hinzu.':libArchiv?'Archiv ist leer.':'Nichts gefunden — lade etwas herunter oder ändere den Filter.')+'</div>'; return;}
   el.innerHTML = libModus==='kachel' ? kacheln(arr) : libModus==='alben' ? albenHTML(arr) : listeTab(arr);
+  transportRender();                                  // neu erzeugte Kacheln zeigen den laufenden Zustand
   // Build 135: Rahmen-Auswahl aufziehen. Der Zuhörer sitzt am Behälter, nicht
   // an den Kacheln — er soll ja gerade auf FREIER Fläche anspringen.
   el.onpointerdown=libBandStart;
