@@ -79,17 +79,56 @@ def _json_lesegriff(pfad, flags):
         raise
 
 
-def json_laden(pfad, standard=None):
-    """JSON lesen; fehlt/defekt -> standard (nie eine Exception)."""
+LESEFRIST_S = 0.25                  # so lange wartet ein Leser höchstens auf einen Schreiber, der gerade ersetzt
+
+
+def _schreiber_ersetzt(pfad):
+    """Liegt neben `pfad` die tmp-Datei eines Schreibers (`<pfad>.<pid>.<thread>.tmp`, siehe `json_schreiben`)?
+
+    Nur dann fehlt der Dateiname vorübergehend, weil gerade ersetzt wird; sonst fehlt die Datei wirklich."""
+    ordner, name = os.path.split(os.path.abspath(pfad))
     try:
-        if os.name == "nt":
-            datei = open(pfad, encoding="utf-8", opener=_json_lesegriff)
-        else:
-            datei = open(pfad, encoding="utf-8")
-        with datei as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {} if standard is None else standard
+        return any(n.startswith(name + ".") and n.endswith(".tmp") for n in os.listdir(ordner))
+    except OSError:
+        return False
+
+
+def json_laden(pfad, standard=None):
+    """JSON lesen; fehlt/defekt -> standard (nie eine Exception).
+
+    **Ersetzt gerade ein Schreiber die Datei, fehlt ihr Name unter Windows einen Augenblick** (FileNotFoundError,
+    winerror 2) oder der Zugriff wird verweigert (winerror 5): Nicht die Datei fehlt, der Austausch läuft. Gemessen
+    03.11.2026 mit 8 Schreibern, 3 Lesern und 10 Rechenfressern: 21 von 870 Lesevorgängen sahen so den Ersatzstand
+    (kein ungültiges JSON, sondern ein fehlender Name); im Stop-Gate bei Last 1 von 132 (Wächter test_nebenlaeufigkeit).
+    Wer den Ersatzstand für den echten hält und zurückschreibt, verlöre Einträge. Darum: Steht neben der Datei die tmp-Datei
+    eines Schreibers, wird kurz erneut gelesen (höchstens `LESEFRIST_S`). Fehlt die Datei ohne Schreiber, gilt sie nach einem
+    einzigen Nachsehen als fehlend (der Schreiber kann zwischen Fehler und Prüfung fertig geworden sein): kein Warten auf
+    Dateien, die es nicht gibt."""
+    ende = None
+    nachsehen = True
+    while True:
+        try:
+            if os.name == "nt":
+                datei = open(pfad, encoding="utf-8", opener=_json_lesegriff)
+            else:
+                datei = open(pfad, encoding="utf-8")
+            with datei as f:
+                return json.load(f)
+        except (FileNotFoundError, PermissionError):
+            jetzt = time.monotonic()
+            ende = jetzt + LESEFRIST_S if ende is None else ende
+            if jetzt >= ende:
+                break
+            if _schreiber_ersetzt(pfad):
+                nachsehen = True
+                time.sleep(0.001)
+            elif nachsehen:
+                nachsehen = False
+            else:
+                break
+        except (OSError, ValueError):
+            break
+    return {} if standard is None else standard
 
 
 def _win_posix_ersetzen(quelle, ziel):
