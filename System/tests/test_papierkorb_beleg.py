@@ -15,9 +15,11 @@ import ctypes
 import glob
 import json
 import os
+import re
 import stat
 import sys
 import types
+import winreg
 
 import pytest
 
@@ -29,6 +31,7 @@ import youtube_app as app  # noqa: E402
 
 LANG = "\\\\?\\"
 FOF_ALLOWUNDO = 0x40
+FOF_NOERRORUI = 0x400
 GEMESSENE_GRENZE = 260
 INHALT = b"MUSIK"
 
@@ -97,12 +100,14 @@ class Windows:
         self.art = "gemessen"
         self.gesehen = []
         self.im_korb = []
+        self.fehlerfenster = False
 
     def __call__(self, zeiger):
         op = zeiger._obj
         pfad = op.pFrom
         self.gesehen.append(pfad)
         if self.art == "verweigert":
+            self.fehlerfenster = not op.fFlags & FOF_NOERRORUI
             return 124
         endgueltig = (self.art == "loescht_still" or _einheiten(pfad) >= GEMESSENE_GRENZE
                       or not op.fFlags & FOF_ALLOWUNDO)
@@ -328,6 +333,14 @@ def test_windows_verweigert_die_datei_wandert_in_den_rueckfall(dl, windows):
     assert os.listdir(dl / "_Papierkorb") == [os.path.basename(pfad)]
 
 
+def test_offene_datei_oeffnet_kein_fehlerfenster(dl, windows):
+    """Das Aufräumen läuft im Hintergrund, und niemand sitzt davor: Ein Fehlerfenster von Windows
+    hielte den Faden fest, bis jemand klickt."""
+    windows.art = "verweigert"
+    app._rueckholbar_entfernen(_kurz(dl / "MP3"))
+    assert windows.gesehen and not windows.fehlerfenster
+
+
 def test_erfolg_laesst_einen_gefuellten_rueckfall_ordner_stehen(dl, windows):
     alt = dl / "_Papierkorb" / "alt.mp3"
     alt.parent.mkdir()
@@ -380,6 +393,128 @@ def test_gerettete_datei_ueberschreibt_nichts(dl, windows):
     ort = app._rueckholbar_entfernen(pfad)
     assert alt.read_bytes() == b"ALT" and _inhalt(ort) == INHALT
     assert os.path.basename(ort) == os.path.splitext(os.path.basename(pfad))[0] + " (2).mp3"
+
+
+# ---------------------------------------------------------------- Platz im Papierkorb
+
+MB = 1024 * 1024
+
+
+@pytest.fixture
+def korbstand(monkeypatch):
+    """Die echte `_papierkorb_platz`, ihre beiden Quellen als Attrappe: Registry und
+    `SHQueryRecycleBinW`. Sie lesen nur, trotzdem fragt kein Test den echten Stand: Das Ergebnis
+    hinge an JBs PC. Die conftest sagt sonst für jeden Test „es ist Platz“."""
+    import conftest
+    monkeypatch.setattr(app, "_papierkorb_platz", conftest._ECHT_PAPIERKORB_PLATZ)
+    stand = types.SimpleNamespace(nuke=0, kapazitaet_mb=1, belegt=0, antwort=0, fehlt="", schluessel=[],
+                                  abfragen=0)
+
+    class Schluessel:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def oeffnen(wurzel, pfad):
+        stand.schluessel.append((wurzel, pfad))
+        if stand.fehlt == "Schlüssel":
+            raise FileNotFoundError(2, "Der Schlüssel fehlt", pfad)
+        return Schluessel()
+
+    def lesen(_schluessel, name):
+        if stand.fehlt == name:
+            raise FileNotFoundError(2, "Der Wert fehlt", name)
+        return {"NukeOnDelete": stand.nuke, "MaxCapacity": stand.kapazitaet_mb}[name], 4
+
+    def belegung(_wurzel, zeiger):
+        stand.abfragen += 1
+        zeiger._obj.i64Size = stand.belegt
+        return stand.antwort
+
+    monkeypatch.setattr(winreg, "OpenKey", oeffnen)
+    monkeypatch.setattr(winreg, "QueryValueEx", lesen)
+    monkeypatch.setattr(ctypes.windll.shell32, "SHQueryRecycleBinW", belegung)
+    return stand
+
+
+def _groesse(ordner, bytes_):
+    return _kurz(ordner, inhalt=b"x" * bytes_)
+
+
+@pytest.mark.parametrize("groesse, belegt, nimmt_windows", [
+    (MB // 2 - 1, 0, True),                           # doppelt gerechnet knapp unter dem freien Platz
+    (MB // 2, 0, False),                              # doppelt gerechnet genau der freie Platz
+    (MB // 4 - 1, MB // 2, True),                     # die Belegung zählt mit
+    (MB // 4, MB // 2, False),
+], ids=["knapp_passt", "knapp_zu_gross", "belegt_passt", "belegt_zu_gross"])
+def test_datei_muss_doppelt_in_den_freien_platz_passen(dl, windows, korbstand, groesse, belegt,
+                                                       nimmt_windows):
+    """Läuft der Papierkorb über, löscht Windows seine ältesten Einträge endgültig, also andere
+    gelöschte Dateien. Die doppelte Größe lässt Luft für den nächsten Löschvorgang."""
+    korbstand.belegt = belegt
+    pfad = _groesse(dl / "MP3", groesse)
+    ort = app._rueckholbar_entfernen(pfad)
+    assert windows.gesehen == ([pfad] if nimmt_windows else [])
+    if nimmt_windows:
+        assert ort == "papierkorb" and not _meldungen()
+    else:
+        assert ort == os.path.join(str(dl / "_Papierkorb"), os.path.basename(pfad))
+        assert len(_meldungen()) == 1 and "voll" in _meldungen()[0]["text"]
+
+
+@pytest.mark.parametrize("groesse, abfragen", [(MB // 100, 0), (MB // 100 + 1, 1)],
+                         ids=["unter_1_prozent", "ab_1_prozent"])
+def test_nur_grosse_dateien_warten_auf_die_belegung(dl, windows, korbstand, groesse, abfragen):
+    """Die Belegung kostet: `SHQueryRecycleBinW` zählt jede Datei im Papierkorb, bei 127.555 Dateien
+    kalt 17 Sekunden (gemessen 05.11.2026), und so lange stünde das Löschen. Eine Datei unter 1 %
+    der Kapazität verdrängt kaum etwas, sie fragt darum nicht."""
+    app._rueckholbar_entfernen(_groesse(dl / "MP3", groesse))
+    assert korbstand.abfragen == abfragen
+
+
+def test_abgeschalteter_papierkorb_wird_nicht_gefragt(dl, windows, korbstand):
+    """`NukeOnDelete`: Windows löscht auf diesem Laufwerk sofort endgültig."""
+    korbstand.nuke = 1
+    pfad = _kurz(dl / "MP3")
+    ort = app._rueckholbar_entfernen(pfad)
+    assert windows.gesehen == [] and _inhalt(ort) == INHALT
+
+
+@pytest.mark.parametrize("fehlt", ["Schlüssel", "NukeOnDelete", "MaxCapacity"])
+def test_unbekannter_stand_gilt_als_voll(dl, windows, korbstand, fehlt):
+    """Wer den Stand nicht kennt, verspricht nichts: Die Datei wandert nach `_Papierkorb`."""
+    korbstand.fehlt = fehlt
+    ort = app._rueckholbar_entfernen(_kurz(dl / "MP3"))
+    assert windows.gesehen == [] and _inhalt(ort) == INHALT
+
+
+def test_unlesbare_belegung_gilt_als_voll(dl, windows, korbstand):
+    korbstand.antwort = -2147467259                   # E_FAIL
+    ort = app._rueckholbar_entfernen(_groesse(dl / "MP3", MB // 10))
+    assert windows.gesehen == [] and os.path.getsize(ort) == MB // 10
+
+
+def test_unbekanntes_laufwerk_gilt_als_voll(dl, windows, korbstand, monkeypatch):
+    monkeypatch.setattr(ctypes.windll.kernel32, "GetVolumePathNameW", lambda *a: 0)
+    ort = app._rueckholbar_entfernen(_kurz(dl / "MP3"))
+    assert windows.gesehen == [] and _inhalt(ort) == INHALT
+
+
+def test_stand_kommt_vom_laufwerk_der_datei(dl, windows, korbstand):
+    """Jedes Laufwerk hat seinen eigenen Papierkorb, die Registry führt sie nach Volume-GUID."""
+    app._rueckholbar_entfernen(_kurz(dl / "MP3"))
+    wurzel, pfad = korbstand.schluessel[0]
+    anfang = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\BitBucket\\Volume\\"
+    assert wurzel == winreg.HKEY_CURRENT_USER and pfad.startswith(anfang)
+    assert re.fullmatch(r"\{[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\}", pfad[len(anfang):]), pfad
+
+
+def test_fehlende_datei_bleibt_ein_gemeldeter_fehlschlag(dl, windows, korbstand):
+    """Die Größe einer verschwundenen Datei wirft nicht durch: Die Aufrufer erwarten eine Rückgabe."""
+    assert app._rueckholbar_entfernen(str(dl / "MP3" / "weg.mp3")) == ""
+    assert windows.gesehen == [] and len(_meldungen()) == 1
 
 
 # ---------------------------------------------------------------- Windows ab Werk

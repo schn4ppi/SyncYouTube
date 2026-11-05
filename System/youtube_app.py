@@ -3801,10 +3801,11 @@ def _in_papierkorb(pfad):
                         ("fFlags", ctypes.c_uint16), ("fAnyAborted", wintypes.BOOL),
                         ("hNameMappings", wintypes.LPVOID), ("lpszTitle", wintypes.LPCWSTR)]
         FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONF, FOF_SILENT = 3, 0x40, 0x10, 0x4
+        FOF_NOERRORUI = 0x400                         # ein Fehlerfenster hielte den Faden fest
         op = _OP()
         op.wFunc = FO_DELETE
         op.pFrom = pfad + "\0\0"                      # doppelt-null-terminiert
-        op.fFlags = FOF_ALLOWUNDO | FOF_NOCONF | FOF_SILENT
+        op.fFlags = FOF_ALLOWUNDO | FOF_NOCONF | FOF_SILENT | FOF_NOERRORUI
         return ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0
     except Exception:                                # noqa: BLE001 — Fallback im Aufrufer
         return False
@@ -3947,6 +3948,59 @@ def _ohne_papierkorb(pfad):
     return wurzel.startswith(("\\\\", "//"))
 
 
+def _papierkorb_platz(pfad, groesse):
+    """Nimmt der Windows-Papierkorb auf dem Laufwerk von `pfad` diese Größe auf, ohne dass
+    etwas verloren geht? Läuft er über, löscht Windows seine ältesten Einträge endgültig,
+    also andere gelöschte Dateien; die doppelte Größe lässt Luft für den nächsten
+    Löschvorgang. Nur lesend: `NukeOnDelete` und `MaxCapacity` aus der Registry, die
+    Belegung von SHQueryRecycleBinW. Die kostet: Sie zählt jede Datei im Papierkorb, bei
+    127.555 Dateien kalt 17 Sekunden (gemessen 05.11.2026), und so lange stünde das
+    Löschen. Darum fragt sie nur, wer etwas verdrängen kann: ab 1 % der Kapazität. Ein
+    unbekannter Stand heißt nein."""
+    try:
+        import ctypes
+        import winreg
+        from ctypes import wintypes
+
+        class _Stand(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("i64Size", ctypes.c_longlong),
+                        ("i64NumItems", ctypes.c_longlong)]
+        wurzel = ctypes.create_unicode_buffer(261)
+        volume = ctypes.create_unicode_buffer(64)
+        k32 = ctypes.windll.kernel32
+        if not (k32.GetVolumePathNameW(os.path.abspath(pfad), wurzel, 261)
+                and k32.GetVolumeNameForVolumeMountPointW(wurzel.value, volume, 64)):
+            return False
+        guid = volume.value[volume.value.index("{"):volume.value.index("}") + 1]
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion"
+                            "\\Explorer\\BitBucket\\Volume\\" + guid) as schluessel:
+            if winreg.QueryValueEx(schluessel, "NukeOnDelete")[0]:
+                return False
+            kapazitaet = winreg.QueryValueEx(schluessel, "MaxCapacity")[0] * 1024 * 1024
+        if groesse * 100 <= kapazitaet:
+            return True
+        stand = _Stand(cbSize=ctypes.sizeof(_Stand))
+        if ctypes.windll.shell32.SHQueryRecycleBinW(wurzel.value, ctypes.byref(stand)) != 0:
+            return False
+        return groesse * 2 < kapazitaet - stand.i64Size
+    except Exception:                                # noqa: BLE001 — unbekannt heißt nein
+        return False
+
+
+def _grund_gegen_windows(pfad):
+    """Warum der Windows-Papierkorb gar nicht erst gefragt wird; "" heißt: Er kommt in
+    Frage."""
+    if _ohne_papierkorb(pfad):
+        return "Laufwerk ohne Papierkorb"
+    if _pfad_zu_lang(pfad):
+        return "Pfad zu lang für den Papierkorb"
+    try:
+        groesse = os.path.getsize(_lang(pfad))
+    except OSError as e:
+        return f"Datei nicht lesbar ({e})"
+    return "" if _papierkorb_platz(pfad, groesse) else "Papierkorb aus, zu voll oder nicht lesbar"
+
+
 def _zweiten_namen_entfernen(netz):
     """Nimmt den zweiten Namen wieder weg, die Datei lebt unter dem anderen weiter.
     Schreibschutz gilt für die Datei, nicht für den Namen: Er sperrt auch dieses
@@ -3989,18 +4043,14 @@ def _papierkorb_mit_beleg(pfad):
 
 
 def _rueckholbar_entfernen(pfad):
-    """Datei in den Windows-Papierkorb, belegt durch _papierkorb_mit_beleg. Gibt es auf
-    dem Laufwerk keinen, ist der Pfad zu lang, scheitert er oder liegt die Datei danach
-    noch da, rückholbar in den Ordner `_Papierkorb` (S6). Wer eine Datei entfernt, geht
-    hier durch. Nie endgültig löschen (harte Regel 2), keinen Dialog öffnen (läuft auch
-    in Hintergrundfäden). Jeder Rückfall wird gemeldet (Konsole und yt_fehler.jsonl).
+    """Datei in den Windows-Papierkorb, belegt durch _papierkorb_mit_beleg. Kommt er nicht
+    in Frage (_grund_gegen_windows), scheitert er oder liegt die Datei danach noch da,
+    rückholbar in den Ordner `_Papierkorb` (S6). Wer eine Datei entfernt, geht hier
+    durch. Nie endgültig löschen (harte Regel 2), keinen Dialog öffnen (läuft auch in
+    Hintergrundfäden). Jeder Rückfall wird gemeldet (Konsole und yt_fehler.jsonl).
     Rückgabe: "papierkorb", der neue Pfad oder "" (die Datei bleibt, wo sie war)."""
-    neu = ""
-    if _ohne_papierkorb(pfad):
-        grund = "Laufwerk ohne Papierkorb"
-    elif _pfad_zu_lang(pfad):
-        grund = "Pfad zu lang für den Papierkorb"
-    else:
+    neu, grund = "", _grund_gegen_windows(pfad)
+    if not grund:
         neu, grund = _papierkorb_mit_beleg(pfad)
         if neu == "papierkorb":
             return neu

@@ -524,6 +524,7 @@ def _daten_umlegen(setzen, ziel):
 
 
 _ECHT_PAPIERKORB = youtube_app._in_papierkorb
+_ECHT_PAPIERKORB_PLATZ = youtube_app._papierkorb_platz
 
 
 def _windows_papierkorb_gesperrt(*_a):
@@ -534,11 +535,18 @@ def _windows_papierkorb_gesperrt(*_a):
 _windows_papierkorb_gesperrt.daten_wache = True
 
 
+def _immer_platz(_pfad, _groesse):
+    return True
+
+
 def _papierkorb_setzen():
     """Der Papierkorb geht über ctypes (kein Audit-Ereignis): Der Windows-Aufruf ist
-    gesperrt, sonst landete jede Testdatei in JBs echtem Papierkorb. Dazu eine Hülle,
-    die für den Programmordner laut scheitert und sonst das Echte ruft."""
+    gesperrt, sonst landete jede Testdatei in JBs echtem Papierkorb. Auch sein Stand
+    bleibt außen vor: Der Ausgang eines Tests hinge sonst daran, wie voll er gerade ist.
+    Dazu eine Hülle, die für den Programmordner laut scheitert und sonst das Echte ruft."""
     ctypes.windll.shell32.SHFileOperationW = _windows_papierkorb_gesperrt
+    ctypes.windll.shell32.SHQueryRecycleBinW = _windows_papierkorb_gesperrt
+    youtube_app._papierkorb_platz = _immer_platz
     if getattr(youtube_app._in_papierkorb, "daten_wache", False):
         return
 

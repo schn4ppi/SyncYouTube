@@ -322,8 +322,9 @@ def test_echter_papierkorb_ist_fuer_die_ganze_suite_gesperrt(request, tmp_path):
     import ctypes
 
     import youtube_app as app
-    assert getattr(ctypes.windll.shell32.SHFileOperationW, "daten_wache", False), \
-        "SHFileOperationW ist ungesperrt"
+    for aufruf in ("SHFileOperationW", "SHQueryRecycleBinW"):
+        assert getattr(getattr(ctypes.windll.shell32, aufruf), "daten_wache", False), \
+            f"{aufruf} ist ungesperrt"
     datei = tmp_path / "titel.mp3"
     datei.write_bytes(b"x")
     with pytest.raises(pytest.fail.Exception):
