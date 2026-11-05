@@ -68,9 +68,10 @@ System-Ordner, acht Tests legten Downloads\\ an. Jetzt:
     Frei bleiben `__pycache__`, `.pytest_cache` und %TEMP%, falls es im
     Programmordner liegt. Ein `--basetemp` im Programmordner lehnt die
     conftest vor dem Lauf ab (pytest räumt basetemp komplett ab; die Wache sah
-    das nicht, weil pytest dafür das Langpfad-Präfix `\\\\?\\` nimmt). Den
-    Papierkorb (ctypes, ohne Audit-Ereignis) sperrt eine Hülle um
-    `youtube_app._in_papierkorb`.
+    das nicht, weil pytest dafür das Langpfad-Präfix `\\\\?\\` nimmt). Der
+    Papierkorb geht über ctypes, ohne Audit-Ereignis: `SHFileOperationW` ist für
+    die ganze Suite gesperrt, wer ihn braucht, setzt eine Attrappe. Eine Hülle um
+    `youtube_app._in_papierkorb` meldet schon den Programmordner.
 Grenzen: Der Import der App LIEST die echten Dateien weiterhin einmal (nur
 lesend; schreiben würde er nur eine defekte Datei beiseite, und das scheitert
 jetzt laut). Kindprozesse sieht der Hook nicht, ebenso wenig direkte
@@ -111,6 +112,7 @@ Firefox-Wache gegen die echte Suche.
 """
 import ast
 import copy
+import ctypes
 import os
 import socket
 import sys
@@ -524,9 +526,19 @@ def _daten_umlegen(setzen, ziel):
 _ECHT_PAPIERKORB = youtube_app._in_papierkorb
 
 
+def _windows_papierkorb_gesperrt(*_a):
+    _alarm("Papierkorb (SHFileOperationW)",
+           "Test rief den echten Windows-Papierkorb — Attrappe setzen")
+
+
+_windows_papierkorb_gesperrt.daten_wache = True
+
+
 def _papierkorb_setzen():
-    """Der Papierkorb geht über ctypes (kein Audit-Ereignis): Hülle, die für den
-    Programmordner laut scheitert und sonst das Echte ruft."""
+    """Der Papierkorb geht über ctypes (kein Audit-Ereignis): Der Windows-Aufruf ist
+    gesperrt, sonst landete jede Testdatei in JBs echtem Papierkorb. Dazu eine Hülle,
+    die für den Programmordner laut scheitert und sonst das Echte ruft."""
+    ctypes.windll.shell32.SHFileOperationW = _windows_papierkorb_gesperrt
     if getattr(youtube_app._in_papierkorb, "daten_wache", False):
         return
 

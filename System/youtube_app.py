@@ -29,6 +29,7 @@ import random
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -2603,7 +2604,7 @@ def untertitel_einsortieren():
             zdatei = os.path.join(ziel, f"{m.group(1)}.{_vtt_sprache(d) or 'und'}.vtt")
             try:
                 if os.path.exists(zdatei):
-                    _in_papierkorb(quelle)            # Dublette -> Papierkorb (nicht hart löschen)
+                    _rueckholbar_entfernen(quelle)    # Dublette -> Papierkorb (nicht hart löschen)
                 elif unten.endswith(".srt"):
                     # SubRip unterwegs nach WebVTT wandeln (der Player liest
                     # VTT); das Original geht rückholbar in den Papierkorb.
@@ -2611,7 +2612,7 @@ def untertitel_einsortieren():
                         text = f.read()
                     with open(zdatei, "w", encoding="utf-8") as f:
                         f.write(_srt_zu_vtt(text))
-                    _in_papierkorb(quelle)
+                    _rueckholbar_entfernen(quelle)
                 else:
                     os.replace(quelle, zdatei)
                 n += 1
@@ -3784,8 +3785,12 @@ def auffaellige_schluessel():
 
 
 def _in_papierkorb(pfad):
-    """Datei in den Windows-Papierkorb verschieben (wiederherstellbar!) statt hart
-    zu löschen. Gibt True bei Erfolg zurück."""
+    """Übergibt die Datei dem Windows-Papierkorb. True heißt nur, dass Windows Erfolg
+    meldet, und das meldet es auch, wenn es endgültig gelöscht hat. Was wirklich
+    geschah, zeigt erst _papierkorb_mit_beleg, darum ruft nur das hier. Ein Pfad ab
+    der Grenze geht gar nicht erst an Windows (False)."""
+    if _pfad_zu_lang(pfad):
+        return False
     try:
         import ctypes
         from ctypes import wintypes
@@ -3830,22 +3835,55 @@ def _im_rueckhol_ordner(pfad, basis):
     return any(t.lower() in _RUECKHOL_ORDNER for t in rest.split(os.sep)[:-1])
 
 
-def _rueckholbar_verschieben(pfad, ordner):
-    """Datei nach `ordner` verschieben, nie überschreiben (nummerierter Name;
-    os.rename scheitert unter Windows an einem vorhandenen Ziel). Gibt den
-    neuen Pfad zurück, OSError geht an den Aufrufer."""
-    os.makedirs(ordner, exist_ok=True)
+# Ab dieser Länge des vollen Pfads löscht SHFileOperationW endgültig und meldet trotzdem
+# Erfolg, auch mit FOF_WANTNUKEWARNING (gemessen 05.11.2026: 259 geht, 260 nicht).
+WINDOWS_PFAD_GRENZE = 260
+_ORDNER_PFAD_GRENZE = WINDOWS_PFAD_GRENZE - 12        # CreateDirectory scheitert früher
+
+
+def _pfad_einheiten(pfad):
+    """Länge des vollen Pfads, wie Windows sie zählt: in UTF-16-Einheiten. Ein Emoji
+    im Titel ist für Python ein Zeichen, für Windows zwei."""
+    return len(os.path.abspath(pfad).encode("utf-16-le", "surrogatepass")) // 2
+
+
+def _pfad_zu_lang(pfad):
+    return _pfad_einheiten(pfad) >= WINDOWS_PFAD_GRENZE
+
+
+def _lang(pfad):
+    """`pfad` für einen Dateiaufruf: Nahe der Grenze in der Langform `\\\\?\\`, die auch
+    ohne die Systemeinstellung für lange Pfade gilt (ab Werk ist sie aus). Kürzere
+    Pfade bleiben, wie sie sind."""
+    if _pfad_einheiten(pfad) < _ORDNER_PFAD_GRENZE:
+        return pfad
+    voll = os.path.abspath(pfad)
+    return "\\\\?\\UNC\\" + voll[2:] if voll.startswith("\\\\") else "\\\\?\\" + voll
+
+
+def _freien_namen_anlegen(pfad, ordner, anlegen):
+    """Gibt `pfad` in `ordner` einen freien Namen, nie über einen vorhandenen
+    (nummeriert). `anlegen` ist os.rename oder os.link: Beide scheitern unter Windows
+    an einem vorhandenen Ziel. Gibt den neuen Pfad zurück, OSError geht an den
+    Aufrufer."""
+    os.makedirs(_lang(ordner), exist_ok=True)
     stamm, ext = os.path.splitext(os.path.basename(pfad))
     for n in range(1, 10_000):
         neu = os.path.join(ordner, stamm + ext if n == 1 else f"{stamm} ({n}){ext}")
-        if os.path.lexists(neu):
+        if os.path.lexists(_lang(neu)):
             continue
         try:
-            os.rename(pfad, neu)
+            anlegen(_lang(pfad), _lang(neu))
             return neu
         except FileExistsError:                       # im selben Augenblick entstanden
             continue
     raise OSError(f"kein freier Name in {ordner}")
+
+
+def _rueckholbar_verschieben(pfad, ordner):
+    """Datei nach `ordner` verschieben, nie überschreiben. Gibt den neuen Pfad
+    zurück, OSError geht an den Aufrufer."""
+    return _freien_namen_anlegen(pfad, ordner, os.rename)
 
 
 def _vorher_sichern(pfad, neuer_inhalt):
@@ -3909,24 +3947,67 @@ def _ohne_papierkorb(pfad):
     return wurzel.startswith(("\\\\", "//"))
 
 
+def _zweiten_namen_entfernen(netz):
+    """Nimmt den zweiten Namen wieder weg, die Datei lebt unter dem anderen weiter.
+    Schreibschutz gilt für die Datei, nicht für den Namen: Er sperrt auch dieses
+    Entfernen und fällt darum für beide weg, was bei Medien nichts kostet. Bleibt der
+    Name doch stehen, ist er nur überzählig. Ein leerer `_Papierkorb` geht mit."""
+    ziel = _lang(netz)
+    try:
+        try:
+            os.remove(ziel)
+        except PermissionError:
+            os.chmod(ziel, stat.S_IWRITE)
+            os.remove(ziel)
+        os.rmdir(_lang(os.path.dirname(netz)))
+    except OSError:
+        pass
+
+
+def _papierkorb_mit_beleg(pfad):
+    """Übergibt die Datei dem Windows-Papierkorb und belegt, wo sie wirklich ist: Seine
+    Erfolgsmeldung belegt nichts. Vorher bekommt sie in `_Papierkorb` per hartem Link
+    einen zweiten Namen. Das kostet keinen Platz, und eine Datei verschwindet erst mit
+    ihrem letzten Namen. Zählt der Link-Zähler danach noch einen anderen Namen, lebt sie
+    im Papierkorb weiter. Ist der zweite der letzte, hat Windows endgültig gelöscht, und
+    sie liegt noch dort. So fällt jeder Grund auf: `NukeOnDelete`, eine Datei größer als
+    der Papierkorb, auch Ungemessenes. Ohne zweiten Namen (FAT kennt keine harten Links)
+    gibt es keinen Beleg, dann wird Windows nicht gefragt.
+    Rückgabe (ort, grund): "papierkorb", der Pfad der geretteten Datei oder "" (sie
+    liegt noch an ihrem Platz)."""
+    try:
+        netz = _freien_namen_anlegen(pfad, _papierkorb_ordner(pfad), os.link)
+    except OSError as e:
+        return "", f"Kein Beleg möglich ({e})"
+    _in_papierkorb(pfad)
+    quelle_da = os.path.lexists(_lang(pfad))
+    # Nur os.stat liefert den Zähler, os.scandir meldet unter Windows immer 0.
+    if not quelle_da and os.stat(_lang(netz)).st_nlink < 2:
+        return netz, "Windows hat endgültig gelöscht"
+    _zweiten_namen_entfernen(netz)
+    return ("", "Papierkorb gescheitert") if quelle_da else ("papierkorb", "")
+
+
 def _rueckholbar_entfernen(pfad):
-    """Datei in den Windows-Papierkorb; gibt es auf dem Laufwerk keinen,
-    scheitert er oder liegt die Datei danach noch da, rückholbar in den
-    Ordner `_Papierkorb` (S6). Nie endgültig löschen (harte Regel 2), keinen
-    Dialog öffnen (läuft auch in Hintergrundfäden). Jeder Rückfall wird
-    gemeldet (Konsole und yt_fehler.jsonl). Rückgabe: "papierkorb", der neue
-    Pfad oder "" (die Datei bleibt, wo sie war)."""
+    """Datei in den Windows-Papierkorb, belegt durch _papierkorb_mit_beleg. Gibt es auf
+    dem Laufwerk keinen, ist der Pfad zu lang, scheitert er oder liegt die Datei danach
+    noch da, rückholbar in den Ordner `_Papierkorb` (S6). Wer eine Datei entfernt, geht
+    hier durch. Nie endgültig löschen (harte Regel 2), keinen Dialog öffnen (läuft auch
+    in Hintergrundfäden). Jeder Rückfall wird gemeldet (Konsole und yt_fehler.jsonl).
+    Rückgabe: "papierkorb", der neue Pfad oder "" (die Datei bleibt, wo sie war)."""
+    neu = ""
     if _ohne_papierkorb(pfad):
         grund = "Laufwerk ohne Papierkorb"
-    elif _in_papierkorb(pfad) and not os.path.lexists(pfad):
-        return "papierkorb"
+    elif _pfad_zu_lang(pfad):
+        grund = "Pfad zu lang für den Papierkorb"
     else:
-        grund = "Papierkorb gescheitert"
+        neu, grund = _papierkorb_mit_beleg(pfad)
+        if neu == "papierkorb":
+            return neu
     try:
-        neu = _rueckholbar_verschieben(pfad, _papierkorb_ordner(pfad))
+        neu = neu or _rueckholbar_verschieben(pfad, _papierkorb_ordner(pfad))
     except OSError as e:
         text = f"{grund}, Datei bleibt liegen: {pfad} ({e})"
-        neu = ""
     else:
         text = f"{grund}, rückholbar verschoben: {pfad} -> {neu}"
     _sag(text)
@@ -4973,13 +5054,13 @@ def _abo_index_entfernen(abo_id):
     """Folgen-Cache eines entfernten Abos in den Papierkorb (Gesamtprüfung S1).
     Nur für eine Id in der Form, die `create` vergibt: die Id stammt aus der
     Anfrage, und `..\\`, ein absoluter oder ein UNC-Pfad hätten sonst eine
-    beliebige `.json` getroffen. Scheitert der Papierkorb, bleibt der Cache
+    beliebige `.json` getroffen. Scheitert auch der Rückfall, bleibt der Cache
     liegen (er ist nur abgeleitet und wird nie wieder gelesen)."""
     abo_id = str(abo_id or "")
     if not _ABO_ID_FORM.fullmatch(abo_id):
         return False
     pfad = os.path.join(ABO_INDEX_ORDNER, f"{abo_id}.json")
-    return os.path.isfile(pfad) and bool(_in_papierkorb(pfad))
+    return os.path.isfile(pfad) and bool(_rueckholbar_entfernen(pfad))
 
 
 def abo_folgen(abo_id, aktualisieren=False):
@@ -5794,10 +5875,10 @@ def untertitel_aufraeumen():
     n = 0
     for f in glob.glob(os.path.join(glob.escape(ziel), "*.vtt")):
         vid = os.path.basename(f).split(".")[0]
-        if vid not in vids and _in_papierkorb(f):
+        if vid not in vids and _rueckholbar_entfernen(f):
             n += 1
     for p in legacy:
-        if _vtt_verwaist(p, stems) and _in_papierkorb(p):
+        if _vtt_verwaist(p, stems) and _rueckholbar_entfernen(p):
             n += 1
     if n:
         _sag(f"Untertitel aufgeräumt: {n} verwaiste .vtt in den Papierkorb")

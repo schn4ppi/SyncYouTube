@@ -315,6 +315,25 @@ def test_schreiben_in_den_programmordner_scheitert_laut(request, tmp_path):
     zugriffe.clear()                                       # der Alarm war hier gewollt
 
 
+def test_echter_papierkorb_ist_fuer_die_ganze_suite_gesperrt(request, tmp_path):
+    """Der Windows-Aufruf läuft über ctypes, kein Audit-Ereignis sieht ihn: Ohne Sperre landete
+    jede Testdatei in JBs echtem Papierkorb. Die erste Prüfung steht vor dem Aufruf, damit
+    auch ein Rot-Lauf nie Windows fragt."""
+    import ctypes
+
+    import youtube_app as app
+    assert getattr(ctypes.windll.shell32.SHFileOperationW, "daten_wache", False), \
+        "SHFileOperationW ist ungesperrt"
+    datei = tmp_path / "titel.mp3"
+    datei.write_bytes(b"x")
+    with pytest.raises(pytest.fail.Exception):
+        app._in_papierkorb(str(datei))
+    assert datei.is_file()
+    zugriffe = request.getfixturevalue("_daten_wache")
+    assert len(zugriffe) == 1 and "SHFileOperationW" in zugriffe[0], zugriffe
+    zugriffe.clear()                                       # der Alarm war hier gewollt
+
+
 def test_schreiben_im_faden_macht_den_test_rot(tmp_path):
     """Ein Hintergrundfaden, der ins echte Datenverzeichnis schreibt, stirbt nur
     selbst am Alarm, pytest machte daraus bloß eine Warnung. Die Wache meldet

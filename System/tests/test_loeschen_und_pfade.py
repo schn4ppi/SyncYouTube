@@ -44,7 +44,7 @@ def _ist_unc(pfad):
 # mit OSError, bevor Windows den Pfad sieht.
 _PRUEFUNGEN = ((os.path, ("isfile", "exists", "isdir", "lexists", "getsize"), False),
                (glob_modul, ("glob", "iglob"), []))
-_ZUGRIFFE = ((os, ("mkdir", "makedirs", "remove", "unlink", "rmdir", "replace", "rename",
+_ZUGRIFFE = ((os, ("mkdir", "makedirs", "remove", "unlink", "rmdir", "replace", "rename", "link",
                    "stat", "lstat", "scandir", "listdir", "utime", "open", "startfile")),
              (shutil, ("copy", "copy2", "copyfile", "move", "rmtree")),
              (builtins, ("open",)))
@@ -100,14 +100,23 @@ def korb(monkeypatch):
 
 @pytest.fixture
 def entfernt(monkeypatch, tmp_path):
-    """Zeichnet jedes os.remove auf. Innerhalb von tmp_path löscht es echt;
+    """Zeichnet jedes os.remove auf, das Daten kostet: Nimmt es nur einen weiteren
+    Namen einer Datei weg (harter Link), lebt sie unter dem anderen weiter, und
+    endgültig ist erst der letzte Name. Innerhalb von tmp_path löscht es echt;
     alles andere (UNC, fremde Laufwerke) wird NICHT ausgeführt, sondern mit
     OSError abgelehnt: so geht kein Test ins Netz."""
     aufrufe = []
     echt = os.remove
 
+    def letzter_name(pfad):
+        try:
+            return os.stat(pfad).st_nlink < 2
+        except OSError:
+            return True
+
     def remove(pfad, *a, **k):
-        aufrufe.append(os.fspath(pfad))
+        if letzter_name(pfad):
+            aufrufe.append(os.fspath(pfad))
         if not _unter(pfad, tmp_path):
             raise OSError("Test: Zugriff außerhalb von tmp_path abgelehnt")
         return echt(pfad, *a, **k)
@@ -370,6 +379,17 @@ def test_papierkorb_meldet_erfolg_datei_liegt_noch(tmp_path, monkeypatch, entfer
     app._datei_loeschen(key)
     assert (dl / "_Papierkorb" / datei.name).is_file() and not datei.exists()
     assert not entfernt
+
+
+def test_wache_zaehlt_den_letzten_namen_einer_datei(tmp_path, entfernt):
+    """Die Wache bleibt scharf: Ein zweiter Name darf gehen, der letzte nie unbemerkt."""
+    erster, zweiter = tmp_path / "a.mp3", tmp_path / "b.mp3"
+    erster.write_bytes(b"MUSIK")
+    os.link(erster, zweiter)
+    os.remove(zweiter)
+    assert not entfernt and erster.read_bytes() == b"MUSIK"
+    os.remove(erster)
+    assert entfernt == [str(erster)]
 
 
 def test_rueckfall_ueberschreibt_nie(tmp_path, monkeypatch, korb, entfernt):
