@@ -5332,14 +5332,14 @@ function aboAbonnierenHin(){
 }
 function aboDelete(id,ev){
   // Build 95 (JB): beim Entfernen wahlweise die ueber DIESES Abo geladenen
-  // Videos mit in den Windows-Papierkorb (nur Abo-Playlist-Inhalte,
+  // Videos mit in den Papierkorb (nur Abo-Playlist-Inhalte,
   // wiederherstellbar) — manuell Geladenes bleibt immer unberuehrt.
   kontextMenuBauen(ev,[
     ['🗑 Nur das Abo entfernen (Videos bleiben)', async()=>{
       await aboPost({art:'delete',id}); aboLaden();
     }],
     ['🗑 Abo + geladene Videos in den Papierkorb', async()=>{
-      if(!confirm('Auch alle über dieses Abo geladenen Videos in den Windows-Papierkorb legen? Manuell Geladenes bleibt.'))return;
+      if(!confirm('Auch alle über dieses Abo geladenen Videos in den Papierkorb legen? Manuell Geladenes bleibt.\\n'+korbRueckweg()))return;
       const d=await aboPost({art:'delete',id,mit_videos:true});
       toast('🗑 '+(d.geloescht||0)+' Datei(en) in den Papierkorb');
       aboLaden(); libLaden();
@@ -5739,6 +5739,9 @@ function kachelDblClick(ev,id){
   if(libSelektierend(ev))return;                       // im Auswahl-Modus nie abspielen
   if(klickArt()==='doppel'){ ev.preventDefault(); playerPlay([id]); }
 }
+/* Wo eine Datei landet, weiß erst der Server: Windows nimmt nicht jede (USB-Stick,
+   Netzlaufwerk, sehr langer Pfad, voller Papierkorb). Jede Rückfrage nennt darum beide Orte. */
+function korbRueckweg(){return 'Wiederherstellbar aus dem Windows-Papierkorb, sonst aus dem Ordner _Papierkorb im Download-Ordner.';}
 /* Titel in den Papierkorb: einer oder die ganze Auswahl (Rückmeldung 19.10.:
    „Trotz Mehrfachauswahl konnte ich nicht mehrere Songs auf einmal löschen“).
    Gefragt wird im app-eigenen frageModal, nie per confirm(): Firefox hält den
@@ -5751,8 +5754,8 @@ function libLoeschen(keys){
   keys=(keys||[]).filter(k=>libFind(k)); if(!keys.length)return;
   const x=libFind(keys[0]);
   const text=keys.length>1
-    ?keys.length+' Titel in den Papierkorb verschieben?\\nDie Dateien werden gelöscht (aus dem Windows-Papierkorb wiederherstellbar).'
-    :'„'+(x.titel||'').slice(0,40)+'“ in den Papierkorb verschieben?\\nDie Datei wird gelöscht (aus dem Windows-Papierkorb wiederherstellbar).';
+    ?keys.length+' Titel in den Papierkorb verschieben?\\n'+korbRueckweg()
+    :'„'+(x.titel||'').slice(0,40)+'“ in den Papierkorb verschieben?\\n'+korbRueckweg();
   frageModal(text,'🗑 In den Papierkorb',async()=>{
     let weg=0;
     for(const k of keys){                              // nacheinander: der Server speichert je Titel
@@ -6880,7 +6883,7 @@ function gruppeListe(m,id,fertig){
       await libLaden(); if(document.body.contains(m))gruppeListe(m,id,fertig); return;   // frisch neu malen
     }
     if(act==='del'){
-      frageModal('Diesen Ausschnitt in den Papierkorb verschieben?\\nAus dem Windows-Papierkorb wiederherstellbar.', '🗑 In den Papierkorb', async()=>{
+      frageModal('Diesen Ausschnitt in den Papierkorb verschieben?\\n'+korbRueckweg(), '🗑 In den Papierkorb', async()=>{
         await api('/api/biblio',{id:k,art:'loeschen'});
         await libLaden();
         if(document.body.contains(m)&&gruppeVon(id).length>1)gruppeListe(m,id,fertig); else fertig();

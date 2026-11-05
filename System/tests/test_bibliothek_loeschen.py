@@ -79,7 +79,7 @@ function _stand(extra){return Object.assign({nativ:_nativ.slice(), modale:_modal
 # Seitenfunktionen, die die Löschwege ausführen. Fehlt eine (Umbau), bleibt sie
 # weg; wer sie braucht, bricht dann laut mit „… is not defined“.
 FUNKTIONEN = ("libItemMenu", "libLoeschen", "delEinzeln", "biblio", "dubDelete",
-              "plAuswahlEntfernen", "plApi")
+              "plAuswahlEntfernen", "plApi", "korbRueckweg", "aboDelete")
 
 
 def _taste_handler(q):
@@ -155,6 +155,32 @@ def test_entf_legt_die_auswahl_in_den_papierkorb(tmp_path):
     assert e["vorJa"] == 0, "vor dem Ja darf nichts gelöscht sein"
     assert e["papierkorb"] == ["a", "c"] and e["vd"], e
     assert e["nativ"] == [], e["nativ"]
+
+
+@pytest.mark.parametrize("auswahl, titel", [("['a','b']", "a"), ("[]", "d")], ids=["mehrere", "einer"])
+def test_rueckfrage_nennt_beide_orte(tmp_path, auswahl, titel):
+    """Windows nimmt nicht jede Datei (USB-Stick, Netzlaufwerk, sehr langer Pfad, voller
+    Papierkorb), dann liegt sie rückholbar im Ordner `_Papierkorb`. Die Rückfrage darf darum
+    nicht den Windows-Papierkorb allein versprechen."""
+    (e,) = _loeschen_lauf(tmp_path, f"libAuswahl=new Set({auswahl});", _menue_klick(titel),
+                          "aus(_stand());")
+    assert "Windows-Papierkorb" in e["modale"][0] and "_Papierkorb" in e["modale"][0], e["modale"]
+
+
+def test_abo_rueckfrage_nennt_beide_orte(tmp_path):
+    (e,) = _loeschen_lauf(
+        tmp_path,
+        "globalThis.aboPost=async()=>({geloescht:0}); globalThis.aboLaden=()=>{};",
+        "aboDelete('abo1',_ev); const _e=_menue.find(m=>String(m[0]).includes('Videos in den'));"
+        " await _e[1](); await _ruhe();",
+        "aus(_stand());")
+    assert "Windows-Papierkorb" in e["nativ"][0] and "_Papierkorb" in e["nativ"][0], e["nativ"]
+
+
+def test_nur_ein_satz_nennt_den_windows_papierkorb():
+    """Titel, Ausschnitt und Abo teilen sich den Satz aus `korbRueckweg`: Ein neuer Dialog gibt das
+    Versprechen so nicht wieder allein."""
+    assert _pc().count("Windows-Papierkorb") == 1
 
 
 @pytest.mark.parametrize("fall,vorher,taste", [

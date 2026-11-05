@@ -140,8 +140,8 @@ Löschen:    Rechtsklick → „🗑 In den Papierkorb" oder die Entf-Taste vers
             die markierten Dateien nach einer Rückfrage in den WINDOWS-PAPIERKORB
             (wiederherstellbar!) und nimmt die Titel aus Liste und Playlists.
             Wo der Windows-Papierkorb eine Datei nicht sicher aufnimmt (USB-Stick,
-            Netzlaufwerk, sehr langer Dateipfad), liegt sie danach rückholbar im
-            Ordner _Papierkorb im Download-Ordner.
+            Netzlaufwerk, sehr langer Dateipfad, zu voller Papierkorb), liegt sie
+            danach rückholbar im Ordner _Papierkorb im Download-Ordner.
             In einer Playlist-Ansicht nimmt Entf die Titel nur aus der Playlist.
 
 Build:      Unten in der Leiste steht der Baustand (z.B. „Build 2026-07-09 · 9").
