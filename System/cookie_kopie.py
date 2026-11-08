@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Firefox-Cookies für yt-dlp samt WAL — Lehre aus SyncFindus (24.09.2026).
 
-BEFUND (geprüft an yt-dlp 2026.08.19, `yt_dlp/cookies.py`, `_open_database_copy`):
+BEFUND (geprüft an yt-dlp 2026.08.19, unverändert in 2026.10.26, `yt_dlp/cookies.py`,
+`_open_database_copy`):
 yt-dlp kopiert beim Lesen der Firefox-Cookies nur `cookies.sqlite`, nicht das
 `-wal` daneben. Firefox schreibt im WAL-Modus; alles seit seinem letzten
 Checkpoint steht nur im `-wal` — gerade die frischen Anmelde-Cookies nach einem

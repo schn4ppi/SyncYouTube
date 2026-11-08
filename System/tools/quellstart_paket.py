@@ -82,7 +82,7 @@ PY_URL = (f"https://www.python.org/ftp/python/{PY_VER}/"
 # Familien-venv, aus der auch die exe gebaut wird) — exe und ZIP eines Releases
 # tragen so dieselben Fassungen. Der Wächter test_quellstart_paket gleicht ab.
 # yt-dlp[default] bringt yt-dlp-ejs mit („Required for full YouTube support").
-PAKETE = ["yt-dlp[default]==2026.8.19", "pystray==0.19.5", "pillow==12.2.0",
+PAKETE = ["yt-dlp[default]==2026.10.26", "pystray==0.19.5", "pillow==12.2.0",
           "mutagen==1.48.1", "pykakasi==2.3.0", "keyring==25.7.0", "qrcode==8.2",
           "python-vlc==3.0.21203",
           # Windows-Medienanmeldung des VLC-Motors (medien_smtc.py, JB-Go 23.09.)

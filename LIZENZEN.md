@@ -1,6 +1,6 @@
 # Lizenzen und Quellcode
 
-Diese Datei gilt für die **aktuelle Fassung v.1.3.3**. Ältere Fassungen bündelten andere
+Diese Datei gilt für die **aktuelle Fassung v.1.3.4**. Ältere Fassungen bündelten andere
 Stände; ihre Angabe steht im jeweiligen [Release](../../releases). Kurzfassung auf der
 Startseite: [README](README.md#lizenz). Die mit „ab dem nächsten Bau" markierten
 Bestandteile (pywinrt samt Visual-C++-Laufzeit) sind ab v.1.2.7 enthalten; das Bau-Skript
@@ -10,7 +10,7 @@ Warum das hier steht und nicht auf der Startseite: die Aufzählung ist lang, än
 mit jedem Bau und interessiert niemanden, der die App nur benutzen will.
 
 **GPL-3.0-or-later** (siehe [LICENSE](LICENSE)). Diese Lizenz gilt für den eigenen Code
-in diesem Repo. Die ausgelieferte `SyncYouTube.exe` v1.3.3 packt zusätzlich fremde
+in diesem Repo. Die ausgelieferte `SyncYouTube.exe` v1.3.4 packt zusätzlich fremde
 Bibliotheken und drei fertige Programme ein; die Liste unten ist aus der Bauliste des
 Builds (`System/build/SyncYouTube/Analysis-00.toc`) und den Paket-Angaben der
 Python-Umgebung gemessen, nicht aus dem Gedächtnis geschrieben. Gemessen wurde sie am
@@ -45,7 +45,7 @@ fehlen sie. Das ist ein offener Punkt und kein erledigter. Bis er behoben ist, s
 Name, Fassung und Lizenz wenigstens hier, und jede Fassung ist über die unten genannten
 Quellen samt ihrem Lizenztext auffindbar. Nach Lizenz gebündelt:
 
-- **Unlicense:** yt-dlp 2026.8.19 · yt-dlp-ejs 0.8.0 (dieses zusätzlich MIT und ISC).
+- **Unlicense:** yt-dlp 2026.10.26 · yt-dlp-ejs 0.8.0 (dieses zusätzlich MIT und ISC).
 - **MIT:** [Deno](https://deno.com) 2.9.2 (`deno.exe`) · altgraph 0.17.5 · brotli 1.2.0 ·
   cffi 2.0.0 · charset-normalizer 3.4.7 · clr_loader 0.3.1 · curl_cffi 0.15.0 ·
   Deprecated 1.3.1 · jaconv 0.5.0 · jaraco.classes 3.4.0 · jaraco.context 6.1.2 ·
@@ -64,7 +64,7 @@ Quellen samt ihrem Lizenztext auffindbar. Nach Lizenz gebündelt:
 - **Doppelt lizenziert:** cryptography 49.0.0 (Apache-2.0 oder BSD-3-Clause) ·
   packaging 26.2 (Apache-2.0 oder BSD-2-Clause) · simplejson 4.1.1 (MIT oder AFL-2.1).
 - **Apache-2.0:** requests 2.34.2.
-- **MPL-2.0:** certifi 2026.6.17 (das Wurzelzertifikat-Bündel).
+- **MPL-2.0:** certifi 2026.10.23 (das Wurzelzertifikat-Bündel).
 - **Python-Lizenz:** defusedxml 0.7.1 (PSF) · typing_extensions 4.16.0 (PSF-2.0).
 - **Gemischt, alles freizügig:** numpy 2.5.1 (BSD-3-Clause, 0BSD, MIT, Zlib, CC0-1.0) ·
   pycryptodomex 3.23.0 (BSD und Public Domain).
