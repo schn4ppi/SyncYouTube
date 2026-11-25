@@ -1,7 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+# Die PC-Oberfläche setzt oberflaeche.py seit dem Strukturumbau (25.11.2026) aus
+# Dateien zusammen; sie liegen in der exe als Daten (geprüft von build_release.py,
+# oberflaeche_fehlt).
+datas = [('pc_oberflaeche', 'pc_oberflaeche'), ('layout_kern.js', '.')]
 binaries = [('bin', 'bin')]
 # Die Seiten aus youtube_app.HEISSE_SEITEN samt Bausteinen (oberflaeche, handy,
 # fernbedienung, medien_session) lädt der Router über ihren NAMEN

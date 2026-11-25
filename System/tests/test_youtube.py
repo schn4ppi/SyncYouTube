@@ -1308,8 +1308,15 @@ def test_auslieferung_ohne_nutzerdaten():
                 "config.json", "token", "abos.json", "wiedergabe")
     drin = [w for w in verboten if w in spec]
     assert not drin, f"Nutzerdaten in der exe-Bauvorschrift: {drin}"
-    # datas kommt NUR aus collect_all(<bibliothek>) — keine eigenen Datei-Paare.
-    assert "datas = []" in spec, "datas muss leer starten (keine Daten neben dem Code)"
+    # datas kommt NUR aus collect_all(<bibliothek>) und den Teilen der Oberfläche
+    # (Strukturumbau 25.11.2026: pc_oberflaeche/ und layout_kern.js, beide Code,
+    # versioniert) — keine weiteren eigenen Datei-Paare.
+    assert "datas = [('pc_oberflaeche', 'pc_oberflaeche'), ('layout_kern.js', '.')]" in spec, \
+        "datas darf nur mit den Teilen der Oberfläche starten (keine Daten neben dem Code)"
+    teile = os.path.join(MODUL_DIR, "pc_oberflaeche")
+    fremd = [os.path.join(o, n) for o, _u, namen in os.walk(teile) for n in namen
+             if not n.endswith((".html", ".css", ".js"))]
+    assert not fremd, f"in pc_oberflaeche/ liegt etwas anderes als Oberflächen-Code: {fremd}"
     for zeile in spec.splitlines():
         if zeile.strip().startswith("datas +="):
             assert "tmp_ret[0]" in zeile, f"eigene Daten in der exe: {zeile.strip()}"

@@ -35,11 +35,8 @@ Waechter las den erklaerenden Kommentar INNERHALB der Regel als Deklaration.
 Siehe `_ohne_kommentar` - ein Waechter, der die Erklaerung statt der Sache prueft,
 meldet Gesundheit, die es nicht gibt.
 """
-import os
 import re
 
-HIER = os.path.dirname(os.path.abspath(__file__))
-OBERFLAECHE = os.path.join(os.path.dirname(HIER), "oberflaeche.py")
 
 # Klassen, deren Hoehe aus den Tokens kommen MUSS. Wer hier eine feste Pixelhoehe
 # einträgt, baut die naechste Ungleichheit.
@@ -48,8 +45,10 @@ TOKEN_PFLICHT = (".tog", ".cmd-dl", ".cmd-qual", ".cmd-url", ".btn.mini",
 
 
 def _quelle() -> str:
-    with open(OBERFLAECHE, encoding="utf-8") as f:
-        return f.read()
+    # Seit dem Strukturumbau (25.11.2026) setzt oberflaeche.py die Seite aus
+    # pc_oberflaeche/ zusammen; gemessen wird an der fertigen Seite.
+    import oberflaeche
+    return oberflaeche._HTML_ROH
 
 
 def _ohne_kommentar(rumpf):

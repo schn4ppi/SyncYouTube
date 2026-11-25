@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>YouTube-Downloader</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 112'%3E%3Cpath d='M 10 96.6 A 100 100 0 0 0 110 96.6 A 100 100 0 0 0 60 10 A 100 100 0 0 0 10 96.6 Z' fill='%23d65f5f'/%3E%3Cpath d='M 73 34 C 70 26 57 23 49 26 C 40 29 38 37 41 44 C 44 51 54 53 60 55 C 68 57 75 61 75 69 C 75 79 65 85 55 84 C 46 83 40 78 39 71' fill='none' stroke='%23f3ede2' stroke-width='14' stroke-linecap='round'/%3E%3C/svg%3E">
+
+<script>(function(){try{var s=localStorage.getItem('ytdl_skin');
+  if(!s&&localStorage.getItem('ytdl_theme')==='light')s='hell';   // alte Einstellung übernehmen
+  var cls={hell:'light',hacker:'theme-hacker',neon:'theme-neon',ozean:'theme-ozean'}[s];
+  if(cls)document.documentElement.classList.add(cls);}catch(e){}})();</script>
+<style>
+/*@STIL@*/</style>
+</head>
+<body>
+<!-- Einbettungs-Modus (21.07.2026: „ein Browser, ein Browser"): im Dashboard-iframe
+     (?embed=1) nur Logo + Build-Marke ausblenden. Die Layout-Leiste (✏ Layout,
+     🔳 Mini) BLEIBT — der Besitzer braucht sie auch im Dashboard (21.07.). -->
+<style>body.embed .cmd-logo,body.embed #buildmark{display:none}
+/* Gerät im WLAN (Entscheid 7a Punkt 1): was nur am PC geht, ist ausgeblendet */
+body.fern .nur-pc{display:none!important}</style>
+<script>/* embed nur im echten iframe (Dashboard). Ein neuer Tab schleppt ?embed=1 mit,
+   ist aber KEIN iframe -> dort das Logo zeigen (25.07.). window.top!==self ist
+   cross-origin-sicher (nur Referenzvergleich, kein Property-Zugriff). */
+if(location.search.indexOf('embed=1')>=0 && window.top!==window.self)document.body.classList.add('embed');</script>
+<div id="cmdbar">
+  <div class="cmd-main">
+    <div class="cmd-left">
+      <div class="cmd-row1">
+        <span class="cmd-logo" title="SyncYouTube">
+          <svg class="emblem" viewBox="0 0 120 112" width="26" height="24" aria-hidden="true">
+            <defs><linearGradient id="ytemb" x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0" stop-color="#e7a2a2"/><stop offset="0.55" stop-color="#d65f5f"/><stop offset="1" stop-color="#8d3e3e"/>
+            </linearGradient></defs>
+            <path d="M 10 96.6 A 100 100 0 0 0 110 96.6 A 100 100 0 0 0 60 10 A 100 100 0 0 0 10 96.6 Z" fill="url(#ytemb)"/>
+            <path class="sg" d="M 73 34 C 70 26 57 23 49 26 C 40 29 38 37 41 44 C 44 51 54 53 60 55 C 68 57 75 61 75 69 C 75 79 65 85 55 84 C 46 83 40 78 39 71"
+                  fill="none" stroke="#141110" stroke-width="14" stroke-linecap="round"/>
+          </svg><b>YouTube-Downloader</b></span>
+        <span class="spacer"></span>
+        <!-- Build 132 (der Besitzer): Status-Punkt und Zähler stehen jetzt hier oben in
+             der ersten Reihe — Punkt links von „Layout", Zähler rechts von
+             „Mini". Sie brauchten unten neben dem Player eine eigene Spalte,
+             die dem Bild Platz wegnahm; hier liegen sie auf der ruhigen
+             Kopfzeile, wo Statuszeichen üblicherweise wohnen. -->
+        <!-- Build 134 (Punkt 4): sichtbares Geräte-Symbol für die
+             Fernsteuerung. Die Funktion gab es längst, sie lag aber im
+             ⚙-Menü — niemand vermutet ein Handy hinter einem Zahnrad.
+             Sichtbar wird das Symbol nur, wenn die Fernsteuerung LÄUFT
+             (Calm-Design: keine Anzeige ohne Anlass); ausgeschaltet bleibt
+             sie über das ⚙ erreichbar wie bisher. -->
+        <button class="btn mini" id="fern-symbol" onclick="fernFenster(event)" style="display:none"
+                title="Fernsteuerung läuft — Code und Handy-Link anzeigen">📱</button>
+        <span class="apidot bad" id="apidot" title="API-Status"></span>
+        <button class="btn mini" id="layoutedit-btn" onclick="layoutEditToggle()"
+                title="Layout bearbeiten: Werkzeuge ausklappen, Fenster verschieben &amp; an 8 Griffen ziehen (ohne Überlappen) — AUS: Ziehen dockt nur als Tab an">✏ Layout</button>
+        <button class="btn mini" id="mini-btn" onclick="miniToggle()" title="Mini-Player: schrumpft auf Cover + Regler, bleibt oben eingebettet">🔳 Mini</button>
+        <span class="cmd-count" id="counter" tabindex="0" title="Gesamtzahl aller je geladenen Dateien — drüberfahren für die Aufschlüsselung">⬇ <b id="counter_num">0</b><span class="tip" id="counter_tip"></span></span>
+        <span id="ffwarn" style="display:none;color:#e08a6a;font-size:11.5px;white-space:nowrap"
+              title="ffmpeg.exe, ffprobe.exe und deno.exe müssen im Ordner „bin&quot; NEBEN der App liegen (im Komplett-Zip enthalten). Ohne ffmpeg: Videos nur bis ~720p, kein MP3, kein Cover.">⚠ bin-Ordner fehlt</span>
+        <span id="buildmark" title="Programmfassung — bei Fragen und Fehlern bitte mit angeben">v/*APP_VERSION*/</span>
+      </div>
+      <div class="cmd-rowadd">
+        <!-- Build 126 („drei zu ähnliche Knöpfe"): EIN Feld für alles.
+             Video, Playlist, Kanal, Mix — Enter genügt, den Rest erkennt die
+             App am Link. Der frühere 📺-Knopf ist damit überflüssig: ein
+             Playlist-/Kanal-Link löst denselben Weg von selbst aus, und wer
+             bei einem Video-in-Playlist-Link doch alles will, bekommt genau
+             dafür die Rückfrage. Nichts ist unerreichbar geworden. -->
+        <input id="cmd-url" class="cmd-url" placeholder="🔗 Video, Playlist oder Kanal einfügen — Enter genügt"
+               title="Erkennt selbst, was der Link ist. Nur bei echter Mehrdeutigkeit wird gefragt (Kanal: laden oder abonnieren? Video aus einer Playlist: eines oder alle?) — die Antwort lässt sich merken und unter ⚙ wieder umstellen."
+               onkeydown="if(event.key==='Enter')cmdDownload()">
+        <select id="cmd-qual" class="cmd-qual" title="Qualität (Auswahl wird gemerkt)" onchange="qualMerken(this.value)">
+          <option value="beste">Beste</option><option value="2160p">2160p</option>
+          <option value="1440p">1440p</option><option value="1080p">1080p</option>
+          <option value="720p">720p</option><option value="audio">MP3</option>
+        </select>
+        <button class="cmd-dl" onclick="cmdDownload()" title="Laden — erkennt selbst, ob Video, Playlist, Kanal oder Mix">⬇ Laden</button>
+      </div>
+      <div class="cmd-row2">
+        <div class="cmd-now" id="cmd-now" ondragover="cmdNowOver(event)" ondragleave="cmdNowLeave(event)" ondrop="cmdNowDrop(event)"
+             title="Titel aus der Bibliothek hierher ziehen = in die Playlist einreihen"><span class="cmd-nolabel">// nichts läuft</span></div>
+        <!-- Build 132: Die frühere Statistik-Spalte ist entfallen — ihr Inhalt
+             wohnt oben in der ersten Reihe. Der Player bekommt den Platz. -->
+        <div class="cmd-side">
+          <button class="iconbtn sm nur-pc" onclick="abosZeigen()" title="Abos: Kanäle/Playlists abonnieren, Backkatalog, Format &amp; Regeln je Abo (Reiter im Download-Fenster)">📡</button>
+          <button class="iconbtn sm" id="theme" onclick="themeToggle()" title="Tag-/Nacht-Modus schnell umschalten">🌙</button>
+          <button class="iconbtn sm" onclick="hilfeModal(true)" title="Legende: alle Knöpfe, Gesten &amp; Tasten erklärt">?</button>
+          <button class="iconbtn sm" id="optbtn" onclick="optionenToggle(event)" title="Optionen (Look, Crossfade, Sleep-Timer, Fenster-Abstand …)">⚙</button>
+        </div>
+      </div>
+    </div>
+    <!-- Fest eingebettetes Download-Fenster (21.07.): vier Reiter, oben rechts
+         verankert. Im Mini-Modus löst es sich und wandert unter die Playlist. -->
+    <div class="cmd-right" id="dlbox">
+      <div class="dlbox-tabs" id="dlbox-tabs">
+        <button class="dlbox-tab an" data-dlt="queue" onclick="dlboxTab('queue')">Downloads</button>
+        <button class="dlbox-tab" data-dlt="done" onclick="dlboxTab('done')">Fertig</button>
+        <button class="dlbox-tab" data-dlt="log" onclick="dlboxTab('log')">Log</button>
+        <button class="dlbox-tab nur-pc" data-dlt="abos" onclick="dlboxTab('abos')">📡 Abos</button>
+        <span class="spacer"></span>
+        <button class="btn mini dlbox-action" id="dlbox-action"></button>
+      </div>
+      <div class="dlbox-body" id="dlbox-body"></div>
+      <div id="cmd-mini"></div>
+    </div>
+  </div>
+  <div id="cmd-clip" class="cmd-clip" style="display:none"></div>
+</div>
+
+<!-- Layout-Werkzeuge: NUR im ✏-Modus sichtbar (✏ Layout / 🔳 Mini / Build sind
+     jetzt oben in der Command-Bar — der Besitzer 21.07., mehr Platz unten). -->
+<div id="layoutbar">
+  <label style="font-size:12px;color:var(--gedaempft)">Layout:</label>
+  <select id="layoutsel" onchange="layoutWaehlen(this.value)" title="Vorlagen &amp; deine gespeicherten Layouts"></select>
+  <button class="btn mini" onclick="layoutSpeichern()" title="Aktuelle Fenster-Anordnung unter einem Namen speichern">💾 Speichern</button>
+  <button class="btn mini" onclick="layoutLoeschen()" title="Das gewählte gespeicherte Layout löschen">🗑</button>
+  <button class="btn mini" onclick="layoutVorheriges()" title="Vorherige Fenster-Anordnung zurückholen — nochmal klicken wechselt wieder vor">↩ Vorheriges</button>
+  <button class="btn mini" onclick="layoutAufraeumen()" title="Alle Fenster ordentlich nebeneinander">▦ Aufräumen</button>
+  <span><b>Tipp:</b> Rechtsklick öffnet überall Menüs · Ziehen ohne ✏ dockt nur als Tab an</span>
+</div>
+
+<div id="canvas"></div>
+
+<div id="hilfemodal" class="modal" style="display:none" onclick="if(event.target===this)hilfeModal(false)">
+  <div class="modal-box">
+    <div class="modal-head"><b>? Legende — so bedienst du alles</b>
+      <button class="btn mini" onclick="hilfeModal(false)">✕ Schließen</button></div>
+    <div class="legbody">
+      <div class="legsec">🖱 Gesten</div>
+      <div class="legrow"><b>Klick</b> auf Video/Cover im Player = Pause/Weiter · auf einen Download im <b>Downloads</b>-Reiter = Pause/Fortsetzen</div>
+      <div class="legrow"><b>Rechtsklick</b> auf Titel in der Bibliothek ODER in den Player = Menü mit allen Aktionen</div>
+      <div class="legrow"><b>Mausrad kippen</b> (links/rechts) = zurück/vor zur vorherigen Ansicht — wie im Browser</div>
+      <div class="legrow"><b>Ziehen</b>: Link aus dem Browser ins Fenster = Download · Titel in Playlist-Ansicht/Player-Warteschlange = umsortieren · Fenster auf ein anderes ziehen = als Tab andocken (schnappt sonst zurück) · Tab auf ein anderes Fenster ziehen = dort als Tab andocken · Tab auf Freifläche = eigenes Fenster, das die Lücke dort ausfüllt (andere Fenster bleiben stehen)</div>
+      <div class="legrow"><b>✏ Layout</b> (unten): Fenster frei verschieben + an 8 Griffen die Größe ziehen — das bewegte Fenster hat Vorfahrt, die anderen weichen aus, nichts überlappt; nochmal klicken beendet den Modus</div>
+      <div class="legrow"><b>🎶 Playlist</b> (im Player): Player-Playlist als eigenes Fenster herauslösen — andockbar wie jeder Tab. Titel aus der Bibliothek <b>hineinziehen</b> = einreihen (auf einen Eintrag = an der Stelle, auf die Fläche = ans Ende)</div>
+      <div class="legrow"><b>Strg-/Shift-Klick</b> in der Bibliothek = mehrere markieren (Leiste mit Sammel-Aktionen erscheint)</div>
+      <div class="legsec">▶ Player</div>
+      <div class="legrow">Steuerung liegt <b>auf dem Video/Cover</b> (erscheint bei Mausbewegung): Zufall 🔀 und Wiederholen 🔁 sind <b>getrennte Schalter</b> — farbig mit Punkt = an, 🔁 nochmal klicken = nur diesen Titel (Zeichen zeigt eine kleine 1)</div>
+      <div class="legrow">Rechts auf der Leiste: <b>💬</b> Untertitel/Karaoke (Musik zeigt echte, mitleuchtende Songtexte via LRCLIB; sonst YouTube-Untertitel, still nachgeladen) · <b>✂</b> Clip schneiden · <b>1×</b> Geschwindigkeit · 🔊 Lautstärke · <b>YouTube</b> öffnet das Video · <b>⧉</b> Bild-in-Bild · <b>⛶</b> Vollbild</div>
+      <div class="legrow">Einzeltitel zu Ende = automatisch der <b>nächste Titel der Bibliothek</b> (bei 🔀 ein zufälliger; Playlists stoppen wie gehabt am Ende)</div>
+      <div class="legrow"><b>Rechtsklick in den Player</b> = alles Weitere: Visualizer-Liste, Geschwindigkeit, Untertitel-Sprachen, Equalizer, Playlist, VLC …</div>
+      <div class="legsec">📚 Bibliothek</div>
+      <div class="legrow">Auf einer Kachel erscheinen beim <b>Überfahren</b>: <b>▶</b> abspielen · <b>＋</b> zu Playlist · <b>📁</b> im Ordner zeigen · <b>⋯</b> mehr (auf Touch stehen sie fest da)</div>
+      <div class="legrow"><b>⚙ Ansicht</b> bündelt alles zur Darstellung: <b>▪▪/⊞/▤/☰</b> Kompakt/Kacheln/Alben/Liste, Filter, Spalten, Archiv, Mehrfach-Auswahl, Dubletten, Auto-Tagging</div>
+      <div class="legrow"><b>Suchen</b> durchsucht Titel/Künstler/Kanal — findet es nichts, sucht es von selbst im <b>gesprochenen Text</b> (Untertitel/Songtexte) weiter und zeigt die Treffer darunter</div>
+      <div class="legrow"><b>📃 Öffnen</b> zeigt eine Playlist (Ziehen = Reihenfolge) · <b>🎛 Mixer</b> Endlos-Radio/Meistgespielt/Zuletzt/Smart · <b>🔎 Text</b> durchsucht die Untertitel/Transkripte ALLER Videos (Klick auf einen Treffer springt an die Stelle)</div>
+      <div class="legsec">⬇ Downloads &amp; Abos</div>
+      <div class="legrow">Oben rechts das feste <b>Download-Fenster</b>: <b>Downloads</b> (was gerade lädt/wartet, Klick = Pause, <b>✖</b> = abbrechen — Dateien bleiben) · <b>Fertig</b> · <b>Log</b> (Übersicht + Ereignisse). Laden: Link/Playlist oben einfügen + <b>⬇ Download</b>. <b>📡</b> öffnet die <b>Abos</b> (Kanäle/Playlists abonnieren, Backkatalog nachladen, Format &amp; Regeln je Abo).</div>
+      <div class="legsec">⌨ Tasten (wenn nicht in einem Eingabefeld)</div>
+      <div class="legrow"><b>Leertaste/K</b> Pause/Weiter · <b>J/L</b> −/+10 s · <b>←/→</b> −/+5 s · <b>↑/↓</b> Lautstärke · <b>N/P</b> nächster/voriger Titel · <b>M</b> stumm · <b>F</b> Vollbild · <b>I</b> Bild-in-Bild · <b>S</b> Untertitel · <b>?</b> diese Legende · <b>Strg+←/→</b> &amp; <b>Medientasten</b> weiterhin</div>
+      <div class="legsec">⚡ Command-Bar oben</div>
+      <div class="legrow">Links: Link/Playlist einfügen + <b>⬇ Download</b> · Mini-Player (🔀 ⏮ ⏯ ⏭ 🔁 📻, Titel darunter, <b>Spulleiste</b> — ziehen = spulen · <b>🎶/🎬</b> was spielt: nur Musik / nur Videos / beides · Titel aus der Bibliothek auf den Player ziehen = einreihen). Rechts das Download-Fenster. <b>🔗</b> Kopierte YouTube-Links werden automatisch erkannt. <b>🔳 Mini</b>: Player klein &amp; eingebettet oben, Bibliothek + Playlist + Downloads darunter.</div>
+    </div>
+  </div>
+</div>
+
+<div id="settingsmodal" class="modal" style="display:none" onclick="if(event.target===this)settingsZu()">
+  <div class="modal-box">
+    <div class="modal-head"><b>⚙ Einstellungen</b>
+      <button class="btn mini" onclick="settingsZu()">✕ Schließen</button></div>
+    <div id="settingsbody" style="padding:14px 16px 20px;max-height:80vh;overflow:auto"></div>
+  </div>
+</div>
+
+<div id="geowiz" class="modal" style="display:none" onclick="if(event.target===this)geoWizZu()">
+  <div class="modal-box">
+    <div class="modal-head"><b>🌍 Geo/VPN einrichten</b>
+      <button class="btn mini" onclick="geoWizZu()">✕ Schließen</button></div>
+    <div id="geowiz-body">lade…</div>
+  </div>
+</div>
+
+<div id="stash" style="display:none">
+  <div id="view-add">
+    <div class="card">
+      <h2>Hinzufügen</h2>
+      <textarea id="urls" placeholder="YouTube-Links hier einfügen — einer pro Zeile.
+Playlist-Link (…/playlist?list=…) übernimmt die ganze Liste."></textarea>
+      <div class="zeile">
+        <label for="qual" style="font-size:13px;color:var(--gedaempft)">Qualität</label>
+        <select id="qual">
+          <option value="beste">Beste verfügbare</option>
+          <option value="2160p">4K (2160p)</option>
+          <option value="1440p">1440p</option>
+          <option value="1080p">1080p</option>
+          <option value="720p">720p</option>
+          <option value="audio">Nur Audio (MP3)</option>
+        </select>
+        <button class="btn haupt" onclick="hinzufuegen()" title="Eingefügte Links in die Download-Warteschlange stellen (Strg+Enter)">In die Warteschlange</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="kopfzeile"><h2>🔔 Abos</h2>
+        <button class="btn mini" onclick="ensureView('abos')" title="Abo-Fenster öffnen: abonnieren, Backkatalog nachladen, Format &amp; Regeln je Abo">📡 Abo-Fenster öffnen</button></div>
+      <div class="hinweis">Kanäle/Playlists abonnieren, ältere Folgen nachladen, Format und Regeln je Abo —
+        alles im Abo-Fenster (andockbar wie jeder Tab).</div>
+    </div>
+
+    <div class="card" id="settingscard">
+        <div class="einstgrid">
+          <span>Zielordner</span><input type="text" id="cfg_ziel">
+          <span>Unterordner</span>
+          <select id="cfg_ordner">
+            <option value="1">nach Kategorie (MP3 / 4K+ / Video)</option>
+            <option value="0">aus (alles in einen Ordner)</option>
+          </select>
+          <span>Metadaten in Dateien</span>
+          <select id="cfg_meta">
+            <option value="1">an (Titel, Künstler, Datum …)</option>
+            <option value="0">aus</option>
+          </select>
+          <span>Premium-Cookies lesen aus</span>
+          <select id="cfg_browser" title="Standard: Firefox. Die App liest die vorhandenen Cookies deines Browsers, lädt damit als angemeldeter Nutzer und bekommt Premium-Qualität sowie altersbeschränkte Videos. Sie meldet dich nie an oder ab. „keine“ lädt anonym — dann wählt yt-dlp aber die nicht angemeldeten Zugangswege, gegen die YouTube häufiger sperrt.">
+            <option value="firefox">Firefox (Standard)</option>
+            <option value="chrome">Chrome</option>
+            <option value="edge">Edge</option>
+            <option value="keine">keine — anonym laden</option>
+          </select>
+          <span>Abrufweg</span>
+          <select id="cfg_abrufweg" title="Wie die App YouTube fragt. „Automatisch“: verweigert YouTube einen Weg (Fehler 403), versucht die App dasselbe Video je einmal über andere Wege — ohne den Client web_embedded, ohne Anmeldung, zuletzt Vision Pro — und merkt sich den Weg, der geklappt hat. Ohne Anmeldung gehen altersbeschränkte Videos und Inhalte nur für Kanalmitglieder nicht. Die festen Wege nehmen immer genau diesen einen; Android VR braucht für direkte Downloads ein Zusatz-Token und scheiterte im Test (Stand 23.11.2026).">
+            <option value="auto">Automatisch (Standard)</option>
+            <option value="ohne_anmeldung">Ohne Anmeldung</option>
+            <option value="tv">TV</option>
+            <option value="android_vr">Android VR</option>
+          </select>
+          <span>Gleichzeitige Downloads</span>
+          <select id="cfg_parallel"><option>1</option><option>2</option><option>3</option></select>
+          <span>Geo-Sperren umgehen</span>
+          <select id="cfg_geo">
+            <option value="1">automatisch (alle Wege durchprobieren)</option>
+            <option value="0">aus</option>
+          </select>
+          <span>Gratis-Proxys nutzen</span>
+          <select id="cfg_geoproxyfrei">
+            <option value="1">ja (kostenlos, aber wackelig)</option>
+            <option value="0">nein</option>
+          </select>
+          <span>Eigene Proxys<br><small style="color:#6a5c52">optional</small></span>
+          <textarea id="cfg_geoproxies" style="min-height:44px" placeholder="je Zeile ein Proxy, z.B.
+GB=socks5://1.2.3.4:1080   (nur fürs Land)
+socks5://5.6.7.8:1080      (für alle Länder)"></textarea>
+          <span>WireGuard-Ordner<br><small style="color:#6a5c52">optional (z.B. ProtonVPN Free)</small></span>
+          <input type="text" id="cfg_geowg" placeholder="Ordner mit .conf-Dateien, benannt nach Land (GB.conf …)">
+          <span>VPN einrichten</span>
+          <button class="btn" onclick="geoWizOffen()" style="justify-self:start">🌍 Assistent öffnen (Vergleich · Anleitung · Test)</button>
+          <span>Standard-Qualität</span>
+          <select id="cfg_qual">
+            <option value="beste">Beste verfügbare</option><option value="2160p">4K</option>
+            <option value="1440p">1440p</option><option value="1080p">1080p</option>
+            <option value="720p">720p</option><option value="audio">Nur Audio</option>
+          </select>
+          <span>Untertitel laden</span>
+          <select id="cfg_subs">
+            <option value="1">an (auch automatische)</option>
+            <option value="0">aus</option>
+          </select>
+          <!-- der Besitzer Punkt 6: Sprachwahl fürs automatische Laden. „Original" =
+               die unübersetzte Auto-Spur des Videos (Karaoke/Romaji). -->
+          <span>Untertitel-Sprachen<br><small style="color:#6a5c52">wirkt nur, wenn „laden" an ist</small></span>
+          <span id="cfg_subs_sprachen" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label class="chk" style="margin:0"><input type="checkbox" id="cfg_sub_de" checked style="width:auto"> Deutsch</label>
+            <label class="chk" style="margin:0"><input type="checkbox" id="cfg_sub_en" checked style="width:auto"> Englisch</label>
+            <label class="chk" style="margin:0" title="Die unübersetzte Original-Spur des Videos — braucht das Karaoke (Romaji)"><input type="checkbox" id="cfg_sub_orig" checked style="width:auto"> Original</label>
+            <input id="cfg_sub_extra" placeholder="weitere: ja, es" style="width:110px" title="Weitere Sprach-Kennungen, mit Komma (z. B. ja, es, fr)">
+          </span>
+          <span>SponsorBlock<br><small style="color:#6a5c52">Werbung rausschneiden</small></span>
+          <select id="cfg_sponsor">
+            <option value="">aus</option>
+            <option value="sponsor">nur Werbung entfernen</option>
+            <option value="alle">Werbung + Intro/Outro/… entfernen</option>
+          </select>
+        </div>
+        <div class="zeile"><label for="cfg_autoupdate">Selbst-Update der exe</label>
+          <select id="cfg_autoupdate" title="Standard seit 08.09.2026: an. Die gepackte exe prüft täglich das GitHub-Release, prüft Größe und SHA256 und tauscht sich dann selbst aus — aber nur, wenn gerade kein Download läuft. Im Quellcode-Modus ohne Wirkung, dort aktualisiert git.">
+            <option value="1">automatisch aktualisieren (Standard)</option>
+            <option value="0">aus</option>
+          </select>
+        </div>
+        <div class="zeile"><button class="btn" onclick="configSpeichern()">Speichern</button>
+          <span id="cfg_meldung" style="font-size:12px;color:#9ec49a"></span></div>
+        <div class="hinweis">Premium-Qualität und altersbeschränkte Videos laufen über die
+          Browser-Cookies — dafür in dem oben gewählten Browser bei YouTube angemeldet sein. Abgebrochene Downloads
+          werden automatisch neu gestartet und setzen an der Abbruchstelle fort. Dubletten werden an
+          der Video-Kennung erkannt und übersprungen. Thumbnail wird als Cover eingebettet.
+          Geo-Sperren umgehen probiert automatisch der Reihe nach: Header-Trick (gratis) → eigene Proxys →
+          Gratis-Proxys → VPN (NordVPN/Windscribe/WireGuard, falls vorhanden). Ohne Einrichtung greifen die
+          kostenlosen Stufen; mit eigenen Proxys/VPN wird es zuverlässiger. Über fremde Proxys werden NIE
+          deine Konto-Cookies gesendet. „Entfernen“ löscht nur den Listeneintrag, nie Dateien.</div>
+        <div class="zeile" style="margin-top:10px"><b>🧩 Browser-Erweiterung</b></div>
+        <div class="hinweis">Schickt YouTube-Videos per Rechtsklick oder Hover-Knopf direkt hierher
+          (auch über das Tray-Menü erreichbar).
+          <a id="addon_lokal" href="/addon.xpi" style="display:none;color:var(--akz2)">🦊 Firefox: jetzt installieren</a>
+          <a href="https://github.com/schn4ppi/SyncYouTube/releases/latest" target="_blank" rel="noreferrer"
+             style="color:var(--akz2)">Alle Browser: neueste Version auf GitHub</a>.
+          Falls Firefox die Datei nur herunterlädt: einfach auf about:addons ziehen.</div>
+    </div>
+  </div>
+
+  <div id="view-queue">
+    <div id="sperrhinweis" class="sperrhinweis" hidden></div>
+    <div class="card"><div id="liste"></div></div>
+  </div>
+
+  <div id="view-done">
+    <div class="card"><div id="fertigliste"></div></div>
+  </div>
+
+  <div id="view-log">
+    <div class="card">
+      <div class="chips" id="logchips"></div>
+      <div id="logliste" class="logliste"></div>
+    </div>
+  </div>
+
+  <div id="view-lib">
+    <div class="card">
+      <div class="libhead">
+      <div class="libbar">
+        <input type="text" id="libsuche" placeholder="Suchen…" oninput="libMalen()"
+               onkeydown="if(event.key==='Enter')transkriptSuche()">
+        <select id="libsort" onchange="setSortSelect(this.value)" title="Sortieren nach"></select>
+        <!-- Build 125 (Wunsch): „⚙ Ansicht" sitzt rechtsbündig — über
+             margin-left:auto (siehe CSS), nicht über einen Abstandhalter.
+             Die Leiste darf umbrechen (flex-wrap); ein Abstandhalter wirkt
+             dann nur in SEINER Zeile und ließe den Knopf in der nächsten
+             Zeile wieder links stehen (live gemessen: 118 px Lücke). -->
+        <div class="colmenuwrap">
+          <button class="tog" id="libansichtbtn" onclick="ansichtToggle(event)" title="Darstellung, Filter, Spalten, Archiv, Auswahl, Dubletten …">⚙ Ansicht</button>
+        </div>
+      </div>
+      <div id="libbulk" class="libbulk" style="display:none"></div>
+      <div class="libbar plbar">
+        <!-- Build 118 (der Besitzer): „Neue Playlist" steckt jetzt IM Auswahlfeld,
+             Öffnen/Schließen ist ein Pfeil, Abspielen ein reiner Play-Knopf —
+             aus vier Textknöpfen werden drei Symbole. -->
+        <span style="font-size:12px;color:var(--gedaempft)">Playlist:</span>
+        <!-- Build 135 (Punkt 4): Titel lassen sich hierher ZIEHEN. Ist eine
+             Playlist gewählt, landen sie darin; steht „— keine —", entsteht
+             eine neue. Mehrfachauswahl reist mit, und ein Rückgängig gibt es
+             auch — Einreihen ist zwar harmlos, aber 50 Titel von Hand wieder
+             herauszunehmen wäre es nicht. -->
+        <select id="plsel" onchange="plWahl()" ondragover="plselDragOver(event)"
+                ondragleave="plselDragLeave(event)" ondrop="plselDrop(event)"
+                title="Playlist wählen — Auswahl zeigt sie sofort in der Bibliothek. Titel hierher ziehen reiht sie ein; auf „— keine —" fallen lassen legt eine neue an."></select>
+        <!-- Build 143 (der Besitzer): „vielleicht ein + stattdessen bei Playlist selbst?
+             Wenn ich auf Playlist: klicke, dann sollte neben den Playlists ein
+             Plus sein das für Hinzufügen steht. Ist intuitiv." — Genau hier
+             steht es jetzt, direkt neben der Liste. Es zeigt dieselbe Auswahl
+             wie das ＋ an jeder Kachel, nur für alles Markierte. -->
+        <button class="btn mini nur-pc" id="plplus" onclick="bulkPlaylist(event)"
+                title="Markierte Titel zu einer Playlist hinzufügen — auch zu einer neuen">＋</button>
+        <button class="ib" id="plviewbtn" onclick="plView()" title="Titel dieser Playlist unten in der Bibliothek anzeigen (nochmal = zurück zur ganzen Bibliothek)">📃</button>
+        <button class="ib" id="plwerkbtn" onclick="plWerkzeuge(event)" title="Umbenennen · Löschen · Sync · .m3u-Export/-Import">⋯</button>
+        <input type="file" id="m3ufile" accept=".m3u,.m3u8" style="display:none" onchange="plImport(this)">
+        <span class="spacer"></span>
+        <button class="btn mini" onclick="entdeckerOeffnen()" title="✨ Neues entdecken: YouTube-Radios zu Titeln der oben gewählten Playlist — alles, was du schon hast, wird herausgefiltert">✨ Entdecken</button>
+        <button class="btn mini" onclick="mixeMenu(event)" title="Alles zum Zusammenstellen: 📻 Endlos-Radio · Meistgespielt · Zuletzt · Gefilterte · Smart-Playlists">🎛 Mixer</button>
+        <span id="plinfo" style="font-size:12px;color:#9ec49a"></span>
+      </div>
+      </div>
+      <div id="libinhalt"></div>
+    </div>
+  </div>
+
+  <div id="view-player">
+    <!-- Build 136 (der Besitzer): Die GANZE Player-Karte nimmt gezogene Titel an — auf
+         dem Bild, über dem Bild und auf der freien Fläche darunter. Vorher
+         war nur das Bild selbst Fallziel; wer knapp danebenzielte, verlor
+         den Zug ins Leere. Das Ziel ist so groß wie die Fläche, die man
+         meint. -->
+    <div class="card" id="pl-card" oncontextmenu="return playerKontext(event)"
+         ondragover="plMediaOver(event)" ondragleave="plKarteLeave(event)" ondrop="plMediaDrop(event)">
+      <div class="pl-media" id="pl-media" ondragover="plMediaOver(event)" ondrop="plMediaDrop(event)" title="Titel aus der Bibliothek hierher ziehen = abspielen / einreihen (Ad-hoc-Playlist, nichts wird gespeichert)"><div class="pl-leer">Kein Titel gewählt — in der Bibliothek auf ▶ klicken.</div></div>
+      <div class="pl-side">
+        <div class="pl-titel" id="pl-titel"></div>
+        <div class="pl-ctrl">
+          <!-- Build 144d (Punkt 3): „Spotify-artiges ＋ im Player oben für
+               eine Lieblingssongs-Playlist." Steht bewusst direkt unter dem
+               Titel — wie bei Spotify, wo das Zeichen beim laufenden Stück
+               sitzt und nicht in einem Menü. -->
+          <button class="btn mini pl-lieb" id="pl-lieb" style="display:none" onclick="lieblingToggle()">＋</button>
+          <!-- Steuerung lebt AUF dem Video (Leiste unten, YouTube-Stil) + im
+               Rechtsklick-Menü — hier bleibt nur, was die Anordnung betrifft. -->
+          <button class="btn mini" onclick="playerLayoutToggle()" title="Anordnung wechseln: Video oben ↔ Video links (Playlist rechts). Video links nur bei breitem Player, sonst automatisch oben.">⇆ Layout</button>
+          <!-- Etappe B (Spec Punkt 5): Ausgabegerät im Spotify-Connect-Muster.
+               Der Browser bleibt das Gehirn (Warteschlange, Weiterschalten) —
+               der Ton kommt wahlweise aus einer ferngesteuerten VLC-Instanz
+               auf dem PC. Ohne installiertes VLC: ehrlicher Hinweis + Browser. -->
+          <button class="btn mini" id="pl-geraet" onclick="geraetWechsel()"
+                  title="Ausgabegerät wechseln: Browser ↔ VLC auf diesem PC — VLC spielt jedes Format und läuft unabhängig vom Browser-Fenster weiter; ohne installiertes VLC bleibt der Browser-Player">🔊 Browser</button>
+          <button class="btn mini" id="plq-btn" onclick="plqFenster()" title="Player-Playlist als eigenes Fenster herauslösen / wieder eingliedern — als Fenster ist sie andockbar wie jeder Tab">🎶 Playlist</button>
+          <!-- Build 137 (Punkt 4): „⋯-Werkzeuge auch im eingebauten
+               Player (gibt es bisher nur im herausgelösten Playlist-Fenster)".
+               Genau dieselbe Liste wie dort — wer die Playlist NICHT
+               herauslöst, kam sonst nur über den Rechtsklick daran, und den
+               muss man erst einmal erraten. -->
+          <button class="btn mini" id="pl-werkbtn" onclick="plWerkzeugeImPlayer(event)"
+                  title="Werkzeuge: Warteschlange sortieren, Duplikate entfernen, als Playlist speichern · Playlist umbenennen, Sync, .m3u">⋯ Werkzeuge</button>
+          <!-- Build 144 (Punkt 2): derselbe Hinweis wie im herausgelösten
+               Playlist-Fenster — wer die Playlist NICHT herauslöst, käme sonst
+               nicht daran. Erscheint nur bei echter Abweichung. -->
+          <button class="btn mini plq-sichern" style="display:none" onclick="plqSichern()"
+                  title="Die Änderungen an dieser Warteschlange in die gespeicherte Playlist übernehmen (Reihenfolge der Playlist bleibt, Neues kommt ans Ende)">💾 sichern</button>
+          <span class="muted2" id="pl-pos"></span>
+          <span class="muted2 pl-hint" style="font-size:11px">· Rechtsklick = alle Optionen</span>
+        </div>
+        <div class="pl-kapitel" id="pl-kapitel" style="display:none"></div>
+        <div class="pl-lyrics" id="pl-lyrics" style="display:none"></div>
+        <div class="pl-queue" id="pl-queue" ondragover="plqZielOver(event)" ondrop="plqZielDrop(event)"
+             title="Titel aus der Bibliothek hierher ziehen = einreihen"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="view-plq">
+    <div class="card" style="height:100%;display:flex;flex-direction:column">
+      <div class="kopfzeile"><h2 id="plq-titel">Playlist</h2><span class="muted2" id="plq-anzahl"></span>
+        <!-- Build 144 (Punkt 2, „ganz dezent irgendwo"): erscheint NUR, wenn
+             die Warteschlange von ihrer gespeicherten Playlist abweicht. -->
+        <button class="btn mini plq-sichern" style="display:none" onclick="plqSichern()"
+                title="Die Änderungen an dieser Warteschlange in die gespeicherte Playlist übernehmen (Reihenfolge der Playlist bleibt, Neues kommt ans Ende)">💾 sichern</button>
+        <span class="spacer"></span>
+        <button class="btn mini" onclick="plqWerkzeuge(event)" title="Warteschlangen-Werkzeuge: als Playlist speichern · sortieren · Duplikate entfernen · leeren">⋯ Werkzeuge</button>
+        <!-- v1.1.2-Nachtrag (der Besitzer): im MINI-Modus ausgeblendet — dort gibt es
+             keine Playlist-Seitenliste, Eingliedern ließe die Playlist ins
+             Nichts verschwinden (CSS body.mini + Riegel in plqFenster). -->
+        <button class="btn mini" id="plq-zurueck" onclick="plqFenster()" title="Playlist wieder in den Player eingliedern — der Player bekommt seine Breite zurück">⧉ In den Player</button></div>
+      <div class="pl-queue plq-gross" id="pl-queue-win" ondragover="plqZielOver(event)" ondrop="plqZielDrop(event)"
+           title="Titel aus der Bibliothek hierher ziehen = einreihen"></div>
+    </div>
+  </div>
+
+  <div id="view-filme">
+    <!-- Film-Fundament (Doku/SYNC_FILME_SPEC.md, Etappe 7): Anzeige-Minimum
+         als Beweis der Reihen-Engine — das TV-Design ist Teilprojekt 2. -->
+    <div class="card">
+      <div class="zeile" style="align-items:center">
+        <b style="flex:1">🎬 Filme</b>
+        <span id="filme-stand" class="hinweis"></span>
+        <button class="btn" onclick="filmeSync()" title="Katalog jetzt von Jellyfin abziehen (läuft sonst alle 6 h)">⟳ Abgleichen</button>
+      </div>
+      <div id="filme-reihen"></div>
+    </div>
+  </div>
+
+  <div id="view-abos">
+    <div class="card">
+      <!-- Build 127 („bei Abos kann das Link-Feld weg"): Das zweite
+           Eingabefeld ist entfallen — abonniert wird über das EINE Feld
+           oben, ein Kanal-Link fragt dort ohnehin „laden oder abonnieren?".
+           Ein Weg statt zwei; der Knopf hier führt nur noch dorthin. -->
+      <div class="zeile">
+        <button class="btn mini" onclick="aboAbonnierenHin()"
+                title="Springt zum Feld oben — dort einen Kanal-Link einfügen und Enter drücken">＋ Abonnieren</button>
+        <span class="spacer"></span>
+      </div>
+      <div id="abo-liste" class="abo-liste"></div>
+      <div class="hinweis"><b>Abonnieren:</b> Kanal-Link oben ins Feld, Enter — dann „Abonnieren" wählen.
+        Die aktuellen Videos werden dabei nur „gemerkt“ (nicht geladen); automatisch
+        geholt wird nur, was danach neu erscheint (Start + alle 6&nbsp;Stunden, leichter RSS-Puls).
+        <b>Je Abo:</b> das Format-Feld in der Zeile ändert die Qualität ab der nächsten Prüfung;
+        unter ⚙ liegen die Regeln (Titel-Filter, Stichtag, Shorts/Streams, Auto-Löschen) und
+        „🔁 Erneuern“ — damit holt man alles bisher Geladene im neuen Format,
+        wahlweise unter Behalten der alten Datei oder mit Ersetzen (die alte geht
+        erst NACH dem Erfolg in den Papierkorb).
+        📜 zeigt den kompletten Backkatalog: Ausgegrautes ist noch nicht geladen — Doppelklick oder
+        markieren&nbsp;+&nbsp;„⬇ Auswahl laden“ holt es nach. Fertige Abo-Downloads landen automatisch
+        in der Playlist des Abos.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+/*LAYOUT_KERN_START*/
+/*@LAYOUT_KERN@*//*LAYOUT_KERN_END*/
+</script>
+
+<script>
+/*@HAUPTSKRIPT@*/</script>
+
+<!-- ===== Schwebende Flaechen (Build 125) =====================================
+     Diese Menues standen frueher in .libbar. Seit Build 122 traegt .libbar
+     container-type fuer die schmalen Leisten - und Containment sperrt jede
+     absolut/fixed positionierte Flaeche darin ein: gemessen lag das Menue mit
+     z-index 6100 UNTER einem Panel mit z-index 14. Sie wohnen deshalb hier,
+     direkt unter <body>, und werden von popoverBei() an ihrem Knopf
+     ausgerichtet. Der Waechter-Test test_schwebende_flaechen_nicht_im_kaefig
+     haelt das fest - auch fuer jede kuenftige Flaeche und jeden Kaefig. -->
+      <div class="colmenu" id="libansicht" style="display:none">
+        <!-- Build 118 („daneben steht Ansicht, ist das nicht auch eine Art
+             Ansicht?"): die vier Darstellungs-Knöpfe wohnen jetzt HIER —
+             eine Sache, ein Ort. Die Leiste bricht dadurch auch in schmalen
+             Fenstern nicht mehr um (Anti-Scroll-Regel). -->
+        <div class="mzeile"><span>Darstellung</span>
+          <span style="display:flex;gap:3px">
+            <button class="viewbtn" id="vb-kompakt" onclick="libKompaktToggle()" title="Kompakt: mehr Kacheln, nur Bild + Titel">▪▪</button>
+            <button class="viewbtn an" id="vb-kachel" onclick="libAnsicht('kachel')" title="Kacheln">⊞</button>
+            <button class="viewbtn" id="vb-alben" onclick="libAnsicht('alben')" title="Alben — gruppiert nach Künstler/Album">▤</button>
+            <button class="viewbtn" id="vb-liste" onclick="libAnsicht('liste')" title="Liste">☰</button>
+          </span></div>
+        <!-- der Besitzer 05.08. („Ich finde den fernsehmodus nicht"): ganz nach OBEN —
+             der wichtigste Modus versteckt sich nicht am Listenende. -->
+        <button class="mbtn" onclick="fernsehModus()" title="Player als Vollbild: große Leiste, ⏪/⏩-Spulen, Untertitel-Panel per Fernbedienung">📺 Fernsehmodus</button>
+        <div class="msep"></div>
+        <!-- Build 144l (25.07.): „Nur Songs" ist von hier in die Abspielart
+             (▶-Symbol im Player) gewandert — Alles · Nur Ton · Nur Video ·
+             Nur Songs, an einer Stelle, ehrlich beschriftet. -->
+        <div class="mzeile"><span>Filter</span>
+          <select id="libfilter" onchange="libMalen()">
+            <option value="alle">Alle</option>
+            <option value="herz">❤ Lieblingssongs</option>
+            <option value="vorhanden">Nur vorhandene</option>
+            <option value="verschoben">Nur verschobene/gelöschte</option>
+          </select></div>
+        <!-- Build 124 (der Besitzer): Ausgegraute (verschobene/gelöschte Dateien) sind
+             standardmäßig AUS dem Blick — wer sie sucht, hakt hier ab. -->
+        <label class="chk" style="padding:4px 6px"><input type="checkbox" id="libhidegray" checked onchange="libMalen()"> Ausgegraute ausblenden</label>
+        <div class="msep"></div>
+        <button class="mbtn" onclick="colMenuToggle(event)">⚙ Spalten wählen…</button>
+        <button class="mbtn nur-pc" id="libenrich" onclick="libEnrich(this)">↻ Fehlende Infos nachladen</button>
+        <button class="mbtn" id="libarchivbtn" onclick="libArchivToggle()">🗄 Archiv anzeigen</button>
+        <button class="mbtn" id="libselbtn" onclick="libSelectToggle()">☑ Mehrfach-Auswahl</button>
+        <button class="mbtn" onclick="dublettenPopover(event);ansichtZu()">⧉ Dubletten finden…</button>
+        <button class="mbtn nur-pc" onclick="autotagAlle();ansichtZu()">🏷 Auto-Tagging (MusicBrainz)…</button>
+        <!-- Build 122 („sollte selbstständig passieren"): der
+             Ordner-Blick läuft jetzt von allein, sobald die Bibliothek
+             angesehen wird (gedrosselt, im Hintergrund). Kein Menüpunkt
+             mehr nötig. -->
+      </div>
+      <div class="colmenu" id="libcolmenu" style="display:none"></div>
+
+      <!-- TV-Bibliothek (Sync Teilprojekt 2 v1): Vollbild-Overlay, Menü-Schnitt A
+           (bestätigt) — eigene Einträge für YouTube und Musik in der Leiste. -->
+      <div id="tv">
+        <div id="tv-kopf"></div>
+        <div id="tv-inhalt"></div>
+      </div>
+      <div id="tv-info"></div>
+
+</body>
+</html>

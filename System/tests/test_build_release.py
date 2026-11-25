@@ -54,9 +54,23 @@ def _bauliste(pfad, eintraege):
     return str(pfad)
 
 
-def _vollstaendig(br):
+def _oberflaeche_eintraege():
+    """Die Teile der PC-Oberfläche, wie PyInstaller sie als Daten einträgt
+    (Zielname relativ zur exe, Quelle unter System/)."""
+    namen = ["layout_kern.js"]
+    for ordner, _unter, dateien in os.walk(os.path.join(MODUL_DIR, "pc_oberflaeche")):
+        namen += [os.path.relpath(os.path.join(ordner, d), MODUL_DIR) for d in dateien]
+    return [(n, os.path.join(MODUL_DIR, n), "DATA") for n in sorted(namen)]
+
+
+def _winrt_teile(br):
     teile = [_eintrag(f"winrt/{e}.cp314-win_amd64.pyd") for e in br.winrt_erweiterungen()]
     return teile + [_eintrag(f"winrt/{d}", "BINARY") for d in br.winrt_dlls()]
+
+
+def _vollstaendig(br):
+    """Alles, was die Erzeugnis-Prüfung verlangt: winrt und die Oberfläche."""
+    return _winrt_teile(br) + _oberflaeche_eintraege()
 
 
 def test_erwartete_winrt_teile_kommen_aus_medien_smtc(br, tmp_path):
@@ -85,7 +99,7 @@ def test_vollstaendige_bauliste_besteht(br, tmp_path):
 
 
 def test_jedes_fehlende_teil_wird_gemeldet(br, tmp_path):
-    voll = _vollstaendig(br)
+    voll = _winrt_teile(br)
     for i, weg in enumerate(voll):
         rest = voll[:i] + voll[i + 1:]
         fehlt = br.erzeugnis_pruefen(_bauliste(tmp_path / f"PKG-{i}.toc", rest))
@@ -478,3 +492,37 @@ def test_startdatei_kommt_nicht_ins_quellstart_paket():
     spec.loader.exec_module(qp)
     assert not qp._wird_ausgeliefert("System/start_exe.py")
     assert qp._wird_ausgeliefert("System/youtube_app.py")
+
+
+# ------------------------------------------- Teile der Oberfläche in der exe
+# Strukturumbau 25.11.2026: oberflaeche.py setzt die Seite aus pc_oberflaeche/ und
+# layout_kern.js zusammen. Fehlt eines davon in der exe, startet sie ohne
+# Oberfläche; darum prüft der Bau die Bauliste und bricht ab.
+
+def test_oberflaeche_fehlt_nennt_jedes_fehlende_teil(br, tmp_path):
+    alle = _oberflaeche_eintraege()
+    assert len(alle) >= 20, "Auto-Discovery der Oberflächen-Teile ist blind"
+    assert br.oberflaeche_fehlt(_bauliste(tmp_path / "voll.toc", alle)) == []
+    ohne = [e for e in alle if not e[0].endswith("stil.css")]
+    assert br.oberflaeche_fehlt(_bauliste(tmp_path / "ohne.toc", ohne)) == ["pc_oberflaeche/stil.css"]
+    ohne_kern = [e for e in alle if e[0] != "layout_kern.js"]
+    assert br.oberflaeche_fehlt(_bauliste(tmp_path / "ohne_kern.toc", ohne_kern)) == ["layout_kern.js"]
+    assert br.oberflaeche_fehlt(str(tmp_path / "gibt_es_nicht.toc")), "fail-closed verletzt"
+
+
+def test_bauen_bricht_ab_wenn_ein_teil_der_oberflaeche_fehlt(br, monkeypatch, tmp_path):
+    monkeypatch.setattr(br.subprocess, "run", lambda befehl, **kw: types.SimpleNamespace(returncode=0))
+    exe = tmp_path / "SyncYouTube.exe"
+    exe.write_bytes(b"MZ")
+    monkeypatch.setattr(br, "GEBAUT", str(exe))
+    ohne = [e for e in _vollstaendig(br) if not e[0].endswith("17_init.js")]
+    monkeypatch.setattr(br, "BAULISTE", _bauliste(tmp_path / "PKG-00.toc", ohne))
+    with pytest.raises(SystemExit) as abbruch:
+        br.bauen()
+    assert "pc_oberflaeche/skript/17_init.js" in str(abbruch.value)
+
+
+def test_spec_nimmt_die_oberflaeche_als_daten_mit():
+    text = _spec_text()
+    assert "('pc_oberflaeche', 'pc_oberflaeche')" in text
+    assert "('layout_kern.js', '.')" in text

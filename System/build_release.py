@@ -176,6 +176,36 @@ def erzeugnis_pruefen(bauliste=None, erwartet=None, dlls=None):
     return fehlt
 
 
+def _zielnamen(bauliste):
+    """Aus der PyInstaller-Bauliste: der Name jedes Eintrags in der exe, mit /."""
+    with open(bauliste, encoding="utf-8") as f:
+        inhalt = ast.literal_eval(f.read())
+    return {eintrag[0].replace("\\", "/")
+            for block in (inhalt if isinstance(inhalt, (list, tuple)) else ())
+            if isinstance(block, list)
+            for eintrag in block
+            if isinstance(eintrag, tuple) and len(eintrag) == 3 and isinstance(eintrag[0], str)}
+
+
+def oberflaeche_fehlt(bauliste=None, hier=HIER):
+    """Welche Teile der PC-Oberfläche fehlen in der exe? Seit dem Strukturumbau
+    (25.11.2026) setzt oberflaeche.py die Seite aus pc_oberflaeche/ und
+    layout_kern.js zusammen; fehlt eines, startet die exe ohne Oberfläche.
+    Auto-Discovery über den Ordner, keine Handliste; FAIL-CLOSED wie oben."""
+    teile = os.path.join(hier, "pc_oberflaeche")
+    erwartet = {"layout_kern.js"}
+    for ordner, _unter, namen in os.walk(teile):
+        erwartet |= {os.path.relpath(os.path.join(ordner, n), hier).replace("\\", "/")
+                     for n in namen}
+    if len(erwartet) < 4:
+        return [f"Auto-Discovery der Oberflächen-Teile unter {teile} fand fast nichts"]
+    try:
+        ziele = _zielnamen(bauliste or BAULISTE)
+    except (OSError, SyntaxError, ValueError) as e:
+        return [f"Bauliste {bauliste or BAULISTE} nicht lesbar: {e}"]
+    return sorted(erwartet - ziele)
+
+
 def bauen():
     print("[1/4] PyInstaller laeuft (dauert einige Minuten) …")
     lauf = subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", SPEC],
@@ -196,6 +226,11 @@ def erzeugnis_oder_abbruch():
         sys.exit("[FEHLER] Die exe ist ohne Windows-Medienanmeldung gebaut, in der "
                  f"Bauliste fehlen: {', '.join(fehlt)} (winrt) — nichts wird veroeffentlicht.")
     print("      Erzeugnis-Pruefung: winrt-Erweiterungen und ihre DLLs sind drin.")
+    fehlt = oberflaeche_fehlt()
+    if fehlt:
+        sys.exit("[FEHLER] Der exe fehlen Teile der Oberfläche, in der Bauliste fehlen: "
+                 f"{', '.join(fehlt)} — nichts wird veroeffentlicht.")
+    print("      Erzeugnis-Pruefung: alle Teile der Oberfläche sind drin.")
 
 
 def token_oder_abbruch():

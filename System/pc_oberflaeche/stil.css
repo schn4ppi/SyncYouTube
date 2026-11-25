@@ -1,0 +1,1453 @@
+*{box-sizing:border-box}
+/* Farbwelt als Variablen — ein „Look" setzt nur diese um (Standard = Terracotta).
+   So bleibt das Standard-Aussehen exakt gleich, neue Looks tönen alles konsistent. */
+:root{--pille-h:24px;--feld-h:32px;--akz:#c9952b;--akz2:#e0b878;--akzbg:#2a2016;--head:#d67756;--bg:#141110;--panel:#1c1814;--panelln:#2a2522;--gedaempft:#8a7d74}
+/* Gedämpfte Textfarbe für Inline-Stile im Markup und in erzeugtem HTML (Entscheid 7a
+   Punkt 8): Inline erreicht keine Regel des Tag-Modus, die Variable schon. Im Tag-Modus
+   derselbe Ton wie #layoutbar dort. */
+html.light{--gedaempft:#7a6e64}
+html.theme-hacker{--akz:#37f000;--akz2:#8dff6a;--akzbg:#0f2410;--head:#37f000;--bg:#060a06;--panel:#0b140b;--panelln:#18391b}
+html.theme-neon{--akz:#ff3ad6;--akz2:#79f5ff;--akzbg:#251236;--head:#ff3ad6;--bg:#0a0812;--panel:#140f22;--panelln:#2c2047}
+html.theme-ozean{--akz:#2ba6ff;--akz2:#7ad4ff;--akzbg:#0e2740;--head:#3ec2ff;--bg:#060e18;--panel:#0b1a2b;--panelln:#153450}
+html.theme-hacker h1,html.theme-hacker .card h2,html.theme-hacker .modal-head b{font-family:Consolas,"Courier New",monospace}
+/* Anti-Scroll (22.07.): die SEITE selbst scrollt nie — Body ist eine Flex-Spalte,
+   die Command-Bar bleibt fix, der Canvas füllt den Rest; gescrollt wird nur INNEN
+   in den Fenstern (Bibliothek/Playlist/…). */
+html{height:100%}
+body{font-family:system-ui,Segoe UI,sans-serif;margin:0;background:var(--bg);color:#eee;
+  height:100vh;display:flex;flex-direction:column;overflow:hidden}
+h1{font-size:17px;margin:6px 0 2px;color:var(--head);text-transform:uppercase;letter-spacing:.05em}
+/* Build 133 (der Besitzer): Der Status-Punkt trägt jetzt das Zeichen des Browsers, in
+   dem die Oberfläche läuft — Firefox die Erdkugel, Chrome den Ring, Edge den
+   Bogen, Safari den Kompass. Der Kern in der Mitte ist der eigentliche
+   Status: grün = App erreichbar, rot = getrennt. So sagt EIN Zeichen beides,
+   statt dass ein nackter Punkt nur die halbe Geschichte erzählt.
+   Die Formen sind bewusst eigene, vereinfachte Andeutungen — keine
+   Marken-Dateien, nur so viel Umriss, dass man den Browser wiedererkennt. */
+.apidot{width:16px;height:16px;display:inline-flex;flex:none;align-items:center;justify-content:center}
+.apidot svg{width:16px;height:16px;display:block}
+.apikern{fill:#6fcf7f}                                 /* Status: verbunden */
+.apidot.bad .apikern{fill:#e08a6a}                     /* Status: getrennt */
+.apiring{fill:none;stroke:currentColor;opacity:.75}
+.apidot{color:#8a7d74}
+html.light .apidot{color:#a89a8e}
+.iconbtn{width:34px;height:34px;border-radius:9px;border:1px solid #3a332e;background:#171310;color:#eee;
+  font-size:16px;cursor:pointer;line-height:1}
+.iconbtn:hover{border-color:var(--akz)}
+/* Build 129 (Fund „Formatierung wieder gekippt"): Diese Regeln hingen am
+   Selektor `.counter` — eine KLASSE, die es nirgends gibt. Der Zähler heisst
+   im HTML `class="cmd-count" id="counter"`; beim Umbau der Steuerzentrale
+   wurde die Klasse umbenannt, die Regeln blieben auf dem alten Namen stehen.
+   Da `.counter` nichts traf, griff weder `display:none` noch
+   `position:absolute`: die Aufschlüsselung war ein normales Inline-Element
+   im Fluss und blähte die Statistik-Spalte dauerhaft auf 98 px auf, statt
+   beim Überfahren darüber zu schweben (live gemessen: display:inline,
+   position:static). Jetzt am echten Element. Die frühere Pillen-Optik ist
+   NICHT wiedergekommen — sie war seit dem Umbau ohnehin aus, und das
+   Aussehen soll sich durch eine Fehlerbehebung nicht ändern. */
+.cmd-count .tip{display:none;position:absolute;right:0;top:calc(100% + 8px);z-index:200;min-width:190px;
+  background:#211b16;border:1px solid #3a332e;border-radius:10px;padding:9px 11px;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);text-align:left;cursor:default}
+.cmd-count:hover .tip,.cmd-count:focus .tip,.cmd-count:focus-within .tip{display:block}
+.tiptitel{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#8a7d74;margin-bottom:6px}
+.tiprow{display:flex;justify-content:space-between;gap:16px;font-size:13px;padding:2px 0;color:#d7c7bd}
+.tiprow b{color:#eee;font-weight:600}
+.tipsep{height:1px;background:#3a332e;margin:7px 0 6px}
+/* ---- Sticky Command-Bar (oben, hacker/monospace) — 50/50: links Eingabe+Player, rechts Downloads ---- */
+#cmdbar{flex:none;z-index:400;background:var(--panel);border-bottom:1px solid var(--panelln);
+  padding:6px 12px;font-family:Consolas,"Courier New",monospace;box-shadow:0 2px 12px rgba(0,0,0,.4)}
+/* Command-Bar-Höhe (21.07.: „muss fix sein"; der Besitzer 24.11.2026: „da müssen wir
+   dynamisch bleiben"): 188 px, und die rechte Seite (Downloads) ändert sie nie,
+   sie scrollt intern (`contain:size` unten nimmt ihr jeden Einfluss auf die
+   Höhe). Nur der LINKE Block darf die Leiste strecken: Bei etwa 660–900 px
+   Fensterbreite bricht seine erste Reihe um und er braucht ~201 px; mit fester
+   Höhe lief er dann oben und unten aus dem Rahmen (Titel angeschnitten, Player
+   ragte unter die Leiste, gemessen 24.11.2026 bei 780 px). */
+.cmd-main{display:flex;gap:14px;align-items:stretch;min-height:188px}
+@media(min-width:661px){ .cmd-right{contain:size} }
+.cmd-left{flex:1 1 50%;min-width:0;display:flex;flex-direction:column;gap:6px;justify-content:center}
+.cmd-right{flex:1 1 46%;min-width:0;border-left:1px solid var(--panelln);padding-left:12px;display:flex;flex-direction:column;gap:5px}
+/* Fest eingebettetes Download-Fenster in der Command-Bar */
+.dlbox-tabs{display:flex;gap:2px;flex:none;align-items:center}
+.dlbox-tab{background:none;border:0;color:#8a7d74;font:inherit;font-size:12px;padding:3px 9px;border-radius:7px 7px 0 0;cursor:pointer}
+.dlbox-tab:hover{color:#d7c7bd}
+.dlbox-tab.an{background:var(--panel2,#241f1b);color:var(--akz2)}
+.dlbox-tabs .spacer{flex:1}
+.dlbox-action{padding:2px 9px!important;font-size:11px!important}
+/* Build 122 (der Besitzer): im Mini-Modus dürfen die Reiter (Downloads/Fertig/Log/Abos)
+   flacher sein — jeder gesparte Pixel geht an die Liste darunter. */
+body.mini .dlbox-tab{font-size:11px;padding:1px 7px}
+body.mini .dlbox-action{padding:1px 7px!important;font-size:10.5px!important}
+/* Build 122 („wenn die Bibliothek kleiner wird, sollten unwichtige Reiter
+   ausgeblendet werden, wie bei der Manga-Leseliste"). Reihenfolge wie auf
+   Handy/Tablet üblich: zuerst geht das WORT (Symbol bleibt), dann das
+   Seltene, zuletzt bleibt der Kern. Der Kern ist: Suchen, Ansicht,
+   Playlist-Auswahl, Abspielen — alles andere ist erreichbar über die Menüs.
+   Umgesetzt über Container-Abfragen, damit es an der BREITE DES FENSTERS
+   hängt und nicht am Bildschirm (die Bibliothek ist ein andockbares Panel). */
+.libbar{container-type:inline-size}
+@container (max-width: 560px){
+  .plbar span:first-child{display:none}                    /* das Wort „Playlist:" */
+}
+@container (max-width: 430px){
+  #libsort{display:none}                                   /* Sortieren steckt im Ansicht-Menü */
+}
+@container (max-width: 340px){
+  /* Build 124 („Mixer und Entdecken verschwinden gleichzeitig, wo finde
+     ich die dann?"): sie verschwinden nur aus der LEISTE — plWerkzeuge()
+     hängt sie dann oben ins ⋯-Menü. Nichts ist unerreichbar. */
+  .plbar .btn:not(#plwerkbtn){display:none}
+}
+/* Höhe kommt aus der linken Steuerspalte (cmd-main align-items:stretch) — so ist
+   die Command-Bar in Voll- UND Mini-Modus EXAKT gleich hoch, nichts springt (21.07.). */
+.dlbox-body{flex:1 1 auto;min-height:0;overflow:auto;background:var(--panel2,#1c1815);border-radius:0 8px 8px 8px}
+.dlbox-body::-webkit-scrollbar{width:6px}.dlbox-body::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
+.dlbox-body .card{margin:0;background:transparent;border:0;padding:6px 10px}
+/* ---- TV-Bibliothek (Sync Teilprojekt 2 v1, Vorgabe: „erledige alle aufgaben von
+   der roadmap") — 10-Fuß-Regeln der Medienzentrale-Spec: große Schrift,
+   Cover-Reihen, reine Pfeil-Navigation mit deutlichem Fokus-Rahmen, dunkles
+   Theme, fixe Kopfleiste (Anti-Scroll: nur die Reihen bewegen sich). ---- */
+/* Netflix-Farbwelt NUR im TV-Modus (Nachtprüfung 06.08., Vorgabe: „Copycat …
+   Warum ist bei uns alles ähnlich aber nicht gleich?"): neutrales
+   #141414-Schwarz statt der warmen Brauntöne, EIN Brand-Rot. */
+#tv{position:fixed;inset:0;z-index:900;display:none;flex-direction:column;
+  background:#141414;color:#fff;font-size:22px;overflow:hidden}
+#tv-kopf{display:flex;gap:6px;align-items:center;padding:18px 28px;flex:0 0 auto;
+  background:linear-gradient(#141414 70%,transparent)}
+#tv-warnung{flex:0 0 auto;margin:0 28px 6px;padding:10px 16px;border-radius:10px;background:rgba(255,176,32,.14);border:1px solid rgba(255,176,32,.45);color:#ffd489;font-size:19px;line-height:1.35}
+#tv-kopf .tvtab{font-size:22px;padding:8px 18px;border-radius:999px;background:none;
+  border:2px solid transparent;color:#b3b3b3;cursor:pointer;white-space:nowrap}
+#tv-kopf .tvtab.akt{color:#fff;font-weight:700}
+/* Auswahl MUSS man sehen (07.08.: „Ich sehe bei Weiterschauen nicht,
+   das ich das angewählt habe") — Netflix-Art: kräftiger weißer Rahmen,
+   heller Schein ringsum und leichte Aufhellung. Wirkt auch auf hellen
+   Kacheln und auf der ersten Reihe. */
+#tv-kopf .tvtab.tv-fokus{border-color:#fff;outline:none}
+#tv .tv-kachel.tv-fokus{border-color:#fff;outline:none;
+  box-shadow:0 0 0 2px #fff,0 0 22px 6px rgba(255,255,255,.35);
+  filter:brightness(1.12)}
+#tv-kopf .tvzu{margin-left:auto;font-size:22px;background:none;border:2px solid transparent;
+  border-radius:999px;color:#b3b3b3;padding:8px 16px;cursor:pointer}
+/* Mehr Rand beidseits (07.08.: Fokus-Rahmen der ERSTEN Kachel war links
+   abgeschnitten — „etwas mehr zentrieren die beiden seiten"). */
+#tv-inhalt{flex:1;overflow-y:auto;padding:6px 48px 40px}
+#tv .tv-rtitel{font-size:22px;font-weight:600;color:#e5e5e5;margin:18px 2px 10px}
+#tv .tv-band{display:flex;gap:8px;overflow-x:auto;padding:6px 8px 10px;scrollbar-width:none}
+#tv .tv-band.wrap{flex-wrap:wrap;overflow-x:visible}   /* „Alle A–Z"-Raster */
+#tv .tv-kachel{flex:0 0 auto;width:150px;cursor:pointer;border:3px solid transparent;
+  border-radius:8px;padding:3px;position:relative;transition:transform .25s}
+/* EIN Zoom für alle Kacheln (seit alle dieselbe Größe haben): dezent —
+   die Sichtbarkeit macht der weiße Ring, nicht die Vergrößerung. */
+#tv .tv-kachel.tv-fokus{transform:scale(1.08);z-index:6}
+#tv .tv-band:not(.wrap) .tv-kachel:hover{transform:scale(1.06);z-index:5}
+/* Filme/Serien QUER in 16:9 (06.08.: „Das ist immer noch nicht 16:9.
+   Warum?" + Netflix-Referenz): Backdrop-Kacheln, sanfter Zoom — die große
+   Ansicht übernimmt die Hover-Karte. */
+/* EIN Raster für ALLE Kacheln (07.08.: „Youtube + Musik hat ebenso
+   unterschiedliche Größen") — Netflix macht keine Ausnahmen: gleiche
+   Breite, gleiches 16:9-Fenster, Bildinhalt wird beschnitten statt
+   verzerrt (object-fit:cover). Album-Cover (quadratisch) und
+   YouTube-Vorschaubilder (16:9) sehen so in einer Reihe gleich aus.
+   Die Breite rechnet sich aus dem Viewport, damit IMMER eine ganze Anzahl
+   in die Bahn passt (6/5/4/3 Spalten je Bildschirmbreite). */
+#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc((100vw - 152px)/6)}
+@media(max-width:1499px){#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc((100vw - 144px)/5)}}
+@media(max-width:1099px){#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc((100vw - 136px)/4)}}
+@media(max-width:799px){#tv .tv-kachel,#tv .tv-kachel.f16,#tv .tv-kachel.quer{width:calc((100vw - 128px)/3)}}
+#tv .tv-kachel img,#tv .tv-kachel.f16 img,#tv .tv-kachel.quer img{
+  height:auto;aspect-ratio:16/9;object-fit:cover}
+/* Zwei Zeilen Titel — sonst reißt die Kachelhöhe je nach Titellänge. */
+#tv .tv-ktitel{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;white-space:normal;min-height:2.6em}
+/* Karte offen: Quell-Kachel sofort ohne Zoom (transition aus, sonst misst
+   die Karten-Platzierung die noch gezoomte Geometrie). */
+#tv .tv-kachel.hk-quelle{transform:none!important;transition:none!important}
+#tv .tv-kachel .tv-kbalken{height:4px;border-radius:2px;background:rgba(255,255,255,.3);margin:5px 8px 0}
+#tv .tv-kachel .tv-kbalken div{height:100%;border-radius:2px;background:#e50914}
+/* Blätter-Pfeile an den Reihen-Enden („Mit pfeil nach rechts sollte
+   doch immer mehr erscheinen") — sichtbar beim Verweilen, wie Netflix. */
+#tv .tv-reihe{position:relative}
+#tv .tv-pfeil{position:absolute;width:46px;top:48px;bottom:36px;border:none;cursor:pointer;
+  background:rgba(20,20,20,.55);color:#fff;font-size:38px;z-index:6;opacity:0;
+  transition:opacity .2s;border-radius:4px;display:flex;align-items:center;justify-content:center}
+#tv .tv-reihe:hover .tv-pfeil{opacity:1}
+#tv .tv-pfeil.links{left:-40px}
+#tv .tv-pfeil.rechts{right:-40px}
+#tv .tv-pfeil:hover{background:rgba(20,20,20,.85)}
+#tv .tv-seiten{position:absolute;right:4px;top:26px;display:flex;gap:2px;
+  opacity:0;transition:opacity .2s}
+#tv .tv-reihe:hover .tv-seiten{opacity:1}
+#tv .tv-seiten span{width:12px;height:2px;background:#4d4d4d}
+#tv .tv-seiten span.an{background:#aaa}
+#tv .tv-dauer{position:absolute;top:8px;right:8px;z-index:2;font-size:13px;
+  color:#fff;background:rgba(12,10,9,.7);border-radius:5px;padding:1px 7px}
+/* Hover-Karte (Netflix-Referenzbilder 06.08.): schwebende Quer-Karte über
+   der Kachel — 16:9-Clip oben, Knopfzeile, Fortschritt/Meta, Genre-Tags. */
+.tv-hoverkarte{position:fixed;z-index:930;background:#181818;border-radius:6px;
+  overflow:hidden;box-shadow:0 12px 44px rgba(0,0,0,.85);cursor:pointer;
+  animation:hkAuf .18s ease-out;padding-bottom:12px}
+@keyframes hkAuf{from{transform:scale(.75);opacity:.4}to{transform:scale(1);opacity:1}}
+.tv-hoverkarte .hk-bild{position:relative;aspect-ratio:16/9;background:#000}
+.tv-hoverkarte .hk-bild img,.tv-hoverkarte .tv-snip{position:absolute;inset:0;
+  width:100%;height:100%;object-fit:cover;display:block}
+.tv-hoverkarte .hk-titel{position:absolute;left:12px;bottom:8px;right:12px;z-index:2;
+  font-size:17px;font-weight:700;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.9);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tv-hoverkarte .hk-zeile{display:flex;gap:8px;align-items:center;padding:10px 12px 6px}
+.tv-hoverkarte .hk-ib{width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,.5);
+  background:rgba(42,42,42,.9);color:#fff;font-size:16px;cursor:pointer;line-height:1}
+.tv-hoverkarte .hk-ib:hover{border-color:#fff}
+.tv-hoverkarte .hk-ib svg{width:16px;height:16px;fill:currentColor;vertical-align:middle}
+.tv-hoverkarte .hk-play{background:#fff;color:#111;border-color:#fff}
+.tv-hoverkarte .hk-rechts{margin-left:auto}
+.tv-hoverkarte .hk-balken{display:flex;gap:10px;align-items:center;padding:4px 12px 0;
+  font-size:13px;color:#b3b3b3}
+.tv-hoverkarte .hk-spur{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.3)}
+.tv-hoverkarte .hk-spur div{height:100%;border-radius:2px;background:#e50914}
+.tv-hoverkarte .hk-meta{display:flex;gap:10px;align-items:center;padding:4px 12px 0;
+  font-size:13px;color:#d2d2d2}
+.tv-hoverkarte .hk-fsk{border:1px solid rgba(255,255,255,.4);padding:0 6px;font-size:12px}
+.tv-hoverkarte .hk-hd{border:1px solid rgba(255,255,255,.4);border-radius:3px;padding:0 4px;font-size:11px}
+.tv-hoverkarte .hk-tags{padding:6px 12px 0;font-size:13px;color:#fff}
+#tv .tv-kachel img{width:100%;border-radius:6px;background:#2a2a2a;display:block}
+/* Höhe/Format kommen aus der EINEN Raster-Regel oben — keine Sonderfälle
+   mehr für „quer" (die machten Musik-/YouTube-Reihen uneinheitlich). */
+#tv .tv-ktitel{font-size:15px;margin-top:6px;text-align:center}
+#tv .tv-leer{color:#8a7d74;font-size:18px;padding:30px 4px}
+#tv-suche{font-size:26px;padding:12px 20px;border-radius:12px;border:2px solid #3a322b;
+  background:#171310;color:#fff;width:min(600px,80%);margin:10px 0}
+/* Hero-Billboard (05.08. mit Netflix-Referenzbildern: „der headline film
+   ist zu sehr gequetscht") — hoch, randlos, Titel riesig, Bild läuft frei
+   nach rechts; Text bleibt lesbar über einem Links- + Unten-Verlauf. */
+#tv-hero{position:relative;min-height:56vh;margin:0 -28px 8px;overflow:hidden;
+  display:flex;align-items:flex-end;background:#0c0a09}
+#tv-hero .hero-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#tv-hero::after{content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(12,10,9,.96) 6%,rgba(12,10,9,.55) 40%,transparent 68%),
+             linear-gradient(0deg,#0c0a09 0,transparent 24%)}
+#tv-hero .hero-text{position:relative;z-index:1;max-width:46%;padding:0 28px 5vh 28px}
+#tv-hero .hero-titel{font-size:clamp(40px,4.6vw,74px);font-weight:900;line-height:1.05;
+  margin-bottom:14px;text-shadow:0 2px 14px rgba(0,0,0,.65);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#tv-hero .hero-meta{font-size:18px;color:#d8cec4;margin-bottom:12px}
+#tv-hero .hero-besch{font-size:18px;color:#e6ddd2;max-width:640px;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+#tv-hero .hero-btns{display:flex;gap:12px;margin-top:18px}
+.tv-btn{font-size:22px;padding:10px 26px;border-radius:4px;cursor:pointer;
+  border:3px solid transparent;background:#f2ece5;color:#171310;font-weight:700}
+.tv-btn.zart{background:rgba(109,109,110,.7);color:#fff}
+.tv-btn.akt{background:rgba(232,176,75,.35)}          /* gewählte Staffel */
+.tv-btn.tv-fokus{border-color:#fff}
+/* Film-Player (Build 188, Netflix-Layout nach Besitzer-Bildern): Leiste unten
+   über volle Breite, ← oben links; Inaktivität blendet aus; Pause-Idle. */
+#tv-player{position:fixed;inset:0;z-index:970;display:none;background:#0c0a09;color:#f2ece5}
+#tv-player .tvp-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.28}
+#tv-player .tvp-video{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:contain;background:#000}                  /* Browser-Player (Netflix-Weg) */
+#tv-player .tvp-standbild{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:contain;background:#000}                  /* Pause-Moment (VLC-Schnappschuss) */
+#tv-player .tvp-ui{position:absolute;inset:0;z-index:1;transition:opacity .5s}
+#tv-player.idle .tvp-zurueck,#tv-player.idle .tvp-unten{opacity:0;pointer-events:none}
+#tv-player.idle #tvp-panel{display:none!important}
+/* Settings-Panel (Netflix-Referenz „Playback Speed"): dunkle Karte über der
+   Leiste rechts — Tempo-Reihe bzw. Ton-/Untertitel-Spalten. */
+#tvp-panel{position:absolute;right:28px;bottom:130px;background:#1c1c1c;border-radius:10px;
+  padding:16px 20px;box-shadow:0 8px 30px rgba(0,0,0,.7);z-index:6;max-width:560px}
+#tvp-panel .tvpp-titel{font-weight:700;font-size:17px;margin-bottom:10px;color:#fff}
+#tvp-panel .tvpp-reihe{display:flex;gap:6px;align-items:center}
+#tvp-panel .tvpp-spalten{display:flex;gap:28px;max-height:300px;overflow:auto}
+#tvp-panel .tvpp-knopf{display:block;background:none;border:none;color:#ddd;font-size:15px;
+  padding:6px 10px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap}
+#tvp-panel .tvpp-reihe .tvpp-knopf{display:inline-block}
+#tvp-panel .tvpp-knopf:hover{background:#333}
+#tvp-panel .tvpp-knopf.an{color:#fff;font-weight:700}
+#tvp-panel .tvpp-knopf.tv-fokus{background:#333;box-shadow:inset 0 0 0 2px #fff}
+#tvp-panel .tvpp-leer{color:#8a8a8a;font-size:14px}
+#tv-player .tvp-zurueck{position:absolute;top:22px;left:26px;font-size:34px;background:none;
+  border:none;color:#fff;cursor:pointer;transition:opacity .5s}
+#tv-player .tvp-unten{position:absolute;left:0;right:0;bottom:0;padding:14px 30px 20px;
+  background:linear-gradient(0deg,rgba(12,10,9,.9),transparent);transition:opacity .5s}
+#tv-player .tvp-balkenzeile{display:flex;align-items:center;gap:16px;margin-bottom:10px}
+#tv-player .tvp-balkenwrap{flex:1;padding:10px 0;cursor:pointer}
+#tv-player .tvp-balken{height:5px;background:rgba(255,255,255,.28);border-radius:3px;overflow:hidden}
+#tv-player .tvp-balken div{height:100%;width:0;background:#e50914}
+#tv-player .tvp-zeit{font-size:16px;color:#fff;white-space:nowrap}
+#tv-player .tvp-reihe{display:flex;align-items:center;gap:16px}
+#tv-player .tvp-ib{background:none;border:none;color:#fff;font-size:26px;cursor:pointer;
+  display:inline-flex;align-items:center}
+#tv-player .tvp-ib svg{width:30px;height:30px;fill:#fff}
+#tv-player .tvp-mtitel{position:absolute;left:50%;transform:translateX(-50%);
+  font-size:18px;font-weight:700;white-space:nowrap;max-width:42%;
+  overflow:hidden;text-overflow:ellipsis}
+#tv-player .tvp-rechts{margin-left:auto}
+#tv-player .tvp-lade{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:14px;color:#d8cec4;font-size:18px}
+#tv-player .tvp-spin{width:54px;height:54px;border-radius:50%;border:5px solid rgba(255,255,255,.2);
+  border-top-color:#e50914;animation:tvpdreh 1s linear infinite}
+@keyframes tvpdreh{to{transform:rotate(360deg)}}
+#tv-player .tvp-idle{position:absolute;left:6vw;top:30vh;max-width:640px;display:none;
+  flex-direction:column;gap:10px}
+/* Pause-Text liegt ÜBER dem stehenden Filmbild (07.08.): weiß mit
+   leichtem Schatten — lesbar auf jedem Untergrund, kein Dimmen. */
+#tv-player .tvp-idle{text-shadow:0 1px 8px rgba(0,0,0,.9)}
+#tv-player .tvp-idle-klein{font-size:19px;color:#fff}
+#tv-player .tvp-idle-titel{font-size:56px;font-weight:900;line-height:1.05;color:#fff}
+#tv-player .tvp-idle-meta{font-size:20px;color:#fff;font-weight:700}
+#tv-player .tvp-idle-besch{font-size:17px;color:#f0f0f0}
+#tv-player .tvp-idle-paused{position:fixed;right:6vw;bottom:10vh;font-size:22px;
+  color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.9)}
+/* TV-Profil-Dialog (eigener statt prompt(), Vorgabe: „bau den") */
+#tv-dialog,#tv-konto{position:fixed;inset:0;z-index:980;display:none;align-items:center;
+  justify-content:center;background:rgba(8,6,5,.82);color:#f2ece5}
+#tv-dialog .dlg,#tv-konto .dlg{background:#141110;border-radius:14px;padding:32px 38px;
+  width:min(560px,92vw);text-align:center;box-shadow:0 14px 70px rgba(0,0,0,.85)}
+#tv-dialog input,#tv-konto input{font-size:26px;padding:12px 20px;border-radius:12px;
+  border:2px solid #3a322b;background:#171310;color:#fff;width:80%;text-align:center}
+#tv-dialog input:focus,#tv-konto input:focus{border-color:#e8b04b;outline:none}
+/* Eigenes Film-Konto (25.11.2026): Felder untereinander, Hinweis und Fehler klein */
+#tv-konto input{display:block;margin:10px auto;font-size:22px}
+#tv-konto .tvk-hinweis{font-size:17px;opacity:.8;margin:0 0 12px}
+#tv-konto .tvk-fehler{min-height:24px;color:#ffb37a;font-size:18px;margin:6px 0 10px}
+#tv-warnung .tv-btn{margin-left:14px;font-size:17px;padding:6px 14px}
+#tv-dialog .emojis{display:flex;gap:10px;justify-content:center;margin:20px 0;flex-wrap:wrap}
+#tv-dialog .emo{font-size:38px;padding:6px 12px;border-radius:12px;
+  border:3px solid transparent;background:#221c17;cursor:pointer}
+#tv-dialog .emo.akt{background:rgba(232,176,75,.35)}
+#tv-dialog .emo.tv-fokus{border-color:#e8b04b}
+/* „Wer schaut?" (Teilprojekt 3): große Profil-Kacheln in der Mitte */
+#tv .tv-profil{width:150px;text-align:center}
+#tv .tv-pemoji{font-size:84px;line-height:1.4;background:#221c17;border-radius:14px;padding:14px 0}
+/* More-Info als ZENTRIERTES Modal (mit Netflix-Bildern: „es sollte etwas
+   zentrierter sein, so wie bei netflix eben") — Karte über abgedunkeltem
+   Hintergrund, X oben rechts, Kopfbild mit Titel + Balken + Knopfzeile. */
+#tv-info{position:fixed;inset:0;z-index:950;display:none;align-items:flex-start;
+  justify-content:center;background:rgba(8,6,5,.74);color:#f2ece5;
+  overflow-y:auto;padding:4vh 0}
+#tv-info .info-karte{width:min(940px,94vw);margin:auto;background:#141110;
+  border-radius:14px;overflow:hidden;box-shadow:0 14px 70px rgba(0,0,0,.85)}
+#tv-info .info-kopf{position:relative;aspect-ratio:16/9;min-height:240px;overflow:hidden}
+#tv-info .info-kopf img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#tv-info .info-kopf::after{content:'';position:absolute;inset:0;
+  background:linear-gradient(0deg,#141110 3%,transparent 52%)}
+#tv-info .info-x{position:absolute;top:14px;right:14px;z-index:2;width:44px;height:44px;
+  border-radius:50%;background:rgba(12,10,9,.75);color:#fff;border:3px solid transparent;
+  font-size:20px;cursor:pointer}
+#tv-info .info-x.tv-fokus{border-color:#e8b04b}
+/* Netflix-Fluss (Fund: „Die Leiste … wird vom Filmtext verdeckt"): Titel,
+   Balken und Knöpfe stapeln sich als FLEX-SPALTE von unten — nichts kann
+   mehr überlappen, egal wie viele Zeilen der Titel braucht. */
+#tv-info .info-kopf-inhalt{position:absolute;left:34px;right:34px;bottom:20px;z-index:1;
+  display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+#tv-info .info-titel{font-size:clamp(30px,3.4vw,48px);font-weight:900;line-height:1.05;
+  text-shadow:0 2px 12px rgba(0,0,0,.8);max-width:75%}
+#tv-info .info-kopfzeile{width:100%}
+#tv-info .info-body{padding:20px 34px 34px;font-size:18px}
+#tv-info .info-spalten{display:grid;grid-template-columns:1.7fr 1fr;gap:8px 30px;margin-bottom:6px}
+#tv-info .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+#tv-info .info-grid .tv-kachel{width:auto}
+/* Fund 06.08. („die Bilder haben unterschiedliche größen"): die
+   Info-Seite hängt an <body>, NICHT in #tv — die #tv-Kachelregeln griffen
+   hier nie. Nachschlag 07.08. („Mehr wie das und Trailer & mehr"): das
+   Raster erzwingt das Format jetzt mit !important, weil die YouTube-
+   Vorschaubilder ihre Maße als inline-Stil mitbringen. */
+#tv-info .tv-kachel img{width:100%;object-fit:cover;border-radius:6px;
+  background:#2a2a2a;display:block}
+#tv-info .info-grid .tv-kachel img{height:auto!important;aspect-ratio:16/9!important}
+#tv-info .info-grid .tv-ktitel{display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
+/* Episoden-/Staffel-Bänder: gleiche Bahn wie die Reihen im TV. */
+#tv-info .tv-band .tv-kachel{width:230px;flex:0 0 auto}
+#tv-info .tv-band .tv-kachel img{aspect-ratio:16/9;height:auto}
+#tv-info .info-meta{font-size:18px;color:#d8cec4;margin-bottom:10px}
+#tv-info .info-besch{color:#e6ddd2;margin-bottom:12px}
+#tv-info .info-neben{font-size:16px;color:#a99d92;margin:4px 0}
+#tv-info .info-btns{display:flex;gap:12px;margin:14px 0 6px;flex-wrap:wrap}
+#tv-info .info-badge{border:1px solid #8a7d74;border-radius:4px;padding:1px 8px;
+  font-size:15px;color:#d8cec4;vertical-align:1px}
+#tv-info .info-punkt{margin:0 10px;color:#6b6058}
+#tv-info .info-progresswrap{display:flex;align-items:center;gap:12px;max-width:520px;margin:10px 0 2px}
+#tv-info .info-progress{flex:1;height:5px;background:#3a322b;border-radius:3px;overflow:hidden}
+#tv-info .info-progress div{height:100%;background:#e50914}
+#tv-info .info-rest{font-size:15px;color:#b9aea4;white-space:nowrap}
+#tv-info .info-tagline{font-style:italic;color:#b9aea4;margin:6px 0;font-size:18px}
+#tv-info .info-ueber{margin-top:26px;padding-top:8px;border-top:1px solid #2a241f;color:#b9aea4}
+#tv-info .info-ueber .info-neben{font-size:15px}
+/* ❤ Lieblingssongs (05.08.): Herz-Badge auf der Kachel + rote Toggles */
+.herzbadge{position:absolute;top:6px;left:6px;color:#e5484d;font-size:15px;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
+.ib.herz.an,.mp-btn.herz.an{color:#e5484d}
+/* Filme (Film-Fundament): Poster-Bänder wie bei den Streamern — die REIHE
+   scrollt horizontal in sich (Anti-Scroll: die Seite selbst wächst nicht). */
+#view-filme .f-rtitel{font-weight:700;margin:10px 2px 6px;font-size:14px}
+#view-filme .f-band{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
+#view-filme .f-kachel{flex:0 0 auto;width:108px;cursor:pointer}
+#view-filme .f-kachel img{width:108px;height:162px;object-fit:cover;border-radius:8px;background:#221c17;display:block}
+#view-filme .f-kachel:hover img{outline:2px solid var(--akzent,#e8b04b)}
+#view-filme .f-ktitel{font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Abos im kompakten Download-Fenster: kleiner + ohne die lange Erklärung, damit
+   man nicht scrollen muss (21.07.). */
+.dlbox-body #view-abos{font-size:11.5px}
+.dlbox-body #view-abos .hinweis{display:none}
+.dlbox-body #view-abos .zeile{gap:5px;margin-bottom:6px}
+.dlbox-body #view-abos input,.dlbox-body #view-abos select,.dlbox-body #view-abos .btn{font-size:11.5px;padding:4px 8px}
+.dlbox-body #view-abos .abo-liste{gap:5px}
+.dlbox-body #view-abos .abo-card{padding:5px 8px}
+.dlbox-body #view-abos .abo-name{font-size:12px}
+.dlbox-body #view-abos .abo-regeln,.dlbox-body #view-abos .abo-f{font-size:11px}
+/* Mini: statt der Download-Reiter sitzt hier der eingebettete Mini-Player */
+#cmd-mini:empty{display:none}
+#cmd-mini{display:flex;flex-direction:column;flex:1;min-height:0}
+body.mini #cmd-mini #view-player{height:100%}
+html.light .dlbox-tab.an{background:#efe7de}
+html.light .dlbox-body{background:#f3ede4}
+.cmd-row1,.cmd-row2,.cmd-rowadd{display:flex;align-items:center;gap:8px}
+.cmd-rowadd .cmd-url{flex:1;min-width:120px}
+.cmd-row2 .spacer{flex:1}
+.cmd-logo{display:inline-flex;align-items:center;gap:7px;font-size:14px;white-space:nowrap;flex:none}
+.cmd-logo .emblem{flex:none}
+.cmd-logo b{font-weight:600;letter-spacing:.01em;color:#e9ded3}
+html.light .cmd-logo b{color:#3a322c}
+.cmd-logo .sg{stroke:#141110}                        /* S-Rille = Seiten-Hintergrund, folgt Tag/Nacht */
+html.light .cmd-logo .sg{stroke:#f3ede2}
+.cmd-url{flex:1;min-width:80px;background:#0e0c0a;border:1px solid var(--panelln);border-radius:7px;
+  color:#e7dccf;padding:5px 10px;font:inherit;font-size:12px}
+.cmd-url:focus{outline:none;border-color:var(--akz)}
+.cmd-qual{background:#0e0c0a;border:1px solid var(--panelln);border-radius:7px;color:#d7c7bd;padding:4px 6px;font:inherit;font-size:12px}
+.cmd-dl{background:var(--akzbg);border:1px solid var(--akz);border-radius:7px;color:var(--akz2);
+  padding:5px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.cmd-dl:hover{filter:brightness(1.18)}
+/* Mini-Player (13.07.): füllt den linken Block — große Spotify-artige
+   Knöpfe oben, Titel darunter, Spulleiste unten; rechts Zähler + vertikale Knöpfe */
+.cmd-row2{align-items:stretch;gap:10px}
+/* Command-Bar-Player als eigene, wertige Karte (21.07.): Rahmen, dezenter
+   Hintergrund, runde Ecken; läuft etwas, glimmt der Rahmen in Programm-Rot. */
+/* Build 125 (Fund „Statistik überlappt den Player", gemessen bei 360 px):
+   Statistik und Symbol-Spalte sind flex:none und geben NIE nach — also
+   schrumpfte allein der Player, auf 69 px, und sein Inhalt lief 135 px
+   heraus, mitten unter die Statistik. Der Player ist der KERN und bekommt
+   deshalb ein Mindestmaß; ausweichen muss jetzt etwas anderes (siehe die
+   Ausweich-Ordnung bei .cmd-stat weiter unten). */
+.cmd-now{flex:1;min-width:220px;display:flex;flex-direction:column;justify-content:center;gap:6px;font-size:12px;color:#9a8d84;
+  border:1px solid #2e2823;border-radius:12px;padding:7px 14px;background:rgba(255,255,255,.022)}
+.cmd-now.spielt{border-color:rgba(214,95,95,.45);box-shadow:0 0 0 1px rgba(214,95,95,.12),0 4px 16px rgba(0,0,0,.25)}
+.cmd-now.dropziel{outline:2px dashed var(--akz);outline-offset:2px}
+/* Build 136: dieselbe Rueckmeldung fuer die ganze Player-Karte. */
+#pl-card.dropziel{outline:2px dashed var(--akz);outline-offset:-3px;border-radius:12px}
+/* Build 124 (Fund, gemessen: die Knopfreihe braucht 449 px und hat bei
+   975 px Fensterbreite nur 297 → sie quoll über den Rahmen). Jetzt räumt die
+   Steuerzentrale gestaffelt auf, statt überzulaufen. Reihenfolge: zuerst das
+   Seltene (Cover-Stil, Link, YouTube), dann die Lautstärke (liegt auch im
+   Player), zuletzt bleibt der Kern: Zufall · Zurück · Play · Vor ·
+   Wiederholen · Radio. ALLES Ausgeblendete bleibt per Rechtsklick in den
+   Player erreichbar (Kontextmenü) — nichts verschwindet ersatzlos. */
+.cmd-now{container-type:inline-size}
+.cmd-now .mp-row{flex-wrap:nowrap;min-width:0;overflow:hidden}
+/* 454 statt 430 (gemessen 24.11.2026): Die volle Reihe braucht 487 px, mit
+   dem schmalsten Lautstärkeregler (32 px) 455. Bei 431 bis 454 px lief der
+   Regler rechts aus der Reihe. Die weiteren Stufen passen mit schmalem Regler. */
+@container (max-width: 454px){ .cmd-now .mp-art,.cmd-now .mp-btn[title^="YouTube-Link"]{display:none} }
+@container (max-width: 380px){ .cmd-now .mp-yt{display:none} }
+@container (max-width: 330px){ .cmd-now .mp-vol{display:none} }
+@container (max-width: 264px){ .cmd-now .mp-radio{display:none} }   /* Kern ohne Radio braucht 265 px */
+/* Build 121 (Entscheid): Die Leiste oben ist die STEUERZENTRALE und
+   behält IMMER alles — sie ist der Ort, an dem der Besitzer sich wohlfühlt (Spotify-
+   Muster: eine Steuerung, immer dieselbe Stelle, verschwindet nie). Die
+   Doppelung wird nicht mehr durch Wegnehmen gelöst, sondern durch
+   Zuständigkeit: oben „was spiele ich", im Bild nur „wie sehe ich es"
+   (Untertitel/Schnitt/Tempo/Bild-in-Bild/Vollbild — Netflix-Muster,
+   erscheint bei Mausbewegung). Die frühere Ausblend-Regel ist damit weg. */
+html.light .cmd-now{border-color:#e3d8cc;background:rgba(0,0,0,.02)}
+.cmd-nowtitel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:12.5px;color:#d7c7bd;font-weight:500}
+.cmd-nolabel{color:#6a5c52}
+.cmd-seekline{display:flex;align-items:center;gap:8px}
+.cmd-time{flex:none;font-size:11px;color:#8a7d74;min-width:36px;text-align:center;font-variant-numeric:tabular-nums}
+#cmd-seek{flex:1;min-width:60px;height:14px;accent-color:var(--akz);cursor:pointer;margin:0}
+#cmd-seek:disabled{opacity:.35;cursor:default}
+/* Build 131 (der Besitzer): Zähler und API-Punkt stehen NEBENeinander, direkt neben dem
+   Mini-Player — nicht mehr als schmale Säule mit dem Zähler oben und dem
+   Punkt weit darunter. Seit der Tooltip wieder schwebt (Build 129) ist der
+   Zähler nur noch 26 px breit; eine eigene Spalte über die volle Zeilenhöhe
+   für zwei winzige Zeichen sah verloren aus und kostete den Player Platz.
+   Die Ausweich-Ordnung bleibt unberührt: unter 430 px weicht der Zähler,
+   Warnung und Punkt bleiben stehen. */
+/* Build 132: .cmd-stat als eigene Spalte ist entfallen — Zähler und Punkt
+   wohnen in der ersten Reihe (der Besitzer). Der Zähler bringt hier seinen eigenen
+   Abstand mit; der Tooltip klappt weiterhin unter ihm auf. */
+.cmd-row1 #counter{margin-left:4px}
+.cmd-row1 .apidot{margin-right:2px}
+.cmd-side{display:flex;flex-direction:column;justify-content:center;gap:3px;flex:none}
+/* Transport-Knöpfe: selbst gezeichnete SVGs, Spotify-Größe; aktiver Toggle =
+   Akzentfarbe + Punkt darunter, inaktiv = neutral (13.07.) */
+.mp-row{display:flex;align-items:center;gap:8px}
+.mp-btn{display:inline-flex;align-items:center;justify-content:center;background:none;border:0;
+  color:#d7c7bd;cursor:pointer;width:30px;height:30px;padding:0;border-radius:50%;flex:none;font-size:14px}
+.mp-btn svg{width:20px;height:20px;fill:currentColor;display:block}
+.mp-btn:hover{color:#fff;transform:scale(1.08)}
+.mp-play{width:37px;height:37px;background:#e7dccf;color:#171310}
+.mp-play:hover{background:#fff;color:#171310}
+.mp-play svg{width:21px;height:21px}
+.mp-tog{color:#8a7d74;position:relative}
+.mp-tog.an{color:var(--akz)}
+.mp-tog.an::after{content:'';position:absolute;left:50%;bottom:0;width:4px;height:4px;border-radius:50%;
+  background:var(--akz);transform:translateX(-50%)}
+.mp-radio{font-size:15px}
+.mp-art{width:auto;min-width:30px;padding:0 5px;font-size:13px;border-radius:15px}
+html.light .mp-btn{color:#5a4f47} html.light .mp-btn:hover{color:#2a2016}
+html.light .mp-play{background:#2a2016;color:#fff} html.light .mp-play:hover{background:#000;color:#fff}
+html.light .mp-tog{color:#a89a8e}
+html.light .cmd-nowtitel{color:#4a3f37}
+.cmd-count{color:#d7c7bd;white-space:nowrap;position:relative;cursor:default;font-size:12px;flex:none}
+.cmd-count b{color:var(--akz2);font-weight:700}
+.iconbtn.sm{width:28px;height:28px;font-size:14px;flex:none}
+.cmd-clip{margin-top:6px;align-items:center;gap:8px;font-size:11.5px;color:var(--akz2);
+  background:var(--akzbg);border:1px solid var(--akz);border-radius:7px;padding:4px 9px;display:flex}
+.clipurl{color:#d7c7bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+@media(max-width:660px){.cmd-main{flex-direction:column;height:auto}
+  .cmd-right{border-left:0;border-top:1px solid var(--panelln);padding-left:0;padding-top:6px;max-height:96px}}
+/* ---- AUSWEICH-ORDNUNG der Kopfleiste (Build 125) ----------------------
+   Die Kopfleiste hat über mehrere Runden immer denselben Fehler gezeigt,
+   weil eine Regel fehlte: WAS weicht bei Platzmangel WOHIN aus? Ohne diese
+   Rangfolge gibt immer das nach, was zufällig `flex:1` trägt — hier der
+   Player. Die Ordnung lautet ab jetzt, vom Nachgiebigsten zum Festesten:
+
+   1. Der ZÄHLER weicht zuerst (reine Information). Er ist danach im
+      ⚙-Menü als Zeile „Geladen" abzulesen — dort steht er IMMER, nicht
+      nur wenn er hier fehlt (Regel: ausgeblendet ≠ unerreichbar; eine
+      Zeile, die immer da ist, kann auch nie durch eine Breiten-Regel
+      verlorengehen).
+   2. WARNUNG (⚠ bin-Ordner) und API-Punkt bleiben. Ein Statuszeichen darf
+      nie still verschwinden — sonst hält der Besitzer einen Fehler für Normalbetrieb.
+   3. Der PLAYER bleibt ganz (min-width:220px, siehe oben) — er ist der
+      Kern der Steuerzentrale.
+   4. Die SYMBOL-SPALTE bleibt senkrecht und 28 px schmal. Sie war früher
+      bei ≤660 px auf flex-direction:row gedreht; gemessen bei 476 px lag
+      sie dann 121 px breit nebeneinander (Bild) und fraß genau den
+      Platz, der dem Player fehlte. Senkrecht ist ihre schmalste Form —
+      die Drehung war ein Eigentor. */
+@media(max-width:430px){ #counter{display:none} }
+/* Build 132: Die erste Reihe trägt seit dem Umzug von Punkt und Zähler mehr
+   Inhalt. Gemessen bei 373 px: sie brauchte 361 px in einem 336-px-Kasten
+   und lief heraus. Zuerst weicht der WORTLAUT des Logos (141 px) — das
+   Emblem bleibt und trägt die Wiedererkennung, der Name steht ohnehin im
+   Fenstertitel. `flex-wrap` ist das Netz darunter: sollte es trotzdem einmal
+   eng werden, bricht die Reihe um, statt aus dem Fenster zu laufen. */
+.cmd-row1{flex-wrap:wrap}
+@media(max-width:520px){ .cmd-logo b{display:none} }
+html.light #cmdbar{background:#fff;border-color:#e6ddd3}
+html.light .cmd-url,html.light .cmd-qual{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
+html.light .cmd-count{color:#5a4f47}
+/* Layout-Werkzeuge-Leiste NUR im ✏-Modus (sonst kein toter Raum, der Besitzer 21.07.) */
+#layoutbar{display:none;flex:none;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 18px 8px;font-size:12px;color:#8a7d74}
+body.layoutedit #layoutbar{display:flex}
+#layoutbar select{max-width:230px}
+/* Mini-Player-Modus: der Player sitzt kompakt eingebettet in der Command-Bar
+   (#cmd-mini) — Seitenliste weg, Karte flach (21.07.). */
+body.mini #view-player .pl-side{display:none}
+/* Der Besitzer 04.08.: im Mini ist die Playlist IMMER ein eigenes Fenster — der
+   Eingliedern-Knopf würde sie in die (ausgeblendete) Seitenliste schieben. */
+body.mini #plq-zurueck{display:none}
+/* Mini-Player fuellt die Leiste (Build 97, Vorgabe: „warum so mini?") — die Karte
+   bekam nie die Hoehe der Zone, das Video rendere in Naturgroesse klein in
+   der Ecke; ohne Titel kollabierte die Box sogar auf 0 Breite. */
+body.mini #view-player .card{flex-direction:row;height:100%}
+body.mini .pl-media{min-height:0;height:100%;flex:1 1 auto;display:flex;align-items:center;justify-content:center}
+body.mini .pl-media video,body.mini .pl-media audio{height:100%;max-height:100%;width:auto;max-width:100%}
+body.mini .cmd-right{min-width:340px}
+/* Drag&Drop-Ziel (Link ins Fenster ziehen) */
+body.dragziel::after{content:"⬇ Link hier loslassen = Download";position:fixed;inset:8px;z-index:9000;
+  border:3px dashed var(--akz);border-radius:16px;background:rgba(0,0,0,.35);color:var(--akz2);
+  display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;pointer-events:none}
+/* Hilfe-Legende */
+.legbody{padding:12px 16px 18px;max-height:80vh;overflow:auto}
+.legsec{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--akz);margin:12px 0 4px;font-weight:700}
+.legsec:first-child{margin-top:0}
+.legrow{font-size:12.5px;color:#cfc2b8;line-height:1.65;padding:2px 0}
+.legrow b{color:var(--akz2);font-weight:600}
+html.light .legrow{color:#4a3f38}
+#layoutbar .btn{padding:5px 11px}
+/* Fund 08.09.2026: `overflow:hidden` hat abgeschnitten statt gezeigt.
+   Waagerecht ist das jetzt richtig — `LK.inDenRahmen` sorgt dafuer, dass
+   nichts mehr nach rechts hinausragt, es gibt also nichts zu scrollen.
+   Senkrecht geht es nicht ohne: bei 560x560 bleiben der Flaeche 236 px,
+   zwei Fenster brauchen mit ihrer Mindesthoehe aber 320. GEMESSEN standen
+   dort schon vorher beide Fenster 84 px unten hinaus — unsichtbar
+   abgeschnitten. Lieber ein Rollbalken, den es nur im Notfall gibt, als
+   Inhalt, den niemand erreicht (Besitzer-Anti-Scroll-Regel sagt „moeglichst
+   wenig scrollen“, nicht „lieber verstecken“). `auto` blendet ihn ein,
+   sobald es passt, wieder aus. */
+#canvas{position:relative;width:100%;flex:1;min-height:0;overflow-x:hidden;overflow-y:auto;padding:2px 10px 8px}
+
+/* ---- Panels (bewegliche Fenster) ---- */
+.panel{position:absolute;background:var(--panel);border:1px solid var(--panelln);border-radius:12px;display:flex;
+  flex-direction:column;overflow:hidden;box-shadow:0 6px 22px rgba(0,0,0,.42);min-width:190px;min-height:130px}
+.panel.dragging{opacity:.93;box-shadow:0 14px 36px rgba(0,0,0,.6)}
+.panel-head{display:flex;align-items:center;gap:6px;padding:6px 8px;background:#171310;
+  border-bottom:1px solid var(--panelln);cursor:grab;touch-action:none;user-select:none}
+.panel-head:active{cursor:grabbing}
+.panel-tabs{display:flex;gap:4px;flex:1;min-width:0;overflow:hidden}
+.ptab{padding:5px 12px;border-radius:8px;border:1px solid transparent;background:transparent;color:#a99a90;
+  font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap;touch-action:none}
+.ptab.an{background:var(--akzbg);border-color:#6b4a2a;color:var(--akz2);font-weight:600}
+.ptab:hover{color:var(--akz)}
+.panel-menu{flex:none;width:26px;height:22px;border-radius:6px;border:1px solid #3a332e;background:var(--panel);
+  color:#a99a90;cursor:pointer;font-size:14px;line-height:1;padding:0}
+.panel-menu:hover{border-color:var(--akz);color:var(--akz2)}
+.panelmenu{position:fixed;z-index:6000;background:#211b16;border:1px solid #3a332e;border-radius:9px;
+  padding:5px;min-width:190px;box-shadow:0 8px 26px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:2px}
+.panelmenu button{text-align:left;background:transparent;border:0;color:#d7c7bd;padding:6px 9px;border-radius:6px;
+  cursor:pointer;font:inherit;font-size:12.5px}
+.panelmenu button:hover{background:var(--akzbg);color:var(--akz2)}
+.optrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 8px;font-size:13px;color:#d7c7bd}
+.optrow select{font:inherit;font-size:12px;background:#171310;border:1px solid #3a332e;border-radius:6px;color:#eee;padding:3px 6px}
+html.light .optrow{color:#4a3f38}html.light .optrow select{background:#fbf8f4;border-color:#d9cfc4;color:#2a2320}
+html.light .panel-menu{background:#fff;border-color:#d9cfc4;color:#7a6e64}
+html.light .panelmenu{background:#fff;border-color:#e6ddd3;box-shadow:0 8px 26px rgba(120,90,60,.2)}
+html.light .panelmenu button{color:#4a3f38}html.light .panelmenu button:hover{background:#f3e7d6;color:#8a5a1e}
+.panel-body{flex:1;overflow:auto;padding:14px 16px;container-type:inline-size}
+/* Loch-Fix (Build 84): die Bibliotheks-Werkzeugleiste ist sticky top:0 — mit
+   Body-padding-top klebt sie UNTER dem Padding, gescrolltes Grid schaut im
+   14px-Streifen darüber durch. Nur beim aktiven Bibliotheks-View das Top-Padding
+   weg, dann sitzt die Leiste bündig am Kopf und deckt oben lückenlos ab. */
+.panel-body:has(#view-lib){padding-top:0}
+.panel-body .card{background:transparent;border:0;padding:0;margin:0 0 16px}
+.panel-body .card:last-child{margin-bottom:0}
+/* ✏-Layout-Modus (wie im Dashboard, der Besitzer 13.07.): Größen-Griffe an allen 8 Seiten/
+   Ecken, aber NUR im Bearbeiten-Modus sichtbar — sonst verstellt man nichts aus
+   Versehen. Im Modus bekommen die Fenster eine gestrichelte Kontur. */
+.rgriff{position:absolute;z-index:12;display:none;touch-action:none}
+body.layoutedit .rgriff{display:block}
+.r-n{top:-3px;left:10px;right:10px;height:8px;cursor:n-resize}
+.r-s{bottom:-3px;left:10px;right:10px;height:8px;cursor:s-resize}
+.r-e{right:-3px;top:10px;bottom:10px;width:8px;cursor:e-resize}
+.r-w{left:-3px;top:10px;bottom:10px;width:8px;cursor:w-resize}
+.r-ne{top:-4px;right:-4px;width:14px;height:14px;cursor:ne-resize}
+.r-nw{top:-4px;left:-4px;width:14px;height:14px;cursor:nw-resize}
+.r-sw{bottom:-4px;left:-4px;width:14px;height:14px;cursor:sw-resize}
+.r-se{bottom:-4px;right:-4px;width:16px;height:16px;cursor:se-resize}
+.r-se::after{content:'';position:absolute;right:4px;bottom:4px;width:9px;height:9px;
+  border-right:2px solid var(--akz);border-bottom:2px solid var(--akz);border-radius:0 0 4px 0}
+/* Kontur INNEN (offset negativ): außenliegend sah sie bei exakt anliegenden
+   Fenstern wie eine Mini-Überlappung aus (14.07.) */
+body.layoutedit .panel{outline:1px dashed var(--akz);outline-offset:-3px;
+  transition:left .12s ease-out, top .12s ease-out}    /* Ausweichen wirkt weich */
+body.layoutedit .panel.dragging{transition:none}       /* das gezogene folgt der Maus direkt */
+/* Platzhalter beim Ziehen im ✏-Modus: zeigt fest die eingerastete Zielposition */
+.platzhalter-fenster{position:absolute;z-index:9500;pointer-events:none;border-radius:12px;
+  border:2px dashed var(--akz);background:rgba(201,149,43,.07)}
+body.nosel, body.nosel *{user-select:none!important}  /* beim Ziehen keinen Text markieren */
+/* Playlist als eigenes Fenster: große Liste, Seitenliste im Player verschwindet */
+.plq-gross{flex:1;max-height:none;min-height:0}
+/* Playlist abgespalten: der Player ist NUR noch Video — die komplette
+   Seitenfläche verschwindet (14.07.), Steuerung liegt auf dem Video. */
+body.plq-extern #view-player .pl-side{display:none}
+#plq-btn.an{border-color:var(--akz);color:var(--akz2)}
+#layoutedit-btn.an{border-color:var(--akz);color:var(--akz2);background:var(--akzbg)}
+/* Transluzente Tab-Vorschau beim Herausziehen (wie Browser-Tab-Drag) */
+.tabghost{position:fixed;z-index:9999;width:230px;height:150px;pointer-events:none;opacity:.6;
+  background:var(--panel);border:1px solid var(--akz);border-radius:12px;overflow:hidden;
+  box-shadow:0 14px 40px rgba(0,0,0,.5)}
+.tabghost-kopf{padding:6px 10px;font-size:12px;color:var(--akz2);border-bottom:1px solid var(--panelln);background:#171310}
+.tabghost-body{padding:10px;font-size:11px;color:#8a7d74}
+.dockpending{outline:2px dashed rgba(201,149,43,.55);outline-offset:-5px}
+.dockhint{position:absolute;inset:0;background:rgba(201,149,43,.18);border:2px dashed var(--akz);border-radius:12px;
+  display:flex;align-items:center;justify-content:center;color:var(--akz2);font-size:14px;font-weight:600;
+  pointer-events:none;z-index:5;text-align:center;padding:12px}
+.dockhint.ready{background:rgba(63,122,72,.24);border-color:#6fcf7f;border-style:solid;color:#9be0ab}
+
+/* ---- Assistent-Modal ---- */
+.modal{position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,.55);display:flex;
+  align-items:flex-start;justify-content:center;padding:30px 14px;overflow:auto}
+.modal-box{background:var(--panel);border:1px solid var(--panelln);border-radius:14px;max-width:780px;width:100%;
+  box-shadow:0 16px 50px rgba(0,0,0,.6)}
+.modal-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;
+  border-bottom:1px solid var(--panelln);position:sticky;top:0;background:var(--panel);border-radius:14px 14px 0 0}
+.modal-head b{color:var(--head);font-size:15px}
+#geowiz-body{padding:14px 16px 20px}
+.gcmp{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0 12px}
+.gcmp th,.gcmp td{border-bottom:1px solid var(--panelln);padding:6px 8px;text-align:left;vertical-align:top}
+.gcmp th{color:#8a7d74;text-transform:uppercase;font-size:10px;letter-spacing:.03em}
+.gcmp .ja{color:#6fcf7f}.gcmp .nein{color:#e08a6a}.gcmp .teils{color:#e6c34a}
+.gsec{border:1px solid var(--panelln);border-radius:10px;margin:8px 0;overflow:hidden}
+.gsec>summary{cursor:pointer;padding:9px 12px;font-weight:600;font-size:13px;list-style:none;
+  display:flex;justify-content:space-between;gap:8px;align-items:center;background:#171310}
+.gsec[open]>summary{border-bottom:1px solid var(--panelln)}
+.gsec .ginner{padding:10px 12px;font-size:12.5px;color:#cfc2b8;line-height:1.6}
+.gsec ol{margin:6px 0 6px 18px;padding:0}.gsec li{margin:3px 0}
+.gstat{font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid #3a332e;white-space:nowrap}
+.gstat.ok{color:#6fcf7f;border-color:#2f5a34}.gstat.no{color:#8a7d74}
+.gwg textarea{width:100%;min-height:90px;font-family:Consolas,monospace;font-size:11px}
+.gzeile{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.gtestrow{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid #241f1b;font-size:13px}
+a.glink{color:var(--akz2);text-decoration:none;border-bottom:1px dotted #6b4a2a}a.glink:hover{color:var(--akz)}
+html.light .modal-box,html.light .modal-head{background:#fff;border-color:#e6ddd3}
+.eig-tab{width:100%;border-collapse:collapse;font-size:13px}
+.eig-tab td{padding:5px 8px;border-bottom:1px solid var(--panelln);vertical-align:top}
+.eig-tab td.k{opacity:.62;white-space:nowrap;width:36%}
+.eig-tab td.v{word-break:break-word}
+.eig-tab a{color:var(--akzent,#d65f5f)}
+html.light .gsec,html.light .gsec>summary{background:#faf6f1;border-color:#e6ddd3}
+html.light .gsec .ginner{color:#4a3f38}
+html.light .gcmp th,html.light .gcmp td{border-color:#ece3d9}
+
+.card{background:var(--panel);border:1px solid var(--panelln);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.card h2{font-size:13px;margin:0 0 10px;color:var(--head);text-transform:uppercase;letter-spacing:.04em}
+textarea{width:100%;min-height:64px;background:#171310;border:1px solid #3a332e;border-radius:8px;
+  color:#eee;padding:8px 10px;font:inherit;font-size:13px;resize:vertical}
+textarea:focus,input:focus,select:focus{outline:none;border-color:var(--akz)}
+.zeile{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+select,input[type=text]{background:#171310;border:1px solid #3a332e;border-radius:8px;color:#eee;
+  padding:6px 10px;font:inherit;font-size:13px}
+.btn:disabled{opacity:.45;cursor:default}
+.btn{padding:7px 14px;border-radius:8px;border:1px solid #3a332e;background:#171310;color:#eee;
+  font:inherit;font-size:13px;cursor:pointer}
+.btn:hover{border-color:var(--akz)}
+.btn.haupt{border-color:#6b4a2a;background:var(--akzbg);color:var(--akz2);font-weight:600}
+.btn.haupt:hover{border-color:var(--akz)}
+.btn.mini{padding:3px 9px;font-size:12px;border-radius:7px}
+
+/* GROESSEN-SYSTEM (08.09.2026: »Einheitlichkeit ist super wichtig!«)
+   GEMESSEN vorher: 32 sichtbare Bedienelemente in ELF verschiedenen Hoehen
+   (20, 21, 22, 24, 25, 26, 28, 30, 31, 33, 37 px) — nebeneinanderliegende
+   Knoepfe unterschieden sich teils um einen einzigen Pixel, weil die Hoehe aus
+   Polsterung plus Zeilenhoehe entstand statt gesetzt zu sein.
+   Jetzt zwei Groessen: `--pille-h` fuer alles, was IN einer Flaeche sitzt
+   (Reiter, Mini-Knoepfe, Marken), `--feld-h` fuer die Bedienzeile (Eingabefeld,
+   Auswahl, Laden-Knopf, Umschalter). Nur die HOEHE wird gesetzt, die seitliche
+   Polsterung bleibt: die Stufen der Player-Leiste rechnen mit Kinder-BREITEN,
+   die duerfen sich nicht verschieben. */
+.btn.mini,.dlbox-tab,.chip,.dlbox-action{
+  height:var(--pille-h);padding-top:0;padding-bottom:0;
+  display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.tog,.cmd-dl,.cmd-qual,.cmd-url{
+  height:var(--feld-h);padding-top:0;padding-bottom:0;line-height:1}
+.tog,.cmd-dl{display:inline-flex;align-items:center;justify-content:center}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 2px}
+.chip{padding:3px 11px;border-radius:999px;font-size:12px;border:1px solid #3a332e;background:#171310;color:#d7c7bd}
+.chip b{font-weight:600}
+.chip.laeuft b{color:#e6c34a}.chip.fertig b{color:#6fcf7f}.chip.fehler b{color:#e08a6a}
+.titel{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.aktionen{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+
+/* ---- Warteschlange: eine Zeile pro Download, ausklappbar (Terminal-Look) ---- */
+.qline{display:flex;align-items:center;gap:8px;font-family:Consolas,"Courier New",monospace;font-size:12.5px;
+  padding:3px 5px;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;border-bottom:1px solid #201b17}
+.qline:hover{background:#171310}
+.qtri{color:#6a5c52;width:11px;flex:none}
+.qbar{color:#6fcf7f;letter-spacing:-1px;flex:none;font-size:11px}
+.qline.laeuft .qbar{color:#e6c34a}
+.qline.fehler .qbar,.qline.fehler .qrechts{color:#e08a6a}
+.qline.wartend .qbar,.qline.pausiert .qbar{color:#8a7d74}
+.qline.uebersprungen .qbar{color:#9ec49a}
+.qline.laeuft .qrechts{color:#e6c34a}
+.qtitel{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;color:#d7c7bd}
+.qrechts{color:#8a7d74;flex:none;font-size:11px}
+.qdetail{padding:4px 6px 9px 24px;font-size:12px;color:#8a7d74}
+.qdinfo{margin-bottom:5px;white-space:normal;word-break:break-word}
+.qdinfo .fehltext{color:#e08a6a}
+.qdinfo .qtipp{color:#d7c7bd;margin-top:4px}
+.qline .qweg{flex:none;padding:1px 7px;font-size:11px}
+.sperrhinweis{margin:0 0 8px;padding:7px 10px;border:1px solid #6b4a2a;border-radius:8px;
+  background:#1d1510;color:#e6c34a;font-size:12px;line-height:1.4}
+.leer{color:#6a5c52;font-size:13px;text-align:center;padding:12px 0}
+.einstgrid{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;margin-top:10px;font-size:13px}
+.hinweis{font-size:11.5px;color:#6a5c52;line-height:1.5;margin-top:10px}
+.kopfzeile{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+@media(max-width:560px){.titel{white-space:normal}}
+
+/* ---- Bibliothek ---- */
+/* Kopfzeile (Suche/Sortierung/Playlist-Leiste) beim Scrollen sichtbar halten (14.07.):
+   die zwei .libbar-Leisten stecken in .libhead, das im Fenster-Scroll (.panel-body) oben
+   klebt — nur die Titelliste (#libinhalt) scrollt darunter weg. */
+.libhead{position:sticky;top:0;z-index:30;background:var(--panel);padding-top:8px;margin-top:0}
+.libbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+#libsuche{flex:1;min-width:130px}
+/* Eine Zeile, eine Hoehe (08.09.): Suchfeld, Sortierung, Playlist-Wahl und der
+   Ansicht-Knopf standen mit 31, 33, 33 und 33 px nebeneinander. */
+#libsuche,#libsort,#plsel{height:var(--feld-h);padding-top:0;padding-bottom:0}
+.libbar .spacer{flex:1}
+.chk{display:flex;align-items:center;gap:6px;font-size:12px;color:#8a7d74;cursor:pointer;white-space:nowrap}
+.viewbtn{width:36px;height:33px;border-radius:8px;border:1px solid #3a332e;background:#171310;color:#d7c7bd;cursor:pointer;font-size:16px}
+.tog{height:var(--feld-h);padding:0 12px;border-radius:8px;border:1px solid #3a332e;background:#171310;color:#d7c7bd;cursor:pointer;font-size:13px}
+.viewbtn.an,.tog.an{border-color:var(--akz);color:var(--akz2);background:var(--akzbg)}
+.viewbtn:hover,.tog:hover{border-color:var(--akz)}
+.tog:disabled{opacity:.6;cursor:default}
+.kacheln{display:grid;grid-template-columns:repeat(auto-fill,minmax(208px,1fr));gap:14px}
+.kacheln.kompakt{grid-template-columns:repeat(auto-fill,minmax(124px,1fr));gap:8px}
+.kacheln.kompakt .kbody{padding:5px 7px;gap:4px}
+.kacheln.kompakt .ktitel{font-size:11px}
+.kacheln.kompakt .kinfo,.kacheln.kompakt .kakt{display:none}
+.kacheln.kompakt .kdauer{font-size:10px;padding:0 4px}
+.kachel{background:#171310;border:1px solid var(--panelln);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.kachel.weg{opacity:.5;filter:grayscale(.65)}
+.kachel.sel{outline:2px solid var(--akz);outline-offset:-1px}
+.kachel.sel::before{content:'✓';position:absolute;left:6px;top:6px;z-index:3;width:20px;height:20px;
+  border-radius:5px;background:var(--akz);color:#1a1512;font-size:13px;font-weight:700;
+  display:flex;align-items:center;justify-content:center}
+.thumbwrap{position:relative;aspect-ratio:16/9;background:#0e0c0a;cursor:pointer;
+  /* Der Besitzer 08.09.2026: »wieso haben nicht alle videos die gleiche hoehe?« — GEMESSEN:
+     Das aspect-ratio hat nie gegriffen. Die Kachel ist ein Spalten-Flex, ihre Kinder
+     haben damit min-height:auto, und ein quadratisches Album-Bild (500x500) macht den
+     Rahmen 250 px hoch statt 142. Die 16:9-Vorschaubilder sahen nur deshalb richtig
+     aus, weil ihre eigene Form zufaellig passte. min-height:0 und flex:none geben dem
+     Seitenverhaeltnis die Entscheidung zurueck. */
+  flex:none;min-height:0;overflow:hidden}
+.thumbwrap::before{content:'▶';position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:26px;opacity:0;transition:opacity .12s;text-shadow:0 2px 8px rgba(0,0,0,.7);pointer-events:none}
+.thumbwrap:hover::before{opacity:.92}
+/* »contain« statt »cover«: ein quadratisches Cover wuerde beim Zuschneiden auf 16:9
+   44 Prozent seiner Flaeche verlieren (Koepfe abgeschnitten). So bleibt es ganz und
+   bekommt schmale dunkle Raender; 16:9-Vorschaubilder fuellen weiterhin exakt. */
+.thumb{width:100%;height:100%;object-fit:contain;display:block}
+.thumbwrap.platzhalter::after{content:'▶';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#3a332e;font-size:34px}
+.thumbwrap.spielt::before,.thumbwrap.platzhalter.spielt::after{content:'⏸'}
+.thumbwrap.spielt::before{opacity:.92}
+.kdauer{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.8);color:#fff;font-size:11px;padding:1px 6px;border-radius:5px}
+.wegbadge{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.78);color:#f0a35e;font-size:11px;padding:1px 7px;border-radius:5px;border:1px solid #6b4a2a}
+/* Build 144o: ✂-Abzeichen oben rechts auf einer Ausschnitt-Kachel (der Besitzer). */
+.clip-schere{position:absolute;right:6px;top:6px;background:rgba(0,0,0,.8);color:var(--akz2);font-size:12px;line-height:1;padding:3px 5px;border-radius:6px;border:1px solid var(--akz)}
+.clip-row .clip-schutz{cursor:default}
+.kbody{padding:9px 10px;display:flex;flex-direction:column;gap:6px;flex:1}
+/* Immer zwei Zeilen hoch, auch bei kurzem Titel: sonst rutscht die Infozeile je
+   Kachel um 17 px, und die Kachelwand wirkt unruhig (08.09.). */
+.ktitel{font-size:13px;font-weight:600;line-height:1.32;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.64em}
+.kinfo{font-size:11.5px;color:#8a7d74;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:auto}
+/* Build 116 (der Besitzer, „zu viele Knöpfe"): Kachel-Aktionen ruhen, bis die Maus
+   auf der Kachel ist (oder sie den Tastatur-Fokus hat / ausgewählt ist).
+   Gemessen: 78 Kacheln x 4 Knöpfe = 312 Knöpfe waren DAUERHAFT sichtbar —
+   das ist der Kern der Überladung, nicht die Leisten. So machen es
+   Spotify/Apple Music/YouTube Music auch. Der Platz bleibt reserviert
+   (visibility statt display), damit nichts springt. Auf Touch-Geräten,
+   die kein Hover kennen, bleiben sie sichtbar. */
+/* Build 117 (Fund): die Knöpfe verstecken, aber ihren Platz behalten,
+   bringt NICHTS — es blieb ein leerer Block stehen. Jetzt liegen sie als
+   Overlay ÜBER dem unteren Kachelrand (kein Platz im Fluss) und erscheinen
+   beim Überfahren; die Kachel wird dadurch spürbar kompakter. */
+.kachel{position:relative}
+.kakt{display:flex;gap:4px;flex-wrap:wrap;align-items:center;
+  position:absolute;left:0;right:0;bottom:0;padding:8px 10px;margin:0;
+  background:linear-gradient(to top,rgba(0,0,0,.94),rgba(0,0,0,.8) 62%,rgba(0,0,0,0));
+  visibility:hidden;opacity:0;transition:opacity .12s}
+.kachel:hover .kakt,.kachel:focus-within .kakt,.kachel.sel .kakt{visibility:visible;opacity:1}
+/* Touch kennt kein Überfahren: dort stehen sie wieder normal im Fluss. */
+@media (hover:none){.kakt{position:static;background:none;padding:0;visibility:visible;opacity:1}}
+/* Icon-Knöpfe (Spotify/iTunes-Stil): klein, ruhig, sprechend */
+.ib{width:28px;height:26px;border-radius:7px;border:1px solid var(--panelln);background:#171310;color:#d7c7bd;
+  cursor:pointer;font-size:13px;line-height:1;padding:0;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.ib:hover{border-color:var(--akz);color:var(--akz2)}
+.ib.play{color:#6fcf7f;border-color:#2f5a34}.ib.play:hover{color:#8fe0a0}
+html.light .ib{background:#fbf8f4;border-color:#e0d7cc;color:#5a4f47}
+html.light .ib:hover{border-color:var(--akz);color:#8a5a1e}
+.lakt{display:flex;gap:4px;justify-content:flex-end}
+/* Aufklapp-Menü „⋯" am Bibliotheks-Eintrag */
+.itemmenu{position:fixed;z-index:9000;min-width:210px;background:#1c1712;border:1px solid #3a332e;border-radius:10px;
+  padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:2px}
+.itemmenu button{text-align:left;background:none;border:0;color:#e7dccf;font-size:12.5px;padding:7px 10px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.itemmenu button:hover{background:#2a2118;color:var(--akz2)}
+html.light .itemmenu{background:#fffdfa;border-color:#e0d7cc;box-shadow:0 10px 30px rgba(0,0,0,.15)}
+html.light .itemmenu button{color:#4a3f37}
+html.light .itemmenu button:hover{background:#f3ebdf;color:#8a5a1e}
+/* Build 144k: Ausschnitt-Untermenü — je Zeile Favorit-Stern, Titel, Papierkorb. */
+.clip-sub{max-height:min(60vh,340px);overflow:auto}
+.clip-row{display:flex;align-items:center;gap:2px}
+.clip-row .clip-play{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clip-row .clip-fav,.clip-row .clip-del{flex:none;padding:7px 8px}
+.clip-row .clip-fav.an{color:var(--akz2)}
+.clip-meta{color:#8a7d74;font-size:11px;margin-left:4px}
+.km-leer{color:#8a7d74;font-size:12px;padding:7px 10px}
+/* Abos */
+.abo-liste{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.abo-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d7c7bd;font-weight:600}
+.abo-meta{color:#8a7d74;font-size:11px;flex:none}
+/* Abo-Karte (Sonarr-Muster: Quelle + Episodenliste mit Lade-Status) */
+.abo-card{border:1px solid #241f1b;border-radius:10px;padding:8px 10px}
+.abo-kopf{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.abo-qsel{font-size:12px}
+.abo-regeln{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;padding-top:8px;
+  border-top:1px dashed #241f1b;font-size:12px;color:#b7a89e}
+.abo-regeln label{display:flex;gap:4px;align-items:center;white-space:nowrap}
+.abo-regeln input[type=text]{width:130px}
+.abo-fkopf{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.abo-fkopf input[type=text]{flex:1;min-width:110px}
+.abo-fliste{max-height:420px;overflow:auto;margin-top:6px;display:flex;flex-direction:column;gap:1px}
+.abo-f{display:flex;gap:8px;align-items:center;padding:3px 6px;border-radius:6px;cursor:pointer;font-size:12.5px;flex:none;user-select:none}
+.abo-f:hover{background:#241f1b}
+.abo-f.fehlt{opacity:.45}                      /* verfügbar, aber noch nicht geladen -> ausgegraut (der Besitzer) */
+.abo-f.sel{background:#2e2620;outline:1px solid var(--akz)}
+/* Backkatalog-Flyout (Build 93, der Besitzer): eigenes grosses Fenster AM 📜-Knopf statt
+   Inline-Ausklappen in der engen Box — schwebend + fixiert (Anti-Scroll), wird
+   IMMER in den Viewport geklemmt, nur die Folgen-Liste scrollt innen.
+   Build 95 (Griff 2): schmaler Scrollbalken mit Abstand zur Zeit-Spalte +
+   hauchduenne Trennlinien zwischen den Zeilen. */
+.abo-flyout .abo-fliste{padding-right:10px}
+.abo-flyout .abo-fliste::-webkit-scrollbar{width:6px}
+.abo-flyout .abo-fliste::-webkit-scrollbar-thumb{background:var(--panelln);border-radius:3px}
+.abo-flyout .abo-f{border-bottom:1px solid rgba(255,255,255,.045);border-radius:0}
+.abo-flyout .abo-f:last-child{border-bottom:none}
+html.light .abo-flyout .abo-f{border-bottom-color:rgba(0,0,0,.055)}
+.abo-flyout{position:fixed;z-index:900;background:var(--panel);border:1px solid var(--panelln);
+  border-radius:12px;box-shadow:0 14px 42px rgba(0,0,0,.55);display:flex;flex-direction:column;
+  padding:10px 12px;min-width:340px}
+.abo-flyout .abo-fkopf{position:sticky;top:0}
+.abo-flyout .abo-folgen{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.abo-flyout .abo-fliste{flex:1 1 auto;min-height:0;max-height:none;overflow:auto;position:relative;user-select:none}
+.abo-fly-titel{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-weight:600;color:#d7c7bd}
+.abo-fly-titel .spacer{flex:1}
+.abo-staffel{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:4px 0 6px;font-size:12px;color:#8a7d74}
+.abo-staffel .btn.mini{padding:2px 8px}
+/* Auswahl-Leiste (Build 103, Vorgabe: „wo lad ich die Markierten runter?") —
+   erscheint UNTEN im Backkatalog-Fenster, sobald etwas markiert ist
+   (gleiches Muster wie die Sammel-Leiste der Bibliothek). */
+.abo-selbar{display:flex;gap:8px;align-items:center;margin-top:6px;padding:7px 10px;
+  background:var(--akzbg);border:1px solid var(--akz);border-radius:9px;
+  font-size:12.5px;color:var(--akz2);flex:none}
+.abo-selbar b{color:#e9ded3}
+.abo-band{position:fixed;z-index:901;border:1px solid var(--akz);background:rgba(201,149,43,.14);
+  border-radius:3px;pointer-events:none}
+/* ✂-Schneide-Leiste (Build 101, der Besitzer): zwei ZIEHBARE Griffe statt Eingabefelder;
+   Ziehen springt den Player live an die Stelle, die Wiedergabe endet an B. */
+.schnitt-spur{position:relative;height:30px;background:var(--panelln);border-radius:8px;
+  margin:10px 4px 4px;cursor:pointer;user-select:none;touch-action:none}
+.schnitt-bereich{position:absolute;top:0;bottom:0;background:rgba(201,149,43,.30);
+  border:1px solid var(--akz);border-radius:8px;pointer-events:none}
+.schnitt-griff{position:absolute;top:-4px;width:18px;height:38px;margin-left:-9px;
+  background:var(--akz);border-radius:9px;cursor:ew-resize;box-shadow:0 2px 8px rgba(0,0,0,.4);
+  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#1c1814}
+.schnitt-griff:hover{transform:scaleY(1.06)}
+.schnitt-zeiten{display:flex;justify-content:space-between;font-size:12px;color:var(--akz2);
+  padding:2px 6px 0}
+html.light .schnitt-spur{background:#e3d8cc}
+/* Wiedergabe-Merker (Build 102, der Besitzer): gelber Strich = „hier war ich zuletzt";
+   Klick springt hin — der Titel startet aber IMMER normal bei 0. */
+.pl-barseek{position:relative}
+.plb-merker{position:absolute;top:50%;width:3px;height:16px;transform:translate(-50%,-50%);
+  background:var(--akz);border-radius:2px;cursor:pointer;z-index:3;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.plb-merker:hover{transform:translate(-50%,-50%) scaleY(1.3)}
+html.light .abo-flyout{background:#faf5ec;border-color:#e3d8cc;box-shadow:0 14px 42px rgba(90,70,40,.25)}
+.abo-ft{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.abo-fd{color:#8a7d74;font-size:11px;flex:none}
+.abo-nr{color:#8a7d74;font-size:11px;flex:none;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
+.pl-nr{color:var(--akz2);font-size:11px;font-variant-numeric:tabular-nums}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(12px);z-index:9500;
+  background:#241f1b;color:#f0e6dc;padding:9px 16px;border-radius:10px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.5);
+  opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:80vw}
+#toast.an{opacity:1;transform:translateX(-50%) translateY(0)}
+html.light #toast{background:#3a322c}
+/* Build 142: Bei mehreren Titeln sieht der Anfasser wie ein STAPEL aus —
+   dieselbe Bildsprache wie im Explorer, damit sofort klar ist, dass
+   mehr als einer mitreist. */
+.ziehghost.stapel{box-shadow:3px 3px 0 -1px var(--panel),3px 3px 0 0 var(--akz),
+  6px 6px 0 -1px var(--panel),6px 6px 0 0 var(--akz);font-weight:600}
+.ziehghost{position:fixed;top:-999px;left:-999px;pointer-events:none;z-index:9999;
+  background:#241f1b;color:#f0e6dc;padding:5px 10px;border-radius:8px;font-size:12.5px;
+  max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+html.light .ziehghost{background:#3a322c}
+/* Transkript-Volltextsuche: Ergebnis-Overlay */
+#tsuche-ov{position:fixed;inset:0;z-index:9400;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center}
+#tsuche-ov.an{display:flex}
+.tsuche-box{background:var(--panel);margin-top:6vh;width:min(720px,94vw);max-height:84vh;overflow:auto;
+  border-radius:14px;box-shadow:0 12px 48px rgba(0,0,0,.6);padding:0}
+.tsuche-kopf{position:sticky;top:0;background:var(--panel);display:flex;gap:8px;align-items:center;
+  padding:14px 16px;border-bottom:1px solid #241f1b}
+.tsuche-kopf input{flex:1}
+.tsuche-body{padding:8px 12px 16px}
+.tsuche-treffer{margin:10px 0;border-left:2px solid var(--akz);padding-left:10px}
+.tsuche-t-titel{font-weight:600;font-size:13.5px;margin-bottom:3px}
+.tsuche-z{display:block;width:100%;text-align:left;background:none;border:0;color:var(--txt);
+  font-size:12.5px;padding:3px 4px;border-radius:6px;cursor:pointer}
+.tsuche-z:hover{background:#241f1b}
+.tsuche-z .zt{color:var(--akz2);font-variant-numeric:tabular-nums;margin-right:8px}
+.tsuche-z mark{background:rgba(230,160,70,.35);color:inherit;border-radius:3px}
+html.light .tsuche-z:hover{background:#efe7de}
+.abo-b{font-size:10.5px;border-radius:5px;padding:1px 5px;flex:none}
+.abo-b.ok{background:#1d3020;color:#9ec49a}
+.abo-b.anders{background:#3a2a16;color:#e8b45a}   /* in ANDEREM Format geladen (Markierung) */
+html.light .abo-card{border-color:#e3d8cc}
+html.light .abo-regeln{border-color:#e3d8cc}
+html.light .abo-f:hover{background:#efe7de}
+html.light .abo-f.sel{background:#f3e2c8}
+/* Smart-Playlists-Popover */
+.sm-titel{font-size:11px;color:#8a7d74;padding:2px 6px 6px;text-transform:uppercase;letter-spacing:.03em}
+.sm-row{display:flex;align-items:center;gap:6px;padding:2px 4px}
+.sm-play{flex:1;text-align:left;background:none;border:0;color:#e7dccf;cursor:pointer;font:inherit;font-size:12.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 4px;border-radius:6px}
+.sm-play:hover{background:var(--akzbg);color:var(--akz2)}
+.sm-cnt{color:#8a7d74;font-size:11px;flex:none}
+.sm-leer{color:#6a5c52;font-size:12px;padding:3px 6px}
+.sm-sep{height:1px;background:var(--panelln);margin:6px 0}
+.sm-form{padding:2px 4px}
+.sm-name{width:100%;background:#0e0c0a;border:1px solid var(--panelln);border-radius:6px;color:#e7dccf;padding:5px 8px;font:inherit;font-size:12px;margin-bottom:6px}
+.sm-grid{display:grid;grid-template-columns:auto 1fr;gap:5px 8px;align-items:center;font-size:12px;color:#9a8d84;margin-bottom:7px}
+.sm-sel,.sm-num{background:#0e0c0a;border:1px solid var(--panelln);border-radius:6px;color:#d7c7bd;padding:3px 6px;font:inherit;font-size:12px}
+html.light .sm-name,html.light .sm-sel,html.light .sm-num{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
+/* Dublettenfinder */
+.dub-grp{border:1px solid var(--panelln);border-radius:8px;padding:6px 8px;margin:5px 4px}
+.dub-kopf{font-size:12px;color:#d7c7bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:3px}
+.dub-typ{color:#8a7d74;font-size:10px}
+.dub-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 0}
+.dub-q{font-size:11px;color:#9a8d84}
+/* Equalizer-Popover */
+/* Jede EQ-Spalte: dB-Wert oben, Regler mittig, Frequenz DIREKT darunter —
+   feste Spaltenbreite, damit Beschriftung und Regler exakt fluchten (13.07.) */
+.eq-row{display:flex;gap:6px;justify-content:center;padding:8px 4px}
+.eq-band{display:flex;flex-direction:column;align-items:center;gap:4px;width:42px;flex:none}
+.eq-sl{-webkit-appearance:slider-vertical;appearance:slider-vertical;writing-mode:vertical-lr;direction:rtl;width:22px;height:92px;accent-color:var(--akz);margin:0}
+.eq-val{font-size:10px;color:#9a8d84;min-height:12px}
+.eq-lab{font-size:10.5px;color:#c9bcae;white-space:nowrap}
+.eq-presets{display:flex;gap:4px;flex-wrap:wrap;padding:4px;justify-content:center}
+/* Log-Ansicht */
+.logliste{display:flex;flex-direction:column;gap:1px;font-family:Consolas,"Courier New",monospace;font-size:12px}
+.logrow{display:flex;gap:8px;padding:2px 0;border-bottom:1px solid #201b17}
+.logt{color:#6a5c52;flex:none}
+.logx{color:#d7c7bd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logrow.fertig .logx{color:#9ec49a}.logrow.fehler .logx{color:#e08a6a}.logrow.laeuft .logx{color:#e6c34a}
+html.light .logrow{border-color:#ece3d9}html.light .logt{color:#a89a8e}html.light .logx{color:#5a4f47}
+/* Equalizer-Norm + Kapitel */
+.eq-norm{display:flex;align-items:center;gap:7px;font-size:12px;color:#c9bcae;padding:5px 6px 2px}
+.pl-kapitel{max-height:150px;overflow-y:auto;margin-top:6px;border-top:1px solid #241f1b;padding-top:4px}
+.kap-titel{font-size:11px;color:#8a7d74;text-transform:uppercase;letter-spacing:.03em;padding:2px 4px}
+.kap{font-size:12px;color:#d7c7bd;padding:4px 6px;border-radius:6px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kap:hover{background:var(--akzbg);color:var(--akz2)}
+.kap-z{color:#8a7d74;font-family:Consolas,monospace;font-size:11px;margin-right:6px}
+html.light .kap:hover{color:#8a5a1e}html.light .pl-kapitel{border-color:#ece3d9}
+/* Untertitel-Overlay (Zeile) + Karaoke + Transkript */
+.pl-subzeile{position:absolute;left:6%;right:6%;bottom:58px;z-index:3;text-align:center;pointer-events:none}
+/* Untertitel-Look (05.08., Disney-Muster): ALLE Optionen als CSS-Variablen
+   — Größe (--sub-skala, auch Karaoke/TV), Schrift, Textfarbe+Deckkraft,
+   Hintergrund, Schatten. Gesetzt von subLookAuf(); Karaoke behält seine
+   Wischer-Farben. */
+.pl-subzeile .subtxt{display:inline-block;background:var(--sub-hg,rgba(0,0,0,.68));
+  color:var(--sub-farbe,#fff);padding:4px 12px;border-radius:8px;
+  font-size:calc(15px*var(--sub-skala,1));line-height:1.4;
+  font-family:var(--sub-schrift,inherit);text-shadow:var(--sub-schatten,none)}
+/* Schriftart wirkt auch im Karaoke (05.08.) — die Farben dort gehören
+   weiter dem Wischer. */
+.pl-subzeile .kar-akt,.pl-subzeile .kar-neben{font-family:var(--sub-schrift,inherit)}
+.pl-subzeile.karaoke{top:6%;bottom:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+.kar-neben{color:rgba(255,255,255,.45);font-size:calc(15px*var(--sub-skala,1));max-width:92%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kar-akt{color:var(--akz2);font-size:calc(23px*var(--sub-skala,1));font-weight:700;text-align:center;max-width:94%;line-height:1.3}
+/* Karaoke-Mitleuchten (nur LRCLIB): schon gesungene Wörter hell/akzentuiert,
+   kommende gedimmt — der Fortschritt „läuft" durch die Zeile (21.07.). */
+/* Build 115 (der Besitzer): echte Karaoke-Maschine — die Farbe LÄUFT durch das Wort
+   (Wischer von links nach rechts), statt Wörter hart umzuschalten. Technik:
+   Farbverlauf als Text-Füllung, Kante über --p (0…1) gesteuert. --p wird je
+   Bild neu gesetzt, darum hier KEINE transition (die würde nachhinken). */
+.kar-akt.lrc .kw{
+  --p:0;
+  background-image:linear-gradient(90deg,var(--akz2) 0%,var(--akz2) calc(var(--p)*100%),
+                   rgba(255,255,255,.38) calc(var(--p)*100%),rgba(255,255,255,.38) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  -webkit-text-fill-color:transparent;
+  text-shadow:none}                                  /* Rand würde die Füllung überdecken */
+.kar-akt.lrc .kw.aktiv{filter:drop-shadow(0 0 9px var(--akz))}   /* Wort, das gerade dran ist */
+.kar-akt.lrc{text-shadow:none}
+html.light .kar-akt.lrc .kw{
+  background-image:linear-gradient(90deg,var(--akz2) 0%,var(--akz2) calc(var(--p)*100%),
+                   rgba(0,0,0,.35) calc(var(--p)*100%),rgba(0,0,0,.35) 100%)}
+/* Schwarzer Buchstaben-Rand: Untertitel/Karaoke auf JEDER Fläche lesbar (Wunsch) */
+.subtxt,.kar-akt,.kar-neben{
+  text-shadow:-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000,
+              -1px 0 0 #000, 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, 0 2px 8px rgba(0,0,0,.85)}
+.pl-lyrics{max-height:190px;overflow-y:auto;margin-top:6px;border-top:1px solid #241f1b;padding-top:4px}
+.lyr{font-size:12px;color:#9a8d84;padding:3px 6px;border-radius:6px;cursor:pointer}
+.lyr:hover{background:var(--akzbg)}
+.lyr.akt{color:var(--akz2);background:var(--akzbg)}
+html.light .lyr{color:#7a6e64}html.light .pl-lyrics{border-color:#ece3d9}
+/* Canvas: langsam zoomendes, weichgezeichnetes Cover als lebender Hintergrund */
+.pl-canvas{position:absolute;inset:-12%;z-index:0;background-size:cover;background-position:center;
+  filter:blur(20px) brightness(.5) saturate(1.2);animation:plCanvas 26s ease-in-out infinite alternate;pointer-events:none}
+@keyframes plCanvas{from{transform:scale(1) translate(0,0)}to{transform:scale(1.16) translate(2%,-2%)}}
+/* Alben-Ansicht */
+.albgrp{margin-bottom:18px}
+.albkopf{display:flex;align-items:center;gap:9px;padding:6px 2px;margin-bottom:9px;border-bottom:1px solid var(--panelln)}
+.albtitel{font-weight:700;font-size:13.5px;color:var(--akz2)}
+.albku{font-size:12px;color:#d7c7bd}
+.albn{font-size:11px;color:#8a7d74;margin-left:auto;white-space:nowrap}
+html.light .albku{color:#5a4f47}
+.libwrap{overflow-x:auto}
+.libtab{width:100%;border-collapse:collapse;font-size:13px}
+.libtab th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#8a7d74;padding:7px 8px;border-bottom:1px solid var(--panelln);white-space:nowrap}
+.libtab td{padding:6px 8px;border-bottom:1px solid #241f1b;vertical-align:middle}
+.libtab tr.weg td{opacity:.5}
+.ltitel{display:flex;align-items:center;gap:9px;min-width:0;max-width:340px}
+.lthumb{width:52px;height:30px;object-fit:cover;border-radius:4px;flex:none;background:#0e0c0a}
+.ltxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.libtab td.num{white-space:nowrap;color:#b7a99e}
+.lstatus.ok{color:#6fcf7f}.lstatus.weg2{color:#f0a35e}
+.libtab tr.sel td{background:var(--akzbg)}
+.libtab tr{cursor:default}
+.libtab.kompakt td{padding:2px 6px;font-size:11px}
+.libtab.kompakt .lthumb{width:32px;height:19px}
+.libtab.kompakt .ltitel{max-width:230px;gap:6px}
+.libleer{color:#6a5c52;text-align:center;padding:26px 0;font-size:13px}
+.plbar{margin-top:-4px}
+.libbulk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:7px 10px;
+  border:1px solid #6b4a2a;background:#241b12;border-radius:9px;font-size:12px;color:var(--akz2)}
+#layoutbar .spacer{flex:1}
+#buildmark{font-size:11px;color:#5a4f47;font-family:Consolas,monospace}
+html.light .libbulk{background:#f6ecdd;border-color:#d8b98a;color:#8a5a1e}
+html.light .libtab tr.sel td{background:#f3e7d6}
+html.light #buildmark{color:#a89a8e}
+.th-sort{cursor:pointer;user-select:none;white-space:nowrap}
+.th-sort:hover{color:var(--akz)}.th-sort.akt{color:var(--akz)}
+
+/* ---- Spalten-Menü ---- */
+.colmenuwrap{position:relative}
+/* Build 125 (Wunsch): „⚙ Ansicht" rechtsbündig. margin-left:auto schiebt
+   den Knopf ans rechte Ende SEINER Zeile — auch wenn die Leiste umbricht. */
+.libbar .colmenuwrap{margin-left:auto}
+/* Build 125 — WURZEL des Dauerfehlers „Ansicht liegt hinter den Panels":
+   Build 124 hatte die Ebene auf 6100 gehoben, und der Treffer-Test schlug
+   TROTZDEM fehl. Gemessen am 23.07.: Das Menü hing als Kind in .libbar, und
+   .libbar trägt seit Build 122 `container-type:inline-size` für die schmalen
+   Leisten. Containment macht das Element zum eigenen Stapel-Kontext — ein
+   z-index darin wird NUR gegen Geschwister im selben Kasten verglichen, und
+   der ganze Kasten steckt im Bibliotheks-Panel mit z-index 14. Gegen ein
+   Panel mit z-index 35 oder 62 hilft deshalb keine noch so hohe Zahl; sogar
+   `position:fixed` wäre in den Kasten eingesperrt gewesen.
+   Lösung ist nicht eine größere Zahl, sondern der richtige Ort: die Menüs
+   hängen jetzt beim Öffnen am <body> (menuAnBody) und werden per
+   popoverBei() an ihrem Knopf ausgerichtet — genau wie .panelmenu und
+   .itemmenu es längst tun. Der Wächter-Test test_schwebende_flaechen_
+   nicht_im_kaefig hält die Regel für alle künftigen Flächen fest. */
+.colmenu{position:fixed;z-index:6100;background:#211b16;border:1px solid #3a332e;
+  border-radius:10px;padding:9px 10px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.colmenu-titel{font-size:11px;color:#8a7d74;margin-bottom:7px;line-height:1.4}
+.colrow{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:13px}
+/* ⚙ Ansicht-Menü (konsolidierte Bibliotheks-Werkzeuge) */
+#libansicht{min-width:238px}
+.mzeile{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 6px;font-size:12.5px;color:#d7c7bd}
+.mbtn{display:block;width:100%;text-align:left;background:none;border:0;color:#e7dccf;font-size:12.5px;
+  padding:6px 8px;border-radius:6px;cursor:pointer;font-family:inherit}
+.mbtn:hover{background:var(--akzbg);color:var(--akz2)}
+.mbtn.an{background:var(--akzbg);color:var(--akz2)}
+.msep{height:1px;background:var(--panelln);margin:5px 0}
+html.light .mbtn{color:#4a3f37}html.light .mzeile{color:#5a4f47}
+.colmv{width:22px;height:22px;border-radius:5px;border:1px solid #3a332e;background:#171310;color:#d7c7bd;
+  cursor:pointer;font-size:9px;line-height:1;flex:none}
+.colmv:disabled{opacity:.35;cursor:default}
+.colrow label{display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;color:#d7c7bd}
+
+/* ---- Player ---- */
+#view-player{height:100%}
+#view-player .card{display:flex;flex-direction:column;height:100%;gap:8px;
+  container-type:size;container-name:plcard}
+.pl-media{flex:1;background:#0e0c0a;border-radius:10px;min-height:72px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;overflow:hidden;gap:8px;padding:8px}
+/* Build 130 (ausdrücklich): „16:9 FEST — echtes Maß je Video = Nogo, das
+   Bild darf nicht springen." Das Bildfeld hängt deshalb an einem festen
+   Seitenverhältnis und NICHT an den Maßen des jeweiligen Videos; ein 4:3-Clip
+   bekommt seitliche Balken (object-fit:contain), statt den Rahmen zu
+   verformen und beim Titelwechsel alles verrutschen zu lassen.
+   Das Verhältnis steckt in --pl-ar und ist umschaltbar (Layout-Option);
+   16/9 ist der Standard. max-height hält das Bild im verfügbaren Raum,
+   margin:auto zentriert es darin. */
+/* max-height in cqb statt Prozent: der Rahmen hat height:auto, und ein
+   Prozentwert gegen eine automatische Elternhöhe ist unbestimmt — er wurde
+   ignoriert, das Bild lief in sehr flachen Karten unten heraus (gemessen:
+   618 px Bild in 260 px Karte). cqb misst gegen die KARTE, die eine feste
+   Höhe hat (container-type:size liegt dort). */
+.pl-media video{width:100%;height:auto;aspect-ratio:var(--pl-ar,16/9);max-height:100cqb;margin:auto;
+  border-radius:8px;background:#000;object-fit:contain}
+/* „Natürlich" gibt das feste Maß bewusst auf — für den seltenen Fall, dass
+   jemand ein Hochkant-Video formatfüllend sehen will. */
+.pl-media.ar-frei video{aspect-ratio:auto;height:100%}
+.pl-media audio{width:100%;flex:none;position:relative;z-index:2}
+/* Visualizer: Canvas als animierter Hintergrund hinter dem Cover, Audio-Leiste oben drüber */
+.pl-media{position:relative;container-type:inline-size;container-name:plmedia}
+/* Player-Rahmen: festes Seitenverhältnis, obenbündig (Builds 132/136/138)
+   Weg dahin, damit es niemand wieder aufweicht:
+   132 „ist das 16:9?" — nein: das Maß hing nur am <video>, der schwarze
+       Rahmen drumherum war frei und liess oben/unten tote Streifen stehen.
+   136 „das Bild sollte oben angesetzt sein" — margin:0 auto statt auto und
+       align-self:flex-start; vorher stand über dem Bild derselbe Leerraum
+       wie darunter und die Playlist rutschte ans Kartenende.
+   138 „jetzt ist der Player nicht mehr 16:9" — bei einem AUDIO-Titel gibt es
+       gar kein <video>, nur ein quadratisches Cover; der Kasten wuchs damit
+       über die volle Panel-Höhe. Jetzt trägt der RAHMEN das Verhältnis.
+   Zwei gemessene Fallen: eine feste Höhe schlägt aspect-ratio (mit
+   height:100% blieb der Rahmen 700x900), und in einer ZEILEN-Karte streckt
+   align-items den Rahmen, solange align-self fehlt.
+   `width:100%` + `height:auto` lässt die Breite die Höhe bestimmen;
+   `max-height:100cqb` misst gegen die Karte (container-type:size liegt dort)
+   und fängt sehr flache Panels ab. Der Besitzer ausdrücklich: „wenn der Player kleiner
+   wird bleibt halt darunter ein grosses Loch" — das Loch ist gewollt.
+   body:not(.mini):not(.embed) grenzt Mini-Player und Einbett-Modus aus, die
+   ihre eigenen, bewusst anderen Höhenketten haben (Build 97/121). */
+/* Build 144p (25.07., Bild 1 vs. 2): Im eigenständigen Player muss das
+   16:9-Bild OHNE Scrollen in den Viewport passen und Titel + Playlist sichtbar
+   lassen. Vorher stand das Video auf `flex:0 0 auto` mit `max-height:100cqb` —
+   bei einem breiten Panel nahm es die volle Kartenhöhe (width:100% → hohe
+   16:9-Höhe) und drückte die Playlist aus dem Bild (Scroll, Bild 2).
+   Jetzt darf es SCHRUMPFEN (`flex:0 1 auto`): reicht die Höhe nicht, wird das
+   Bild flacher UND schmaler — das <video> behält sein 16:9 (object-fit:contain)
+   und bekommt seitliche Balken (Pillarbox, Bild 1). Die Playlist-Seite ist
+   `flex:none` (Zeile ~915), behält also ihren Platz. gewolltes „Loch"
+   unter einem kleinen Player bleibt: passt das 16:9 hinein, schrumpft nichts.
+   Live gemessen: kein Scroll bei 1858×700 / 1100×760 / 560×820. */
+body:not(.mini):not(.embed) #view-player .card .pl-media{
+  flex:0 1 auto;aspect-ratio:var(--pl-ar,16/9);width:100%;height:auto;
+  min-height:120px;margin:0 auto;align-self:flex-start}
+body:not(.mini):not(.embed) #view-player .card .pl-media.ar-frei{
+  height:100%;flex:1;align-self:stretch}
+.pl-viz{position:absolute;inset:0;width:100%;height:100%;z-index:0;display:none}
+.pl-media.viz-an .pl-viz{display:block}
+.pl-vizwrap{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden}
+.pl-cover{max-width:96%;max-height:100%;border-radius:10px;object-fit:contain}
+/* Gerät „VLC" (Etappe B, der Besitzer 05.08.: „identisch aussehen"): die VLC-Ansicht
+   nutzt dieselben Bausteine wie die Audio-Ansicht (pl-vizwrap + pl-bar) —
+   eigenes CSS braucht nur noch der leuchtende Geräte-Knopf. */
+#pl-geraet.an{color:var(--akz2);border-color:var(--akz2)}
+/* Untertitel-Panel (05.08., Netflix-Bild): Zeilen klar getrennt, Knöpfe
+   rechtsbündig; die Aa-Knöpfe zeigen ihre Wahl im EIGENEN Look. */
+#subfly .subm-zeile{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:8px 6px;border-bottom:1px solid rgba(255,255,255,.09)}
+#subfly .subm-zeile:last-child{border-bottom:none}
+#subfly .subm-knoepfe{display:flex;gap:4px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+#subfly .btn.an{outline:2px solid var(--akz2);outline-offset:1px}
+.pl-side{display:flex;flex-direction:column;flex:none;min-height:0;min-width:0}
+/* Build 144f (mit Bild): „jetzt ist playlist nur noch ein kleines fenster,
+   das sollte dynamisch bis zum unteren rand von playlist gehen."
+   ERLEDIGT fuer das herausgeloeste Playlist-FENSTER (Regel unten). Fuer die
+   Playlist IM Player steht es bewusst NOCH OFFEN: vier CSS-Wege sind daran
+   gescheitert, jeder live gemessen (Zahlen in der internen Übergabe).
+   Kurzfassung: im vertikalen Layout konkurrieren ein 16:9-Video mit fester
+   Hoehe und die Liste um dieselbe Hoehe. Wer der Liste Platz gibt, nimmt ihn
+   dem Video; `aspect-ratio` vertraegt sich schlecht mit `flex-shrink`, und
+   jeder Versuch kippte entweder das Seitenverhaeltnis, liess das Video auf
+   128x72 px kollabieren oder die Liste aus der Karte laufen.
+   Im HORIZONTALEN Layout ist es laengst richtig (gemessen: Liste 354 px,
+   fuellt die Spalte, kein Scrollen) — genau das belegt, dass die Aufteilung
+   einen echten Mechanismus braucht (ziehbarer Trenner oder gemerkte
+   Aufteilung), keine weitere CSS-Heuristik. */
+/* Das herausgelöste Playlist-Fenster: seine Karte trägt height:100%, aber
+   `#view-plq` selbst hatte keine Höhe — 100 % von auto ist auto, deshalb war
+   die Karte nur inhaltshoch (gemessen 132 px in einem 420 px hohen Panel). */
+#view-plq{height:100%;min-height:0;display:flex;flex-direction:column}
+#view-plq>.card{flex:1 1 auto;min-height:0}
+/* Und die Liste füllt die Karte. `.plq-gross` (Zeile ~399) will das längst,
+   verliert aber gegen `.pl-queue{max-height:150px}` — gleiche Spezifität, und
+   die spätere Regel gewinnt. Die Id hebt das auf; dieselbe Falle ist beim
+   Zu-klein-Verhalten weiter unten schon einmal dokumentiert. */
+#view-plq>.card>.pl-queue{flex:1 1 auto;max-height:none;min-height:0}
+/* HORIZONTAL: Video links, Titel/Steuerung/Playlist rechts */
+#view-player .card.pl-horizontal{flex-direction:row}
+.card.pl-horizontal .pl-media{height:100%}
+.card.pl-horizontal .pl-side{width:200px;flex:none;height:100%}
+.card.pl-horizontal .pl-side .pl-queue{flex:1;max-height:none}
+/* erst wenn WIRKLICH zu schmal fürs Horizontale -> zurück auf vertikal */
+@container (max-width:330px){
+  #view-player .card.pl-horizontal{flex-direction:column}
+  .card.pl-horizontal .pl-media{height:auto}
+  .card.pl-horizontal .pl-side{width:auto;height:auto}
+  .card.pl-horizontal .pl-side .pl-queue{flex:none;max-height:150px}
+}
+/* Dashboard-Embed, Video oben (22.07.): die Videofläche NICHT den ganzen Rest fressen
+   lassen (das erzeugte die großen schwarzen Balken), sondern an ~16:9 binden — dann füllt
+   das Video sie fast randlos. Der frei werdende Platz geht an die Playlist. Ein bisschen
+   Letterbox bei Nicht-16:9 bleibt (ok). max-height deckelt für kurze/breite Rahmen. */
+body.embed #view-player .card:not(.pl-horizontal) .pl-media{flex:none;aspect-ratio:16/9;max-height:70%}
+body.embed #view-player .card:not(.pl-horizontal) .pl-side{flex:1;min-height:0}
+body.embed #view-player .card:not(.pl-horizontal) .pl-side .pl-queue{flex:1;max-height:none}
+/* Build 144j (25.07., mit Bild: „die fläche rechts oben sollte ausgefüllt
+   sein vom player"): Im Dashboard ist die Playlist als eigener Tab ausgelagert
+   (body.plq-extern) — dann hat der Player NUR Video/Cover und keine Playlist,
+   die den Rest füllt. Gemessen blieben 102 px leer unter der Medienfläche.
+   Ohne konkurrierende Playlist ist das Füllen gefahrlos (anders als der Player-
+   Fall aus 144f): Das <video>/.pl-cover behält sein 16:9 über object-fit:contain,
+   die FLÄCHE wächst nur mit und bekommt bei Bedarf schmale Balken. Regeln nach
+   den obigen, damit sie bei ausgelagerter Playlist gewinnen. */
+body.embed.plq-extern #view-player{height:100%;display:flex;flex-direction:column}
+body.embed.plq-extern #view-player>.card{flex:1 1 auto;min-height:0}
+body.embed.plq-extern #view-player .card:not(.pl-horizontal) .pl-media{flex:1 1 auto;max-height:none;min-height:0}
+/* Zu-klein-Verhalten (14.07., Muster Video.js/Media Chrome/VLC): Knöpfe haben
+   Vorrang — die Videofläche gibt zuerst nach, dann fallen Playlist/Titel weg,
+   und in der Video-Leiste verschwinden Sekundär-Knöpfe GESTUFT (bo3→bo2);
+   alles Ausgeblendete bleibt übers Rechtsklick-Menü erreichbar. */
+@container plcard (max-height:330px){
+  /* #view-player erhöht die Spezifität — die Basisregel .pl-queue{display:flex}
+     steht später im Stylesheet und würde sonst gewinnen. */
+  #view-player .pl-queue,#view-player .pl-kapitel,#view-player .pl-lyrics{display:none}
+}
+@container plcard (max-height:200px){
+  .pl-titel{display:none}
+  .pl-media{min-height:0}
+}
+@container plcard (max-width:380px){
+  .pl-hint{display:none}
+}
+/* Stufen pixel-genau vermessen (14.07.): volle Leiste braucht 537px, ohne
+   YouTube-TEXT 486, ohne Stufe 3 343, ohne Stufe 2 151 — Schwellen knapp
+   darüber, damit so viel wie möglich sichtbar bleibt („Auge isst mit");
+   den YouTube-Text in der Leiste gibt es nicht mehr. */
+/* Neu vermessen 24.11.2026 (Lautstärke ragte rechts aus der Leiste).
+   Seit dem 05.08. stehen ±10 s, Untertitel und Lautstärke fest in der Leiste;
+   die Stufen oben stammen von davor und reichten nicht mehr. Gemessen: ohne
+   bo3 braucht die Zeile 359 px, ohne bo2 325, ohne bo1 259, mit schmalstem
+   Lautstärkeregler 227, ohne bo0 161. Die Container-Breite ist die INNEN-
+   Breite der Fläche (16 px Polster weniger), die Leiste liegt aber über der
+   ganzen Fläche und hat selbst 20 px Polster: Schwelle = Bedarf + 4.
+   bo1 (Titel zurück/vor) steht immer auch oben in der Steuerzentrale und auf
+   den Tasten P/N, bo0 (±10 s) auf den Tasten J/L. */
+@container plmedia (max-width:496px){ .pl-bar .bo3{display:none} }
+@container plmedia (max-width:362px){ .pl-bar .bo2{display:none} }
+@container plmedia (max-width:328px){ .pl-bar .bo1{display:none} }
+@container plmedia (max-width:230px){ .pl-bar .bo0{display:none} }
+@container plmedia (max-width:161px){ .pl-bar .pl-btime{display:none} }
+.pl-leer{color:#6a5c52;font-size:13px;text-align:center;padding:24px}
+.pl-titel{font-weight:600;font-size:14px;margin:10px 0 6px;flex:none}
+.pl-ctrl{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;flex:none}
+/* Build 144d: der Lieblings-Knopf zeigt seinen Zustand über die FARBE, nicht
+   über einen zweiten Knopf daneben — leer heisst „noch nicht drin". */
+.pl-lieb{min-width:30px;font-weight:700}
+.pl-lieb.an{background:var(--akz);border-color:var(--akz);color:#1b1512}
+/* Steuerleiste AUF dem Video/Cover (YouTube-Stil, der Besitzer 13.07.): Spulleiste oben,
+   Transport links, Werkzeuge rechts; blendet bei Maus-Ruhe aus (.baridle). */
+.pl-bar{position:absolute;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;gap:1px;
+  padding:4px 10px 7px;background:linear-gradient(transparent,rgba(0,0,0,.82));transition:opacity .25s}
+.pl-media.baridle .pl-bar{opacity:0;pointer-events:none}
+.pl-media.baridle{cursor:none}
+/* ---- Vollbild-Overlay (Build 130, der Besitzer Punkt 3) -----------------------------
+   Netflix-/Disney-Muster: die Leiste erscheint bei Mausbewegung und geht nach
+   ~3 s wieder weg (das macht schon .baridle). Neu ist, WAS im Vollbild steht.
+   Grund: Zufall/Vor/Zurück/Wiederholen wohnen seit Build 121 oben in der
+   Steuerzentrale — die ist im Vollbild aber nicht sichtbar. Ohne eigene
+   Knöpfe käme man dort also nicht zum nächsten Titel und nicht zurück.
+   Deshalb blendet das Vollbild genau das Wichtigste EIN (±10 s, nächster
+   Titel, Beenden) und die Nebensachen AUS (Clip, Tempo, Bild-in-Bild).
+   Nichts davon geht verloren: die Tastenkürzel gelten im Vollbild weiter
+   (S Untertitel, Shift+,/. Tempo, ↑/↓ Lautstärke), und beim Verlassen ist
+   die volle Leiste sofort wieder da. */
+/* Spul-Einblender (Build 132): erscheint auf der Seite, in die gesprungen
+   wird, und verblasst von selbst. pointer-events:none — er ist Rückmeldung,
+   kein Knopf, und darf einen Klick ins Bild nie abfangen. */
+.pl-sprung{position:absolute;top:50%;transform:translateY(-50%);z-index:7;pointer-events:none;
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  background:rgba(0,0,0,.55);border-radius:999px;padding:14px 18px;color:#fff;
+  font-size:12px;font-weight:600;animation:sprungWeg .7s ease-out forwards}
+/* Build 139 („koennen wie bei YouTube etwas zentraler sein"): naeher an
+   die Mitte geholt. Bei YouTube liegen die Doppeltipp-Flaechen bei etwa
+   einem Viertel der Breite - dort sucht das Auge sie, nicht am Bildrand. */
+.pl-sprung.links{left:25%}
+.pl-sprung.rechts{right:25%}
+.pl-sprung svg{width:26px;height:26px;fill:#fff}
+@keyframes sprungWeg{0%{opacity:0;transform:translateY(-50%) scale(.86)}
+  18%{opacity:1;transform:translateY(-50%) scale(1)}
+  70%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.pl-sprung{animation:none;opacity:.9}}
+/* Spul-Anzeige am Fernseher (05.08.): ⏪/⏩ + Geschwindigkeit, oben mittig
+   wie bei den Streamern — reine Rückmeldung, nimmt keine Klicks an. */
+#pl-spul{position:absolute;top:10%;left:50%;transform:translateX(-50%);z-index:7;
+  pointer-events:none;display:flex;align-items:center;gap:10px;color:#fff;
+  background:rgba(0,0,0,.55);border-radius:999px;padding:10px 20px;
+  font-size:20px;font-weight:700}
+#pl-spul svg{width:30px;height:30px;fill:currentColor}
+.nur-vollbild{display:none}
+.pl-media:fullscreen .nur-vollbild{display:inline-flex;align-items:center;justify-content:center}
+.pl-media:fullscreen .weg-im-vollbild{display:none}
+.pl-media:fullscreen .pl-bar{padding-bottom:14px}      /* Daumenbreite zum Bildrand */
+/* Vollbild = Sofa-/TV-Abstand (05.08., Netflix-Muster): Kern-Knöpfe,
+   Zeit und Spul-Leiste deutlich größer, damit man sie von weitem trifft. */
+.pl-media:fullscreen .pl-barrow .mp-btn{width:46px;height:46px}
+.pl-media:fullscreen .pl-barrow .mp-btn svg{width:32px;height:32px}
+.pl-media:fullscreen .pl-bsp{font-size:24px;padding:6px 10px}
+.pl-media:fullscreen .pl-btime{font-size:18px}
+.pl-media:fullscreen .pl-barseek input{height:18px}
+.pl-media:fullscreen .pl-bvol{width:120px}
+.pl-media:fullscreen video{border-radius:0}
+.pl-barseek{display:flex;align-items:center;gap:8px}
+.pl-barseek input{flex:1;height:12px;accent-color:var(--akz);cursor:pointer;margin:0;min-width:40px}
+.pl-barrow{display:flex;align-items:center;gap:6px}
+.pl-barrow .mp-btn{color:#eee;width:27px;height:27px}
+.pl-barrow .mp-btn:hover{color:#fff}
+.pl-barrow .mp-btn svg{width:19px;height:19px}
+.pl-barrow .mp-tog{color:rgba(255,255,255,.55)}
+.pl-barrow .mp-tog.an{color:var(--akz2)}
+.pl-btime{color:#ddd;font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap;flex:none}
+.pl-bsp{color:#eee;background:none;border:1px solid rgba(255,255,255,.3);border-radius:6px;
+  font-size:11.5px;padding:2px 7px;cursor:pointer;flex:none}
+.pl-bsp:hover{border-color:#fff}
+.pl-bsp.an{border-color:var(--akz);color:var(--akz2)}
+.pl-bspacer{flex:1}
+/* Der Lautstärkeregler darf schmaler werden (bis 32 px), bevor etwas aus
+   der Leiste läuft; flex-basis bleibt `auto`, damit die Vollbild-Breite
+   (120 px) weiter greift. */
+.pl-bvolwrap{display:flex;align-items:center;gap:4px;color:#eee;font-size:12px;flex:0 1 auto;min-width:0}
+.pl-bvol{width:64px;min-width:32px;flex:0 1 auto;height:10px;accent-color:#fff;cursor:pointer;margin:0}
+/* Untermenüs im Rechtsklick-Menü: Liste mit Haken + optionales Suchfeld */
+.km-check{color:var(--akz2);margin-right:6px}
+/* WICHTIG: flex-column, sonst fließen die <button> als inline-Blöcke NEBENEINANDER */
+.km-sub{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
+.km-sub button{text-align:left}
+.km-such{display:block;width:calc(100% - 12px);box-sizing:border-box;margin:4px 6px;background:#0e0c0a;
+  border:1px solid var(--panelln);border-radius:6px;color:#e7dccf;padding:4px 8px;font-size:12px}
+html.light .km-such{background:#f7f3ee;border-color:#e0d7cc;color:#4a3f37}
+/* Windows-artiges Ausklappen: Eintrag mit ▸ rechts, Flyout erscheint daneben */
+.km-hatsub{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.km-pfeil{color:#8a7d74;font-size:10px;flex:none}
+.km-flyout{min-width:180px}
+/* YouTube-Knöpfe + Lautstärke im Mini-Player */
+.mp-vol{margin-left:auto;color:#8a7d74}
+.mp-vol .pl-bvol{accent-color:var(--akz)}
+.mp-yt svg{width:20px;height:20px}
+.muted2{font-size:12px;color:#8a7d74}
+.pl-queue{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;flex:0 1 auto;min-height:0}
+/* flex:none ist PFLICHT: sonst schrumpfen viele Einträge (z.B. 40 vom Radio)
+   unter ihre Texthöhe und die Liste sieht „zerhackt" aus (Fund 13.07.) */
+.pl-item{font-size:12px;color:#d7c7bd;padding:4px 7px;border-radius:6px;cursor:pointer;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;flex:none}
+.pl-item:hover{background:#241f1b}
+.pl-item.sel{background:var(--akzbg);box-shadow:inset 0 0 0 1px var(--akz)}
+.pl-item:focus{outline:1px solid var(--akz);outline-offset:-1px}
+.pl-item:focus-visible{outline:2px solid var(--akz)}
+.pl-item.akt{background:var(--akzbg);color:var(--akz2)}
+.pl-item.artaus{opacity:.35}                          /* per 🎶/🎬 weggefiltert */
+
+/* ---- Tag-Modus (hell) ---- */
+html.light body{background:#f4efe9;color:#2a2320}
+html.light h1,html.light .card h2{color:#b5502a}
+html.light #layoutbar{color:#7a6e64}
+html.light .card,html.light .panel{background:#fff;border-color:#e6ddd3}
+html.light .panel-head{background:#f3ede7;border-color:#e6ddd3}
+html.light .ptab{color:#8a7d74}
+html.light .ptab.an{background:#f3e7d6;border-color:#d8b98a;color:#8a5a1e}
+html.light .panel-body .card{background:transparent}
+html.light textarea,html.light select,html.light input[type=text],
+html.light .btn,html.light .iconbtn,html.light .chip,
+html.light .viewbtn,html.light .tog{
+  background:#fbf8f4;border-color:#d9cfc4;color:#2a2320}
+html.light .btn.haupt{background:#f3e7d6;border-color:#d8b98a;color:#8a5a1e}
+html.light .viewbtn.an,html.light .tog.an{background:#f3e7d6;border-color:#d8b98a;color:#8a5a1e}
+html.light .cmd-count .tip{background:#fff;border-color:#e6ddd3;box-shadow:0 8px 24px rgba(120,90,60,.18)}
+html.light .tiprow{color:#5a4f47}html.light .tiprow b{color:#2a2320}
+html.light .tiptitel,html.light .chk{color:#8a7d74}html.light .tipsep{background:#e6ddd3}
+html.light .chip{color:#5a4f47}
+html.light .kachel{background:#fdfaf6;border-color:#e6ddd3}
+html.light .thumbwrap,html.light .lthumb{background:#efe7de}
+html.light .thumbwrap.platzhalter::after{color:#c9bcae}
+html.light .libtab th{color:#8a7d74;border-color:#e6ddd3}
+html.light .libtab td{border-color:#ece3d9}html.light .libtab td.num{color:#7a6e64}
+html.light .leer,html.light .hinweis{color:#9a8d84}
+html.light .colmenu{background:#fff;border-color:#e6ddd3;box-shadow:0 8px 24px rgba(120,90,60,.18)}
+html.light .colrow label,html.light .colmv{color:#2a2320}
+html.light .colmv{background:#fbf8f4;border-color:#d9cfc4}
+html.light .pl-media{background:#efe7de}
+html.light .pl-item{color:#5a4f47}html.light .pl-item:hover{background:#f3ede7}
+html.light .pl-item.akt{background:#f3e7d6;color:#8a5a1e}
+
+/* Inhalte passen sich der Fenstergröße an (Container-Queries) — MUSS am Ende
+   stehen, damit diese Regeln die Basis-Regeln überschreiben (gleiche Spezifität). */
+@container (max-width:270px){
+  .card h2{font-size:12px}
+  .qline{font-size:11.5px;gap:6px}
+  .aktionen .btn.mini{padding:2px 6px;font-size:11px}
+  .kacheln{grid-template-columns:1fr}
+  .einstgrid{grid-template-columns:1fr;gap:3px 0}
+  .einstgrid>span{margin-top:6px;color:#8a7d74;font-size:11px}
+  .libbar{gap:6px}
+}
+@container (max-width:200px){
+  .qbar{display:none}
+  .qrechts{font-size:10px}
+  .chip{padding:2px 8px;font-size:11px}
+  .card h2{font-size:11px}
+}

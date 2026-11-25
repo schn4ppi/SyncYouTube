@@ -62,13 +62,20 @@ def _code_ordner(monkeypatch, tmp_path):
                  "medien_session.py", "fernbedienung.py"):
         (tmp_path / name).write_text("# Attrappe\n", encoding="utf-8")
         os.utime(tmp_path / name, (1_700_000_000, 1_700_000_000))
+    # Teile der PC-Oberfläche seit dem Strukturumbau (25.11.2026)
+    (tmp_path / "pc_oberflaeche" / "skript").mkdir(parents=True)
+    for name in ("layout_kern.js", "pc_oberflaeche/seite.html", "pc_oberflaeche/stil.css",
+                 "pc_oberflaeche/skript/01_helfer.js"):
+        (tmp_path / name).write_text("/* Attrappe */\n", encoding="utf-8")
+        os.utime(tmp_path / name, (1_700_000_000, 1_700_000_000))
     monkeypatch.setattr(app, "SCRIPT_DIR", str(tmp_path))
 
 
 def test_aenderung_an_einer_heissen_seite_startet_den_server_nicht_neu(monkeypatch, tmp_path):
     _code_ordner(monkeypatch, tmp_path)
     vorher = app._quell_signatur()
-    for name in ("oberflaeche.py", "handy.py", "medien_session.py", "fernbedienung.py"):
+    for name in ("oberflaeche.py", "handy.py", "medien_session.py", "fernbedienung.py",
+                 "layout_kern.js", "pc_oberflaeche/stil.css", "pc_oberflaeche/skript/01_helfer.js"):
         os.utime(tmp_path / name, (1_700_000_500, 1_700_000_500))
         assert app._quell_signatur() == vorher, f"{name}: löst einen unnötigen Selbst-Neustart aus"
     os.utime(tmp_path / "filme.py", (1_700_000_500, 1_700_000_500))
@@ -92,6 +99,11 @@ def test_ui_stand_zaehlt_die_oberflaeche_und_ihren_baustein(monkeypatch, tmp_pat
     assert stand() == 1_700_000_100
     os.utime(tmp_path / "oberflaeche.py", (1_700_000_200, 1_700_000_200))
     assert stand() == 1_700_000_200
+    # Die Teile, aus denen oberflaeche.py die Seite zusammensetzt, zählen mit.
+    for i, name in enumerate(("pc_oberflaeche/seite.html", "pc_oberflaeche/stil.css",
+                              "pc_oberflaeche/skript/01_helfer.js", "layout_kern.js"), start=3):
+        os.utime(tmp_path / name, (1_700_000_000 + 100 * i, 1_700_000_000 + 100 * i))
+        assert stand() == 1_700_000_000 + 100 * i, name
 
 
 # ------------------------------------------------------------ JS-Fehler-Rekorder

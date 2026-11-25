@@ -118,7 +118,8 @@ dieser Datei. Tests, die deno aus `System/bin` brauchen, werden ohne es sichtbar
 | Datei | Zweck |
 |---|---|
 | `System/youtube_app.py` | Server, Warteschlange, Download-Logik, Bibliothek, Playlists, Tray |
-| `System/oberflaeche.py` | die komplette PC-Oberfläche (eine Datei, wird heiß nachgeladen) |
+| `System/oberflaeche.py` | setzt die PC-Oberfläche zusammen (wird heiß nachgeladen) |
+| `System/pc_oberflaeche/` | die PC-Oberfläche selbst: `seite.html`, `stil.css` und das Skript in `skript/`, eine Datei je Bereich |
 | `System/handy.py` | Touch-Oberfläche der Fernsteuerung (`/m`) |
 | `System/abrufweg.py` | Abrufwege zu YouTube und die Ausweich-Leiter bei „403“ |
 | `System/geo.py` / `System/vpn.py` | gestufte Geo-Umgehung / NordVPN-Steuerung |

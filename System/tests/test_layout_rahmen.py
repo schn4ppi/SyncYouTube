@@ -44,17 +44,14 @@ ROTE GEGENPROBE (08.09.2026 gefahren, Datei byte-genau zurueckgeschrieben):
 beide `LK.inDenRahmen`-Aufrufe entfernt => Verdrahtungs-Test faellt;
 `overflow-y:auto` auf `hidden` zurueckgedreht => CSS-Test faellt.
 """
-import io
-import os
 import re
-
-HIER = os.path.dirname(os.path.abspath(__file__))
-OBERFLAECHE = os.path.join(os.path.dirname(HIER), "oberflaeche.py")
 
 
 def _quelle():
-    with io.open(OBERFLAECHE, encoding="utf-8") as f:
-        return f.read()
+    # Seit dem Strukturumbau (25.11.2026) setzt oberflaeche.py die Seite aus
+    # pc_oberflaeche/ und layout_kern.js zusammen; gemessen wird an der fertigen Seite.
+    import oberflaeche
+    return oberflaeche._HTML_ROH
 
 
 def _ohne_kommentar(text):

@@ -6793,10 +6793,16 @@ def _seite_frisch(name):
 
 def _ui_stand():
     """mtime der PC-Oberfläche samt ihrer Bausteine: alte Browser-Tabs erneuern
-    sich selbst, wenn hier neuer Code liegt (Wurzel-Fix 07.08.)."""
+    sich selbst, wenn hier neuer Code liegt (Wurzel-Fix 07.08.). Seit dem
+    Strukturumbau (25.11.2026) zählen auch die Dateien unter pc_oberflaeche/ und
+    layout_kern.js, aus denen oberflaeche.py die Seite zusammensetzt."""
+    dateien = [os.path.join(SCRIPT_DIR, m + ".py")
+               for m in ("oberflaeche", *HEISSE_SEITEN["oberflaeche"])]
+    dateien.append(os.path.join(SCRIPT_DIR, "layout_kern.js"))
+    for ordner, _unter, namen in os.walk(os.path.join(SCRIPT_DIR, "pc_oberflaeche")):
+        dateien += [os.path.join(ordner, n) for n in namen]
     try:
-        return round(max(os.path.getmtime(os.path.join(SCRIPT_DIR, m + ".py"))
-                         for m in ("oberflaeche", *HEISSE_SEITEN["oberflaeche"])), 2)
+        return round(max(os.path.getmtime(p) for p in dateien), 2)
     except OSError:
         return 0
 
