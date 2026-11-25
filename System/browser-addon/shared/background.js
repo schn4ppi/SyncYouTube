@@ -31,6 +31,14 @@ async function merkLesen() {
 async function merkSchreiben(liste) {
   try { await api.storage.local.set({ ytdl_merk: liste }); } catch (e) { /* voll/aus */ }
 }
+// Video-Id aus watch?v=, /shorts/ oder youtu.be/ — EINE Stelle für alle Wege
+// (Merkliste, Entfernen, „hab"-Cache); bis 1.2.0 stand derselbe Ausdruck dreimal hier.
+const VIDEO_ID = /(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/;
+function videoId(url) {
+  const m = (url || "").match(VIDEO_ID);
+  return m ? m[1] : "";
+}
+
 function merkKey(eintrag) {
   // Review v1.2.0 (3 Funde, ein Kern): der Listen-Schlüssel darf das
   // Startvideo NICHT enthalten — bei Mixen wechselt v= laufend, dann zeigte
@@ -42,8 +50,7 @@ function merkKey(eintrag) {
   }
   // Video: Id + Qualität — sonst überschreibt „Nur Audio" per Rechtsklick
   // stumm die vorgemerkte Standard-Qualität (Review-Fund 10).
-  const m = (eintrag.url || "").match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
-  return (m ? m[1] : (eintrag.url || "")) + "|" + (eintrag.qualitaet || "std");
+  return (videoId(eintrag.url) || eintrag.url || "") + "|" + (eintrag.qualitaet || "std");
 }
 // Review-Fund 7: merken/unmerken sind Lesen-Ändern-Schreiben auf DEMSELBEN
 // storage-Objekt — zwei Klicks in zwei Tabs verschränkten sich an den
@@ -69,8 +76,7 @@ function unmerken(msg) {
   // Liste: der eine Listen-Schlüssel.
   return merkAendern((liste) => {
     if (msg.art === "liste") { delete liste[merkKey(msg)]; return; }
-    const m = (msg.url || "").match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
-    const id = m ? m[1] : (msg.url || "");
+    const id = videoId(msg.url) || msg.url || "";
     for (const k of Object.keys(liste)) {
       if (k.indexOf(id + "|") === 0) delete liste[k];
     }
@@ -123,7 +129,7 @@ async function merkFlush() {
         await fetch("http://127.0.0.1:8776/api/addon_nachschub",
                     { method: "POST", body: JSON.stringify({ n: ok }) });
       } catch (e) { /* Info ist Kür, das Einreihen war die Pflicht */ }
-      melden("⬇ " + ok + " vorgemerkte Downloads eingereiht", "", false);
+      melden("⬇ " + ok + " vorgemerkte Downloads eingereiht", "");
     }
   } finally { flushLaeuft = false; }
 }
@@ -251,7 +257,7 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const lm = (msg.url || "").match(/[?&]list=([\w-]+)/);
           if (lm) listenCache.set(lm[1], { da: true, ts: Date.now() });
         }
-        melden("Playlist in die Warteschlange ✓", "", false);
+        melden("Playlist in die Warteschlange ✓", "");
         merkFlush();                                   // App lebt -> Rückstau mitnehmen
         sendResponse({ ok: true }); })
       .catch(async (e) => { appOk = false; appOkTs = Date.now();
@@ -259,7 +265,7 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           // v1.2.0 (der Besitzer): App aus -> Liste samt von/bis persistent vormerken.
           await merken({ art: "liste", url: msg.url, von: msg.von || null,
                          bis: msg.bis || null, qualitaet: msg.qualitaet || null });
-          melden("Playlist vorgemerkt — lädt beim nächsten App-Start", "", false);
+          melden("Playlist vorgemerkt — lädt beim nächsten App-Start", "");
           sendResponse({ ok: true, gemerkt: true });
           return;
         }
@@ -269,9 +275,9 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.typ === "add" && istYoutube(msg.url)) {
     senden(msg.url, msg.qualitaet || null).then((res) => {
       // v1.2.0: NUR echtes Einreihen zählt als „hab" — Vorgemerktes bleibt „…".
-      if (res && res.ok && !res.gemerkt && msg.url) {
-        const m = msg.url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
-        if (m) habCache.set(m[1], { da: true, ts: Date.now() });
+      if (res && res.ok && !res.gemerkt) {
+        const id = videoId(msg.url);
+        if (id) habCache.set(id, { da: true, ts: Date.now() });
       }
       sendResponse(res);
     });
@@ -289,7 +295,7 @@ async function senden(url, qualitaet, sichtbarMelden) {
     const r = await fetch(APP, { method: "POST", body: JSON.stringify(body) });
     if (!r.ok) { const err = new Error("HTTP " + r.status); err.http = true; throw err; }
     appOk = true; appOkTs = Date.now();                    // Erfolg zählt als frischer Ping
-    melden("In die Warteschlange ✓", kurz(url), false);   // Erfolg: nur wenn eingeschaltet
+    melden("In die Warteschlange ✓", kurz(url));   // Erfolg: nur wenn eingeschaltet
     merkFlush();                                          // App lebt -> evtl. Rückstau mitnehmen
     return { ok: true };
   } catch (e) {
@@ -299,11 +305,11 @@ async function senden(url, qualitaet, sichtbarMelden) {
       // v1.2.0 (der Besitzer): App aus -> der Klick geht NICHT verloren, sondern wird
       // persistent vorgemerkt und beim nächsten App-Start eingereiht.
       await merken({ art: "video", url, qualitaet: qualitaet || null });
-      melden("Vorgemerkt — lädt beim nächsten App-Start", kurz(url), false, !!sichtbarMelden);
+      melden("Vorgemerkt — lädt beim nächsten App-Start", kurz(url), !!sichtbarMelden);
       return { ok: true, gemerkt: true };
     }
     // App LÄUFT, lehnte aber ab (HTTP-Fehler): ehrlich melden, nicht horten.
-    melden("Fehlgeschlagen: " + grund, "Läuft die App? (YouTube-Downloader.bat)", true);
+    melden("Fehlgeschlagen: " + grund, "Läuft SyncYouTube?");
     return { ok: false, fehler: grund };
   }
 }
@@ -313,14 +319,13 @@ function kurz(u) {
   return m ? "Video " + m[1] : u;
 }
 
-async function melden(titel, text, istFehler, erzwingen) {
+async function melden(titel, text, erzwingen) {
   // v1.0.7 („bitte unterbinden"): ALLE Firefox-Meldungen haengen am
   // Popup-Schalter (ytdl_notify, Standard AUS) — auch Fehler; der Knopf
   // selbst zeigt ✓/✗ direkt am Video, die System-Meldung war doppelt.
   // v1.2.0 (Review-Fund 11): erzwingen=true übergeht den Schalter — für den
   // Kontextmenü-Weg, der KEINE andere Rückmeldung hat (sonst passiert
   // sichtbar NICHTS, obwohl vorgemerkt wurde).
-  void istFehler;
   if (!erzwingen) {
     try {
       const o = await api.storage.local.get("ytdl_notify");
@@ -333,7 +338,7 @@ async function melden(titel, text, istFehler, erzwingen) {
     api.notifications.create({
       type: "basic",
       iconUrl: api.runtime.getURL("icons/icon128.png"),
-      title: "YouTube-Downloader",
+      title: "SyncYouTube",
       message: titel + (text ? " — " + text : ""),
     });
   } catch (e) { /* Benachrichtigungen optional */ }

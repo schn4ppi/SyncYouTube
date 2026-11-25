@@ -42,7 +42,7 @@ fetch(APP + "/api/status")
   })
   .catch(() => {
     status.className = "status bad";
-    status.textContent = "✗ App nicht erreichbar — YouTube-Downloader.bat starten";
+    status.textContent = "✗ App nicht erreichbar — bitte SyncYouTube starten";
   });
 
 // v1.1.1 (der Besitzer): aktive Version unten zeigen + Update-Stand mit 1-Klick.

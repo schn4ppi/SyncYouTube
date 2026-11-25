@@ -17,7 +17,7 @@ Kein Tracking, keine Fremd-Server — das ist bei der Store-Prüfung ein klarer 
 - **Firefox:** `about:debugging#/runtime/this-firefox` → „Temporäres Add-on laden" → `dist/firefox/manifest.json`.
 
 ## In die Stores (einmalig je Store ein Entwickler-Konto)
-1. **Chrome Web Store** — Konto **einmalig 5 $** (bezahlt ✅).
+1. **Chrome Web Store** — Konto **einmalig 5 $**.
    `chrome.google.com/webstore/devconsole` → „Neues Element" → `ytdl-chrome-*.zip` hochladen →
    Beschreibung/Screenshots (Texte unten) → zur Prüfung senden (i.d.R. 1–3 Tage).
 2. **Microsoft Edge Add-ons** — Konto **kostenlos**.
@@ -30,7 +30,7 @@ Kein Tracking, keine Fremd-Server — das ist bei der Store-Prüfung ein klarer 
    (`xcrun safari-web-extension-converter dist/chrome`) + Apple-Developer-Account (99 $/Jahr).
    Separater Zweig, erst wenn ein Mac verfügbar ist.
 
-## Wie Updates laufen (Ziel: von Claude gemanaged)
+## Wie Updates laufen
 1. In `manifest.base.json` die `version` erhöhen (z. B. `1.0.1`).
 2. `python build.py` → neue Zips in `dist/`.
 3. Neues Zip im jeweiligen Store hochladen → **die Browser aktualisieren die Nutzer automatisch**
@@ -55,37 +55,38 @@ nächsten vollständigen Release).
 von Updates nie — die v1.0.4 einmal von Hand installieren (xpi auf `about:addons`
 ziehen), ab dann updatet Firefox selbst.
 
-**Automatisierung:** Der Upload lässt sich per Store-API skripten, dann kann Claude
-Versionsbumps + Upload komplett übernehmen. Dafür braucht es **einmalig** Zugangsdaten:
+**Automatisierung:** Der Upload lässt sich per Store-API skripten. Dafür braucht es
+**einmalig** Zugangsdaten:
 - Chrome: OAuth-Client + Refresh-Token (Chrome Web Store API) — noch offen.
 - Edge: Publisher-API-Key — noch offen.
 - **Firefox: FERTIG GEBAUT → `amo_sign.py`** (siehe unten).
-Diese kommen — wie GitHub/Web.de — **nur in den Windows-Anmeldeinformationsspeicher / keyring**,
+Diese kommen **nur in den Windows-Anmeldeinformationsspeicher / keyring**,
 nie in eine Datei.
 
 ## Firefox-Automatik: `amo_sign.py`
 
-Einmalige Einrichtung (der Besitzer, ~2 Minuten):
+Einmalige Einrichtung (~2 Minuten), mit einem Python, das das Paket `keyring` hat
+(zum Beispiel `..\bau_venv\Scripts\python.exe`):
 1. https://addons.mozilla.org/de/developers/addon/api/key/ → „Schlüssel erzeugen"
-2. `..\..\Core\venv\Scripts\python.exe amo_sign.py --schluessel` → Aussteller + Secret
+2. `python amo_sign.py --schluessel` → Aussteller + Secret
    eingeben (Eingabe unsichtbar, landet nur im Windows-Keyring).
 
 Danach je Release nur noch:
 ```
-python build.py                                   # neue Zips bauen
-..\..\Core\venv\Scripts\python.exe amo_sign.py    # hochladen (Kanal: listed)
+python build.py                  # neue Zips bauen
+python amo_sign.py               # hochladen (Kanal: listed)
 ```
 - `--kanal unlisted` = **selbst verteilt**: AMO signiert automatisch in Minuten,
   das Skript lädt die fertige `.xpi` nach `dist/` — dauerhaft installierbar,
-  darf mit ins GitHub-Release. (Das eigene Add-on läuft auf diesem Kanal.)
+  darf mit ins GitHub-Release. (SyncYouTube verteilt sein Add-on auf diesem Kanal.)
 - `--status` = Versionen + Prüf-Status abfragen.
 - `--holen` = neueste fertig signierte `.xpi` nach `dist/` laden
   (dauerhaft installieren: Datei in Firefox auf `about:addons` ziehen).
 
 ## Store-Texte (Vorlage)
-**Kurzbeschreibung:** YouTube-Videos mit einem Klick an deinen lokalen YouTube-Downloader schicken.
+**Kurzbeschreibung:** YouTube-Videos mit einem Klick an SyncYouTube auf deinem PC schicken.
 
-**Beschreibung:** Diese Erweiterung ergänzt den lokalen „YouTube-Downloader" (läuft auf deinem PC
+**Beschreibung:** Diese Erweiterung ergänzt SyncYouTube (läuft auf deinem PC
 unter 127.0.0.1:8776). Auf youtube.com erscheint beim Überfahren eines Videos ein kleiner
 ⬇-Knopf, und per Rechtsklick kannst du die Qualität wählen — der Link landet direkt in der
 Download-Warteschlange der App. Es werden keine Daten an Dritte gesendet; die Erweiterung

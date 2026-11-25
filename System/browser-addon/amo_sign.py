@@ -11,19 +11,19 @@ Skript den kompletten Einreichungs-Weg von der Kommandozeile:
      ungelistet (selbst verteilt): wartet aufs Auto-Signieren und lädt die
      fertige, dauerhaft installierbare .xpi nach dist/ herunter.
 
-EINMALIGE Einrichtung (macht der Besitzer selbst, das Skript sieht das Secret nur beim
+EINMALIGE Einrichtung (macht der Entwickler selbst, das Skript sieht das Secret nur beim
 Speichern in den Windows-Anmeldeinformationsspeicher — nie in Dateien/Logs):
 
   1. https://addons.mozilla.org/de/developers/addon/api/key/  → Schlüssel erzeugen
   2. python amo_sign.py --schluessel   → JWT-Aussteller + Secret eingeben (unsichtbar)
 
-Aufrufe (mit dem Core-venv-Python):
+Aufrufe (mit einem Python, das das Paket keyring hat, z. B. ..\\bau_venv):
   python amo_sign.py                     # hochladen, Kanal wie letzte Version (listed)
   python amo_sign.py --kanal unlisted    # selbst verteilt: auto-signiert + .xpi-Download
   python amo_sign.py --status            # Versionen + Prüf-Status anzeigen
   python amo_sign.py --schluessel        # API-Schlüssel im Keyring hinterlegen
 
-Sicherheit: Secrets NUR im Windows-Keyring (Suite-Regel), JWT lebt 5 Minuten,
+Sicherheit: Secrets NUR im Windows-Keyring, JWT lebt 5 Minuten,
 nichts davon wird ausgegeben oder geloggt.
 """
 import argparse
@@ -74,8 +74,8 @@ def _keyring():
         import keyring
         return keyring
     except ImportError:
-        sys.exit("keyring fehlt — bitte mit dem Core-venv-Python starten "
-                 "(Core/venv/Scripts/python.exe amo_sign.py …)")
+        sys.exit("keyring fehlt — bitte mit einem Python starten, das das Paket keyring hat "
+                 "(zum Beispiel ../bau_venv/Scripts/python.exe amo_sign.py …)")
 
 
 def schluessel_speichern():

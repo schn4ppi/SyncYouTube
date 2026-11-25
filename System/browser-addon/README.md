@@ -1,4 +1,4 @@
-# YouTube-Downloader — Browser-Erweiterung (universell)
+# SyncYouTube — Browser-Erweiterung (universell)
 
 Ein Quellcode für **Firefox, Chrome, Edge** (+ alle Chromium-Browser: Opera, Brave, Vivaldi, Arc).
 
@@ -16,7 +16,7 @@ browser-addon/
 python build.py
 ```
 Erzeugt `dist/chrome`, `dist/edge`, `dist/firefox` (+ passende `.zip`). Icons werden beim
-ersten Lauf als PNG erzeugt (Pillow, im Core-venv vorhanden).
+ersten Lauf als PNG erzeugt (braucht Pillow, zum Beispiel aus der Bau-Umgebung `System\bau_venv`).
 
 ## Was die Erweiterung tut
 Auf youtube.com: kleiner ⬇-Hover-Knopf über Videos + Rechtsklick-Menü mit Qualitätswahl →
@@ -25,6 +25,3 @@ Spricht **nur** mit dem eigenen PC, kein Fremd-Server.
 
 ## Ausprobieren / Veröffentlichen
 Siehe **STORE.md** (Entpackt-Laden zum Testen; Store-Upload + Auto-Update-Erklärung).
-
-> Der alte `../firefox-addon/`-Ordner ist der Vorläufer (nur Firefox, SVG-Icon) und kann
-> bleiben; die Weiterentwicklung passiert hier in `browser-addon/`.

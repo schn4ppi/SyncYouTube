@@ -3,6 +3,15 @@
 > Diese Liste wird je Version auch als AMO-Versionsnotiz hinterlegt
 > (`amo_sign.py` liest den obersten passenden Eintrag beim Einreichen).
 
+## 1.2.1
+- Heißt jetzt wie die App: **SyncYouTube** (vorher „YouTube → Downloader").
+  Meldungen nennen nicht mehr die alte Startdatei „YouTube-Downloader.bat",
+  sondern bitten, SyncYouTube zu starten.
+- Braucht Firefox 140 oder neuer. Erst ab dieser Fassung kennt Firefox die
+  Datenschutz-Angabe der Erweiterung („sammelt nichts"); ältere warnten beim
+  Laden. SyncYouTube selbst läuft ohnehin nur unter Windows 10 und neuer.
+- Aufgeräumt: die Erkennung der Video-Kennung steht nur noch an einer Stelle.
+
 ## 1.2.0
 - Offline-Warteschlange: Läuft der Downloader gerade nicht, geht ein Klick
   nicht mehr verloren — das Add-on merkt ihn sich dauerhaft (übersteht auch

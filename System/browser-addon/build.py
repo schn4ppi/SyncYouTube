@@ -28,10 +28,13 @@ VARIANTEN = {
     "edge":    {"background": {"service_worker": "background.js"}},
     "firefox": {"background": {"scripts": ["background.js"]},
                 "browser_specific_settings": {
-                    "gecko": {"id": "youtube-downloader@jbk.local", "strict_min_version": "115.0",
+                    "gecko": {"id": "youtube-downloader@jbk.local", "strict_min_version": "140.0",
+                              # 140.0: erst ab Firefox 140 kennt Firefox die Datenschutz-Angabe
+                              # darunter (ältere warnen beim Laden); Firefox 115 läuft nur noch
+                              # auf Windows 7/8, wo SyncYouTube (Python 3.14) nicht startet.
                               # Firefox verlangt seit 2025 eine Datenschutz-Erklärung im Manifest.
                               # Die Erweiterung sammelt NICHTS: sie redet nur mit 127.0.0.1:8776
-                              # (dem lokalen Downloader) -> "none". Ohne dieses Feld lehnt AMO ab.
+                              # (SyncYouTube auf dem eigenen PC) -> "none". Ohne dieses Feld lehnt AMO ab.
                               "data_collection_permissions": {"required": ["none"]},
                               # Selbst verteilter (unlisted) Kanal: Firefox holt sich Updates
                               # selbst — die URL zeigt IMMER aufs neueste GitHub-Release

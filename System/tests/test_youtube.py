@@ -10,6 +10,7 @@ Zwei Wege, es auszuführen:
     pytest tests/                     (falls pytest installiert ist)
 """
 import os
+import re
 import sys
 import time
 
@@ -3679,7 +3680,9 @@ def test_addon_merkliste_v120():
         "Der Knopf versteckt sich noch, wenn die App aus ist - dann kann nichts vorgemerkt werden"
     assert 'classList.contains("merk")' in ct and '"unmerken"' in ct
     assert ".ytdl-hoverbtn.merk" in css, "Gelber Vorgemerkt-Zustand fehlt im CSS"
-    assert '"version": "1.2.0"' in mf
+    # Die Merkliste kam mit 1.2.0; jede spätere Fassung trägt sie weiter.
+    fassung = re.search(r'"version": "(\d+)\.(\d+)\.(\d+)"', mf)
+    assert fassung and tuple(map(int, fassung.groups())) >= (1, 2, 0), fassung
     # App-Seite: Route + Einmal-Toast (id-Zaehler, Erst-Lauf nur merken)
     import inspect
     q = inspect.getsource(app)
