@@ -65,7 +65,7 @@ from musik_einstufung import (  # noqa: F401
     _kanal_nummern, _kat_aus_name, _musik_grad, _musik_grade,
     _tag_kandidat, _titel_aus_name, _titel_blank, _titel_kern)
 
-__version__ = "1.4.4"
+__version__ = "1.4.5"
 
 # Code-/Technikpfade bleiben wie bisher: beim Quellstart System\, bei der exe
 # deren Ebene (nie der flüchtige PyInstaller-Entpackordner). Downloads liegen
