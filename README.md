@@ -1,0 +1,205 @@
+# SyncYouTube
+
+Lokaler YouTube-Downloader **und** vollwertiger Musik-/Video-Player mit Bibliothek —
+eine einzige Web-Oberfläche auf `http://127.0.0.1:8776`, komplett offline auf dem eigenen PC
+(Außenverbindungen: YouTube selbst; MusicBrainz, Cover Art Archive und iTunes fürs Tagging und
+die Cover; lrclib für Liedtexte; TMDB für Film-Bilder; die SponsorBlock-Datenbank; und der
+tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschaltbar).
+
+![SyncYouTube — Bibliothek, Player und Download-Leiste in einer Oberfläche (Beispielbibliothek: freie Blender-Filme)](screenshot.png)
+
+## Features
+
+**Downloads**
+- Warteschlange ohne Limit, Qualität je Eintrag (Beste/4K/1440p/1080p/720p/MP3), Playlist-Auflösung
+- Auto-Retry mit Backoff + Resume (setzt nach Abbruch/Neustart genau dort fort), Netzwerk-Timeout-Schutz
+- **Ausweich-Wege bei „403“:** Verweigert YouTube einen Abrufweg, versucht die App dasselbe
+  Video je einmal über andere Wege (ohne den Client `web_embedded`, ohne Anmeldung, zuletzt
+  über den Client von Apple Vision Pro) und merkt sich den Weg, der geklappt hat. Die
+  Warteschlange zeigt den Wechsel live („🔀 Weg 2/4“), die Fertig-Liste den Weg, über den
+  geladen wurde. Lehnt YouTube alle Wege ab, bietet die Zeile „🔀 Anderer Weg“ an (TV,
+  Android VR). Einstellbar unter „Abrufweg“ (Standard: Automatisch)
+- Bremst YouTube (403, 429, Bot-Abfrage), pausieren Abo-Prüfung, Anreichern und Entdecken
+  30 Minuten, statt die Sperre zu verschärfen; ein Hinweis über den Downloads nennt die Restzeit
+- Premium/altersbeschränkt über Browser-Cookies (Firefox/Chrome/Edge, Standard: Firefox) —
+  read-only, die App meldet dich nie an oder ab; auf „keine“ stellbar
+- Dubletten-Erkennung über die Video-ID, „Schon geladen“-Datenbank
+- SponsorBlock (Werbung/Intros aus der Datei schneiden), Metadaten + Thumbnail als Cover
+- Kanal-/Playlist-**Abos** (holt nur Neues), Ausschnitt/Clip (von–bis, ohne Längenlimit)
+- Ganze **Playlists und Mixe** laden (bei `watch?v=…&list=…` fragt die App nach; Mixe bis 50 Titel)
+- Gestufte Geo-Umgehung: Header-Trick → eigene Proxys → Gratis-Proxys → VPN (Nord/Windscribe/WireGuard)
+- Downloads-Ordner heilt sich selbst: von Hand verschobene Dateien wandern automatisch
+  zurück nach `MP3` / `4K+` / `Video` (Unklares nach `Sonstiges`); Metadaten (Titel/Künstler)
+  werden bei Alt-Dateien automatisch nachgetragen
+- **Ordner-Import**: fremde Musik-/Videodateien im Downloads-Ordner werden automatisch
+  in die Bibliothek aufgenommen (nicht nur selbst geladene)
+
+**Player**
+- Steuerleiste **auf dem Video/Cover** (YouTube-Stil): Spulen, Transport, Untertitel, Clip,
+  Tempo, Lautstärke, YouTube-Knopf, Vollbild — blendet bei Maus-Ruhe aus
+- **Zufall und Wiederholen als getrennte Schalter** (Spotify-Muster, eigene SVG-Icons);
+  Einzeltitel zu Ende → automatisch der nächste Bibliotheks-Titel (Autoplay)
+- 8 Visualizer (Balken/Spiegel/Welle/Oszilloskop/Radial/Matrix/Spektrogramm), Canvas-Cover-Hintergrund
+- Übergänge: Gapless / Crossfade (0–12 s) / Automix · Equalizer + Lautstärke-Angleich
+- Untertitel → **Karaoke** (Original-Sprache, japanisch automatisch als **Romaji**) → Transkript,
+  fehlende Untertitel lädt die App still von YouTube nach
+- YouTube-Kapitel als Sprungmarken, Sleep-Timer, 📻 Endlos-Radio
+- Rechtsklick-Menü mit Windows-Ausklapp-Untermenüs, Klick auf die Fläche = Pause
+- **Medientasten + Windows-Medien-Overlay** (Titel, Interpret, Cover, Zeitleiste) — auch wenn das
+  Fenster im Hintergrund liegt, im Browser, im Programm-Fenster und im Gerät VLC; bei Filmen
+  steuern die Tasten den Film, bei Serien springt ⏭ zur nächsten Folge und ⏮ zur vorigen
+  (an ihre gemerkte Stelle, ein zweiter Druck an den Anfang)
+
+**Bibliothek**
+- Kacheln / **Alben** (Auto-Tagging via MusicBrainz) / Liste, konfigurierbare Spalten
+- Titel per Maus **in die Player-Playlist ziehen**; Playlist als eigenes, andockbares Fenster
+- Playlists (öffnen, umsortieren, .m3u-Import/-Export, Geräte-Sync kopieren/spiegeln)
+- Smart-Playlists (Regeln), Meistgespielt/Zuletzt, Dublettenfinder
+- Rechtsklick-Kontextmenüs wie im Explorer, Mehrfachauswahl (Strg/Shift), mehrere Titel auf
+  einmal löschen — immer in den Papierkorb (die Rückfrage nennt, wohin; der Platz wird vorher
+  geprüft, keine Datei geht still verloren)
+- Die spielende Kachel zeigt Pause; importierte Dateien bringen Dauer, Kanal und Cover aus
+  ihren eigenen Metadaten mit
+
+**Oberfläche**
+- Fenster-System mit Tabs: Tab herausziehen (füllt die freie Lücke), Tab auf ein anderes
+  Fenster ziehen = dort andocken, transluzente Drag-Vorschau
+- ✏-Layout-Modus: verschieben mit Platzhalter-Vorschau, 8 Größen-Griffe, Fenster
+  überlappen sich nie; Layouts speichern/benennen, ↩ Verlust-Schutz, 5 Looks, Mini-Player
+- Sticky Command-Bar: Link einfügen → Download, Live-Warteschlange (Klick = Pause, ✖ = abbrechen),
+  großer Mini-Player mit Spulleiste, Zwischenablage-/Einfügen-Erkennung
+- Mausrad-Kippen = Ansicht-Verlauf zurück/vor, Link ins Fenster ziehen = Download, ?-Legende
+
+**Extras**
+- 📱 Handy-Fernsteuerung im Heim-WLAN (opt-in, Zugangscode, Gerät wählbar wie bei Spotify Connect);
+  spielt das Handy selbst, meldet die Seite Titel, Cover und ⏮ ⏯ ⏭ für den Sperrbildschirm an
+  (Media Session API; ob und wie das Handy sie zeigt, entscheidet sein Browser)
+- Browser-Erweiterung für Firefox/Chrome/Edge (`System/browser-addon/`, ein Code; die signierte
+  Firefox-`.xpi` liegt beim Release und ist über das Tray-Menü/die Einstellungen installierbar —
+  ab v1.0.4 aktualisiert sie sich in Firefox selbst über die Releases dieses Repos)
+- **Selbst-Update** (Standard an): die exe prüft täglich dieses Repo, lädt verifiziert
+  (Größe + SHA256-Abgleich gegen das `.sha256`-Asset, dazu eine gültige Signatur desselben
+  Herausgebers wie die laufende exe; fehlt eines davon, wird nicht getauscht) und tauscht sich
+  ohne Adminrechte selbst —
+  aber nur im Leerlauf, nie mitten in einem Download. Abschaltbar in den Einstellungen
+
+## Voraussetzungen / Start (aus dem Quellcode)
+
+1. **Python 3.12+** und die Pakete:
+   ```
+   pip install "yt-dlp[default]" curl_cffi pykakasi pystray pillow mutagen keyring qrcode
+   pip install python-vlc winrt-runtime winrt-Windows.Foundation winrt-Windows.Media winrt-Windows.Media.Interop winrt-Windows.Storage.Streams
+   pip install pywebview
+   ```
+   Die zweite Zeile braucht nur das Gerät „VLC“: `python-vlc` steuert ein installiertes VLC,
+   die `winrt`-Pakete melden es bei Windows als Medienquelle an (Titel im Medien-Overlay,
+   Medientasten). Ohne `python-vlc` spielt der Browser-Player, ohne `winrt` spielt VLC ohne
+   diese Anmeldung. Die dritte Zeile braucht nur der Fenster-Modus (`SyncYouTube-Fenster.bat`,
+   die App als eigenes Programmfenster statt im Browser). Die genauen Fassungen, mit denen
+   die Releases gebaut sind, stehen in `System/tools/bau_pakete.py`.
+2. **`System/bin/`-Ordner** mit `ffmpeg.exe`, `ffprobe.exe` und `deno.exe`
+   (Deno ist Pflicht — ohne JS-Runtime liefert YouTube seit 2026 „No video formats found“).
+   Die Binärdateien sind nicht im Repo; von den offiziellen Seiten laden (ffmpeg.org, deno.com).
+3. Start: `python System/youtube_app.py` — oder unter Windows die `SyncYouTube.bat`.
+   Sie nimmt das Python aus `System/python_pfad.txt` (eine Zeile: Pfad zu `pythonw.exe`),
+   sonst `pythonw` aus dem PATH. Oberfläche: `http://127.0.0.1:8776`.
+   Unter Windows legt die App beim ersten Start den Startmenü-Eintrag „SyncYouTube“ an
+   (eigene App-Kennung `JBK.SyncYouTube`); darüber startet sie ohne Konsolenfenster.
+   Der Eintrag behält die Variante, mit der er angelegt wurde (Quellstart oder exe), und
+   wechselt sein Ziel erst, wenn es nicht mehr startet.
+
+Tests: `python -m pytest System/tests` (braucht pytest; kein Netz, die Wachen in
+`System/tests/conftest.py` legen alle Daten je Test in einen temporären Ordner). Der
+Direkt-Lauf `python System/tests/test_youtube.py` übergibt an pytest und fährt alle Tests
+dieser Datei. Tests, die deno aus `System/bin` brauchen, werden ohne es sichtbar übersprungen.
+
+## Aufbau
+
+| Datei | Zweck |
+|---|---|
+| `System/youtube_app.py` | Server, Warteschlange, Download-Logik, Bibliothek, Playlists, Tray |
+| `System/oberflaeche.py` | die komplette PC-Oberfläche (eine Datei, wird heiß nachgeladen) |
+| `System/handy.py` | Touch-Oberfläche der Fernsteuerung (`/m`) |
+| `System/abrufweg.py` | Abrufwege zu YouTube und die Ausweich-Leiter bei „403“ |
+| `System/geo.py` / `System/vpn.py` | gestufte Geo-Umgehung / NordVPN-Steuerung |
+| `System/update.py` | Selbst-Update der exe (Repo-Pin, SHA256-Verifikation, Signaturprüfung, Rollback) |
+| `System/browser-addon/` | universelle Browser-Erweiterung + Build-/Signier-Skripte |
+| `System/MODULE.md` | aktuelle Modul-Karte: eine Zeile je Datei mit Zweck und Aufrufern |
+
+Konfiguration und alle Nutzerdaten (`config.json`, `geladen_log.json`, `playlists.json`,
+`warteschlange.json`, `abos.json`, `Downloads/`) entstehen zur Laufzeit und bleiben lokal —
+sie gehören bewusst **nicht** ins Repo.
+
+## Download (Windows, ohne Python)
+
+Unter **Releases** liegt die all-inclusive `SyncYouTube.exe` (ffmpeg/ffprobe/deno eingebaut):
+herunterladen, starten, fertig — sie ist seit v.1.2.4 signiert (siehe unten). Daneben das
+`.sha256`-Asset zum Prüfen und die signierte
+Firefox-Erweiterung (+ `updates.json`, ihr Update-Kanal: einmal installiert, hält Firefox
+sie ab v1.0.4 selbst aktuell). Updates holt die exe standardmäßig selbst (abschaltbar unter
+Einstellungen → „Selbst-Update“; von Hand anstoßen über Tray → „Nach Updates suchen…“).
+
+### Signatur (seit v.1.2.4)
+
+Die `SyncYouTube.exe` ist **signiert**: Herausgeber ist die **JBK-Holding GmbH**
+(EV-Code-Signing-Zertifikat von Sectigo, mit RFC-3161-Zeitstempel). Prüfen lässt sich
+das ohne Zusatzprogramm: Rechtsklick auf die Datei, *Eigenschaften*, Reiter *Digitale
+Signaturen*.
+
+Warum das wichtig ist: Bis v.1.2.3 war die Datei unsigniert. Jeder PyInstaller-Build ist
+ein frisch gehashtes Unikat ohne Herausgeber, und Windows Defender hat solche Dateien nach
+einem Update seiner Erkennungsmuster wiederholt in Quarantäne gesetzt — bei einem Nutzer
+reproduzierbar „nach ein paar Tagen". Auch **Smart App Control** (Windows 11) blockierte
+sie ohne „Trotzdem ausführen"-Knopf. Mit EV-Signatur gibt es SmartScreen-Reputation ohne
+Anlaufzeit.
+
+Wer noch eine ältere, unsignierte Fassung hat: einfach die aktuelle aus den
+[Releases](../../releases/latest) laden.
+
+Das Selbst-Update tauscht nur eine exe mit gültiger Signatur desselben Herausgebers wie
+die laufende. Eine selbst gebaute, unsignierte exe aktualisiert sich darum nicht selbst und
+lädt dafür auch keine neue Fassung herunter.
+
+### Der Quellstart-Weg (ohne exe)
+
+Er bleibt als Alternative, etwa in stark abgeriegelten Umgebungen:
+
+1. `SyncYouTube-Quellstart.zip` aus den Releases laden und entpacken.
+2. `SyncYouTube-Quellstart.bat` doppelklicken — gestartet wird der **offizielle,
+   von der Python Software Foundation signierte** Python-Interpreter; unsere
+   `.py`-Dateien sind für Smart App Control Daten, keine Programme. ffmpeg, ffprobe
+   und Deno liegen im Paket (`System/bin/`).
+3. Wer die App lieber als eigenes Fenster statt im Browser möchte: `SyncYouTube-Fenster.bat`.
+   Es nutzt die Edge-WebView2-Laufzeit, die Windows 10 und 11 mitbringen.
+
+Was im Quellstart anders ist als in der exe:
+
+- **Kein Tray-Symbol, kein Beenden-Knopf.** Das Tray-Symbol gibt es nur in der exe; der
+  Quellstart läuft unsichtbar im Hintergrund (`pythonw`), bis Windows herunterfährt.
+  Sauber beenden (die Warteschlange wird gespeichert) in PowerShell:
+  `Invoke-RestMethod -Method Post http://127.0.0.1:8776/api/beenden`. Notfalls im
+  Task-Manager den Prozess `pythonw.exe` beenden.
+- **Kein Ordner-Dialog.** Das eingebettete Python bringt kein tkinter mit; „📁 wählen"
+  öffnet deshalb kein Fenster, sondern meldet, dass der Dialog nicht verfügbar ist. Den
+  Zielordner tippt man ins Feld daneben.
+- **Kein Selbst-Update.** Eine neue Fassung heißt: neues ZIP aus den Releases.
+
+Alternativ mit eigenem Python (von [python.org](https://python.org), signiert):
+Repo laden, `pip install "yt-dlp[default]" curl_cffi pystray pillow mutagen pykakasi keyring qrcode
+python-vlc winrt-runtime winrt-Windows.Foundation winrt-Windows.Media
+winrt-Windows.Media.Interop winrt-Windows.Storage.Streams pywebview`, den Ordner `System/bin/` mit
+`ffmpeg.exe`, `ffprobe.exe` und `deno.exe` füllen (siehe oben), dann
+`pythonw System\youtube_app.py`. Das `[default]` bringt yt-dlp-ejs mit, ohne das YouTube
+nicht vollständig funktioniert. Die `winrt`-Pakete melden den VLC-Motor bei Windows als
+Medienquelle an (Titel im Medien-Overlay, Medientasten); ohne sie spielt VLC genauso, nur
+ohne diese Anmeldung.
+
+## Lizenz
+
+**GPL-3.0-or-later** (siehe [LICENSE](LICENSE)). Die ausgelieferte `SyncYouTube.exe`
+bündelt 41 fremde Python-Pakete (dazu 7, die setuptools in sich mitbringt), Python selbst,
+FFmpeg und Deno, darunter FFmpeg (GPLv3), pykakasi und mutagen (GPL) sowie
+pystray und python-vlc (LGPL). Alle sind mit GPL-3.0-or-later verträglich, es gibt keinen
+Konflikt. Die vollständige Liste mit Fassungen, Lizenzen und Quellcode-Wegen steht in
+[LIZENZEN.md](LIZENZEN.md); ältere Fassungen tragen ihre Angabe in den jeweiligen
+[Releases](../../releases).

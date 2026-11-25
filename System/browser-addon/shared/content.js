@@ -1,0 +1,452 @@
+// Content-Skript auf youtube.com: kleiner, unscheinbarer Download-Knopf, der beim
+// Überfahren eines Videos/Vorschaubilds erscheint und bei Mausstillstand wieder
+// verschwindet. Klick schickt die URL (via Hintergrund-Skript) an die App.
+(function () {
+  const api = (typeof browser !== "undefined") ? browser : chrome;
+  let btn = null, curUrl = null, curListe = null, hideTimer = null, lastMove = 0;
+  // v1.1.1 („kommt ganz kurz das download symbol, ein paar frames"):
+  // zeigen() setzte bei JEDER Mausbewegung erst ⬇ und wartete auf die
+  // Hab-Antwort aus dem Hintergrund — der Haken flackerte. Dieser lokale
+  // Speicher (Video-Id -> schon da?) setzt den Zustand SOFORT; die Antwort
+  // frischt ihn nur noch auf.
+  // Review-Finding 8: NIE für immer merken — ein per Rechtsklick/App geladenes
+  // Video muss binnen 60 s auch hier grün werden (und umgekehrt).
+  const habLokal = new Map();                          // id -> {da, ts}
+  function habSetzen(id, da) { habLokal.set(id, { da: !!da, ts: Date.now() }); }
+  function habWert(id) { const e = habLokal.get(id); return !!(e && e.da); }
+  function habVeraltet(id) { const e = habLokal.get(id); return !e || Date.now() - e.ts > 60000; }
+  // v1.1.2 (der Besitzer): dasselbe fuer ganze LISTEN — „schon komplett eingereiht?".
+  const listenLokal = new Map();                       // list_id -> {da, ts}
+  function listenSetzen(id, da) { listenLokal.set(id, { da: !!da, ts: Date.now() }); }
+  function listenWert(id) { const e = listenLokal.get(id); return !!(e && e.da); }
+  function listenVeraltet(id) { const e = listenLokal.get(id); return !e || Date.now() - e.ts > 60000; }
+  // v1.2.0 (der Besitzer): Offline-Vormerkungen — gelbes „…" am Knopf. Der Wert kommt
+  // mit der hab-/hab_liste-Antwort mit (gleiche Frische wie hab).
+  const merkLokal = new Map();                         // id -> bool
+  function merkSetzen(id, m) { merkLokal.set(id, !!m); }
+  function merkWert(id) { return !!merkLokal.get(id); }
+  // Review-Fund 4: eine in-Flight-hab-Antwort darf eine GERADE entfernte
+  // Vormerkung nicht wieder gelb malen — jeder Unmerk-Klick erhöht die
+  // Sequenz, Antworten mit älterer Sequenz werden verworfen.
+  let merkSeq = 0;
+  // Review-Fund 12: der Ruhe-Titel sagt ehrlich, was der Klick TUT.
+  function titelNeutral() {
+    return appAn ? "Zur Download-Warteschlange hinzufügen"
+                 : "App ist aus — der Klick merkt vor (gelbes …), geladen wird beim nächsten App-Start";
+  }
+  const listenMerk = new Map();                        // list_id -> bool
+  function listenMerkSetzen(id, m) { listenMerk.set(id, !!m); }
+  function listenMerkWert(id) { return !!listenMerk.get(id); }
+
+  // Hover-Knopf abschaltbar (v1.0.5, Popup-Schalter; Standard AN) —
+  // wirkt sofort über storage.onChanged, das Rechtsklick-Menü bleibt immer.
+  let hoverAn = true;
+  try {
+    api.storage.local.get("ytdl_hover").then((o) => { hoverAn = !(o && o.ytdl_hover === false); }, () => {});
+    api.storage.onChanged.addListener((aend, bereich) => {
+      if (bereich === "local" && aend.ytdl_hover) {
+        hoverAn = aend.ytdl_hover.newValue !== false;
+        if (!hoverAn) verstecken();
+      }
+    });
+  } catch (e) { /* Storage nicht verfügbar -> Knopf bleibt an */ }
+
+  // App-läuft-Wächter (22.07.): der Knopf erscheint NUR, wenn der Downloader
+  // wirklich läuft — vorher tauchte er immer auf und der Klick lief ins Leere.
+  // Der Ping läuft im Hintergrund-Skript (Cache dort), hier nur das Ergebnis.
+  let appAn = false, appTs = 0;
+  function appPruefen() {
+    const now = Date.now();
+    if (now - appTs < 30000) return;                 // höchstens alle 30 s fragen
+    appTs = now;
+    try {
+      api.runtime.sendMessage({ typ: "ping" }).then(
+        (res) => { appAn = !!(res && res.ok); },
+        () => { appAn = false; });
+    } catch (e) { appAn = false; }
+  }
+
+  function mkBtn() {
+    btn = document.createElement("button");
+    btn.className = "ytdl-hoverbtn";
+    btn.type = "button";
+    btn.title = "Zur Download-Warteschlange hinzufügen";
+    btn.textContent = "⬇";
+    // Klicks abfangen, damit YouTube sie nicht als Video-Klick wertet
+    btn.addEventListener("mousedown", (e) => { e.stopPropagation(); e.preventDefault(); }, true);
+    btn.addEventListener("click", onClick, true);
+    document.body.appendChild(btn);
+  }
+
+  function onClick(e) {
+    e.stopPropagation(); e.preventDefault();
+    // v1.1.1 (der Besitzer): Klick auf den LISTEN-Pfeil oeffnet den Von-bis-Dialog —
+    // kein window.prompt (waere von derselben Firefox-Sperre betroffen wie
+    // confirm beim Ausschnitt-Loeschen).
+    if (curListe) { listeDialog(curListe); return; }
+    if (!curUrl) return;
+    // v1.2.0 (der Besitzer): gelbes „…" = vorgemerkt. „Wenn man nochmal draufklickt
+    // wird es wie sonst rot mit x" — der Klick nimmt die Vormerkung zurueck.
+    if (btn.classList.contains("merk")) {
+      const u = curUrl;
+      const mm = u.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
+      try { api.runtime.sendMessage({ typ: "unmerken", art: "video", url: u }); } catch (err) {}
+      if (mm) merkSetzen(mm[1], false);
+      merkSeq += 1;                                  // laufende hab-Antworten verwerfen (Fund 4)
+      btn.classList.remove("merk"); btn.classList.add("nein"); btn.textContent = "✗";
+      setTimeout(() => { if (curUrl !== u || curListe) return;
+                         btn.classList.remove("nein"); btn.textContent = "⬇";
+                         btn.title = titelNeutral(); }, 600);
+      return;
+    }
+    // v1.0.7 (der Besitzer): schon in der Bibliothek -> Klick laedt NICHT doppelt;
+    // anderes Format geht per Rechtsklick. v1.1.0 (der Besitzer): der Klick zeigt ROT
+    // mit ✗ („hast du schon") und kehrt zum gruenen Haken zurueck.
+    if (btn.classList.contains("hab")) {
+      btn.classList.add("nein");
+      btn.textContent = "✗";
+      // Review-Finding 2/9: der Rücksetzer prüft, ob der Knopf noch DIESEM
+      // Video gehört — sonst malt er ein ✓ auf einen fremden Anker.
+      const u = curUrl;
+      setTimeout(() => { if (curUrl !== u || curListe) return;
+                         btn.classList.remove("nein"); btn.textContent = "✓"; }, 600);
+      return;
+    }
+    const url = curUrl;
+    btn.textContent = "…";                             // ehrlich: erst nach Antwort ✓ oder ✗
+    const fertig = (res) => {
+      const ok = !!(res && res.ok);
+      const gemerkt = !!(res && res.gemerkt);          // v1.2.0: App aus -> vorgemerkt
+      const mv = url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
+      if (ok && !gemerkt && mv) habSetzen(mv[1], true);   // v1.1.1: sofort als „hab" merken
+      if (gemerkt && mv) merkSetzen(mv[1], true);
+      // Review-Fund 1: der Knopf kann inzwischen einem ANDEREN Video/einer
+      // Liste gehören — dann nur die Speicher aktualisieren, nichts malen.
+      if (curUrl !== url || curListe) return;
+      btn.classList.add(ok ? (gemerkt ? "merk" : "ok") : "fehl");
+      btn.textContent = ok ? (gemerkt ? "…" : "✓") : "✗";
+      btn.title = ok ? (gemerkt ? "Vorgemerkt — lädt beim nächsten App-Start (Klick entfernt)"
+                                : "In der Warteschlange")
+                     : "Fehler: " + ((res && res.fehler) || "keine Antwort — läuft die App?");
+      setTimeout(() => {
+        btn.classList.remove("ok", "fehl");
+        // Review-Finding 2/9: gehört der Knopf inzwischen einem anderen
+        // Video oder einer Liste, hat DEREN zeigen() den Zustand gesetzt —
+        // nichts überschreiben. Sonst zurück in den ehrlichen Ruhezustand
+        // (✓ geladen · gelbes … vorgemerkt · ⬇ sonst).
+        if (curUrl !== url || curListe) return;
+        const da = mv && habWert(mv[1]);
+        const merk = mv && merkWert(mv[1]) && !da;
+        btn.classList.toggle("hab", !!da);
+        btn.classList.toggle("merk", !!merk);
+        btn.textContent = da ? "✓" : (merk ? "…" : "⬇");
+        btn.title = da ? "Schon in der Bibliothek — Rechtsklick lädt bewusst in anderem Format"
+                       : (merk ? "Vorgemerkt — lädt beim nächsten App-Start (Klick entfernt)"
+                               : titelNeutral());
+      }, 1800);
+    };
+    api.storage.local.get("ytdl_quali").then((o) => {
+      const q = o && o.ytdl_quali;
+      return api.runtime.sendMessage({ typ: "add", url, qualitaet: (q && q !== "default") ? q : null });
+    }, () => api.runtime.sendMessage({ typ: "add", url }))
+      .then(fertig, () => fertig(null));
+  }
+
+  function videoAnker(el) {
+    if (!el || !el.closest) return null;
+    const a = el.closest('a#thumbnail, a.ytd-thumbnail, a[href*="/watch?v="], a[href*="/shorts/"]');
+    if (!(a && a.href && (a.href.includes("/watch?v=") || a.href.includes("/shorts/")))) return null;
+    // NUR echte Vorschaubilder (22.07.): Titel-Links matchten auch — dann saß
+    // der Knopf am Zeilenende genau ÜBER YouTubes ⋮-Menü („Video ausblenden").
+    if (!a.querySelector("img, yt-image")) return null;
+    return a;
+  }
+
+  // v1.0.9 (Fund: „bei einem beendeten Video ganz oben links, nicht mehr
+  // im Video"). getBoundingClientRect() liefert für ein Element OHNE Maße
+  // lauter Nullen — das passiert, sobald YouTube am Ende eines Videos den
+  // Abspann einblendet, den Player umbaut oder das <video> kurz ausblendet.
+  // Vorher rechnete zeigen() blind weiter und Math.max(4, 0+6) parkte den
+  // Knopf in der linken oberen Bildschirmecke: sichtbar, aber ohne Bezug.
+  // Ein Knopf ohne brauchbaren Anker gehört WEG, nicht an den Rand geklemmt.
+  function ankerBrauchbar(r) {
+    if (!r || r.width < 40 || r.height < 40) return false;      // ohne Maße/zu klein
+    if (r.bottom <= 0 || r.right <= 0) return false;            // links/oben aus dem Bild
+    if (r.top >= innerHeight || r.left >= innerWidth) return false;  // unten/rechts draußen
+    return true;
+  }
+
+  function zeigen(rect, url) {
+    if (!ankerBrauchbar(rect)) { verstecken(); return; }
+    // Review-Finding 9: beim ANKER-WECHSEL alle Rückmelde-Klassen abräumen —
+    // ok/fehl/nein gehören zum vorherigen Video, nicht zu diesem.
+    const wechsel = url !== curUrl || !!curListe;
+    curUrl = url;
+    curListe = null; btn.classList.remove("liste");    // Video-Knopf, kein Listen-Pfeil
+    if (wechsel) btn.classList.remove("ok", "fehl", "nein");
+    // Oben LINKS statt oben rechts (22.07.): oben rechts liegen YouTubes
+    // eigene Hover-Knöpfe (Später ansehen / ⋮) — die dürfen wir nie verdecken.
+    // Geklemmt wird an den ANKER, nicht an den Bildschirm (Dauerregel:
+    // Höchstmaße an die Position koppeln) — so bleibt der Knopf immer IM Bild.
+    const b = 30;                                    // Knopfgröße samt Rand
+    const l = Math.min(rect.left + 6, rect.right - b);
+    const t = Math.min(rect.top + 8, rect.bottom - b);
+    btn.style.left = l + "px";
+    btn.style.top = t + "px";
+    btn.classList.add("an");
+    // v1.1.0 (der Besitzer): schon in der Bibliothek -> GRUEN mit Haken ✓, schon BEVOR
+    // man klickt. v1.1.1: der Zustand kommt SOFORT aus dem lokalen Speicher
+    // (kein ⬇-Flackern mehr); die Hintergrund-Antwort frischt nur noch auf.
+    const habAnwenden = (da, merk) => {
+      merk = !!merk && !da;                            // „hab" schlägt „vorgemerkt"
+      btn.classList.toggle("hab", !!da);
+      btn.classList.toggle("merk", merk);
+      btn.textContent = da ? "✓" : (merk ? "…" : "⬇");
+      btn.title = da ? "Schon in der Bibliothek — Rechtsklick lädt bewusst in anderem Format"
+                     : (merk ? "Vorgemerkt — lädt beim nächsten App-Start (Klick entfernt)"
+                             : titelNeutral());
+    };
+    // Läuft auf DIESEM Video gerade eine Klick-Rückmeldung (…/✓/✗), nicht
+    // übermalen — sie endet über ihren eigenen (bewachten) Timer.
+    // v1.2.0: das DAUERHAFTE gelbe „…" (Klasse merk) ist KEINE Rückmeldung.
+    const rueckmeldung = () => !wechsel && (btn.classList.contains("ok")
+      || btn.classList.contains("fehl") || btn.classList.contains("nein")
+      || (btn.textContent === "…" && !btn.classList.contains("merk")));
+    const m = url.match(/(?:v=|shorts\/|youtu\.be\/)([\w-]{6,})/);
+    if (!rueckmeldung()) habAnwenden(m ? habWert(m[1]) : false, m ? merkWert(m[1]) : false);
+    if (m && habVeraltet(m[1])) {
+      const seq = merkSeq;                           // Fund 4: Unmerk-Klick macht die Antwort ungültig
+      try {
+        api.runtime.sendMessage({ typ: "hab", id: m[1] }).then((res) => {
+          if (seq !== merkSeq) return;               // inzwischen unmerkt -> veraltete Antwort verwerfen
+          habSetzen(m[1], res && res.da);
+          merkSetzen(m[1], res && res.gemerkt);
+          if (curUrl === url && !curListe && !rueckmeldung()) habAnwenden(res && res.da, res && res.gemerkt);
+        }, () => {});
+      } catch (e) { /* Hintergrund nicht erreichbar -> Knopf bleibt neutral */ }
+    }
+  }
+  function verstecken() { if (btn) { btn.classList.remove("an", "liste"); } curUrl = null; curListe = null; }
+
+  // ---- Ganze Playlist laden (v1.1.1, Vorgabe: „für die ganze playlist … bzw wenn
+  // es ein radio ist sollte gefragt werden wie viele") -------------------------
+  function listenAnker(el) {
+    if (!el || !el.closest) return null;
+    // (a) Playlist-Karten/-Links überall auf YouTube.
+    const a = el.closest('a[href*="playlist?list="]');
+    if (a && a.querySelector("img, yt-image")) {
+      const img = a.querySelector("img") || a.querySelector("yt-image");
+      return { rect: img.getBoundingClientRect(), url: a.href };
+    }
+    // (b) Das Playlist-Panel auf der Watch-Seite: der KOPF (Titel/Mix-Zeile),
+    // nicht die Video-Zeilen — die behalten ihren eigenen Knopf.
+    const panel = el.closest("ytd-playlist-panel-renderer");
+    if (panel && !el.closest('a[href*="/watch?v="]')) {
+      const kopf = panel.querySelector(".header, h3.title, .title");
+      const liste = (location.search.match(/[?&]list=([\w-]+)/) || [])[1];
+      if (kopf && liste && el.closest(".header, h3.title, .title, .publisher, .index-message-wrapper")) {
+        // Review-Finding 1/5: Mixe (RD…) hängen an ihrem START-VIDEO. Die Form
+        // playlist?list=RD… liefert YouTube nicht aus („This playlist type is
+        // unviewable", live gemessen) — für Mixe MUSS die watch-Form mit v=
+        // reisen; echte Playlists bleiben bei der sauberen playlist-Form.
+        const v = (location.search.match(/[?&]v=([\w-]+)/) || [])[1];
+        const url = (/^RD/.test(liste) && v)
+          ? "https://www.youtube.com/watch?v=" + v + "&list=" + liste
+          : "https://www.youtube.com/playlist?list=" + liste;
+        return { rect: kopf.getBoundingClientRect(), url };
+      }
+    }
+    return null;
+  }
+
+  function listeZeigen(anker) {
+    if (!ankerBrauchbar(anker.rect)) { verstecken(); return; }
+    curUrl = null;
+    const lid = (anker.url.match(/[?&]list=([\w-]+)/) || [])[1] || "";
+    curListe = { url: anker.url, id: lid,
+                 mix: /^RD/.test(lid),                  // RD… = Radio/Mix (endlos)
+                 schonDa: listenWert(lid) };
+    const b = 30;
+    btn.style.left = Math.min(anker.rect.left + 6, anker.rect.right - b) + "px";
+    btn.style.top = Math.min(anker.rect.top + 8, anker.rect.bottom - b) + "px";
+    btn.classList.remove("ok", "fehl", "nein");
+    btn.classList.add("an", "liste");
+    // v1.1.2 (der Besitzer): schon komplett eingereihte Playlist -> gruener Haken, wie
+    // beim Video. Der Klick VERWEIGERT aber nicht: er oeffnet den Dialog mit
+    // Hinweis — „von 51 bis 100 nachladen" muss moeglich bleiben (Bekanntes
+    // wird beim Einreihen ohnehin uebersprungen). Mixe sind endlos und
+    // bekommen nie einen Haken.
+    const listeAnwenden = (da, merk) => {
+      if (!curListe || curListe.id !== lid) return;
+      curListe.schonDa = !!da;
+      curListe.gemerkt = !!merk && !da;                // v1.2.0: vorgemerkte Liste
+      btn.classList.toggle("hab", !!da);
+      btn.classList.toggle("merk", curListe.gemerkt);
+      btn.textContent = da ? "✓" : (curListe.gemerkt ? "…" : "⬇");
+      btn.title = da ? "Playlist schon eingereiht — Klick öffnet trotzdem den Von-bis-Dialog"
+                     : (curListe.gemerkt ? "Playlist vorgemerkt — Klick öffnet den Dialog (dort entfernbar)"
+                     : (curListe.mix ? "Diesen Mix laden — Klick fragt, wie viele"
+                                     : "Diese Playlist laden — Klick fragt von–bis"));
+    };
+    // Review-Fund 2: im Antwort-Callback NIE curListe dereferenzieren — der
+    // Anker kann längst weg sein (scroll -> verstecken -> curListe=null).
+    // Ob Mix, steht fest in der lid.
+    const istMix = /^RD/.test(lid);
+    listeAnwenden(!istMix && listenWert(lid), listenMerkWert(lid));
+    if (lid && listenVeraltet(lid)) {
+      const seq = merkSeq;
+      try {
+        api.runtime.sendMessage({ typ: "hab_liste", id: lid }).then((res) => {
+          if (seq !== merkSeq) return;
+          listenSetzen(lid, res && res.da);
+          listenMerkSetzen(lid, res && res.gemerkt);
+          listeAnwenden(!istMix && res && res.da, res && res.gemerkt);
+        }, () => {});
+      } catch (e) { /* Hintergrund nicht erreichbar -> Pfeil bleibt neutral */ }
+    }
+  }
+
+  function listeDialog(liste) {
+    const alt = document.getElementById("ytdl-listendialog");
+    if (alt) alt.remove();
+    const box = document.createElement("div");
+    box.id = "ytdl-listendialog";
+    box.innerHTML =
+      '<div class="ytdl-ld-titel">' + (liste.mix ? "🎧 Mix laden" : "📃 Playlist laden") + "</div>" +
+      // v1.1.2: ehrlicher Hinweis statt Verweigern — Nachladen bleibt moeglich.
+      (liste.schonDa ? '<div class="ytdl-ld-hinweis" style="color:#6fcf7f">✓ Schon komplett eingereiht — Bekanntes wird übersprungen.</div>' : "") +
+      // v1.2.0: vorgemerkte Liste — hier kann man die Vormerkung zurücknehmen.
+      (liste.gemerkt ? '<div class="ytdl-ld-hinweis" style="color:#c9952b">… Vorgemerkt — lädt beim nächsten App-Start.</div>' +
+        '<div class="ytdl-ld-knoepfe" style="justify-content:flex-start;margin-bottom:6px"><button id="ytdl-ld-unmerk">Vormerkung entfernen</button></div>' : "") +
+      '<div class="ytdl-ld-zeile"><label>Von Nr.</label><input type="number" min="1" id="ytdl-ld-von" placeholder="1"></div>' +
+      '<div class="ytdl-ld-zeile"><label>Bis Nr.</label><input type="number" min="1" id="ytdl-ld-bis" placeholder="' +
+        (liste.mix ? "50" : "Ende") + '"></div>' +
+      '<div class="ytdl-ld-hinweis">' + (liste.mix
+        ? 'Ein Mix ist endlos — ohne „Bis" lade ich 50.'
+        : "Beides leer = die ganze Playlist.") + "</div>" +
+      '<div class="ytdl-ld-knoepfe"><button id="ytdl-ld-nein">Abbrechen</button>' +
+      '<button id="ytdl-ld-ja">⬇ Laden</button></div>';
+    document.body.appendChild(box);
+    const br = btn.getBoundingClientRect();
+    box.style.left = Math.max(8, Math.min(br.left, innerWidth - 250)) + "px";
+    box.style.top = Math.min(br.bottom + 6, innerHeight - 190) + "px";
+    // Review-Finding 3: Escape am DOKUMENT abfangen (capture) — der Dialog-div
+    // ist nicht fokussierbar, ein Listener an ihm hört nur, solange der Fokus
+    // in einem Eingabefeld steht. stopPropagation, damit YouTubes eigene
+    // Escape-Handler (Vollbild!) nicht mit auslösen.
+    const esc = (ev) => { if (ev.key === "Escape") { ev.stopPropagation(); zu(); } };
+    const zu = () => { document.removeEventListener("keydown", esc, true); box.remove(); };
+    document.addEventListener("keydown", esc, true);
+    box.querySelector("#ytdl-ld-nein").onclick = zu;
+    const unmerkKnopf = box.querySelector("#ytdl-ld-unmerk");
+    if (unmerkKnopf) unmerkKnopf.onclick = () => {
+      try { api.runtime.sendMessage({ typ: "unmerken", art: "liste", url: liste.url }); } catch (e) {}
+      listenMerkSetzen(liste.id, false);
+      merkSeq += 1;                                  // laufende Antworten verwerfen (Fund 4)
+      // Review-Fund 3: der Knopf kann inzwischen einem ANDEREN Anker gehören
+      // (der Dialog bleibt offen, onMove läuft weiter) — nur den eigenen malen.
+      if (curListe && curListe.id === liste.id) {
+        curListe.gemerkt = false;
+        btn.classList.remove("merk");
+        if (!btn.classList.contains("hab")) btn.textContent = "⬇";
+      }
+      zu();
+    };
+    box.querySelector("#ytdl-ld-ja").onclick = () => {
+      const von = parseInt(box.querySelector("#ytdl-ld-von").value, 10) || null;
+      let bis = parseInt(box.querySelector("#ytdl-ld-bis").value, 10) || null;
+      // Review-Finding 6: „Von 60" ohne Bis hieß vorher bis=50 — und die
+      // Tausch-Regel der App machte daraus 50..60 statt „50 Stück ab 60".
+      if (liste.mix && !bis) bis = (von || 1) + 49;    // endlos braucht IMMER eine Grenze
+      const ja = box.querySelector("#ytdl-ld-ja");
+      ja.textContent = "…"; ja.disabled = true;
+      api.storage.local.get("ytdl_quali").then((o) => {
+        const q = o && o.ytdl_quali;
+        return api.runtime.sendMessage({ typ: "add_liste", url: liste.url, von, bis,
+                                         qualitaet: (q && q !== "default") ? q : null });
+      }, () => api.runtime.sendMessage({ typ: "add_liste", url: liste.url, von, bis }))
+        .then((res) => {
+          // v1.2.0: App aus -> ehrlich „vorgemerkt" statt ✗; Badge wird gelb.
+          if (res && res.ok && res.gemerkt) {
+            ja.textContent = "… vorgemerkt";
+            listenMerkSetzen(liste.id, true);
+            if (curListe && curListe.id === liste.id) { curListe.gemerkt = true;
+              btn.classList.add("merk"); btn.textContent = "…"; }
+          } else {
+            ja.textContent = (res && res.ok) ? "✓ eingereiht" : "✗ " + ((res && res.fehler) || "App erreichbar?");
+          }
+          setTimeout(zu, 1200);
+        }, () => { ja.textContent = "✗ App erreichbar?"; setTimeout(zu, 1500); });
+    };
+    setTimeout(() => {
+      const s = (ev) => { if (!box.contains(ev.target) && ev.target !== btn) { zu();
+        document.removeEventListener("pointerdown", s, true); } };
+      document.addEventListener("pointerdown", s, true);
+      const v = box.querySelector("#ytdl-ld-von"); if (v) v.focus();
+    }, 0);
+  }
+
+  function resetIdle() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(verstecken, 1500);   // keine Mausbewegung -> ausblenden
+  }
+
+  function onMove(e) {
+    const now = Date.now();
+    if (now - lastMove < 60) return;            // Drosselung
+    lastMove = now;
+    if (!hoverAn) { verstecken(); return; }     // Knopf im Popup abgeschaltet (v1.0.5)
+    // v1.2.0 (der Besitzer): App aus -> der Knopf bleibt DA und merkt Klicks vor
+    // (persistente Offline-Warteschlange). Das alte Verstecken (22.07.) galt,
+    // solange ein Klick ins Leere lief — jetzt tut er etwas Sinnvolles.
+    // appPruefen läuft weiter: der Ping weckt im Hintergrund den Nachschub.
+    appPruefen();
+    if (!btn) mkBtn();
+    if (e.target === btn || (btn && btn.contains(e.target))) { resetIdle(); return; }
+    // Offener Von-bis-Dialog: nichts umbauen, solange der Besitzer darin tippt (v1.1.1).
+    const dlg = document.getElementById("ytdl-listendialog");
+    if (dlg && dlg.contains(e.target)) { resetIdle(); return; }
+    // Über YouTubes eigenen Bedienelementen (⋮-Menü, Knöpfe, Dropdowns) sofort
+    // weg — nie deren Klickfläche verdecken (22.07., „Video ausblenden").
+    if (e.target.closest && e.target.closest("button, yt-icon-button, ytd-menu-renderer, tp-yt-iron-dropdown, tp-yt-paper-listbox")) {
+      verstecken(); return;
+    }
+    const a = videoAnker(e.target);
+    if (a) {
+      // v1.1.0 (der Besitzer, zwei Bilder): "wenn ich neben den track gehe erscheint ein
+      // pfeil, wenn ich auf den track gehe, ist der pfeil woanders." Je nach
+      // Treffer (Zeilen-Link mit Text vs. Thumbnail-Link) war der ANKER ein
+      // anderes Element — der Knopf sprang. Jetzt ankert er IMMER am
+      // Vorschaubild IM Link (das videoAnker garantiert), egal wo die Maus
+      // in der Zeile steht.
+      const img = a.querySelector("img") || a.querySelector("yt-image");
+      const ir = img && img.getBoundingClientRect();
+      zeigen(ankerBrauchbar(ir) ? ir : a.getBoundingClientRect(), a.href);
+      resetIdle(); return;
+    }
+    // v1.1.1 (der Besitzer): Playlist-Karten und der Panel-Kopf bekommen den Listen-Pfeil.
+    const liste = listenAnker(e.target);
+    if (liste) { listeZeigen(liste); resetIdle(); return; }
+    const player = e.target.closest ? e.target.closest("#movie_player, .html5-video-player") : null;
+    if (player && location.href.includes("/watch")) {
+      // Am echten BILD ausrichten (v1.0.5): der Player-Container umfasst
+      // auch Letterbox/Chrome — der Knopf sass dadurch "etwas ausserhalb"
+      // des sichtbaren Videos. Das <video>-Element hat die echten Bild-Masse.
+      // v1.0.9: erst das echte Bild, sonst der Player — und NUR, wenn der
+      // gewählte Anker auch Maße hat. Vorher genügte „Breite > 0"; ein
+      // beendetes Video kann aber breit und trotzdem ohne Höhe/Position sein.
+      const video = player.querySelector("video");
+      const vr = video && video.getBoundingClientRect();
+      const rect = ankerBrauchbar(vr) ? vr : player.getBoundingClientRect();
+      zeigen(rect, location.href.split("&")[0]);
+      resetIdle();
+      return;
+    }
+    // v1.0.7 (der Besitzer): Maus hat das Video/Vorschaubild VERLASSEN -> Knopf SOFORT
+    // weg (vorher blieb er bis zum 1,5-s-Ruhe-Timer stehen).
+    verstecken();
+  }
+
+  document.addEventListener("mousemove", onMove, true);
+  document.addEventListener("scroll", verstecken, true);
+})();

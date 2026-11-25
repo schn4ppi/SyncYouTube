@@ -1,0 +1,89 @@
+# WHITELIST-Prinzip: standardmäßig ist ALLES ausgeschlossen, nur Code/Doku
+# wird einzeln freigegeben — Besitzer-Daten (Downloads, Configs, Warteschlange,
+# Zugangscodes) können so NIE versehentlich committet werden.
+# Struktur seit 14.07.2026 (Ordnerstandard): Startdateien + Downloads oben,
+# alles Technische in System\.
+*
+!*/
+
+# --- freigegeben: Code + Doku ---
+!/.gitignore
+!/LICENSE
+!/README.md
+!/LIZENZEN.md
+!/screenshot.png
+!/_LIESMICH.txt
+!/SyncYouTube.bat
+!/SyncYouTube-Fenster.bat
+# 24.09.2026: „SyncYouTube (ohne Fenster).vbs" liegt im _Archiv
+# (nur eine der beiden gleichen Startdateien; ohne Aufblitzen startet jetzt
+# der Startmenü-Eintrag „SyncYouTube"). Rückweg: _Archiv\REGISTER.md.
+!System/MODULE.md
+!System/json_ablage.py
+!System/layout_kern.js
+!System/youtube_app.py
+# 08.09.2026: Die Bau-Anleitung selbst war unversioniert — ein Plattenschaden haette
+# das Rezept der ausgelieferten .exe mitgenommen, waehrend der Code ueberlebt haette
+# (Leitplanke P4: Rueckweg immer). Beide enthalten keine Daten, nur Bau-Schritte.
+!System/SyncYouTube.spec
+!System/build_release.py
+!System/huelle.py
+!System/filme.py
+!System/profil_geraete.py
+!System/live_tv.py
+!System/update.py
+!System/oberflaeche.py
+!System/handy.py
+# 23.09.2026: Medientasten — gemeinsamer Media-Session-Baustein (PC + Handy)
+# und die Windows-Anmeldung des VLC-Motors aus dem Server (pywinrt, Freigabe).
+!System/medien_session.py
+!System/medien_smtc.py
+# 24.09.2026: App-Kennung JBK.SyncYouTube + Startmenü-Eintrag (Entscheid).
+!System/windows_kennung.py
+# 24.09.2026: Firefox-Cookies samt WAL für yt-dlp (Lehre aus ein anderes Projekt).
+!System/cookie_kopie.py
+# 22.11.2026: Ausweich-Leiter bei 403 + Einstellung „Abrufweg“ (Freigabe).
+!System/abrufweg.py
+!System/tools/medien_probe.py
+!System/fernbedienung.py
+!System/geo.py
+!System/vpn.py
+# 25.09.2026: Struktur-Runde der Gesamtprüfung (Abschnitt 4): Teile von
+# youtube_app.py in eigene Module (Y2 Links deuten, Y3 Musik-Einstufung).
+!System/links.py
+!System/musik_einstufung.py
+!System/tests/*.py
+!System/tools/quellstart_paket.py
+!System/tools/bibliothek_zusammenfuehren.py
+# 25.11.2026: EINE Liste der Bau-Fassungen für exe und Quellstart, das Werkzeug,
+# das daraus die Bau-Umgebung baut, und deren festgehaltener Stand. Die Umgebung
+# selbst (System/bau_python, System/bau_venv) bleibt draußen.
+!System/tools/bau_pakete.py
+!System/tools/bau_umgebung.py
+!System/tools/bau_stand.txt
+# 24.09.2026: Lizenztexte fremder Bestandteile, deren Paket keinen mitbringt
+# (pywinrt: dist-info ohne LICENSE) — gehen mit ins Quellstart-Paket.
+!System/lizenzen/*.txt
+!System/browser-addon/build.py
+!System/browser-addon/amo_sign.py
+!System/browser-addon/manifest.base.json
+!System/browser-addon/README.md
+!System/browser-addon/STORE.md
+!System/browser-addon/CHANGELOG.md
+!System/browser-addon/.gitignore
+!System/browser-addon/shared/*
+!System/browser-addon/shared/icons/*
+
+# --- hart gesperrt (auch falls oben je gelockert wird) ---
+Downloads/
+System/bin/
+System/browser-addon/dist/
+System/firefox-addon/
+System/dist_exe/
+System/build_tmp/
+__pycache__/
+*.json.defekt
+*.part
+*.vtt
+# 25.09.2026: Protokoll-Datei der App im Datenverzeichnis (+ Vorgänger .1 bis .3)
+yt_protokoll.log*

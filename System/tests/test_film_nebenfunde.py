@@ -1,0 +1,190 @@
+# -*- coding: utf-8 -*-
+"""Film und Serien: kleine Nebenbefunde der Analyse vom 24.09.2026.
+
+Die Analysen „Folgenende" und „Transcoder" fanden am Rand vier kleine,
+belegte Fehler. Diese Datei nagelt sie fest — mit dem ECHTEN JavaScript der
+Seite, ausgeführt mit deno (Hilfen aus test_medientasten_verhalten.py):
+
+* Die Tasten F (Vollbild) und I (Bild-in-Bild) wirkten bei offenem Film auf die
+  Musik darunter: F holte beim zweiten Druck den Musik-Player ins Vollbild, I
+  versuchte Bild-in-Bild auf der Musik. Regel: „Die Tasten gehören dem Film".
+* Serien-„▶ Weiterschauen" (tvSerienPlay) wählte die angefangene Folge richtig,
+  startete sie aber immer bei 0 — die Folgen-Kachel übergab ihre Stelle, der
+  Knopf nicht. Jetzt gilt dieselbe Regel wie beim Landen per ⏮/⏭
+  (tvpLandePos: gesehen, ab 90 % oder bis 30 s = Anfang).
+* Esc/← bei einer Folge mit geschlossener Info öffnete die Info der FOLGE
+  (typ 'folge', ohne Staffeln und Folgenliste) statt der Serie.
+* Esc/← bei einer Folge mit OFFENER Info zeichnete die Seite nicht neu: die
+  Stelle stand zwar in der Folgenliste, die Kachel zeigte aber den alten Stand
+  (neu gezeichnet wurde nur, wenn die Info-Seite genau diesen Film zeigte).
+
+Die Attrappe modelliert den Unterschied, um den es geht (Lehrbuch: „Attrappe
+muss den Unterschied modellieren"): welches Element ins Vollbild geht
+(#tv-player des Films oder der Musik-Player) und wie der zweite Druck das
+Vollbild wieder verlässt; bei Esc laufen das echte tvpZu und
+tvpFolgePosMerken, damit sichtbar wird, WANN die Stelle der Folge in der
+Liste steht (erst nach tvpZu) und was die Info-Seite dann zeigt.
+
+Nicht hier gemessen: das Bild im echten Browser (Vollbild, Info-Seite); die
+Oberfläche wurde für diese Runde nicht live gestartet.
+"""
+import os
+import sys
+
+HIER = os.path.dirname(os.path.abspath(__file__))
+if HIER not in sys.path:
+    sys.path.insert(0, HIER)
+
+from test_medientasten_randfaelle import MELDESTELLE, _keydown  # noqa: E402
+from test_medientasten_verhalten import (  # noqa: E402
+    _js_funktion,
+    _js_zeile,
+    _lauf,
+    _pc,
+)
+
+# ------------------------------------------------------------- Tasten F und I
+
+def test_f_und_i_gehoeren_bei_offenem_film_dem_film(tmp_path):
+    """Ohne Film bleiben F und I beim Musik-Player (Vollbild, Bild-in-Bild).
+    Bei offenem Film schaltet F das Film-Vollbild (#tv-player, derselbe Weg
+    wie der Vollbild-Knopf der Fernbedienung), I tut nichts — der Film bietet
+    kein Bild-in-Bild an, und die Musik darunter ist unsichtbar."""
+    q = _pc()
+    teile = [_js_funktion(q, n) for n in ("filmTasten", "tvpVollbild")] + [_keydown(q)]
+    (e,) = _lauf(tmp_path, *teile, r"""
+var tvpOffen=false, libPlaylistView=false, libAuswahl=new Set(), _hkFang=null;
+const calls=[];
+const HKMAP={KeyF:'vollbild', KeyI:'pip'};
+function hkCode(e){return e.code;} function hkAktionFuer(c){return HKMAP[c]||'';}
+function plbFullscreen(){calls.push('musik-vollbild');} function plbPip(){calls.push('musik-pip');}
+function toast(){}
+function vollbildFlaeche(id){return {id, requestFullscreen(){calls.push('vollbild-an:'+id);
+  document.fullscreenElement=this; return Promise.resolve();}};}
+document.exitFullscreen=()=>{calls.push('vollbild-aus:'+(document.fullscreenElement||{}).id);
+  document.fullscreenElement=null; return Promise.resolve();};
+_els['tv-player']=vollbildFlaeche('tv-player');
+_els['pl-el']=fakeMedia({id:'pl-el', tagName:'VIDEO'});
+const T=c=>kd({code:c, key:c.slice(-1).toLowerCase(), target:null, ctrlKey:false, metaKey:false,
+  altKey:false, shiftKey:false, preventDefault(){}});
+T('KeyF'); T('KeyI');
+const ohneFilm=[...calls]; calls.length=0;
+tvpOffen=true;                                        // Film offen
+T('KeyF'); const an=document.fullscreenElement&&document.fullscreenElement.id;
+T('KeyI');
+T('KeyF');
+aus({ohneFilm, film:[...calls], an, danach:document.fullscreenElement});
+""")
+    assert e["ohneFilm"] == ["musik-vollbild", "musik-pip"], e["ohneFilm"]
+    assert e["film"] == ["vollbild-an:tv-player", "vollbild-aus:tv-player"], e["film"]
+    assert e["an"] == "tv-player", "F holt den FILM ins Vollbild"
+    assert e["danach"] is None, "der zweite Druck verlässt das Film-Vollbild wieder"
+
+
+# ------------------------------------------------------- Serien-Weiterschauen
+
+def test_serien_weiterschauen_setzt_an_der_gemerkten_stelle_fort(tmp_path):
+    """„▶ Weiterschauen" auf der Serien-Info startet die gewählte Folge an ihrer
+    gemerkten Stelle, nach derselben Regel wie ⏮/⏭ (tvpLandePos): gesehen,
+    ab 90 % der Laufzeit oder bis 30 s zählt als Anfang. Die Auswahl der Folge
+    (angefangene vor erster ungesehener, sonst die erste) bleibt unverändert."""
+    q = _pc()
+    (e,) = _lauf(tmp_path, _js_zeile(q, "const SEHZEIT="), _js_funktion(q, "tvpLandePos"),
+                 _js_funktion(q, "tvSerienPlay"), r"""
+var tvInfoDaten={d:{id:'s9', typ:'serie'}, eps:[]};
+const plays=[];
+function filmePlay(id,pos){plays.push([id, pos===undefined?null:pos]);}
+function toast(){}
+const E=(id,pos,gesehen)=>({id, staffel:1, folge:+id.slice(1), laufzeit_min:40, position_s:pos, gesehen});
+const fall=l=>{tvInfoDaten.eps=l; tvSerienPlay(); return plays.at(-1);};
+aus({
+  angefangen: fall([E('e1',0,true), E('e2',1200,false), E('e3',0,false)]),
+  kurz:       fall([E('e1',0,true), E('e2',20,false),   E('e3',0,false)]),
+  abspann:    fall([E('e1',0,true), E('e2',2200,false), E('e3',0,false)]),
+  neu:        fall([E('e1',0,true), E('e2',0,false)]),
+  alle:       fall([E('e1',500,true), E('e2',0,true)]),
+});
+""")
+    assert e["angefangen"] == ["e2", 1200], "die angefangene Folge setzt an ihrer Stelle fort"
+    assert e["kurz"] == ["e2", 0], "bis 30 s angeschaut: von vorn"
+    assert e["abspann"] == ["e2", 0], "ab 90 % (Abspann): von vorn, wie beim Landen per ⏮/⏭"
+    assert e["neu"] == ["e2", 0]
+    assert e["alle"] == ["e1", 0], "alles gesehen: erste Folge von vorn, auch mit alter Stelle"
+
+
+# ------------------------------------------------------------ Esc bei Folgen
+
+# Echtes filmStopp mit echtem tvpZu und tvpFolgePosMerken (tvpZu merkt die
+# Stelle in der Folgenliste, zeichnet aber nichts). tvInfoMalen schreibt mit,
+# was die Info-Seite zeigen würde: bei einer Serie die Stellen der Folgen,
+# bei einem Film seine Stelle.
+FILMSTOPP = r"""
+var tvpOffen=true, tvpIdAkt='', tvpPos=0, tvpMeta=null, vlcKeyLetzter='', vlcSpielt=false, tvFilmReihen=null,
+    tvInfoDaten=null, tvInfoOffen=false, tvpWechselGen=1, tvpWechsel=null, tvpModusNaechster=null,
+    tvpFolgenCache=null, _tvpSprungTimer=null, tvpModus='browser', tvpTc=false, tvpTcOffset=0, tvpTimer=null,
+    tvpDauer=0;
+const infos=[], bilder=[];
+globalThis.fetch=()=>Promise.resolve({});
+function tvpBefehl(){} function vlcBefehl(){} function toast(){} function zeit(s){return String(s);}
+function vlcPosGeschaetzt(){return 0;} function medienNachFilm(){} function tvpAbgeloestFreigeben(){}
+function tvInfo(id){infos.push(id);}
+function tvInfoMalen(){bilder.push(tvInfoDaten.d.typ==='serie'
+  ?tvInfoDaten.eps.map(x=>x.id+':'+x.position_s).join(',') :'film:'+tvInfoDaten.d.position_s);}
+function lage(o){
+  tvpOffen=o.offen??true; tvpIdAkt=o.id??''; tvpPos=o.pos??0; tvpMeta=o.meta??null;
+  vlcKeyLetzter=o.key??''; vlcSpielt=!!o.vlc; tvInfoOffen=!!o.info; tvInfoDaten=o.daten??null;
+  infos.length=0; bilder.length=0;
+}
+const E=(id,pos)=>({id, staffel:1, folge:+id.slice(1), laufzeit_min:40, position_s:pos, gesehen:false});
+"""
+
+
+def _filmstopp_teile():
+    q = _pc()
+    return [FILMSTOPP, _js_zeile(q, "let tvpGesehenGemeldet"), _js_zeile(q, "const SEHZEIT=")] + [
+        _js_funktion(q, n) for n in (
+        ("tvpFolgePosMerken", "tvpZu", "filmLaeuft", "filmStopp") + MELDESTELLE)]
+
+
+def test_esc_bei_folge_oeffnet_die_info_der_serie(tmp_path):
+    """← führt IMMER zur Detailansicht zurück (der Besitzer) — bei einer Folge ist das
+    die Serie (serie_id aus tvpMeta), nicht die Folge selbst: deren Info hat
+    keine Staffeln und keine Folgenliste. Die Meta zählt nur, wenn sie zur
+    beendeten Kennung gehört (VLC ohne offenen Player: tvpMeta ist dann oft
+    vom vorigen Film übrig)."""
+    (e,) = _lauf(tmp_path, *_filmstopp_teile(), r"""
+const r={};
+lage({id:'e3', pos:1500, meta:{typ:'folge', serie_id:'s9', titel:'Dark · S1 F3'}});
+await filmStopp(); r.folge=[...infos];
+lage({id:'F1', pos:700, meta:{typ:'film', titel:'Film'}});
+await filmStopp(); r.film=[...infos];
+lage({offen:false, id:'e3', meta:{typ:'folge', serie_id:'s9'}, key:'film:F2', vlc:true});
+await filmStopp(); r.fremdeMeta=[...infos];
+aus(r);
+""")
+    assert e["folge"] == ["s9"], "Esc bei einer Folge: Info der SERIE"
+    assert e["film"] == ["F1"], "Esc bei einem Film: seine Info wie bisher"
+    assert e["fremdeMeta"] == ["F2"], "übrig gebliebene Meta einer anderen Kennung lenkt nicht um"
+
+
+def test_esc_bei_folge_zeichnet_die_offene_info_neu(tmp_path):
+    """Die offene Info zeigt die SERIE, beendet wird eine FOLGE: die Stelle
+    landet (über tvpZu) in der Folgenliste, und danach wird neu gezeichnet —
+    die Kachel zeigt die neue Stelle. Ein Film zeichnet weiterhin genau einmal,
+    mit seiner neuen Stelle; eine geschlossene Info wird nicht gezeichnet,
+    sondern (wie bisher) geöffnet."""
+    (e,) = _lauf(tmp_path, *_filmstopp_teile(), r"""
+const r={};
+lage({id:'e3', pos:1500, meta:{typ:'folge', serie_id:'s9'}, info:true,
+      daten:{d:{id:'s9', typ:'serie'}, eps:[E('e2',1200), E('e3',0), E('e4',0)]}});
+await filmStopp(); r.serie={bilder:[...bilder], infos:[...infos]};
+lage({id:'F1', pos:700, meta:{typ:'film', laufzeit_min:100}, info:true,   // Dauer bekannt: ohne sie geht nichts hinaus
+      daten:{d:{id:'F1', typ:'film', position_s:0}, eps:[]}});
+await filmStopp(); r.film={bilder:[...bilder], infos:[...infos]};
+lage({id:'F1', pos:700, meta:{typ:'film', laufzeit_min:100}});
+await filmStopp(); r.zu={bilder:[...bilder], infos:[...infos]};
+aus(r);
+""")
+    assert e["serie"] == {"bilder": ["e2:1200,e3:1500,e4:0"], "infos": []}, e["serie"]
+    assert e["film"] == {"bilder": ["film:700"], "infos": []}, "ein Film: genau einmal, mit neuer Stelle"
+    assert e["zu"] == {"bilder": [], "infos": ["F1"]}, "geschlossene Info: öffnen statt zeichnen"

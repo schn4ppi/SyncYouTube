@@ -1,0 +1,256 @@
+# -*- coding: utf-8 -*-
+"""Schlanke Handy-Oberfläche für die Fernsteuerung (wird unter /m ausgeliefert).
+
+Gleicher Server, gleiche APIs wie die PC-Oberfläche — nur touch-optimiert und
+mit Zugangscode. Geräte-Wahl wie Spotify Connect: abspielen auf dem PC-Player
+(Befehl über /api/remote) ODER auf dem Handy selbst (streamt /media).
+
+Sperrbildschirm (Freigabe 23.09.2026): Spielt das Handy selbst, meldet es sich
+über den gemeinsamen Media-Session-Baustein (medien_session.py, derselbe wie
+auf der PC-Oberfläche) an — Titel, Interpret und Cover samt Vor/Zurück/Pause
+für den Sperrbildschirm (Android/iOS; gemessen nur im Desktop-Browser, auf
+einem echten Handy noch nicht). Im Modus „auf dem PC" spielt hier nichts, also
+gibt es dort bewusst keine Sperrbildschirm-Steuerung."""
+
+from medien_session import einsetzen as _medien_einsetzen
+
+# Rohvorlage unter eigenem Namen: scheitert beim heißen Nachladen das Einsetzen
+# des Bausteins, bleibt HTML die alte, heile Seite (sonst lieferte der Server eine
+# Vorlage ohne Baustein aus — Oberfläche tot; Prüf-Befund 24.09.2026).
+_HTML_ROH = """<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>YTDL · Handy</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0b0f0b;color:#e7f0e7;font-family:system-ui,Segoe UI,sans-serif}
+.wrap{max-width:560px;margin:0 auto;padding:12px 12px 90px}
+h1{font-family:Consolas,monospace;color:#37f000;font-size:18px;letter-spacing:.06em;margin:6px 0 12px}
+#login{padding:24px 8px;text-align:center}
+#login input{font-size:22px;letter-spacing:.18em;text-align:center;width:min(300px,100%);padding:10px;border-radius:10px;
+  border:1px solid #234a23;background:#0e150e;color:#e7f0e7}
+.btn{background:#122a12;border:1px solid #37f000;color:#8dff6a;border-radius:10px;padding:10px 16px;
+  font-size:15px;font-weight:700;cursor:pointer}
+.devrow{display:flex;gap:8px;margin:8px 0 14px}
+.dev{flex:1;padding:10px;border-radius:10px;border:1px solid #234a23;background:#0e150e;color:#a9c8a9;
+  text-align:center;font-size:14px;cursor:pointer}
+.dev.an{border-color:#37f000;background:#122a12;color:#8dff6a;font-weight:700}
+#now{background:#0e150e;border:1px solid #1c331c;border-radius:12px;padding:12px;margin-bottom:12px}
+#nowtitel{font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e7f0e7}
+#nowsub{font-size:12px;color:#7fae7f;margin-top:3px}
+.ctrl{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px}
+.big{width:56px;height:56px;border-radius:50%;border:1px solid #37f000;background:#122a12;color:#8dff6a;font-size:22px}
+.mid{width:46px;height:46px;border-radius:50%;border:1px solid #234a23;background:#0e150e;color:#a9c8a9;font-size:18px}
+#vol{width:100%;margin-top:12px;accent-color:#37f000}
+#suche{width:100%;padding:11px 12px;border-radius:10px;border:1px solid #234a23;background:#0e150e;color:#e7f0e7;
+  font-size:15px;margin-bottom:8px}
+.row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid #142014;cursor:pointer}
+.row:active{background:#0e150e}
+.thumb{width:52px;height:32px;border-radius:5px;object-fit:cover;background:#142014;flex:none}
+.rt{flex:1;min-width:0}
+.rtt{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rts{font-size:11px;color:#7fae7f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hint{color:#5f7f5f;font-size:12px;text-align:center;margin-top:10px}
+.fehler{color:#e08a6a}
+footer{position:fixed;left:0;right:0;bottom:0;background:#0e150e;border-top:1px solid #1c331c;padding:8px 12px}
+footer .ctrl{margin:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>▶ YTDL · Handy</h1>
+
+  <div id="login">
+    <div style="margin-bottom:14px;color:#a9c8a9">Zugangscode eingeben<br><small style="color:#7fae7f">(steht am PC im ⚙ → Fernsteuerung)</small></div>
+    <input id="code" inputmode="latin" autocapitalize="characters" autocomplete="off" maxlength="16" placeholder="––––––––––">
+    <div style="margin-top:14px"><button class="btn" onclick="anmelden()">Verbinden</button></div>
+    <div id="loginfehler" class="hint fehler"></div>
+  </div>
+
+  <div id="app" style="display:none">
+    <div class="devrow">
+      <div class="dev" id="dev-pc" onclick="setDev('pc')">▶ auf dem PC</div>
+      <div class="dev" id="dev-handy" onclick="setDev('handy')">📱 auf dem Handy</div>
+    </div>
+    <div id="now">
+      <div id="nowtitel">– nichts gewählt –</div>
+      <div id="nowsub"></div>
+      <div class="ctrl">
+        <button class="mid" onclick="steuer('prev')">⏮</button>
+        <button class="big" id="pp" onclick="steuer('pp')">▶</button>
+        <button class="mid" onclick="steuer('next')">⏭</button>
+      </div>
+      <input type="range" id="vol" min="0" max="100" value="100" oninput="setVol(this.value)">
+    </div>
+    <input id="suche" placeholder="🔍 Bibliothek durchsuchen…" oninput="malen()">
+    <div id="liste"></div>
+    <div class="hint" id="tipp"></div>
+  </div>
+
+  <audio id="el" style="display:none"></audio>
+</div>
+
+<script>
+/*MEDIEN_SESSION_JS*/
+const medienS=medienSitzung(()=>document.getElementById('el'));
+/* Zugang (Entscheid 7a Punkt 1, 25.09.2026): Der Code lebt nur noch als
+   HttpOnly-Cookie, das der Server nach der ersten richtigen Eingabe setzt;
+   diese Seite speichert ihn nirgends (vorher im localStorage). KOPF ist der
+   Rückfall für einen Browser, der keine Cookies nimmt: dann gilt der Code nur,
+   solange die Seite offen ist, und reist als X-Code bzw. in Medien-Adressen. */
+let KOPF='';
+let dev=lsLesen('ytdl_dev')||'pc';
+let daten=[], aktuell=null;
+
+// esc wie in oberflaeche.py: maskiert auch Anführungszeichen, damit ein Wert
+// in einem Attribut (src, data-key) nie aus dem Attribut ausbricht (S3).
+function esc(t){const d=document.createElement('div');d.textContent=t||'';
+  return d.innerHTML.replaceAll('"','&quot;').replaceAll("'",'&#39;');}
+function lsLesen(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSchreiben(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+function lsWeg(k){try{localStorage.removeItem(k);}catch(e){}}
+async function api(pfad,opt){opt=opt||{};
+  if(KOPF)opt.headers=Object.assign({'X-Code':KOPF},opt.headers||{});
+  return fetch(pfad,opt);}
+function mitCode(url){return KOPF?url+'&code='+encodeURIComponent(KOPF):url;}   // nur ohne Cookie
+
+/* Code einmal mit Kopf prüfen (der Server setzt dann das Cookie), danach ohne:
+   Nimmt der Browser das Cookie nicht, bleibt der Code nur im Speicher (KOPF). */
+async function codePruefen(code){
+  const r=await fetch('/api/status',{headers:{'X-Code':code}});
+  if(!r.ok){let t=''; try{t=((await r.json())||{}).fehler||'';}catch(e){} return {ok:false,text:t};}
+  const r2=await fetch('/api/status');
+  KOPF=r2.ok?'':code;
+  return {ok:true};
+}
+async function anmelden(){
+  const code=(document.getElementById('code').value||'').replace(/[\\s-]/g,'').toUpperCase();
+  const e=await codePruefen(code);
+  if(!e.ok){document.getElementById('loginfehler').textContent=
+    (e.text.indexOf('ausgeschaltet')>=0)?e.text:'Code stimmt nicht.'; return;}
+  document.getElementById('code').value='';
+  appZeigen();
+}
+function appZeigen(){
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='';
+  setDev(dev); start();
+  if(KOPF)document.getElementById('tipp').textContent+=' (Dieser Browser speichert keine Cookies: '+
+    'der Code gilt, bis die Seite geschlossen wird.)';
+}
+function setDev(d){dev=d; lsSchreiben('ytdl_dev',d);
+  document.getElementById('dev-pc').classList.toggle('an',d==='pc');
+  document.getElementById('dev-handy').classList.toggle('an',d==='handy');
+  document.getElementById('vol').style.display=(d==='handy')?'':'none';
+  document.getElementById('tipp').textContent=(d==='pc')?'Tippt einen Titel an → läuft am PC.':'Tippt einen Titel an → läuft hier am Handy.';
+  // Auf „PC" umgestellt: das Handy hört auf. Befund 23.09.: es spielte weiter,
+  // und am Titelende schickte es 'next' an den PC — der sprang ungewollt weiter.
+  // Die Quelle wird gelöst: ein pausiertes Element mit Quelle hält den Eintrag
+  // auf dem Sperrbildschirm (gemessen: „YTDL · Handy" blieb als toter Knopf).
+  if(d==='pc'){medienS.freigeben(document.getElementById('el')); medienS.leeren();}
+}
+async function ladenBib(){const r=await api('/api/bibliothek'); const j=await r.json();
+  daten=(j.items||[]).filter(x=>x.vorhanden); malen();}
+function malen(){
+  const q=(document.getElementById('suche').value||'').toLowerCase();
+  const arr=daten.filter(x=>!q||(x.titel+' '+(x.uploader||'')).toLowerCase().includes(q)).slice(0,300);
+  document.getElementById('liste').innerHTML=arr.map(x=>
+    `<div class="row" data-key="${esc(x.id)}" onclick="spiel(this.dataset.key)">`+   // Schlüssel nie roh im Handler (S3)
+    (x.thumb?`<img class="thumb" src="${esc(x.thumb)}" onerror="this.style.visibility='hidden'">`:'<span class="thumb"></span>')+
+    `<div class="rt"><div class="rtt">${esc(x.titel)}</div><div class="rts">${esc(x.uploader||'')}</div></div></div>`).join('');
+}
+function libFind(id){return daten.find(x=>x.id===id);}
+function spiel(id){
+  aktuell=libFind(id);
+  document.getElementById('nowtitel').textContent=aktuell?aktuell.titel:'';
+  document.getElementById('nowsub').textContent=aktuell?(aktuell.uploader||''):'';
+  if(dev==='handy'){
+    const el=document.getElementById('el');
+    el.src=mitCode('/media?id='+encodeURIComponent(id));      // der Zugang reist im Cookie
+    el.play(); document.getElementById('pp').textContent='⏸';
+    handyMedienInfo(aktuell,id);
+  }else{
+    remote('playkey',id);
+  }
+}
+function steuer(was){
+  if(dev==='handy'){
+    const el=document.getElementById('el');
+    // Nach „PC → Handy" ist das Element freigegeben (keine Quelle): ▶ startet
+    // den gewählten Titel neu, statt ins Leere zu spielen und ⏸ zu zeigen.
+    if(was==='pp'&&!el.src){ if(aktuell)spiel(aktuell.id); return; }
+    if(was==='pp'){ if(el.paused){el.play();document.getElementById('pp').textContent='⏸';}else{el.pause();document.getElementById('pp').textContent='▶';} }
+    else if(was==='next'||was==='prev')handyNachbar(was==='next'?1:-1);
+  }else{
+    remote(was==='pp'?'play':was);   // PC: play/pause togglet der PC-Player selbst über 'play'
+  }
+}
+// prev/next am Handy: einfache Variante – nächster/voriger in der aktuellen Liste
+function handyNachbar(r){
+  const arr=aktuelleListe(); const i=arr.indexOf(aktuell&&aktuell.id);
+  if(arr[i+r])spiel(arr[i+r]);
+}
+function handyEnde(){if(dev==='handy')handyNachbar(1);}   // Titelende läuft am Handy weiter, nie am PC
+/* Sperrbildschirm: Titel, Interpret, Cover. Der Browser lädt Bilder für den
+   Sperrbildschirm ohne eigene Kopfzeilen; seit dem 25.09.2026 trägt das
+   Cookie den Zugang (auf einem echten Handy noch nicht gemessen; scheitert das
+   Cover, zeigt der Sperrbildschirm das YouTube-Vorschaubild). Ohne Cookie
+   steht der Code wie früher in der Adresse. */
+function handyMedienInfo(x,id){
+  if(!x)return;
+  const cover=mitCode('/api/cover?id='+encodeURIComponent(id));
+  medienS.info({title:x.titel||'', artist:x.kuenstler||x.uploader||'', album:x.album||'',
+    artwork:medienS.bilder([[cover,'512x512'],[x.thumb,'480x360']])});
+}
+/* Die Knöpfe steuern NUR das Handy selbst (nie den PC). Bewusst ohne
+   seekforward/seekbackward: iOS zeigt sonst ±-Sprungtasten STATT Titel
+   vor/zurück auf dem Sperrbildschirm. */
+function handyMedienAnmelden(){
+  const el=()=>document.getElementById('el');
+  const nur=f=>ev=>{if(dev==='handy')f(ev);};
+  medienS.aktionen({
+    'play':nur(()=>{const e=el(); if(e&&e.src)e.play().catch(()=>{});}),
+    'pause':nur(()=>{const e=el(); if(e)e.pause();}),
+    'stop':nur(()=>{const e=el(); if(e)e.pause();}),
+    'nexttrack':nur(()=>handyNachbar(1)),
+    'previoustrack':nur(()=>handyNachbar(-1)),
+    'seekto':nur(ev=>{const e=el(); if(e&&ev&&typeof ev.seekTime==='number')e.currentTime=ev.seekTime;})});
+}
+function aktuelleListe(){const q=(document.getElementById('suche').value||'').toLowerCase();
+  return daten.filter(x=>!q||(x.titel+' '+(x.uploader||'')).toLowerCase().includes(q)).map(x=>x.id);}
+function setVol(v){const el=document.getElementById('el'); if(el)el.volume=Math.max(0,Math.min(1,v/100));}
+async function remote(cmd,key){try{await api('/api/remote',{method:'POST',
+  headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd,key:key||''})});}catch(e){}}
+
+const _el=document.getElementById('el');
+_el.addEventListener('ended',handyEnde);
+_el.addEventListener('pause',()=>{document.getElementById('pp').textContent='▶'; if(dev==='handy')medienS.zustand('paused');});
+_el.addEventListener('play',()=>{document.getElementById('pp').textContent='⏸'; if(dev==='handy')medienS.zustand('playing');});
+// Zeitleiste auf dem Sperrbildschirm: beim ersten 'play' ist die Dauer noch
+// unbekannt (src wird direkt davor gesetzt) — darum auch bei Metadaten/Sprung.
+['loadedmetadata','durationchange','seeked','ratechange'].forEach(t=>_el.addEventListener(t,()=>{
+  if(dev==='handy')medienS.zustand(_el.paused?'paused':'playing');}));
+handyMedienAnmelden();
+
+function start(){ladenBib();}
+/* Start: Ein Code von früher (localStorage) geht EINMAL an den Server (der
+   setzt das Cookie) und wird danach entfernt, ob richtig oder nicht; nur bei
+   einem Netzfehler bleibt er für den nächsten Versuch. Dann: Zugang über das
+   Cookie (oder am PC selbst, wo keiner nötig ist)? */
+async function starten(){
+  const alt=lsLesen('ytdl_code');
+  if(alt){try{await codePruefen(alt); lsWeg('ytdl_code');}catch(e){}}
+  let r=null;
+  try{r=await api('/api/status');}catch(e){}
+  if(r&&r.ok){appZeigen(); return;}
+  if(r){let t=''; try{t=((await r.json())||{}).fehler||'';}catch(e){}
+    if(t.indexOf('ausgeschaltet')>=0)document.getElementById('loginfehler').textContent=t;}
+}
+starten();
+</script>
+</body>
+</html>
+"""
+HTML = _medien_einsetzen(_HTML_ROH)   # /*MEDIEN_SESSION_JS*/ -> gemeinsamer Baustein
