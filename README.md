@@ -3,7 +3,8 @@
 Lokaler YouTube-Downloader **und** vollwertiger Musik-/Video-Player mit Bibliothek —
 eine einzige Web-Oberfläche auf `http://127.0.0.1:8776`, komplett offline auf dem eigenen PC
 (Außenverbindungen: YouTube selbst; MusicBrainz, Cover Art Archive und iTunes fürs Tagging und
-die Cover; lrclib für Liedtexte; TMDB für Film-Bilder; die SponsorBlock-Datenbank; und der
+die Cover; lrclib für Liedtexte; der eigene Jellyfin-Server, wenn ein Profil ihn verbindet, und
+optional TMDB/OMDb für Film-Bilder und Bewertungen; die SponsorBlock-Datenbank; und der
 tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschaltbar).
 
 ![SyncYouTube — Bibliothek, Player und Download-Leiste in einer Oberfläche (Beispielbibliothek: freie Blender-Filme)](screenshot.png)
@@ -74,9 +75,15 @@ tägliche Update-Check gegen dieses GitHub-Repo, standardmäßig an und abschalt
 - 📱 Handy-Fernsteuerung im Heim-WLAN (opt-in, Zugangscode, Gerät wählbar wie bei Spotify Connect);
   spielt das Handy selbst, meldet die Seite Titel, Cover und ⏮ ⏯ ⏭ für den Sperrbildschirm an
   (Media Session API; ob und wie das Handy sie zeigt, entscheidet sein Browser)
-- Browser-Erweiterung für Firefox/Chrome/Edge (`System/browser-addon/`, ein Code; die signierte
-  Firefox-`.xpi` liegt beim Release und ist über das Tray-Menü/die Einstellungen installierbar —
-  ab v1.0.4 aktualisiert sie sich in Firefox selbst über die Releases dieses Repos)
+- 🎬 **Filme und Serien aus dem eigenen Jellyfin** im Fernsehmodus: Katalog, Abspielen,
+  gemerkte Stelle, Wünsche über Jellyseerr. Jedes Profil verbindet **sein eigenes Konto**
+  („Eigenes Konto verbinden“); die Anmeldung liegt nur im Windows-Schlüsselbund dieses
+  Profils. TMDB- und OMDb-Schlüssel für Bewertungen sind freiwillig
+- Browser-Erweiterung **SyncYouTube** für Firefox (ab Firefox 140), Chrome und Edge
+  (`System/browser-addon/`, ein Code): ⬇-Knopf auf YouTube und Rechtsklick-Menü; läuft die
+  App nicht, merkt sie sich die Klicks. Die von Mozilla signierte Firefox-`.xpi` liegt beim
+  Release und ist über das Tray-Menü/die Einstellungen installierbar; danach aktualisiert
+  sie sich in Firefox selbst über die Releases dieses Repos
 - **Selbst-Update** (Standard an): die exe prüft täglich dieses Repo, lädt verifiziert
   (Größe + SHA256-Abgleich gegen das `.sha256`-Asset, dazu eine gültige Signatur desselben
   Herausgebers wie die laufende exe; fehlt eines davon, wird nicht getauscht) und tauscht sich
@@ -118,9 +125,11 @@ dieser Datei. Tests, die deno aus `System/bin` brauchen, werden ohne es sichtbar
 | Datei | Zweck |
 |---|---|
 | `System/youtube_app.py` | Server, Warteschlange, Download-Logik, Bibliothek, Playlists, Tray |
+| `System/start_exe.py` | kleine Startdatei der exe (lädt `youtube_app`) |
 | `System/oberflaeche.py` | setzt die PC-Oberfläche zusammen (wird heiß nachgeladen) |
 | `System/pc_oberflaeche/` | die PC-Oberfläche selbst: `seite.html`, `stil.css` und das Skript in `skript/`, eine Datei je Bereich |
 | `System/handy.py` | Touch-Oberfläche der Fernsteuerung (`/m`) |
+| `System/filme.py` | Filmteil: Jellyfin-Katalog, Bilder, Wünsche; eigener Zugang je Profil |
 | `System/abrufweg.py` | Abrufwege zu YouTube und die Ausweich-Leiter bei „403“ |
 | `System/geo.py` / `System/vpn.py` | gestufte Geo-Umgehung / NordVPN-Steuerung |
 | `System/update.py` | Selbst-Update der exe (Repo-Pin, SHA256-Verifikation, Signaturprüfung, Rollback) |
@@ -135,9 +144,9 @@ sie gehören bewusst **nicht** ins Repo.
 
 Unter **Releases** liegt die all-inclusive `SyncYouTube.exe` (ffmpeg/ffprobe/deno eingebaut):
 herunterladen, starten, fertig — sie ist seit v.1.2.4 signiert (siehe unten). Daneben das
-`.sha256`-Asset zum Prüfen und die signierte
-Firefox-Erweiterung (+ `updates.json`, ihr Update-Kanal: einmal installiert, hält Firefox
-sie ab v1.0.4 selbst aktuell). Updates holt die exe standardmäßig selbst (abschaltbar unter
+`.sha256`-Asset zum Prüfen und die von Mozilla signierte
+Firefox-Erweiterung (ab Firefox 140; + `updates.json`, ihr Update-Kanal: einmal installiert,
+hält Firefox sie selbst aktuell). Updates holt die exe standardmäßig selbst (abschaltbar unter
 Einstellungen → „Selbst-Update“; von Hand anstoßen über Tray → „Nach Updates suchen…“).
 
 ### Signatur (seit v.1.2.4)
