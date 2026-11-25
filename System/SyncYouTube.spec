@@ -31,7 +31,7 @@ hiddenimports += ['winrt.runtime', 'winrt.windows.foundation', 'winrt.windows.me
 
 
 a = Analysis(
-    ['youtube_app.py'],
+    ['start_exe.py'],              # kleine Startdatei, siehe dort (Avira-Fehlalarm ab 512 KiB)
     pathex=[],
     binaries=binaries,
     datas=datas,

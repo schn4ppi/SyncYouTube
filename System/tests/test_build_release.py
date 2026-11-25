@@ -423,3 +423,58 @@ def test_gegenprobe_spec_ohne_fernbedienung_wird_gemeldet(monkeypatch):
     ohne = re.sub(r"""['"]fernbedienung['"],?\s*""", "", spec)
     assert ohne != spec, "fernbedienung steht nicht in der spec — die Gegenprobe wäre blind"
     assert _fehlende_heisse_seiten(_spec_hiddenimports(monkeypatch, ohne)) == ["fernbedienung"]
+
+
+# ------------------------------------------------- kleine Startdatei der exe
+# 25.11.2026: Avira (und F-Secure mit Aviras Erkennung) meldete die exe 1.4.3 als
+# „TR/ATRAPS.Gen“. Probebauten grenzten es ein: PyInstaller legt das Startskript
+# als eigenen Block in die exe; jeder Bau mit einem Startskript unter 512 KiB war
+# sauber, jeder ab 512 KiB gemeldet (auch 1.4.1 mit bloßem Fülltext), und mit der
+# kleinen Startdatei start_exe.py war 1.4.3 wieder sauber. youtube_app.py selbst
+# ist größer; es liegt seither im Python-Archiv wie jedes andere Modul.
+
+AVIRA_GRENZE = 512 * 1024
+
+
+def _spec_startskripte(monkeypatch):
+    hooks = types.ModuleType("PyInstaller.utils.hooks")
+    hooks.collect_all = lambda name: ([], [], [])
+    for name, mod in (("PyInstaller", types.ModuleType("PyInstaller")),
+                      ("PyInstaller.utils", types.ModuleType("PyInstaller.utils")),
+                      ("PyInstaller.utils.hooks", hooks)):
+        monkeypatch.setitem(sys.modules, name, mod)
+    gefunden = []
+
+    def Analysis(skripte, **kw):
+        gefunden.extend(skripte)
+        return types.SimpleNamespace(pure=[], scripts=[], binaries=[], datas=[])
+    g = {"__name__": "__spec__", "Analysis": Analysis,
+         "PYZ": lambda *a, **k: None, "EXE": lambda *a, **k: None}
+    exec(compile(_spec_text(), "SyncYouTube.spec", "exec"), g)
+    return gefunden
+
+
+def test_exe_startet_ueber_kleine_startdatei(monkeypatch):
+    import marshal
+    assert _spec_startskripte(monkeypatch) == ["start_exe.py"]
+    pfad = os.path.join(MODUL_DIR, "start_exe.py")
+    with open(pfad, encoding="utf-8") as f:
+        quelle = f.read()
+    # So groß wird der Block in der exe (PyInstaller packt den marshal-Code).
+    groesse = len(marshal.dumps(compile(quelle, pfad, "exec")))
+    assert groesse < AVIRA_GRENZE // 8, groesse
+    # Die Startdatei tut nichts als youtube_app laden und main() rufen.
+    baum = ast.parse(quelle)
+    befehle = [k for k in baum.body if not (isinstance(k, ast.Expr)
+                                            and isinstance(k.value, ast.Constant))]
+    assert ast.unparse(ast.Module(body=befehle, type_ignores=[])) == \
+        "import youtube_app\nyoutube_app.main()"
+
+
+def test_startdatei_kommt_nicht_ins_quellstart_paket():
+    spec = importlib.util.spec_from_file_location(
+        "quellstart_paket_startdatei", os.path.join(MODUL_DIR, "tools", "quellstart_paket.py"))
+    qp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(qp)
+    assert not qp._wird_ausgeliefert("System/start_exe.py")
+    assert qp._wird_ausgeliefert("System/youtube_app.py")

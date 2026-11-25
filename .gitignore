@@ -27,6 +27,8 @@
 # (Leitplanke P4: Rueckweg immer). Beide enthalten keine Daten, nur Bau-Schritte.
 !System/SyncYouTube.spec
 !System/build_release.py
+# 25.11.2026: kleine Startdatei der exe (Avira-Fehlalarm ab 512 KiB Startskript).
+!System/start_exe.py
 !System/huelle.py
 !System/filme.py
 !System/profil_geraete.py

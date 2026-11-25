@@ -51,7 +51,8 @@ BIN_DATEIEN = ("ffmpeg.exe", "ffprobe.exe", "deno.exe")
 WURZEL_DATEIEN = ("LICENSE", "LIZENZEN.md", "README.md")
 # Werkstatt ≠ Produkt: nie im Nutzerpaket (medien_probe.py DRÜCKT Medientasten).
 WERKSTATT_ORDNER = ("tools", "tests", "docs", "browser-addon")
-WERKSTATT_DATEIEN = ("System/build_release.py",)
+# start_exe.py ist nur die Startdatei der exe; der Quellstart ruft youtube_app.py direkt.
+WERKSTATT_DATEIEN = ("System/build_release.py", "System/start_exe.py")
 # Lizenztexte, die kein Paket selbst mitbringt (pywinrt: dist-info ohne LICENSE).
 LIZENZTEXTE = ("System/lizenzen/pywinrt_LICENSE.txt",)
 # Rauchtest: diese Module lädt das PAKET-Python wirklich (PIL.Image zieht die
