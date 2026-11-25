@@ -187,8 +187,14 @@ def hochladen(kanal):
         sys.exit("Validierung nach 5 Minuten nicht fertig — später mit --status prüfen.")
     v = up.get("validation") or {}
     print(f"  Validierung: {v.get('errors', '?')} Fehler, {v.get('warnings', '?')} Warnungen")
+    # Die Gründe gleich hier zeigen, nicht nur die Zahl (vorher musste man dafür
+    # in die Entwicklerecke von AMO).
+    for m in v.get("messages") or []:
+        if m.get("type") in ("error", "warning"):
+            ort = m.get("file") or ""
+            print(f"    [{m.get('type')}] {m.get('message', '')} {ort}".rstrip())
     if not up.get("valid"):
-        sys.exit("Validierung FEHLGESCHLAGEN — Details in der Entwicklerecke ansehen.")
+        sys.exit("Validierung FEHLGESCHLAGEN — Gründe stehen oben.")
     version = _api(f"/addons/addon/{GUID}/versions/", "POST", json_daten={"upload": uid})
     vid, vnum = version["id"], version["version"]
     print(f"  Version {vnum} angelegt (id {vid}).")

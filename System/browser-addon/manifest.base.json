@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SyncYouTube",
   "version": "1.2.1",
-  "description": "Schickt YouTube-Videos per Rechtsklick oder ⬇-Hover-Knopf an SyncYouTube auf dem eigenen PC (127.0.0.1:8776). Läuft die App gerade nicht, merkt sich das Add-on die Klicks (gelbes …) und reiht sie beim nächsten App-Start ein. Aktualisiert sich selbst über die GitHub-Releases; Änderungsliste: github.com/schn4ppi/SyncYouTube/releases",
+  "description": "Schickt YouTube-Videos per Rechtsklick oder ⬇-Knopf an SyncYouTube auf dem eigenen PC (127.0.0.1:8776). Läuft die App nicht, merkt sich das Add-on die Klicks und reiht sie beim nächsten Start ein.",
   "permissions": ["contextMenus", "storage", "notifications", "alarms"],
   "host_permissions": ["http://127.0.0.1:8776/*"],
   "content_scripts": [

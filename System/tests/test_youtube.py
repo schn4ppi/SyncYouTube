@@ -3659,6 +3659,22 @@ def test_untertitel_stil_und_kern_knoepfe():
         "Vollbild-Knoepfe sind nicht Sofa-gross"
 
 
+def test_addon_manifest_besteht_die_amo_pruefung():
+    """25.11.2026: Mozilla lehnte 1.2.1 ab — „/description must NOT have more than
+    250 characters" (1.2.0 hatte 332 Zeichen, die Grenze kam später). Dazu die
+    Mindestfassung, ab der Firefox die Datenschutz-Angabe kennt."""
+    import json
+    basis = os.path.join(os.path.dirname(app.__file__), "browser-addon")
+    with open(os.path.join(basis, "manifest.base.json"), encoding="utf-8") as f:
+        mf = json.load(f)
+    assert len(mf["description"]) <= 250, len(mf["description"])
+    assert len(mf["name"]) <= 50, mf["name"]
+    with open(os.path.join(basis, "build.py"), encoding="utf-8") as f:
+        bau = f.read()
+    assert '"strict_min_version": "140.0"' in bau
+    assert '"data_collection_permissions": {"required": ["none"]}' in bau
+
+
 def test_addon_merkliste_v120():
     # v1.2.0 (der Besitzer): Offline-Warteschlange des Addons - Quelltext-Waechter fuer
     # die Kernzusagen (das Addon laeuft im Browser, nicht unter pytest).
