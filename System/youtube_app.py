@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-YouTube-Downloader — eigenständiges Suite-Modul (Wunsch 07/2026).
+SyncYouTube — YouTube-Downloader, Player und Bibliothek in einer lokalen Web-Oberfläche.
 
 Was es tut:
   - Warteschlange ohne Limit (warteschlange.json, überlebt Neustarts)
@@ -8990,7 +8990,7 @@ def _tray_icon(url):
         eintraege.append(pystray.MenuItem("Nach Updates suchen…", updaten))
     eintraege.append(pystray.MenuItem("Beenden", beenden))
     menu = pystray.Menu(*eintraege)
-    icon = pystray.Icon("ytdl", img, "YouTube-Downloader", menu)
+    icon = pystray.Icon("ytdl", img, "SyncYouTube", menu)
     _tray_ref[:] = [icon]
     return icon
 
@@ -9077,7 +9077,7 @@ def main():
     threading.Thread(target=_einsortieren_hintergrund, daemon=True).start()  # verschobene Dateien zurücksortieren
     update.cleanup_old_exe()                                          # Reste früherer Selbst-Updates
     threading.Thread(target=_update_hintergrund, daemon=True).start()  # Auto-Update (Vorgabe AN, nur im Leerlauf)
-    _sag(f"YouTube-Downloader läuft: {url}")
+    _sag(f"SyncYouTube läuft: {url}")
     if "--no-browser" not in sys.argv:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
 

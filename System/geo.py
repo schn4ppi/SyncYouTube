@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Gestufte Geo-Umgehung für den YouTube-Downloader.
+"""Gestufte Geo-Umgehung für SyncYouTube.
 
 Idee (Wunsch): ALLE Wege verketten und sich gegenseitig stützen. Bei einem
 „nicht in deinem Land verfügbar"-Fehler probiert der Downloader die Methoden der

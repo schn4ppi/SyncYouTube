@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""NordVPN-Steuerung für den YouTube-Downloader.
+"""NordVPN-Steuerung für SyncYouTube.
 
 (Das Erkennen/Auswerten von Geo-Fehlern liegt provider-unabhängig in geo.py.)
 

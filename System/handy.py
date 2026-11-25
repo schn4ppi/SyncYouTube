@@ -22,7 +22,7 @@ _HTML_ROH = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>YTDL · Handy</title>
+<title>SyncYouTube · Handy</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b0f0b;color:#e7f0e7;font-family:system-ui,Segoe UI,sans-serif}
@@ -60,7 +60,7 @@ footer .ctrl{margin:0}
 </head>
 <body>
 <div class="wrap">
-  <h1>▶ YTDL · Handy</h1>
+  <h1>▶ SyncYouTube · Handy</h1>
 
   <div id="login">
     <div style="margin-bottom:14px;color:#a9c8a9">Zugangscode eingeben<br><small style="color:#7fae7f">(steht am PC im ⚙ → Fernsteuerung)</small></div>
